@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -82,53 +81,30 @@ class OpenClawHttpClient implements OpenClawClient {
 
   @override
   Future<String> sendMessage({required String sessionId, required String text}) async {
-    final request = http.Request('POST', _uri('/api/chat/stream'));
-    request.headers.addAll(_headers);
-    request.body = jsonEncode({
-      'sessionId': sessionId,
-      'modelId': config.modelId,
-      'providerId': config.providerId,
-      'text': text,
-      'historyText': text,
-      'agent': config.agent,
-      'session': config.sessionName,
-      if (config.bridgeUrl != null && config.bridgeUrl!.isNotEmpty)
-        'bridgeUrl': config.bridgeUrl,
-      'messageSource': 'chat',
-      'ttsEnabled': false,
-    });
+    final response = await _httpClient.post(
+      _uri('/api/chat'),
+      headers: _headers,
+      body: jsonEncode({
+        'sessionId': sessionId,
+        'modelId': config.modelId,
+        'providerId': config.providerId,
+        'text': text,
+        'historyText': text,
+        'agent': config.agent,
+        'session': config.sessionName,
+        if (config.bridgeUrl != null && config.bridgeUrl!.isNotEmpty)
+          'bridgeUrl': config.bridgeUrl,
+        'messageSource': 'chat',
+        'ttsEnabled': false,
+      }),
+    );
 
-    final response = await _httpClient.send(request);
     if (response.statusCode >= 400) {
-      final body = await response.stream.bytesToString();
-      throw Exception('发送消息失败: $body');
+      throw Exception('发送消息失败: ${response.body}');
     }
 
-    final stream = response.stream.transform(utf8.decoder);
-    final buffer = StringBuffer();
-    await for (final chunk in stream) {
-      buffer.write(chunk);
-    }
-
-    final raw = buffer.toString();
-    String? reply;
-    for (final block in raw.split(RegExp(r'\r?\n\r?\n'))) {
-      final lines = block.split(RegExp(r'\r?\n'));
-      String? event;
-      final dataLines = <String>[];
-      for (final line in lines) {
-        if (line.startsWith('event:')) {
-          event = line.substring(6).trim();
-        } else if (line.startsWith('data:')) {
-          dataLines.add(line.substring(5).trim());
-        }
-      }
-      if (event == 'final' && dataLines.isNotEmpty) {
-        final payload = jsonDecode(dataLines.join('\n')) as Map<String, dynamic>;
-        reply = (payload['payload']?['reply'] ?? '').toString();
-      }
-    }
-
-    return reply ?? '';
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final reply = (json['payload']?['reply'] ?? json['reply'] ?? '').toString();
+    return reply;
   }
 }

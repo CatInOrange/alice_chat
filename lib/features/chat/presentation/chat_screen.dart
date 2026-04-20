@@ -35,12 +35,12 @@ class _ChatScreenState extends State<ChatScreen> {
     _chatController = core.InMemoryChatController();
     _client = OpenClawHttpClient(
       const OpenClawConfig(
-        baseUrl: 'https://alice.newthu.com',
+        baseUrl: 'http://43.156.5.177:8081',
         modelId: 'bian',
-        providerId: 'live2d-channel',
+        providerId: 'alicechat-channel',
         agent: 'main',
-        sessionName: 'alicechat:alice',
-        bridgeUrl: 'ws://127.0.0.1:18800?token=yuanzhe-7611681-668128-zheyuan-012345',
+        sessionName: 'alicechat',
+        bridgeUrl: 'ws://127.0.0.1:18791?token=yuanzhe-7611681-668128-zheyuan-012345',
       ),
     );
     _bootstrap();
@@ -208,24 +208,30 @@ class _ChatScreenState extends State<ChatScreen> {
       final reply = await _client.sendMessage(sessionId: sessionId, text: text);
       if (!mounted) return;
 
-      final assistantMessage = core.TextMessage(
-        id: _uuid.v4(),
-        authorId: 'assistant',
-        createdAt: DateTime.now(),
-        text: reply.isEmpty ? '收到啦。' : reply,
-      );
-      await _chatController.insertMessage(assistantMessage);
-
-      if (mounted) {
-        setState(() {
-          _sending = false;
-        });
+      // reply 为空时不添加任何消息
+      if (reply.isNotEmpty) {
+        final assistantMessage = core.TextMessage(
+          id: _uuid.v4(),
+          authorId: 'assistant',
+          createdAt: DateTime.now(),
+          text: reply,
+        );
+        await _chatController.insertMessage(assistantMessage);
       }
     } catch (error) {
       if (!mounted) return;
+      // 错误消息显示在聊天里，而不是占满屏幕
+      await _chatController.insertMessage(core.TextMessage(
+        id: _uuid.v4(),
+        authorId: 'assistant',
+        createdAt: DateTime.now(),
+        text: '❌ 发送失败: ${error.toString()}',
+      ));
+    }
+
+    if (mounted) {
       setState(() {
         _sending = false;
-        _error = error.toString();
       });
     }
   }
