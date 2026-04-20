@@ -1,0 +1,30 @@
+{
+  "name": "@openclaw/alicechat",
+  "version": "0.1.0",
+  "description": "AliceChat Python backend bridge channel for OpenClaw",
+  "type": "module",
+  "main": "index.ts",
+  "openclaw": {
+    "extensions": ["./index.ts"],
+    "channel": {
+      "id": "alicechat",
+      "label": "AliceChat",
+      "selectionLabel": "AliceChat Bridge",
+      "docsPath": "/channels/alicechat",
+      "blurb": "Bridge channel between OpenClaw and the AliceChat Python backend.",
+      "order": 96,
+      "aliases": ["alicechat"]
+    },
+    "install": {
+      "npmSpec": "@openclaw/alicechat",
+      "defaultChoice": "npm"
+    }
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.0.0"
+  },
+  "license": "MIT"
+}

@@ -1,13 +1,9 @@
 abstract class OpenClawClient {
-  Future<void> connect();
-  Future<void> disconnect();
+  Future<String> ensureSession({required String preferredName});
 
-  Future<List<Map<String, dynamic>>> loadSessions();
   Future<List<Map<String, dynamic>>> loadMessages(String sessionId);
-  Future<void> sendMessage({
+  Future<String> sendMessage({
     required String sessionId,
     required String text,
   });
-
-  Stream<Map<String, dynamic>> streamEvents(String sessionId);
 }

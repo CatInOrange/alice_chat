@@ -1,0 +1,191 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_chat_core/flutter_chat_core.dart' as core;
+import 'package:flutter_chat_ui/flutter_chat_ui.dart';
+import 'package:uuid/uuid.dart';
+
+import '../../../core/openclaw/openclaw_http_client.dart';
+import '../../../core/openclaw/openclaw_config.dart';
+import '../domain/chat_message.dart' as domain;
+import '../domain/chat_session.dart';
+
+class ChatScreen extends StatefulWidget {
+  const ChatScreen({super.key, required this.session});
+
+  final ChatSession session;
+
+  @override
+  State<ChatScreen> createState() => _ChatScreenState();
+}
+
+class _ChatScreenState extends State<ChatScreen> {
+  final _uuid = const Uuid();
+  final _currentUser = const core.User(id: 'user', name: 'You');
+  final _assistantUser = const core.User(
+    id: 'assistant',
+    name: 'alice',
+    imageSource: 'assets/avatars/alice.jpg',
+  );
+  final _systemUser = const core.User(id: 'system', name: 'System');
+
+  late final OpenClawHttpClient _client;
+  List<domain.ChatMessage> _messages = const [];
+  bool _loading = true;
+  bool _sending = false;
+  String? _error;
+  String? _sessionId;
+
+  @override
+  void initState() {
+    super.initState();
+    _client = OpenClawHttpClient(
+      const OpenClawConfig(
+        baseUrl: 'https://alice.newthu.com',
+        modelId: 'bian',
+        providerId: 'live2d-channel',
+        agent: 'main',
+        sessionName: 'alicechat:alice',
+        bridgeUrl: 'ws://127.0.0.1:18800?token=yuanzhe-7611681-668128-zheyuan-012345',
+      ),
+    );
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    try {
+      final sessionId = await _client.ensureSession(
+        preferredName: widget.session.backendSessionId ?? widget.session.title,
+      );
+      final rawMessages = await _client.loadMessages(sessionId);
+      setState(() {
+        _sessionId = sessionId;
+        _messages = rawMessages
+            .map(domain.ChatMessage.fromBackend)
+            .where((message) => message.text.trim().isNotEmpty)
+            .toList()
+            .reversed
+            .toList();
+        _loading = false;
+      });
+    } catch (error) {
+      setState(() {
+        _error = error.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Row(
+          children: [
+            CircleAvatar(
+              backgroundImage: widget.session.avatarAssetPath != null
+                  ? AssetImage(widget.session.avatarAssetPath!)
+                  : null,
+            ),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(widget.session.title),
+                Text(
+                  widget.session.subtitle,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? Center(child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text(_error!),
+                ))
+              : Stack(
+                  children: [
+                    Chat(
+                      currentUserId: _currentUser.id,
+                      resolveUser: _resolveUser,
+                      messages: _mapMessages(_messages),
+                      onMessageSend: _handleSend,
+                    ),
+                    if (_sending)
+                      const Positioned(
+                        top: 12,
+                        right: 12,
+                        child: Chip(label: Text('alice 正在回复...')),
+                      ),
+                  ],
+                ),
+    );
+  }
+
+  Future<void> _handleSend(String text) async {
+    final sessionId = _sessionId;
+    if (sessionId == null || text.trim().isEmpty || _sending) {
+      return;
+    }
+
+    final userMessage = domain.ChatMessage(
+      id: _uuid.v4(),
+      text: text,
+      authorId: 'user',
+      role: domain.ChatAuthorRole.user,
+      createdAt: DateTime.now(),
+    );
+
+    setState(() {
+      _sending = true;
+      _messages = [userMessage, ..._messages];
+    });
+
+    try {
+      final reply = await _client.sendMessage(sessionId: sessionId, text: text);
+      if (!mounted) return;
+      final assistantMessage = domain.ChatMessage(
+        id: _uuid.v4(),
+        text: reply.isEmpty ? '收到啦。' : reply,
+        authorId: 'assistant',
+        role: domain.ChatAuthorRole.assistant,
+        createdAt: DateTime.now(),
+      );
+      setState(() {
+        _messages = [assistantMessage, ..._messages];
+        _sending = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _sending = false;
+        _error = error.toString();
+      });
+    }
+  }
+
+  Future<core.User> _resolveUser(String id) async {
+    switch (id) {
+      case 'assistant':
+        return _assistantUser;
+      case 'system':
+        return _systemUser;
+      default:
+        return _currentUser;
+    }
+  }
+
+  List<core.Message> _mapMessages(List<domain.ChatMessage> messages) {
+    return messages.map((message) {
+      return core.TextMessage(
+        id: message.id.isEmpty ? _uuid.v4() : message.id,
+        authorId: message.authorId,
+        createdAt: message.createdAt,
+        text: message.text,
+      );
+    }).toList();
+  }
+}

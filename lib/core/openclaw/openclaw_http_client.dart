@@ -1,32 +1,134 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+
 import 'openclaw_client.dart';
 import 'openclaw_config.dart';
 
 class OpenClawHttpClient implements OpenClawClient {
-  OpenClawHttpClient(this.config);
+  OpenClawHttpClient(this.config, {http.Client? httpClient})
+      : _httpClient = httpClient ?? http.Client();
 
   final OpenClawConfig config;
+  final http.Client _httpClient;
+
+  Uri _uri(String path) {
+    final base = config.baseUrl.endsWith('/')
+        ? config.baseUrl.substring(0, config.baseUrl.length - 1)
+        : config.baseUrl;
+    return Uri.parse('$base$path');
+  }
+
+  Map<String, String> get _headers {
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+    };
+    final token = config.apiToken;
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
+    }
+    return headers;
+  }
 
   @override
-  Future<void> connect() async {}
+  Future<String> ensureSession({required String preferredName}) async {
+    final sessionsResponse = await _httpClient.get(
+      _uri('/api/sessions'),
+      headers: _headers,
+    );
+    if (sessionsResponse.statusCode >= 400) {
+      throw Exception('加载会话失败: ${sessionsResponse.body}');
+    }
 
-  @override
-  Future<void> disconnect() async {}
+    final sessionsJson = jsonDecode(sessionsResponse.body) as Map<String, dynamic>;
+    final sessions = (sessionsJson['sessions'] as List<dynamic>? ?? const [])
+        .cast<Map<String, dynamic>>();
+
+    for (final session in sessions) {
+      if ((session['name'] ?? '').toString() == preferredName) {
+        return (session['id'] ?? '').toString();
+      }
+    }
+
+    final createResponse = await _httpClient.post(
+      _uri('/api/sessions'),
+      headers: _headers,
+      body: jsonEncode({'name': preferredName}),
+    );
+    if (createResponse.statusCode >= 400) {
+      throw Exception('创建会话失败: ${createResponse.body}');
+    }
+
+    final createJson = jsonDecode(createResponse.body) as Map<String, dynamic>;
+    final session = createJson['session'] as Map<String, dynamic>? ?? const {};
+    return (session['id'] ?? '').toString();
+  }
 
   @override
   Future<List<Map<String, dynamic>>> loadMessages(String sessionId) async {
-    return const [];
+    final response = await _httpClient.get(
+      _uri('/api/sessions/$sessionId/messages'),
+      headers: _headers,
+    );
+    if (response.statusCode >= 400) {
+      throw Exception('加载消息失败: ${response.body}');
+    }
+
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    return (json['messages'] as List<dynamic>? ?? const [])
+        .cast<Map<String, dynamic>>();
   }
 
   @override
-  Future<List<Map<String, dynamic>>> loadSessions() async {
-    return const [];
-  }
+  Future<String> sendMessage({required String sessionId, required String text}) async {
+    final request = http.Request('POST', _uri('/api/chat/stream'));
+    request.headers.addAll(_headers);
+    request.body = jsonEncode({
+      'sessionId': sessionId,
+      'modelId': config.modelId,
+      'providerId': config.providerId,
+      'text': text,
+      'historyText': text,
+      'agent': config.agent,
+      'session': config.sessionName,
+      if (config.bridgeUrl != null && config.bridgeUrl!.isNotEmpty)
+        'bridgeUrl': config.bridgeUrl,
+      'messageSource': 'chat',
+      'ttsEnabled': false,
+    });
 
-  @override
-  Future<void> sendMessage({required String sessionId, required String text}) async {}
+    final response = await _httpClient.send(request);
+    if (response.statusCode >= 400) {
+      final body = await response.stream.bytesToString();
+      throw Exception('发送消息失败: $body');
+    }
 
-  @override
-  Stream<Map<String, dynamic>> streamEvents(String sessionId) {
-    return const Stream.empty();
+    final stream = response.stream.transform(utf8.decoder);
+    final buffer = StringBuffer();
+    await for (final chunk in stream) {
+      buffer.write(chunk);
+    }
+
+    final raw = buffer.toString();
+    String? reply;
+    for (final block in raw.split(RegExp(r'\r?\n\r?\n'))) {
+      final lines = block.split(RegExp(r'\r?\n'));
+      String? event;
+      final dataLines = <String>[];
+      for (final line in lines) {
+        if (line.startsWith('event:')) {
+          event = line.substring(6).trim();
+        } else if (line.startsWith('data:')) {
+          dataLines.add(line.substring(5).trim());
+        }
+      }
+      if (event == 'final' && dataLines.isNotEmpty) {
+        final payload = jsonDecode(dataLines.join('\n')) as Map<String, dynamic>;
+        reply = (payload['payload']?['reply'] ?? '').toString();
+      }
+    }
+
+    return reply ?? '';
   }
 }

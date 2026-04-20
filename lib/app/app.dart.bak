@@ -1,0 +1,121 @@
+import 'package:flutter/material.dart';
+
+import '../features/contacts/domain/contact.dart';
+import '../features/contacts/presentation/contacts_screen.dart';
+import '../features/chat/domain/chat_session.dart';
+import '../features/chat/presentation/chat_screen.dart';
+import '../features/settings/presentation/settings_screen.dart';
+import 'theme.dart';
+
+class AliceChatApp extends StatefulWidget {
+  const AliceChatApp({super.key});
+
+  @override
+  State<AliceChatApp> createState() => _AliceChatAppState();
+}
+
+class _AliceChatAppState extends State<AliceChatApp> {
+  int _currentIndex = 0;
+
+  // Fixed contacts list
+  final List<Contact> _contacts = const [
+    Contact(
+      id: 'alice',
+      name: 'alice',
+      subtitle: '点击进入真实聊天',
+      avatarAssetPath: 'assets/avatars/alice.jpg',
+      backendSessionId: 'alice',
+      isGatewayBacked: true,
+    ),
+  ];
+
+  void _onContactTap(Contact contact) {
+    // Convert Contact to ChatSession and navigate to ChatScreen
+    final session = ChatSession(
+      id: contact.id,
+      title: contact.name,
+      subtitle: contact.subtitle ?? '',
+      avatarAssetPath: contact.avatarAssetPath,
+      backendSessionId: contact.backendSessionId,
+      isGatewayBacked: contact.isGatewayBacked,
+    );
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ChatScreen(session: session),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'AliceChat',
+      theme: buildAliceChatTheme(),
+      home: Scaffold(
+        body: IndexedStack(
+          index: _currentIndex,
+          children: [
+            // Tab 1: Contacts
+            ContactsScreen(onContactTap: _onContactTap),
+            // Tab 2: Chat (placeholder - tap contact in Contacts to open chat)
+            _buildChatPlaceholder(),
+            // Tab 3: Settings
+            const SettingsScreen(),
+          ],
+        ),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _currentIndex,
+          onDestinationSelected: (index) {
+            setState(() {
+              _currentIndex = index;
+            });
+          },
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.contacts_outlined),
+              selectedIcon: Icon(Icons.contacts),
+              label: '通讯录',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.chat_outlined),
+              selectedIcon: Icon(Icons.chat),
+              label: '聊天',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.settings_outlined),
+              selectedIcon: Icon(Icons.settings),
+              label: '设置',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChatPlaceholder() {
+    return Scaffold(
+      appBar: AppBar(title: const Text('聊天')),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.chat_bubble_outline,
+              size: 64,
+              color: Colors.grey[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              '在通讯录中选择联系人开始聊天',
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

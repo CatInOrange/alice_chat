@@ -1,0 +1,48 @@
+{
+  "id": "alicechat",
+  "name": "AliceChat Bridge",
+  "description": "OpenClaw channel bridge for the AliceChat Python backend.",
+  "version": "0.1.0",
+  "channels": ["alicechat"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "启用 AliceChat channel bridge"
+      },
+      "websocketHost": {
+        "type": "string",
+        "default": "127.0.0.1",
+        "description": "WebSocket 服务器绑定的主机地址"
+      },
+      "websocketPort": {
+        "type": "number",
+        "default": 18791,
+        "description": "WebSocket 服务器绑定的端口"
+      },
+      "channelLabel": {
+        "type": "string",
+        "default": "AliceChat",
+        "description": "Channel 标签，用于消息信封"
+      },
+      "providerId": {
+        "type": "string",
+        "default": "alicechat",
+        "description": "Provider ID"
+      },
+      "backendPrefix": {
+        "type": "string",
+        "default": "alicechat:backend:",
+        "description": "后端 client key 前缀"
+      },
+      "userPrefix": {
+        "type": "string",
+        "default": "alicechat:user:",
+        "description": "用户 client key 前缀"
+      }
+    }
+  }
+}
