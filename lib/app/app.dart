@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../features/contacts/domain/contact.dart';
 import '../features/contacts/presentation/contacts_screen.dart';
+import '../features/chat/application/chat_session_store.dart';
 import '../features/chat/domain/chat_session.dart';
 import '../features/chat/presentation/chat_screen.dart';
 import '../features/webview/presentation/webview_screen.dart';
@@ -17,11 +19,14 @@ class AliceChatApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Alice Chat',
-      theme: buildAliceChatTheme(),
-      debugShowCheckedModeBanner: false,
-      home: const _MainScaffold(),
+    return ChangeNotifierProvider(
+      create: (_) => ChatSessionStore(),
+      child: MaterialApp(
+        title: 'Alice Chat',
+        theme: buildAliceChatTheme(),
+        debugShowCheckedModeBanner: false,
+        home: const _MainScaffold(),
+      ),
     );
   }
 }
@@ -35,6 +40,7 @@ class _MainScaffold extends StatefulWidget {
 
 class _MainScaffoldState extends State<_MainScaffold> {
   int _currentIndex = 0;
+  ChatSession? _activeChatSession;
 
   // Single source of truth for contacts
   static final List<Contact> _contacts = [
@@ -46,6 +52,22 @@ class _MainScaffoldState extends State<_MainScaffold> {
       backendSessionId: 'alice:main',
       isGatewayBacked: true,
     ),
+    const Contact(
+      id: 'yulinglong',
+      name: '玲珑',
+      subtitle: '聪明的大脑不休息～',
+      avatarAssetPath: 'assets/avatars/linglong.jpg',
+      backendSessionId: 'yulinglong:main',
+      isGatewayBacked: true,
+    ),
+    const Contact(
+      id: 'lisuxin',
+      name: '素心',
+      subtitle: '搬砖永不停歇！',
+      avatarAssetPath: 'assets/avatars/lisuxin.jpg',
+      backendSessionId: 'lisuxin:main',
+      isGatewayBacked: true,
+    ),
   ];
 
   void _navigateToChat(Contact contact) {
@@ -55,28 +77,48 @@ class _MainScaffoldState extends State<_MainScaffold> {
       subtitle: contact.subtitle ?? '',
       avatarAssetPath: contact.avatarAssetPath,
       backendSessionId: contact.backendSessionId,
+      contactId: contact.id,
       isGatewayBacked: contact.isGatewayBacked,
     );
 
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ChatScreen(session: session),
-      ),
-    );
+    setState(() {
+      _activeChatSession = session;
+    });
+  }
+
+  void _closeChat() {
+    setState(() {
+      _activeChatSession = null;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
+      body: Stack(
         children: [
-          ContactsScreen(
-            contacts: _contacts,
-            onContactTap: _navigateToChat,
+          IndexedStack(
+            index: _currentIndex,
+            children: [
+              ContactsScreen(
+                contacts: _contacts,
+                onContactTap: _navigateToChat,
+              ),
+              const WebviewScreen(key: ValueKey('webview')),
+              const SettingsScreen(),
+            ],
           ),
-          const WebviewScreen(key: ValueKey('webview')),
-          const SettingsScreen(),
+          if (_activeChatSession != null)
+            Positioned.fill(
+              child: Material(
+                color: Colors.transparent,
+                child: ChatScreen(
+                  key: ValueKey('chat-${_activeChatSession!.id}'),
+                  session: _activeChatSession!,
+                  onBack: _closeChat,
+                ),
+              ),
+            ),
         ],
       ),
       bottomNavigationBar: NavigationBar(

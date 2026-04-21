@@ -1,70 +1,82 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart' as core;
-import 'package:flutter_chat_core/flutter_chat_core.dart' show Builders, TimeAndStatusPosition;
+import 'package:flutter_chat_core/flutter_chat_core.dart'
+    show Builders, ChatAnimatedList, TimeAndStatusPosition;
 import 'package:flutter_chat_ui/flutter_chat_ui.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:markdown/markdown.dart' as md;
 import 'package:provider/provider.dart';
-import 'package:uuid/uuid.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-import '../../../core/openclaw/openclaw_http_client.dart';
-import '../../../core/openclaw/openclaw_config.dart';
-import '../domain/chat_message.dart' as domain;
+import '../application/chat_session_store.dart';
 import '../domain/chat_session.dart';
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, required this.session});
+  const ChatScreen({super.key, required this.session, this.onBack});
 
   final ChatSession session;
+  final VoidCallback? onBack;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  final _uuid = const Uuid();
   final _currentUserId = 'user';
   final _composerController = TextEditingController();
+  final _chatListController = ScrollController();
+  final _chatController = core.InMemoryChatController();
 
-  late final core.InMemoryChatController _chatController;
-  late final OpenClawHttpClient _client;
+  bool _didRestoreScroll = false;
+  double _lastSavedOffset = -1;
+  bool _lastSavedStickToBottom = true;
+  final List<String> _appliedMessageIds = [];
 
-  bool _loading = true;
-  bool _sending = false;
-  String? _error;
-  String? _sessionId;
+  String get _assistantName => widget.session.title;
+
+  String _assistantSubtitle(ChatViewState state) =>
+      state.isSending ? '正在输入…' : widget.session.subtitle;
+
+  Builders get _chatBuilders => Builders(
+        textMessageBuilder: _buildTextMessage,
+        composerBuilder: _buildComposer,
+        chatAnimatedListBuilder: (context, itemBuilder) => ChatAnimatedList(
+          key: PageStorageKey('chat-list-${widget.session.id}'),
+          itemBuilder: itemBuilder,
+          scrollController: _chatListController,
+          reversed: false,
+          initialScrollToEndMode: InitialScrollToEndMode.none,
+          shouldScrollToEndWhenAtBottom: false,
+          shouldScrollToEndWhenSendingMessage: false,
+          bottomPadding: 110,
+        ),
+      );
 
   @override
   void initState() {
     super.initState();
-    _chatController = core.InMemoryChatController();
-    _client = OpenClawHttpClient(
-      const OpenClawConfig(
-        baseUrl: 'http://43.156.5.177:8081',
-        modelId: 'bian',
-        providerId: 'alicechat-channel',
-        agent: 'main',
-        sessionName: 'alicechat',
-        bridgeUrl: 'ws://127.0.0.1:18791?token=yuanzhe-7611681-668128-zheyuan-012345',
-      ),
-    );
-    _bootstrap();
+    _chatListController.addListener(_handleScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final store = context.read<ChatSessionStore>();
+      store.addListener(_handleStoreChanged);
+      _handleStoreChanged();
+      store.ensureReady(widget.session);
+    });
   }
-
-  String get _assistantName => widget.session.title;
-
-  String get _assistantSubtitle => _sending ? '正在输入…' : widget.session.subtitle;
-
-  Builders get _chatBuilders => Builders(
-    textMessageBuilder: _buildTextMessage,
-    composerBuilder: _buildComposer,
-  );
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final state = context.watch<ChatSessionStore>().stateFor(widget.session);
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: widget.onBack ?? () => Navigator.of(context).maybePop(),
+        ),
         toolbarHeight: 72,
         titleSpacing: 8,
         title: Row(
@@ -86,11 +98,11 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    _assistantSubtitle,
+                    _assistantSubtitle(state),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: _sending
+                      color: state.isSending
                           ? theme.colorScheme.primary
                           : const Color(0xFF98A1B3),
                     ),
@@ -112,56 +124,17 @@ class _ChatScreenState extends State<ChatScreen> {
         decoration: const BoxDecoration(
           color: Color(0xFFF6F7FB),
         ),
-        child: _buildBody(),
+        child: _buildBody(state),
       ),
     );
   }
 
-  Future<void> _bootstrap() async {
-    try {
-      final sessionId = await _client.ensureSession(
-        preferredName: widget.session.backendSessionId ?? widget.session.title,
-      );
-      final rawMessages = await _client.loadMessages(sessionId);
-      final messages = rawMessages
-          .map(domain.ChatMessage.fromBackend)
-          .where((message) => message.text.trim().isNotEmpty)
-          .toList()
-          .reversed
-          .toList();
-
-      for (final message in messages) {
-        await _chatController.insertMessage(
-          core.TextMessage(
-            id: message.id.isEmpty ? _uuid.v4() : message.id,
-            authorId: message.authorId,
-            createdAt: message.createdAt,
-            text: message.text,
-          ),
-          animated: false,
-        );
-      }
-
-      if (!mounted) return;
-      setState(() {
-        _sessionId = sessionId;
-        _loading = false;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _error = error.toString();
-        _loading = false;
-      });
-    }
-  }
-
-  Widget _buildBody() {
-    if (_loading) {
+  Widget _buildBody(ChatViewState state) {
+    if (state.isLoading && state.messages.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (_error != null) {
+    if (state.error != null && state.messages.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -193,18 +166,14 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _error!,
+                  state.error!,
                   style: TextStyle(color: Colors.grey[600], height: 1.45),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 24),
                 FilledButton(
                   onPressed: () {
-                    setState(() {
-                      _loading = true;
-                      _error = null;
-                    });
-                    _bootstrap();
+                    context.read<ChatSessionStore>().retry(widget.session);
                   },
                   child: const Text('重试'),
                 ),
@@ -225,7 +194,7 @@ class _ChatScreenState extends State<ChatScreen> {
           builders: _chatBuilders,
           backgroundColor: const Color(0xFFF6F7FB),
         ),
-        if (_sending)
+        if (state.isSending)
           Positioned(
             left: 12,
             right: 12,
@@ -254,9 +223,9 @@ class _ChatScreenState extends State<ChatScreen> {
                       Text(
                         '$_assistantName 正在输入…',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF667085),
-                          fontWeight: FontWeight.w600,
-                        ),
+                              color: const Color(0xFF667085),
+                              fontWeight: FontWeight.w600,
+                            ),
                       ),
                     ],
                   ),
@@ -268,59 +237,111 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Future<void> _handleSend(String text) async {
-    final sessionId = _sessionId;
-    if (sessionId == null || text.trim().isEmpty || _sending) {
+  @override
+  void didUpdateWidget(covariant ChatScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.session.id == widget.session.id) return;
+
+    _didRestoreScroll = false;
+    _lastSavedOffset = -1;
+    _lastSavedStickToBottom = true;
+    _appliedMessageIds.clear();
+    _chatController.setMessages(const []);
+    _handleStoreChanged();
+    context.read<ChatSessionStore>().ensureReady(widget.session);
+  }
+
+  void _handleStoreChanged() {
+    if (!mounted) return;
+    final state = context.read<ChatSessionStore>().stateFor(widget.session);
+    _applyMessagesIncrementally(state.messages);
+    _restoreScrollIfNeeded(state);
+  }
+
+  void _applyMessagesIncrementally(List<core.TextMessage> messages) {
+    final nextIds = messages.map((message) => message.id).toList(growable: false);
+
+    if (_appliedMessageIds.isEmpty) {
+      _chatController.setMessages(messages);
+      _appliedMessageIds
+        ..clear()
+        ..addAll(nextIds);
       return;
     }
 
-    final userMessage = core.TextMessage(
-      id: _uuid.v4(),
-      authorId: _currentUserId,
-      createdAt: DateTime.now(),
-      text: text,
-    );
-
-    setState(() {
-      _sending = true;
-    });
-
-    _composerController.clear();
-    await _chatController.insertMessage(userMessage);
-
-    try {
-      final reply = await _client.sendMessage(
-        sessionId: sessionId,
-        text: text,
-        contactId: widget.session.contactId,
-        userId: _sessionId,
-      );
-      if (!mounted) return;
-
-      if (reply.isNotEmpty) {
-        final assistantMessage = core.TextMessage(
-          id: _uuid.v4(),
-          authorId: 'assistant',
-          createdAt: DateTime.now(),
-          text: reply,
+    final hasPrefixMatch =
+        messages.length >= _appliedMessageIds.length &&
+        _appliedMessageIds.asMap().entries.every(
+          (entry) => messages[entry.key].id == entry.value,
         );
-        await _chatController.insertMessage(assistantMessage);
+
+    if (hasPrefixMatch && messages.length > _appliedMessageIds.length) {
+      for (final message in messages.skip(_appliedMessageIds.length)) {
+        _chatController.insertMessage(message);
+        _appliedMessageIds.add(message.id);
       }
-    } catch (error) {
-      if (!mounted) return;
-      await _chatController.insertMessage(core.TextMessage(
-        id: _uuid.v4(),
-        authorId: 'assistant',
-        createdAt: DateTime.now(),
-        text: '❌ 发送失败: ${error.toString()}',
-      ));
+      return;
     }
 
-    if (mounted) {
-      setState(() {
-        _sending = false;
+    if (nextIds.length == _appliedMessageIds.length) {
+      final sameIdsInOrder = nextIds.asMap().entries.every(
+        (entry) => _appliedMessageIds[entry.key] == entry.value,
+      );
+      if (sameIdsInOrder) {
+        return;
+      }
+    }
+
+    _chatController.setMessages(messages);
+    _appliedMessageIds
+      ..clear()
+      ..addAll(nextIds);
+  }
+
+  void _restoreScrollIfNeeded(ChatViewState state) {
+    if (_didRestoreScroll) return;
+    if (!state.isReady && state.messages.isEmpty) return;
+
+    _didRestoreScroll = true;
+
+    if (!state.stickToBottom) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_chatListController.hasClients) return;
+        final position = _chatListController.position;
+        final target =
+            state.scrollOffset.clamp(0.0, position.maxScrollExtent).toDouble();
+        if ((position.pixels - target).abs() > 1) {
+          _chatListController.jumpTo(target);
+        }
       });
     }
+  }
+
+  void _handleScroll() {
+    if (!_chatListController.hasClients) return;
+    final store = context.read<ChatSessionStore>();
+    final position = _chatListController.position;
+    final max = position.maxScrollExtent;
+    final offset = position.pixels;
+    final atBottom = max - offset <= 24;
+    if ((_lastSavedOffset - offset).abs() < 24 &&
+        _lastSavedStickToBottom == atBottom) {
+      return;
+    }
+    _lastSavedOffset = offset;
+    _lastSavedStickToBottom = atBottom;
+    store.updateScrollState(
+      widget.session,
+      offset: offset,
+      stickToBottom: atBottom,
+    );
+  }
+
+  Future<void> _handleSend(String text) async {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return;
+    _composerController.clear();
+    await context.read<ChatSessionStore>().sendMessage(widget.session, trimmed);
   }
 
   Future<core.User> _resolveUser(String id) async {
@@ -385,162 +406,316 @@ class _ChatScreenState extends State<ChatScreen> {
                 crossAxisAlignment:
                     sentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                 children: [
-                  if (!sentByMe && (groupStatus?.isFirst ?? true))
-                    Padding(
-                      padding: const EdgeInsets.only(left: 4, bottom: 6),
-                      child: Text(
-                        _assistantName,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF98A1B3),
-                          fontWeight: FontWeight.w600,
+                  sentByMe
+                      ? SimpleTextMessage(
+                          message: message,
+                          index: index,
+                          showStatus: false,
+                          timeAndStatusPosition: TimeAndStatusPosition.end,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 11,
+                          ),
+                          constraints: BoxConstraints(maxWidth: maxWidth),
+                          borderRadius: bubbleRadius,
+                          sentBackgroundColor: const Color(0xFF7C4DFF),
+                          receivedBackgroundColor: Colors.white,
+                          sentTextStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w500,
+                              ),
+                          receivedTextStyle:
+                              Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                    color: const Color(0xFF1F2430),
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                          timeStyle: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: sentByMe
+                                    ? Colors.white.withOpacity(0.72)
+                                    : const Color(0xFF98A1B3),
+                                fontSize: 11,
+                              ),
+                          topWidget: null,
+                        )
+                      : _buildAssistantMarkdownBubble(
+                          context,
+                          message: message,
+                          index: index,
+                          maxWidth: maxWidth,
+                          bubbleRadius: bubbleRadius,
                         ),
-                      ),
-                    ),
-                  SimpleTextMessage(
-                    message: message,
-                    index: index,
-                    showStatus: false,
-                    timeAndStatusPosition: TimeAndStatusPosition.end,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 11,
-                    ),
-                    constraints: BoxConstraints(maxWidth: maxWidth),
-                    borderRadius: bubbleRadius,
-                    sentBackgroundColor: const Color(0xFF7C4DFF),
-                    receivedBackgroundColor: Colors.white,
-                    sentTextStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    receivedTextStyle:
-                        Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          color: const Color(0xFF1F2430),
-                          fontWeight: FontWeight.w500,
-                        ),
-                    timeStyle: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: sentByMe
-                          ? Colors.white.withOpacity(0.72)
-                          : const Color(0xFF98A1B3),
-                      fontSize: 11,
-                    ),
-                    topWidget: sentByMe
-                        ? null
-                        : const SizedBox(height: 0),
-                  ),
                 ],
               ),
             ),
           ),
-          if (sentByMe) const SizedBox(width: 4),
+          if (sentByMe) const SizedBox(width: 8),
+          if (sentByMe && (groupStatus == null || groupStatus.isLast))
+            _buildUserAvatar(radius: 15),
         ],
       ),
     );
   }
 
+  Widget _buildAssistantMarkdownBubble(
+    BuildContext context, {
+    required core.TextMessage message,
+    required int index,
+    required double maxWidth,
+    required BorderRadius bubbleRadius,
+  }) {
+    final theme = Theme.of(context);
+    final markdownTheme = _buildMarkdownStyleSheet(theme);
+
+    return Container(
+      constraints: BoxConstraints(maxWidth: maxWidth),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: bubbleRadius,
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x081F2430),
+            blurRadius: 10,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            MarkdownBody(
+              data: message.text,
+              selectable: true,
+              styleSheet: markdownTheme,
+              softLineBreak: true,
+              onTapLink: (text, href, title) {
+                _openMarkdownLink(href);
+              },
+              builders: {
+                'code': _InlineCodeBuilder(markdownTheme),
+                'pre': _CodeBlockBuilder(markdownTheme),
+                'blockquote': _BlockquoteBuilder(markdownTheme),
+              },
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              mainAxisSize: MainAxisSize.max,
+              children: [
+                Text(
+                  _assistantName,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF98A1B3),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 11,
+                      ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _formatMessageTime(message.createdAt ?? DateTime.now()),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF98A1B3),
+                        fontSize: 11,
+                      ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  MarkdownStyleSheet _buildMarkdownStyleSheet(ThemeData theme) {
+    final bodyStyle = theme.textTheme.bodyLarge?.copyWith(
+          color: const Color(0xFF1F2430),
+          fontWeight: FontWeight.w500,
+          height: 1.28,
+        ) ??
+        const TextStyle(
+          color: Color(0xFF1F2430),
+          fontSize: 16,
+          fontWeight: FontWeight.w500,
+          height: 1.28,
+        );
+
+    final mono = theme.textTheme.bodyMedium?.copyWith(
+          fontFamily: 'monospace',
+          color: const Color(0xFF2B2F3A),
+          height: 1.25,
+        ) ??
+        const TextStyle(
+          fontFamily: 'monospace',
+          color: Color(0xFF2B2F3A),
+          fontSize: 14,
+          height: 1.25,
+        );
+
+    return MarkdownStyleSheet(
+      p: bodyStyle,
+      h1: bodyStyle.copyWith(fontSize: 18, fontWeight: FontWeight.w800),
+      h2: bodyStyle.copyWith(fontSize: 16, fontWeight: FontWeight.w800),
+      h3: bodyStyle.copyWith(fontSize: 15, fontWeight: FontWeight.w700),
+      h1Padding: const EdgeInsets.only(bottom: 4),
+      h2Padding: const EdgeInsets.only(top: 1, bottom: 3),
+      h3Padding: const EdgeInsets.only(top: 1, bottom: 2),
+      strong: bodyStyle.copyWith(fontWeight: FontWeight.w800),
+      em: bodyStyle.copyWith(fontStyle: FontStyle.italic),
+      listBullet: bodyStyle.copyWith(color: const Color(0xFF667085)),
+      blockquote: bodyStyle.copyWith(
+        color: const Color(0xFF5B657A),
+        height: 1.25,
+      ),
+      blockSpacing: 4,
+      listIndent: 16,
+      unorderedListAlign: WrapAlignment.start,
+      orderedListAlign: WrapAlignment.start,
+      code: mono.copyWith(
+        backgroundColor: const Color(0xFFF1EEFF),
+        fontSize: 13.5,
+      ),
+      codeblockDecoration: BoxDecoration(
+        color: const Color(0xFFF7F8FC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE6E9F2)),
+      ),
+      codeblockPadding: const EdgeInsets.all(8),
+      a: bodyStyle.copyWith(
+        color: const Color(0xFF6D4AFF),
+        decoration: TextDecoration.underline,
+        fontWeight: FontWeight.w700,
+      ),
+      horizontalRuleDecoration: const BoxDecoration(
+        border: Border(
+          top: BorderSide(color: Color(0xFFE7EAF3), width: 1),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openMarkdownLink(String? href) async {
+    if (href == null || href.isEmpty) return;
+    final uri = Uri.tryParse(href);
+    if (uri == null) return;
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  String _formatMessageTime(DateTime dateTime) {
+    final hour = dateTime.hour.toString().padLeft(2, '0');
+    final minute = dateTime.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
   Widget _buildComposer(BuildContext context) {
     final theme = Theme.of(context);
+    final state = context.watch<ChatSessionStore>().stateFor(widget.session);
 
-    return SafeArea(
-      top: false,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-        decoration: const BoxDecoration(
-          color: Color(0xFFF6F7FB),
-          border: Border(
-            top: BorderSide(color: Color(0xFFE7EAF3)),
-          ),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: IconButton(
-                onPressed: null,
-                icon: const Icon(Icons.add_rounded),
-                color: const Color(0xFF98A1B3),
-                tooltip: '更多功能',
-              ),
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: SafeArea(
+        top: false,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          decoration: const BoxDecoration(
+            color: Color(0xFFF6F7FB),
+            border: Border(
+              top: BorderSide(color: Color(0xFFE7EAF3)),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Container(
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Container(
+                width: 40,
+                height: 40,
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(24),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: IconButton(
+                  onPressed: null,
+                  icon: const Icon(Icons.add_rounded),
+                  color: const Color(0xFF98A1B3),
+                  tooltip: '更多功能',
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x0A1F2430),
+                        blurRadius: 14,
+                        offset: Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: TextField(
+                    controller: _composerController,
+                    minLines: 1,
+                    maxLines: 5,
+                    textInputAction: TextInputAction.send,
+                    decoration: const InputDecoration(
+                      hintText: '发消息…',
+                      isDense: true,
+                    ),
+                    onSubmitted: (value) {
+                      if (value.trim().isNotEmpty && !state.isSending) {
+                        _handleSend(value);
+                      }
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: state.isSending
+                      ? const Color(0xFFD7CCFF)
+                      : theme.colorScheme.primary,
+                  borderRadius: BorderRadius.circular(22),
                   boxShadow: const [
                     BoxShadow(
-                      color: Color(0x0A1F2430),
-                      blurRadius: 14,
-                      offset: Offset(0, 4),
+                      color: Color(0x1A7C4DFF),
+                      blurRadius: 16,
+                      offset: Offset(0, 6),
                     ),
                   ],
                 ),
-                child: TextField(
-                  controller: _composerController,
-                  minLines: 1,
-                  maxLines: 5,
-                  textInputAction: TextInputAction.send,
-                  decoration: const InputDecoration(
-                    hintText: '发消息…',
-                    isDense: true,
-                  ),
-                  onSubmitted: (value) {
-                    if (value.trim().isNotEmpty && !_sending) {
-                      _handleSend(value);
-                    }
-                  },
+                child: IconButton(
+                  onPressed: state.isSending
+                      ? null
+                      : () {
+                          final text = _composerController.text;
+                          if (text.trim().isNotEmpty) {
+                            _handleSend(text);
+                          }
+                        },
+                  icon: state.isSending
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.arrow_upward_rounded),
+                  color: Colors.white,
+                  tooltip: '发送',
                 ),
               ),
-            ),
-            const SizedBox(width: 10),
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: _sending
-                    ? const Color(0xFFD7CCFF)
-                    : theme.colorScheme.primary,
-                borderRadius: BorderRadius.circular(22),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x1A7C4DFF),
-                    blurRadius: 16,
-                    offset: Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: IconButton(
-                onPressed: _sending
-                    ? null
-                    : () {
-                        final text = _composerController.text;
-                        if (text.trim().isNotEmpty) {
-                          _handleSend(text);
-                        }
-                      },
-                icon: _sending
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.arrow_upward_rounded),
-                color: Colors.white,
-                tooltip: '发送',
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -569,9 +744,93 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Widget _buildUserAvatar({double radius = 15}) {
+    return CircleAvatar(
+      radius: radius,
+      backgroundImage: const AssetImage('assets/avatars/user.jpg'),
+      backgroundColor: const Color(0xFFE9ECF5),
+    );
+  }
+
   @override
   void dispose() {
+    final store = context.read<ChatSessionStore>();
+    store.removeListener(_handleStoreChanged);
+    _chatListController.removeListener(_handleScroll);
+    _chatListController.dispose();
     _composerController.dispose();
     super.dispose();
+  }
+}
+
+class _InlineCodeBuilder extends MarkdownElementBuilder {
+  _InlineCodeBuilder(this.styleSheet);
+
+  final MarkdownStyleSheet styleSheet;
+
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    final text = element.textContent;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1EEFF),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        text,
+        style: styleSheet.code,
+      ),
+    );
+  }
+}
+
+class _CodeBlockBuilder extends MarkdownElementBuilder {
+  _CodeBlockBuilder(this.styleSheet);
+
+  final MarkdownStyleSheet styleSheet;
+
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    final text = element.textContent.replaceAll(RegExp(r'\n$'), '');
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      decoration: styleSheet.codeblockDecoration,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: styleSheet.codeblockPadding,
+        child: Text(
+          text,
+          style: styleSheet.code,
+        ),
+      ),
+    );
+  }
+}
+
+class _BlockquoteBuilder extends MarkdownElementBuilder {
+  _BlockquoteBuilder(this.styleSheet);
+
+  final MarkdownStyleSheet styleSheet;
+
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8F6FF),
+        borderRadius: BorderRadius.circular(12),
+        border: const Border(
+          left: BorderSide(color: Color(0xFFB9A8FF), width: 3),
+        ),
+      ),
+      child: Text(
+        element.textContent,
+        style: styleSheet.blockquote,
+      ),
+    );
   }
 }

@@ -80,7 +80,12 @@ class OpenClawHttpClient implements OpenClawClient {
   }
 
   @override
-  Future<String> sendMessage({required String sessionId, required String text}) async {
+  Future<String> sendMessage({
+    required String sessionId,
+    required String text,
+    String? contactId,
+    String? userId,
+  }) async {
     final response = await _httpClient.post(
       _uri('/api/chat'),
       headers: _headers,
@@ -96,6 +101,8 @@ class OpenClawHttpClient implements OpenClawClient {
           'bridgeUrl': config.bridgeUrl,
         'messageSource': 'chat',
         'ttsEnabled': false,
+        if (contactId != null && contactId.isNotEmpty) 'contactId': contactId,
+        if (userId != null && userId.isNotEmpty) 'userId': userId,
       }),
     );
 

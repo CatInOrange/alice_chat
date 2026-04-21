@@ -5,6 +5,7 @@ class ChatSession {
     required this.subtitle,
     this.avatarAssetPath,
     this.backendSessionId,
+    this.contactId,
     this.isGatewayBacked = false,
   });
 
@@ -13,5 +14,6 @@ class ChatSession {
   final String subtitle;
   final String? avatarAssetPath;
   final String? backendSessionId;
+  final String? contactId;
   final bool isGatewayBacked;
 }
