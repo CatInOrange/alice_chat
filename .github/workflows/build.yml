@@ -1,41 +1,41 @@
-name: Build Flutter APK
+name: Build and Upload APK
 
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+      
       - name: Setup Flutter
-        run: |
-          FLUTTER_VERSION=3.41.7
-          wget -q https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz
-          tar xf flutter_linux_${FLUTTER_VERSION}-stable.tar.xz
-          rm flutter_linux_${FLUTTER_VERSION}-stable.tar.xz
-          echo "$GITHUB_WORKSPACE/flutter/bin" >> $GITHUB_PATH
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: subosito/flutter-action@v2
         with:
-          distribution: 'temurin'
-          java-version: '17'
-
+          flutter-version: '3.29.3'
+          channel: 'stable'
+      
       - name: Get dependencies
         run: flutter pub get
-
+      
       - name: Build debug APK
         run: flutter build apk --debug
-
-      - name: Upload APK
+      
+      - name: Upload to Jianguoyun
+        env:
+          JIANGUOYUN_USER: ${{ secrets.JIANGUOYUN_USER }}
+          JIANGUOYUN_PASSWORD: ${{ secrets.JIANGUOYUN_PASSWORD }}
+        run: |
+          curl -T build/app/outputs/flutter-apk/app-debug.apk \
+            -u "$JIANGUOYUN_USER:$JIANGUOYUN_PASSWORD" \
+            "https://dav.jianguoyun.com/dav/Alicechat/app-debug.apk"
+      
+      - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
         with:
           name: alicechat-debug-apk
           path: build/app/outputs/flutter-apk/app-debug.apk
-          retention-days: 7
