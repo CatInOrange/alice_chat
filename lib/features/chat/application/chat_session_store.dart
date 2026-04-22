@@ -12,7 +12,7 @@ class ChatSessionStore extends ChangeNotifier {
       : _client = client ??
             OpenClawHttpClient(
               const OpenClawConfig(
-                baseUrl: 'http://43.156.5.177:8081',
+                baseUrl: 'https://alice.newthu.com/chat',
                 modelId: 'bian',
                 providerId: 'alicechat-channel',
                 agent: 'main',

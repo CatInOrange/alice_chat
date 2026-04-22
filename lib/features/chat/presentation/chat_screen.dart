@@ -45,7 +45,7 @@ class _ChatScreenState extends State<ChatScreen> {
           key: PageStorageKey('chat-list-${widget.session.id}'),
           itemBuilder: itemBuilder,
           scrollController: _chatListController,
-          reversed: false,
+          reversed: true,
           initialScrollToEndMode: InitialScrollToEndMode.none,
           shouldScrollToEndWhenAtBottom: false,
           shouldScrollToEndWhenSendingMessage: false,
