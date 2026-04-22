@@ -71,7 +71,14 @@ class _ChatScreenState extends State<ChatScreen> {
     final theme = Theme.of(context);
     final state = context.watch<ChatSessionStore>().stateFor(widget.session);
 
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          widget.onBack?.call();
+        }
+      },
+      child: Scaffold(
       appBar: AppBar(
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
@@ -126,7 +133,8 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         child: _buildBody(state),
       ),
-    );
+    ),
+  );
   }
 
   Widget _buildBody(ChatViewState state) {
