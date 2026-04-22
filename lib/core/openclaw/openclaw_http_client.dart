@@ -134,30 +134,38 @@ class OpenClawHttpClient implements OpenClawClient {
       throw Exception('订阅事件失败: ${response.reasonPhrase ?? response.statusCode}');
     }
 
+    final lineStream = response.stream
+        .transform(utf8.decoder)
+        .transform(const LineSplitter());
+
     String? eventName;
-    await for (final chunk in response.stream.transform(utf8.decoder)) {
-      final lines = chunk.split('\n');
-      for (final rawLine in lines) {
-        final line = rawLine.trimRight();
-        if (line.isEmpty) {
-          eventName = null;
-          continue;
-        }
-        if (line.startsWith('event:')) {
-          eventName = line.substring(6).trim();
-          continue;
-        }
-        if (line.startsWith('data:')) {
-          final data = line.substring(5).trim();
-          if (data.isEmpty) continue;
-          final payload = jsonDecode(data);
-          if (payload is Map<String, dynamic>) {
-            yield {
-              'event': eventName ?? 'message',
-              ...payload,
-            };
+    final dataLines = <String>[];
+
+    await for (final rawLine in lineStream) {
+      final line = rawLine.trimRight();
+      if (line.isEmpty) {
+        if (dataLines.isNotEmpty) {
+          final data = dataLines.join('\n').trim();
+          if (data.isNotEmpty) {
+            final payload = jsonDecode(data);
+            if (payload is Map<String, dynamic>) {
+              yield {
+                'event': eventName ?? 'message',
+                ...payload,
+              };
+            }
           }
         }
+        eventName = null;
+        dataLines.clear();
+        continue;
+      }
+      if (line.startsWith('event:')) {
+        eventName = line.substring(6).trim();
+        continue;
+      }
+      if (line.startsWith('data:')) {
+        dataLines.add(line.substring(5).trim());
       }
     }
   }
