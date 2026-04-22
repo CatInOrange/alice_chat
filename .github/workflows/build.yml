@@ -14,9 +14,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Flutter
-        uses: cirruslabs/flutter-action@v2
-        with:
-          flutterVersion: 3.24.0
+        run: |
+          FLUTTER_VERSION=3.24.0
+          wget -q https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_${FLUTTER_VERSION}-stable.tar.xz
+          tar xf flutter_linux_${FLUTTER_VERSION}-stable.tar.xz
+          rm flutter_linux_${FLUTTER_VERSION}-stable.tar.xz
+          echo "$GITHUB_WORKSPACE/flutter/bin" >> $GITHUB_PATH
 
       - name: Setup Java
         uses: actions/setup-java@v4
