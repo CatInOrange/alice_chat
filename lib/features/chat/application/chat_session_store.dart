@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart' as core;
 import 'package:uuid/uuid.dart';
@@ -12,7 +14,7 @@ class ChatSessionStore extends ChangeNotifier {
       : _client = client ??
             OpenClawHttpClient(
               const OpenClawConfig(
-                baseUrl: 'https://alice.newthu.com/chat',
+                baseUrl: 'https://alice.newthu.com',
                 modelId: 'bian',
                 providerId: 'alicechat-channel',
                 agent: 'main',
@@ -27,6 +29,7 @@ class ChatSessionStore extends ChangeNotifier {
   final OpenClawHttpClient _client;
   final Uuid _uuid = const Uuid();
   final Map<String, ChatViewState> _states = {};
+  final Map<String, StreamSubscription<Map<String, dynamic>>> _eventSubscriptions = {};
 
   ChatViewState stateFor(ChatSession session) {
     return _states.putIfAbsent(
@@ -57,6 +60,7 @@ class ChatSessionStore extends ChangeNotifier {
         ..isLoading = false
         ..isReady = true;
 
+      _ensureEventSubscription(session, sessionId);
       notifyListeners();
     } catch (error) {
       state
@@ -71,13 +75,16 @@ class ChatSessionStore extends ChangeNotifier {
   Future<void> sendMessage(ChatSession session, String text) async {
     final state = stateFor(session);
     final trimmed = text.trim();
-    if (trimmed.isEmpty || state.isSending) return;
+    if (trimmed.isEmpty) return;
 
-    final sessionId = state.backendSessionId ?? await _ensureBackendSession(session);
+    final sessionId =
+        state.backendSessionId ?? await _ensureBackendSession(session);
     state.backendSessionId = sessionId;
+    _ensureEventSubscription(session, sessionId);
 
+    final clientMessageId = 'client_${_uuid.v4()}';
     final userMessage = core.TextMessage(
-      id: _uuid.v4(),
+      id: clientMessageId,
       authorId: 'user',
       createdAt: DateTime.now(),
       text: trimmed,
@@ -86,28 +93,22 @@ class ChatSessionStore extends ChangeNotifier {
     state
       ..isSending = true
       ..appendMessage(userMessage)
-      ..markShouldStickToBottom();
+      ..markShouldStickToBottom()
+      ..pendingClientMessageIds.add(clientMessageId);
     notifyListeners();
 
     try {
-      final reply = await _client.sendMessage(
+      await _client.sendMessage(
         sessionId: sessionId,
         text: trimmed,
         contactId: session.contactId,
         userId: sessionId,
+        clientMessageId: clientMessageId,
       );
-
-      if (reply.isNotEmpty) {
-        state.appendMessage(
-          core.TextMessage(
-            id: _uuid.v4(),
-            authorId: 'assistant',
-            createdAt: DateTime.now(),
-            text: reply,
-          ),
-        );
-      }
     } catch (error) {
+      state
+        ..pendingClientMessageIds.remove(clientMessageId)
+        ..isSending = state.pendingClientMessageIds.isNotEmpty;
       state.appendMessage(
         core.TextMessage(
           id: _uuid.v4(),
@@ -116,8 +117,6 @@ class ChatSessionStore extends ChangeNotifier {
           text: '❌ 发送失败: ${error.toString()}',
         ),
       );
-    } finally {
-      state.isSending = false;
       notifyListeners();
     }
   }
@@ -145,6 +144,104 @@ class ChatSessionStore extends ChangeNotifier {
     );
     state.backendSessionId = sessionId;
     return sessionId;
+  }
+
+  void _ensureEventSubscription(ChatSession session, String sessionId) {
+    if (_eventSubscriptions.containsKey(sessionId)) return;
+    final state = stateFor(session);
+    _eventSubscriptions[sessionId] = _client
+        .subscribeEvents(sessionId: sessionId)
+        .listen(
+          (event) => _handleEvent(state, event),
+          onError: (error) {
+            state.error = error.toString();
+            notifyListeners();
+          },
+        );
+  }
+
+  void _handleEvent(ChatViewState state, Map<String, dynamic> event) {
+    final type = (event['event'] ?? '').toString();
+    switch (type) {
+      case 'message.created':
+        final clientMessageId = (event['clientMessageId'] ?? '').toString();
+        final message = _mapEventMessage(event['message']);
+        if (message == null) return;
+        if (clientMessageId.isNotEmpty) {
+          state.replaceMessageId(clientMessageId, message.id);
+        }
+        state.upsertMessage(message);
+        break;
+      case 'message.status':
+        final clientMessageId = (event['clientMessageId'] ?? '').toString();
+        if (clientMessageId.isNotEmpty) {
+          state.pendingClientMessageIds.remove(clientMessageId);
+          state.isSending = state.pendingClientMessageIds.isNotEmpty;
+        }
+        break;
+      case 'assistant.message.started':
+        final message = _mapEventMessage(event['message']);
+        if (message == null) return;
+        state.upsertMessage(message);
+        state.streamingMessageIds.add(message.id);
+        state.isSending = true;
+        break;
+      case 'assistant.message.delta':
+        final messageId = (event['messageId'] ?? '').toString();
+        final text = (event['text'] ?? '').toString();
+        if (messageId.isNotEmpty) {
+          state.patchMessageText(messageId, text);
+        }
+        state.isSending = true;
+        break;
+      case 'assistant.message.completed':
+        final message = _mapEventMessage(event['message']);
+        if (message == null) return;
+        state.upsertMessage(message);
+        state.streamingMessageIds.remove(message.id);
+        final clientMessageId = (event['clientMessageId'] ?? '').toString();
+        if (clientMessageId.isNotEmpty) {
+          state.pendingClientMessageIds.remove(clientMessageId);
+        }
+        state.isSending =
+            state.pendingClientMessageIds.isNotEmpty || state.streamingMessageIds.isNotEmpty;
+        break;
+      case 'assistant.message.failed':
+        final messageId = (event['messageId'] ?? '').toString();
+        final error = (event['error'] ?? 'unknown error').toString();
+        if (messageId.isNotEmpty) {
+          state.patchMessageText(messageId, '❌ 回复失败: $error');
+          state.streamingMessageIds.remove(messageId);
+        }
+        final clientMessageId = (event['clientMessageId'] ?? '').toString();
+        if (clientMessageId.isNotEmpty) {
+          state.pendingClientMessageIds.remove(clientMessageId);
+        }
+        state.isSending =
+            state.pendingClientMessageIds.isNotEmpty || state.streamingMessageIds.isNotEmpty;
+        break;
+    }
+    notifyListeners();
+  }
+
+  core.TextMessage? _mapEventMessage(dynamic raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    final createdAtValue = raw['createdAt'];
+    final createdAt = createdAtValue is num
+        ? DateTime.fromMillisecondsSinceEpoch((createdAtValue * 1000).round())
+        : DateTime.now();
+    final role = (raw['role'] ?? '').toString();
+    final authorId = role == 'assistant'
+        ? 'assistant'
+        : role == 'system'
+            ? 'system'
+            : 'user';
+    return core.TextMessage(
+      id: (raw['id'] ?? _uuid.v4()).toString(),
+      authorId: authorId,
+      createdAt: createdAt,
+      text: (raw['text'] ?? '').toString(),
+    );
   }
 
   Future<List<core.TextMessage>> _loadMessages(
@@ -191,6 +288,8 @@ class ChatViewState {
   double scrollOffset = 0;
   bool stickToBottom = true;
   List<core.TextMessage> messages = const [];
+  final Set<String> pendingClientMessageIds = <String>{};
+  final Set<String> streamingMessageIds = <String>{};
 
   void replaceMessages(List<core.TextMessage> nextMessages) {
     messages = List<core.TextMessage>.unmodifiable(nextMessages);
@@ -198,6 +297,51 @@ class ChatViewState {
 
   void appendMessage(core.TextMessage message) {
     messages = List<core.TextMessage>.unmodifiable([...messages, message]);
+  }
+
+  void upsertMessage(core.TextMessage message) {
+    final list = [...messages];
+    final index = list.indexWhere((item) => item.id == message.id);
+    if (index >= 0) {
+      list[index] = message;
+    } else {
+      list.add(message);
+      list.sort(
+        (a, b) =>
+            (a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)).compareTo(
+              b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+            ),
+      );
+    }
+    messages = List<core.TextMessage>.unmodifiable(list);
+  }
+
+  void replaceMessageId(String oldId, String newId) {
+    final list = [...messages];
+    final index = list.indexWhere((item) => item.id == oldId);
+    if (index < 0) return;
+    final old = list[index];
+    list[index] = core.TextMessage(
+      id: newId,
+      authorId: old.authorId,
+      createdAt: old.createdAt,
+      text: old.text,
+    );
+    messages = List<core.TextMessage>.unmodifiable(list);
+  }
+
+  void patchMessageText(String messageId, String nextText) {
+    final list = [...messages];
+    final index = list.indexWhere((item) => item.id == messageId);
+    if (index < 0) return;
+    final old = list[index];
+    list[index] = core.TextMessage(
+      id: old.id,
+      authorId: old.authorId,
+      createdAt: old.createdAt,
+      text: nextText,
+    );
+    messages = List<core.TextMessage>.unmodifiable(list);
   }
 
   void markShouldStickToBottom() {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -12,16 +13,17 @@ class OpenClawHttpClient implements OpenClawClient {
   final OpenClawConfig config;
   final http.Client _httpClient;
 
-  Uri _uri(String path) {
+  Uri _uri(String path, {Map<String, String>? queryParameters}) {
     final base = config.baseUrl.endsWith('/')
         ? config.baseUrl.substring(0, config.baseUrl.length - 1)
         : config.baseUrl;
-    return Uri.parse('$base$path');
+    return Uri.parse('$base$path').replace(queryParameters: queryParameters);
   }
 
   Map<String, String> get _headers {
     final headers = <String, String>{
       'Content-Type': 'application/json',
+      'Accept': 'application/json, text/event-stream',
     };
     final token = config.apiToken;
     if (token != null && token.isNotEmpty) {
@@ -85,9 +87,10 @@ class OpenClawHttpClient implements OpenClawClient {
     required String text,
     String? contactId,
     String? userId,
+    String? clientMessageId,
   }) async {
     final response = await _httpClient.post(
-      _uri('/api/chat'),
+      _uri('/api/messages'),
       headers: _headers,
       body: jsonEncode({
         'sessionId': sessionId,
@@ -103,6 +106,8 @@ class OpenClawHttpClient implements OpenClawClient {
         'ttsEnabled': false,
         if (contactId != null && contactId.isNotEmpty) 'contactId': contactId,
         if (userId != null && userId.isNotEmpty) 'userId': userId,
+        if (clientMessageId != null && clientMessageId.isNotEmpty)
+          'clientMessageId': clientMessageId,
       }),
     );
 
@@ -111,7 +116,49 @@ class OpenClawHttpClient implements OpenClawClient {
     }
 
     final json = jsonDecode(response.body) as Map<String, dynamic>;
-    final reply = (json['payload']?['reply'] ?? json['reply'] ?? '').toString();
-    return reply;
+    if (json['ok'] != true) {
+      throw Exception('发送消息失败: ${response.body}');
+    }
+    return (json['messageId'] ?? '').toString();
+  }
+
+  @override
+  Stream<Map<String, dynamic>> subscribeEvents({required String sessionId}) async* {
+    final request = http.Request(
+      'GET',
+      _uri('/api/events', queryParameters: {'sessionId': sessionId}),
+    );
+    request.headers.addAll(_headers);
+    final response = await _httpClient.send(request);
+    if (response.statusCode >= 400) {
+      throw Exception('订阅事件失败: ${response.reasonPhrase ?? response.statusCode}');
+    }
+
+    String? eventName;
+    await for (final chunk in response.stream.transform(utf8.decoder)) {
+      final lines = chunk.split('\n');
+      for (final rawLine in lines) {
+        final line = rawLine.trimRight();
+        if (line.isEmpty) {
+          eventName = null;
+          continue;
+        }
+        if (line.startsWith('event:')) {
+          eventName = line.substring(6).trim();
+          continue;
+        }
+        if (line.startsWith('data:')) {
+          final data = line.substring(5).trim();
+          if (data.isEmpty) continue;
+          final payload = jsonDecode(data);
+          if (payload is Map<String, dynamic>) {
+            yield {
+              'event': eventName ?? 'message',
+              ...payload,
+            };
+          }
+        }
+      }
+    }
   }
 }
