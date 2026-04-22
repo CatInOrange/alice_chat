@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../domain/contact.dart';
 
-class ContactsScreen extends StatelessWidget {
+class ContactsScreen extends StatefulWidget {
   const ContactsScreen({
     super.key,
     required this.contacts,
@@ -13,13 +13,24 @@ class ContactsScreen extends StatelessWidget {
   final void Function(Contact contact) onContactTap;
 
   @override
+  State<ContactsScreen> createState() => _ContactsScreenState();
+}
+
+class _ContactsScreenState extends State<ContactsScreen>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
     return Scaffold(
       appBar: AppBar(title: const Text('通讯录')),
       body: ListView.builder(
-        itemCount: contacts.length,
+        key: const PageStorageKey('contacts-list'),
+        itemCount: widget.contacts.length,
         itemBuilder: (context, index) {
-          final contact = contacts[index];
+          final contact = widget.contacts[index];
           return ListTile(
             leading: CircleAvatar(
               backgroundImage: contact.avatarAssetPath != null
@@ -32,7 +43,7 @@ class ContactsScreen extends StatelessWidget {
             title: Text(contact.name),
             subtitle: Text(contact.subtitle ?? ''),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => onContactTap(contact),
+            onTap: () => widget.onContactTap(contact),
           );
         },
       ),
