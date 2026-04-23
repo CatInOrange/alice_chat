@@ -8,15 +8,16 @@ import 'openclaw_config.dart';
 
 class OpenClawHttpClient implements OpenClawClient {
   OpenClawHttpClient(this.config, {http.Client? httpClient})
-      : _httpClient = httpClient ?? http.Client();
+    : _httpClient = httpClient ?? http.Client();
 
   final OpenClawConfig config;
   final http.Client _httpClient;
 
   Uri _uri(String path, {Map<String, String>? queryParameters}) {
-    final base = config.baseUrl.endsWith('/')
-        ? config.baseUrl.substring(0, config.baseUrl.length - 1)
-        : config.baseUrl;
+    final base =
+        config.baseUrl.endsWith('/')
+            ? config.baseUrl.substring(0, config.baseUrl.length - 1)
+            : config.baseUrl;
     return Uri.parse('$base$path').replace(queryParameters: queryParameters);
   }
 
@@ -42,9 +43,11 @@ class OpenClawHttpClient implements OpenClawClient {
       throw Exception('加载会话失败: ${sessionsResponse.body}');
     }
 
-    final sessionsJson = jsonDecode(sessionsResponse.body) as Map<String, dynamic>;
-    final sessions = (sessionsJson['sessions'] as List<dynamic>? ?? const [])
-        .cast<Map<String, dynamic>>();
+    final sessionsJson =
+        jsonDecode(sessionsResponse.body) as Map<String, dynamic>;
+    final sessions =
+        (sessionsJson['sessions'] as List<dynamic>? ?? const [])
+            .cast<Map<String, dynamic>>();
 
     for (final session in sessions) {
       if ((session['name'] ?? '').toString() == preferredName) {
@@ -123,15 +126,26 @@ class OpenClawHttpClient implements OpenClawClient {
   }
 
   @override
-  Stream<Map<String, dynamic>> subscribeEvents({required String sessionId}) async* {
+  Stream<Map<String, dynamic>> subscribeEvents({
+    required String sessionId,
+    int? since,
+  }) async* {
     final request = http.Request(
       'GET',
-      _uri('/api/events', queryParameters: {'sessionId': sessionId}),
+      _uri(
+        '/api/events',
+        queryParameters: {
+          'sessionId': sessionId,
+          if (since != null) 'since': since.toString(),
+        },
+      ),
     );
     request.headers.addAll(_headers);
     final response = await _httpClient.send(request);
     if (response.statusCode >= 400) {
-      throw Exception('订阅事件失败: ${response.reasonPhrase ?? response.statusCode}');
+      throw Exception(
+        '订阅事件失败: ${response.reasonPhrase ?? response.statusCode}',
+      );
     }
 
     final lineStream = response.stream
@@ -149,9 +163,16 @@ class OpenClawHttpClient implements OpenClawClient {
           if (data.isNotEmpty) {
             final payload = jsonDecode(data);
             if (payload is Map<String, dynamic>) {
+              final effectivePayload =
+                  payload['payload'] is Map<String, dynamic>
+                      ? Map<String, dynamic>.from(payload['payload'] as Map)
+                      : Map<String, dynamic>.from(payload);
               yield {
                 'event': eventName ?? 'message',
-                ...payload,
+                if (payload['seq'] != null) 'seq': payload['seq'],
+                if (payload['ts'] != null) 'ts': payload['ts'],
+                if (payload['type'] != null) 'transportEvent': payload['type'],
+                ...effectivePayload,
               };
             }
           }

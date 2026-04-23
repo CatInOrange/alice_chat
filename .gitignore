@@ -3,6 +3,12 @@
 .packages
 .pub/
 build/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Local build artifacts
+*.apk
+*.apk.zip
 
 # IDE
 .idea/

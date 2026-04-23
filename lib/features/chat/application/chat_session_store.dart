@@ -27,6 +27,8 @@ class ChatSessionStore extends ChangeNotifier {
 
   static const int initialMessageLimit = 20;
   static const Duration sendStuckTimeout = Duration(seconds: 45);
+  static const Duration eventReconnectBaseDelay = Duration(seconds: 1);
+  static const Duration eventReconnectMaxDelay = Duration(seconds: 8);
 
   final OpenClawHttpClient _client;
   final Uuid _uuid = const Uuid();
@@ -34,6 +36,7 @@ class ChatSessionStore extends ChangeNotifier {
   final Map<String, StreamSubscription<Map<String, dynamic>>>
   _eventSubscriptions = {};
   final Map<String, Timer> _sendWatchdogs = {};
+  final Map<String, Timer> _eventReconnectTimers = {};
 
   ChatViewState stateFor(ChatSession session) {
     return _states.putIfAbsent(
@@ -151,29 +154,52 @@ class ChatSessionStore extends ChangeNotifier {
 
   void _ensureEventSubscription(ChatSession session, String sessionId) {
     if (_eventSubscriptions.containsKey(sessionId)) return;
+    _eventReconnectTimers.remove(sessionId)?.cancel();
     final state = stateFor(session);
+    state.isEventConnecting = true;
+    notifyListeners();
     _eventSubscriptions[sessionId] = _client
-        .subscribeEvents(sessionId: sessionId)
+        .subscribeEvents(sessionId: sessionId, since: state.lastEventSeq)
         .listen(
-          (event) => _handleEvent(state, event),
+          (event) {
+            state.isEventConnecting = false;
+            _handleEvent(state, event);
+          },
           onError: (error) {
+            _eventSubscriptions.remove(sessionId);
             state
               ..error = error.toString()
               ..clearPending()
-              ..isSending = false;
+              ..clearStreaming()
+              ..isSending = false
+              ..isEventConnecting = false;
             _cancelWatchdogsForState(state);
             notifyListeners();
+            _scheduleEventReconnect(session, sessionId, state);
           },
           onDone: () {
-            state.clearStreaming();
-            state.isSending = state.pendingClientMessageIds.isNotEmpty;
+            _eventSubscriptions.remove(sessionId);
+            state
+              ..clearStreaming()
+              ..isSending = state.pendingClientMessageIds.isNotEmpty
+              ..isEventConnecting = false;
             _cancelWatchdogsForState(state);
             notifyListeners();
+            _scheduleEventReconnect(session, sessionId, state);
           },
         );
   }
 
   void _handleEvent(ChatViewState state, Map<String, dynamic> event) {
+    final seqValue = event['seq'];
+    if (seqValue is num) {
+      if (state.lastEventSeq != null &&
+          seqValue.toInt() <= state.lastEventSeq!) {
+        return;
+      }
+      state.lastEventSeq = seqValue.toInt();
+      state.reconnectAttempts = 0;
+    }
     final type = (event['event'] ?? '').toString();
     switch (type) {
       case 'message.created':
@@ -286,6 +312,38 @@ class ChatSessionStore extends ChangeNotifier {
     }
   }
 
+  void _scheduleEventReconnect(
+    ChatSession session,
+    String sessionId,
+    ChatViewState state,
+  ) {
+    if (_eventReconnectTimers.containsKey(sessionId)) return;
+    state.reconnectAttempts += 1;
+    final multiplier = 1 << (state.reconnectAttempts - 1).clamp(0, 3);
+    final delayMs = (eventReconnectBaseDelay.inMilliseconds * multiplier).clamp(
+      eventReconnectBaseDelay.inMilliseconds,
+      eventReconnectMaxDelay.inMilliseconds,
+    );
+    _eventReconnectTimers[sessionId] = Timer(
+      Duration(milliseconds: delayMs),
+      () async {
+        _eventReconnectTimers.remove(sessionId)?.cancel();
+        if (state.backendSessionId != sessionId) return;
+        try {
+          final messages = await _loadMessages(
+            sessionId,
+            limitToLatest: initialMessageLimit,
+          );
+          state
+            ..replaceMessages(messages)
+            ..error = null;
+          notifyListeners();
+        } catch (_) {}
+        _ensureEventSubscription(session, sessionId);
+      },
+    );
+  }
+
   @override
   void dispose() {
     for (final subscription in _eventSubscriptions.values) {
@@ -294,8 +352,12 @@ class ChatSessionStore extends ChangeNotifier {
     for (final timer in _sendWatchdogs.values) {
       timer.cancel();
     }
+    for (final timer in _eventReconnectTimers.values) {
+      timer.cancel();
+    }
     _eventSubscriptions.clear();
     _sendWatchdogs.clear();
+    _eventReconnectTimers.clear();
     super.dispose();
   }
 
@@ -364,7 +426,10 @@ class ChatViewState {
   bool isLoading = false;
   bool isReady = false;
   bool isSending = false;
+  bool isEventConnecting = false;
   String? error;
+  int? lastEventSeq;
+  int reconnectAttempts = 0;
   double scrollOffset = 0;
   bool stickToBottom = true;
   List<core.TextMessage> messages = const [];
