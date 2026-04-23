@@ -57,11 +57,28 @@ class ChatSessionStore extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final sessionId = await _ensureBackendSession(session);
-      final messages = await _loadMessages(
-        sessionId,
-        limitToLatest: initialMessageLimit,
-      );
+      var sessionId = await _ensureBackendSession(session);
+      List<core.TextMessage> messages;
+      try {
+        messages = await _loadMessages(
+          sessionId,
+          limitToLatest: initialMessageLimit,
+        );
+      } catch (error) {
+        if (!_isUnknownSessionError(error)) rethrow;
+        _resetBackendSession(state);
+        _debugState(
+          'session.recover.ensureReady',
+          state,
+          extra: {'reason': error.toString()},
+          force: true,
+        );
+        sessionId = await _ensureBackendSession(session);
+        messages = await _loadMessages(
+          sessionId,
+          limitToLatest: initialMessageLimit,
+        );
+      }
 
       state
         ..backendSessionId = sessionId
@@ -86,7 +103,7 @@ class ChatSessionStore extends ChangeNotifier {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
 
-    final sessionId =
+    var sessionId =
         state.backendSessionId ?? await _ensureBackendSession(session);
     state.backendSessionId = sessionId;
     _ensureEventSubscription(session, sessionId);
@@ -126,19 +143,56 @@ class ChatSessionStore extends ChangeNotifier {
         extra: {'clientMessageId': clientMessageId},
       );
     } catch (error) {
+      Object finalError = error;
+      if (_isUnknownSessionError(error)) {
+        _resetBackendSession(state);
+        _debugState(
+          'session.recover.sendMessage',
+          state,
+          extra: {
+            'clientMessageId': clientMessageId,
+            'reason': error.toString(),
+          },
+          force: true,
+        );
+        try {
+          sessionId = await _ensureBackendSession(session);
+          state.backendSessionId = sessionId;
+          _ensureEventSubscription(session, sessionId);
+          await _client.sendMessage(
+            sessionId: sessionId,
+            text: trimmed,
+            contactId: session.contactId,
+            userId: sessionId,
+            clientMessageId: clientMessageId,
+          );
+          _debugState(
+            'sendMessage.posted.retry',
+            state,
+            extra: {'clientMessageId': clientMessageId, 'sessionId': sessionId},
+            force: true,
+          );
+          return;
+        } catch (retryError) {
+          finalError = retryError;
+        }
+      }
       _clearPendingClientMessage(state, clientMessageId);
       state.appendMessage(
         core.TextMessage(
           id: _uuid.v4(),
           authorId: 'assistant',
           createdAt: DateTime.now(),
-          text: '❌ 发送失败: ${error.toString()}',
+          text: '❌ 发送失败: ${finalError.toString()}',
         ),
       );
       _debugState(
         'sendMessage.error',
         state,
-        extra: {'clientMessageId': clientMessageId, 'error': error.toString()},
+        extra: {
+          'clientMessageId': clientMessageId,
+          'error': finalError.toString(),
+        },
       );
       notifyListeners();
     }
@@ -380,6 +434,30 @@ class ChatSessionStore extends ChangeNotifier {
     }
     final oldest = state.pendingClientMessageIds.first;
     _clearPendingClientMessage(state, oldest, notify: notify);
+  }
+
+  bool _isUnknownSessionError(Object error) {
+    final text = error.toString().toLowerCase();
+    return text.contains('unknown session id') || text.contains('404');
+  }
+
+  void _resetBackendSession(ChatViewState state) {
+    final oldSessionId = state.backendSessionId;
+    if (oldSessionId != null && oldSessionId.isNotEmpty) {
+      _eventSubscriptions.remove(oldSessionId)?.cancel();
+      _eventReconnectTimers.remove(oldSessionId)?.cancel();
+    }
+    state
+      ..backendSessionId = null
+      ..isReady = false
+      ..isEventConnecting = false
+      ..lastEventSeq = null
+      ..reconnectAttempts = 0
+      ..clearPending()
+      ..clearStreaming()
+      ..isSubmitting = false
+      ..isAssistantStreaming = false;
+    _cancelWatchdogsForState(state);
   }
 
   void _cancelWatchdogsForState(ChatViewState state) {
