@@ -21,6 +21,25 @@ jobs:
       
       - name: Get dependencies
         run: flutter pub get
+
+      - name: Restore debug keystore
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+          DEBUG_KEYSTORE_PASSWORD: ${{ secrets.DEBUG_KEYSTORE_PASSWORD }}
+          DEBUG_KEY_ALIAS: ${{ secrets.DEBUG_KEY_ALIAS }}
+          DEBUG_KEY_PASSWORD: ${{ secrets.DEBUG_KEY_PASSWORD }}
+        run: |
+          test -n "$DEBUG_KEYSTORE_BASE64"
+          test -n "$DEBUG_KEYSTORE_PASSWORD"
+          test -n "$DEBUG_KEY_ALIAS"
+          test -n "$DEBUG_KEY_PASSWORD"
+          echo "$DEBUG_KEYSTORE_BASE64" | base64 -d > android/debug.keystore
+          cat > android/key.properties <<EOF
+          storeFile=debug.keystore
+          storePassword=$DEBUG_KEYSTORE_PASSWORD
+          keyAlias=$DEBUG_KEY_ALIAS
+          keyPassword=$DEBUG_KEY_PASSWORD
+          EOF
       
       - name: Build debug APK
         run: flutter build apk --debug
