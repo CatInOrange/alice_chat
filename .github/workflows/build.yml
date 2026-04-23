@@ -24,7 +24,13 @@ jobs:
       
       - name: Build debug APK
         run: flutter build apk --debug
-      
+
+      - name: Compress APK
+        run: |
+          cd build/app/outputs/flutter-apk
+          zip app-debug.apk.zip app-debug.apk
+          echo "Compressed size: $(du -h app-debug.apk.zip | cut -f1)"
+
       - name: Setup COS CLI
         run: |
           pip install cos-python-sdk-v5
@@ -52,8 +58,8 @@ jobs:
           )
           client = CosS3Client(config)
 
-          local_file = 'build/app/outputs/flutter-apk/app-debug.apk'
-          cos_path = 'apk/app-debug.apk'
+          local_file = 'build/app/outputs/flutter-apk/app-debug.apk.zip'
+          cos_path = 'apk/app-debug.apk.zip'
 
           print(f'Uploading {local_file} to cos://{os.environ["COS_BUCKET"]}/{cos_path}')
           client.upload_file(
