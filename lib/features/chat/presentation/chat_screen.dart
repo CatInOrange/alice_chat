@@ -522,7 +522,7 @@ class _ChatScreenState extends State<ChatScreen> {
     return RepaintBoundary(
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onLongPress: () => _copyMessageText(context, message.text),
+        onLongPress: () => _showMessageActionSheet(context, message.text),
         child: Container(
           constraints: BoxConstraints(maxWidth: maxWidth),
           decoration: BoxDecoration(
@@ -680,9 +680,41 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Future<void> _copyMessageText(BuildContext context, String text) async {
+  Future<void> _showMessageActionSheet(BuildContext context, String text) async {
     final plainText = _stripModelNamePrefix(text).trim();
     if (plainText.isEmpty) return;
+
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.copy_rounded),
+                  title: Text(
+                    '复制',
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  onTap: () => Navigator.of(sheetContext).pop('copy'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (action != 'copy') return;
     await Clipboard.setData(ClipboardData(text: plainText));
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
