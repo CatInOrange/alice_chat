@@ -11,25 +11,29 @@ import '../domain/chat_session.dart';
 
 class ChatSessionStore extends ChangeNotifier {
   ChatSessionStore({OpenClawHttpClient? client})
-      : _client = client ??
-            OpenClawHttpClient(
-              const OpenClawConfig(
-                baseUrl: 'https://alice.newthu.com',
-                modelId: 'bian',
-                providerId: 'alicechat-channel',
-                agent: 'main',
-                sessionName: 'alicechat',
-                bridgeUrl:
-                    'ws://127.0.0.1:18791?token=yuanzhe-7611681-668128-zheyuan-012345',
-              ),
-            );
+    : _client =
+          client ??
+          OpenClawHttpClient(
+            const OpenClawConfig(
+              baseUrl: 'https://alice.newthu.com',
+              modelId: 'bian',
+              providerId: 'alicechat-channel',
+              agent: 'main',
+              sessionName: 'alicechat',
+              bridgeUrl:
+                  'ws://127.0.0.1:18791?token=yuanzhe-7611681-668128-zheyuan-012345',
+            ),
+          );
 
   static const int initialMessageLimit = 20;
+  static const Duration sendStuckTimeout = Duration(seconds: 45);
 
   final OpenClawHttpClient _client;
   final Uuid _uuid = const Uuid();
   final Map<String, ChatViewState> _states = {};
-  final Map<String, StreamSubscription<Map<String, dynamic>>> _eventSubscriptions = {};
+  final Map<String, StreamSubscription<Map<String, dynamic>>>
+  _eventSubscriptions = {};
+  final Map<String, Timer> _sendWatchdogs = {};
 
   ChatViewState stateFor(ChatSession session) {
     return _states.putIfAbsent(
@@ -95,6 +99,7 @@ class ChatSessionStore extends ChangeNotifier {
       ..appendMessage(userMessage)
       ..markShouldStickToBottom()
       ..pendingClientMessageIds.add(clientMessageId);
+    _armSendWatchdog(state, clientMessageId);
     notifyListeners();
 
     try {
@@ -106,9 +111,7 @@ class ChatSessionStore extends ChangeNotifier {
         clientMessageId: clientMessageId,
       );
     } catch (error) {
-      state
-        ..pendingClientMessageIds.remove(clientMessageId)
-        ..isSending = state.pendingClientMessageIds.isNotEmpty;
+      _clearPendingClientMessage(state, clientMessageId);
       state.appendMessage(
         core.TextMessage(
           id: _uuid.v4(),
@@ -154,7 +157,17 @@ class ChatSessionStore extends ChangeNotifier {
         .listen(
           (event) => _handleEvent(state, event),
           onError: (error) {
-            state.error = error.toString();
+            state
+              ..error = error.toString()
+              ..clearPending()
+              ..isSending = false;
+            _cancelWatchdogsForState(state);
+            notifyListeners();
+          },
+          onDone: () {
+            state.clearStreaming();
+            state.isSending = state.pendingClientMessageIds.isNotEmpty;
+            _cancelWatchdogsForState(state);
             notifyListeners();
           },
         );
@@ -175,8 +188,7 @@ class ChatSessionStore extends ChangeNotifier {
       case 'message.status':
         final clientMessageId = (event['clientMessageId'] ?? '').toString();
         if (clientMessageId.isNotEmpty) {
-          state.pendingClientMessageIds.remove(clientMessageId);
-          state.isSending = state.pendingClientMessageIds.isNotEmpty;
+          _clearPendingClientMessage(state, clientMessageId);
         }
         break;
       case 'assistant.message.started':
@@ -190,7 +202,12 @@ class ChatSessionStore extends ChangeNotifier {
         final messageId = (event['messageId'] ?? '').toString();
         final text = (event['text'] ?? '').toString();
         if (messageId.isNotEmpty) {
-          state.patchMessageText(messageId, text);
+          state.upsertOrPatchAssistantMessage(messageId, text);
+          state.streamingMessageIds.add(messageId);
+        }
+        final clientMessageId = (event['clientMessageId'] ?? '').toString();
+        if (clientMessageId.isNotEmpty) {
+          _clearPendingClientMessage(state, clientMessageId);
         }
         state.isSending = true;
         break;
@@ -201,39 +218,101 @@ class ChatSessionStore extends ChangeNotifier {
         state.streamingMessageIds.remove(message.id);
         final clientMessageId = (event['clientMessageId'] ?? '').toString();
         if (clientMessageId.isNotEmpty) {
-          state.pendingClientMessageIds.remove(clientMessageId);
+          _clearPendingClientMessage(state, clientMessageId, notify: false);
         }
         state.isSending =
-            state.pendingClientMessageIds.isNotEmpty || state.streamingMessageIds.isNotEmpty;
+            state.pendingClientMessageIds.isNotEmpty ||
+            state.streamingMessageIds.isNotEmpty;
         break;
       case 'assistant.message.failed':
         final messageId = (event['messageId'] ?? '').toString();
         final error = (event['error'] ?? 'unknown error').toString();
         if (messageId.isNotEmpty) {
-          state.patchMessageText(messageId, '❌ 回复失败: $error');
+          state.upsertOrPatchAssistantMessage(messageId, '❌ 回复失败: $error');
           state.streamingMessageIds.remove(messageId);
         }
         final clientMessageId = (event['clientMessageId'] ?? '').toString();
         if (clientMessageId.isNotEmpty) {
-          state.pendingClientMessageIds.remove(clientMessageId);
+          _clearPendingClientMessage(state, clientMessageId, notify: false);
         }
         state.isSending =
-            state.pendingClientMessageIds.isNotEmpty || state.streamingMessageIds.isNotEmpty;
+            state.pendingClientMessageIds.isNotEmpty ||
+            state.streamingMessageIds.isNotEmpty;
         break;
     }
     notifyListeners();
   }
 
+  void _armSendWatchdog(ChatViewState state, String clientMessageId) {
+    _sendWatchdogs.remove(clientMessageId)?.cancel();
+    _sendWatchdogs[clientMessageId] = Timer(sendStuckTimeout, () {
+      if (!state.pendingClientMessageIds.contains(clientMessageId)) {
+        _sendWatchdogs.remove(clientMessageId)?.cancel();
+        return;
+      }
+      state.pendingClientMessageIds.remove(clientMessageId);
+      state.isSending = state.streamingMessageIds.isNotEmpty;
+      state.appendMessage(
+        core.TextMessage(
+          id: _uuid.v4(),
+          authorId: 'assistant',
+          createdAt: DateTime.now(),
+          text: '⚠️ 这条消息已经发出，但确认事件迟迟没回来。我先把输入框解锁了。',
+        ),
+      );
+      _sendWatchdogs.remove(clientMessageId)?.cancel();
+      notifyListeners();
+    });
+  }
+
+  void _clearPendingClientMessage(
+    ChatViewState state,
+    String clientMessageId, {
+    bool notify = false,
+  }) {
+    state.pendingClientMessageIds.remove(clientMessageId);
+    _sendWatchdogs.remove(clientMessageId)?.cancel();
+    state.isSending =
+        state.pendingClientMessageIds.isNotEmpty ||
+        state.streamingMessageIds.isNotEmpty;
+    if (notify) {
+      notifyListeners();
+    }
+  }
+
+  void _cancelWatchdogsForState(ChatViewState state) {
+    for (final clientMessageId in state.pendingClientMessageIds.toList()) {
+      _sendWatchdogs.remove(clientMessageId)?.cancel();
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final subscription in _eventSubscriptions.values) {
+      subscription.cancel();
+    }
+    for (final timer in _sendWatchdogs.values) {
+      timer.cancel();
+    }
+    _eventSubscriptions.clear();
+    _sendWatchdogs.clear();
+    super.dispose();
+  }
+
   core.TextMessage? _mapEventMessage(dynamic raw) {
     if (raw is! Map<String, dynamic>) return null;
     final createdAtValue = raw['createdAt'];
-    final createdAt = createdAtValue is num
-        ? DateTime.fromMillisecondsSinceEpoch((createdAtValue * 1000).round())
-        : DateTime.now();
+    final createdAt =
+        createdAtValue is num
+            ? DateTime.fromMillisecondsSinceEpoch(
+              (createdAtValue * 1000).round(),
+            )
+            : DateTime.now();
     final role = (raw['role'] ?? '').toString();
-    final authorId = role == 'assistant'
-        ? 'assistant'
-        : role == 'system'
+    final authorId =
+        role == 'assistant'
+            ? 'assistant'
+            : role == 'system'
             ? 'system'
             : 'user';
     return core.TextMessage(
@@ -249,11 +328,12 @@ class ChatSessionStore extends ChangeNotifier {
     int? limitToLatest,
   }) async {
     final rawMessages = await _client.loadMessages(sessionId);
-    final messages = rawMessages
-        .map(domain.ChatMessage.fromBackend)
-        .where((message) => message.text.trim().isNotEmpty)
-        .toList()
-      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    final messages =
+        rawMessages
+            .map(domain.ChatMessage.fromBackend)
+            .where((message) => message.text.trim().isNotEmpty)
+            .toList()
+          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
     final visibleMessages =
         limitToLatest != null && messages.length > limitToLatest
@@ -275,7 +355,7 @@ class ChatSessionStore extends ChangeNotifier {
 
 class ChatViewState {
   ChatViewState({required this.session})
-      : draftController = ValueNotifier<String>('');
+    : draftController = ValueNotifier<String>('');
 
   final ChatSession session;
   final ValueNotifier<String> draftController;
@@ -307,10 +387,8 @@ class ChatViewState {
     } else {
       list.add(message);
       list.sort(
-        (a, b) =>
-            (a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)).compareTo(
-              b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0),
-            ),
+        (a, b) => (a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+            .compareTo(b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)),
       );
     }
     messages = List<core.TextMessage>.unmodifiable(list);
@@ -342,6 +420,38 @@ class ChatViewState {
       text: nextText,
     );
     messages = List<core.TextMessage>.unmodifiable(list);
+  }
+
+  void upsertOrPatchAssistantMessage(String messageId, String text) {
+    final list = [...messages];
+    final index = list.indexWhere((item) => item.id == messageId);
+    if (index >= 0) {
+      final old = list[index];
+      list[index] = core.TextMessage(
+        id: old.id,
+        authorId: old.authorId,
+        createdAt: old.createdAt,
+        text: text,
+      );
+    } else {
+      list.add(
+        core.TextMessage(
+          id: messageId,
+          authorId: 'assistant',
+          createdAt: DateTime.now(),
+          text: text,
+        ),
+      );
+    }
+    messages = List<core.TextMessage>.unmodifiable(list);
+  }
+
+  void clearPending() {
+    pendingClientMessageIds.clear();
+  }
+
+  void clearStreaming() {
+    streamingMessageIds.clear();
   }
 
   void markShouldStickToBottom() {
