@@ -507,7 +507,13 @@ class _ChatScreenState extends State<ChatScreen> {
                     fontSize: 11,
                   ),
                 ),
-                const SizedBox(width: 6),
+                Text(
+                  " · ",
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF98A1B3),
+                    fontSize: 11,
+                  ),
+                ),
                 Text(
                   _formatMessageTime(message.createdAt ?? DateTime.now()),
                   style: theme.textTheme.bodySmall?.copyWith(
@@ -515,6 +521,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     fontSize: 11,
                   ),
                 ),
+                _buildModelNameText(message.text),
               ],
             ),
           ],
@@ -601,6 +608,33 @@ class _ChatScreenState extends State<ChatScreen> {
     final hour = dateTime.hour.toString().padLeft(2, '0');
     final minute = dateTime.minute.toString().padLeft(2, '0');
     return '$hour:$minute';
+  }
+
+  Widget _buildModelNameText(String text) {
+    // Parse [ModelName] from beginning of text
+    if (!text.startsWith('[')) return const SizedBox.shrink();
+    final bracketEnd = text.indexOf(']');
+    if (bracketEnd <= 1) return const SizedBox.shrink();
+    final modelName = text.substring(1, bracketEnd);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          " | ",
+          style: const TextStyle(
+            color: Color(0xFF98A1B3),
+            fontSize: 11,
+          ),
+        ),
+        Text(
+          modelName,
+          style: const TextStyle(
+            color: Color(0xFF98A1B3),
+            fontSize: 11,
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildComposer(BuildContext context) {
