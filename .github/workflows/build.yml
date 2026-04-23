@@ -84,11 +84,14 @@ jobs:
         run: |
           python3 << 'EOF'
           import os
+          import time
+          import logging
           from qcloud_cos import CosConfig
           from qcloud_cos import CosS3Client
-          import logging
+          from qcloud_cos.cos_exception import CosClientError, CosServiceError
 
           logging.basicConfig(level=logging.INFO, stream=__import__('sys').stdout)
+          logger = logging.getLogger()
 
           config = CosConfig(
               Region=os.environ['COS_REGION'],
@@ -102,17 +105,38 @@ jobs:
           local_file = 'build/app/outputs/flutter-apk/app-debug.apk.zip'
           cos_path = 'apk/app-debug.apk.zip'
 
-          print(f'Uploading {local_file} to cos://{os.environ["COS_BUCKET"]}/{cos_path}')
-          client.upload_file(
-              Bucket=os.environ['COS_BUCKET'],
-              LocalFilePath=local_file,
-              Key=cos_path,
-              PartSize=10,
-              MAXThread=10
-          )
-          print('Upload complete!')
-          print(f'COS URL: https://{os.environ["COS_BUCKET"]}.cos.{os.environ["COS_REGION"]}.myqcloud.com/{cos_path}')
-          EOF
+          def upload_with_retry(client, bucket, local_file, cos_path, max_retries=3):
+              for attempt in range(max_retries):
+                  try:
+                      logger.info(f'Upload attempt {attempt + 1}/{max_retries}')
+                      logger.info(f'Uploading {local_file} to cos://{bucket}/{cos_path}')
+                      client.upload_file(
+                          Bucket=bucket,
+                          LocalFilePath=local_file,
+                          Key=cos_path,
+                          PartSize=20,
+                          MAXThread=20,
+                          Timeout=600
+                      )
+                      logger.info('Upload complete!')
+                      return True
+                  except (CosClientError, CosServiceError, Exception) as e:
+                      logger.warning(f'Attempt {attempt + 1} failed: {e}')
+                      if attempt < max_retries - 1:
+                          wait = (attempt + 1) * 30
+                          logger.info(f'Retrying in {wait}s...')
+                          time.sleep(wait)
+              return False
+
+          bucket = os.environ['COS_BUCKET']
+          success = upload_with_retry(client, bucket, local_file, cos_path)
+
+          if success:
+              print(f'COS URL: https://{bucket}.cos.{os.environ["COS_REGION"]}.myqcloud.com/{cos_path}')
+          else:
+              logger.error('Upload failed after all retries')
+              exit(1)
+        continue-on-error: true
       
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
