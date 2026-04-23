@@ -33,6 +33,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _didRestoreScroll = false;
   double _lastSavedOffset = -1;
   bool _lastSavedStickToBottom = true;
+  bool _showJumpToBottom = false;
   final List<String> _appliedMessageIds = [];
 
   // Cache for MarkdownStyleSheet to avoid rebuilding on every message
@@ -210,11 +211,46 @@ class _ChatScreenState extends State<ChatScreen> {
           builders: _chatBuilders,
           backgroundColor: const Color(0xFFF6F7FB),
         ),
+        if (_showJumpToBottom)
+          Positioned(
+            right: 16,
+            bottom: state.isAssistantStreaming ? 78 : 18,
+            child: SafeArea(
+              top: false,
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: _jumpToBottom,
+                  borderRadius: BorderRadius.circular(22),
+                  child: Ink(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(22),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x1A1F2430),
+                          blurRadius: 14,
+                          offset: Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: Color(0xFF667085),
+                      size: 28,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         if (state.isAssistantStreaming)
           Positioned(
             left: 12,
             right: 12,
-            bottom: 14,
+            bottom: 72,
             child: IgnorePointer(
               child: Align(
                 alignment: Alignment.centerLeft,
@@ -314,9 +350,14 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!_chatListController.hasClients) return;
     final store = context.read<ChatSessionStore>();
     final position = _chatListController.position;
-    final max = position.maxScrollExtent;
     final offset = position.pixels;
-    final atBottom = max - offset <= 24;
+    final atBottom = offset <= 24;
+    final shouldShowJump = offset > 320;
+    if (_showJumpToBottom != shouldShowJump && mounted) {
+      setState(() {
+        _showJumpToBottom = shouldShowJump;
+      });
+    }
     if ((_lastSavedOffset - offset).abs() < 24 &&
         _lastSavedStickToBottom == atBottom) {
       return;
@@ -327,6 +368,15 @@ class _ChatScreenState extends State<ChatScreen> {
       widget.session,
       offset: offset,
       stickToBottom: atBottom,
+    );
+  }
+
+  void _jumpToBottom() {
+    if (!_chatListController.hasClients) return;
+    _chatListController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
     );
   }
 
