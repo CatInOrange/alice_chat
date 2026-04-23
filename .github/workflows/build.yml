@@ -115,8 +115,7 @@ jobs:
               SecretKey=os.environ['COS_SECRET_KEY'],
               Token=None,
               Scheme='https',
-              ConnectionTimeout=600,
-              SocketTimeout=600
+              Timeout=600
           )
           client = CosS3Client(config)
 
