@@ -35,7 +35,7 @@ jobs:
             -validity 10000 \
             -dname "CN=AliceChat Debug, OU=Dev, O=AliceChat, L=Shanghai, ST=Shanghai, C=CN"
           cat > android/key.properties <<EOF
-          storeFile=debug.keystore
+          storeFile=../debug.keystore
           storePassword=alicechat_debug_store
           keyAlias=alicechatdebug
           keyPassword=alicechat_debug_key
