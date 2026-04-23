@@ -36,7 +36,7 @@ class _ChatScreenState extends State<ChatScreen> {
   String get _assistantName => widget.session.title;
 
   String _assistantSubtitle(ChatViewState state) =>
-      state.isSending ? '正在输入…' : widget.session.subtitle;
+      state.isAssistantStreaming ? '正在输入…' : widget.session.subtitle;
 
   Builders get _chatBuilders => Builders(
         textMessageBuilder: _buildTextMessage,
@@ -109,7 +109,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: state.isSending
+                      color: state.isAssistantStreaming
                           ? theme.colorScheme.primary
                           : const Color(0xFF98A1B3),
                     ),
@@ -202,7 +202,7 @@ class _ChatScreenState extends State<ChatScreen> {
           builders: _chatBuilders,
           backgroundColor: const Color(0xFFF6F7FB),
         ),
-        if (state.isSending)
+        if (state.isAssistantStreaming)
           Positioned(
             left: 12,
             right: 12,
@@ -674,7 +674,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       isDense: true,
                     ),
                     onSubmitted: (value) {
-                      if (value.trim().isNotEmpty && !state.isSending) {
+                      if (value.trim().isNotEmpty && !state.isSubmitting) {
                         _handleSend(value);
                       }
                     },
@@ -687,7 +687,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: state.isSending
+                  color: state.isSubmitting
                       ? const Color(0xFFD7CCFF)
                       : theme.colorScheme.primary,
                   borderRadius: BorderRadius.circular(22),
@@ -700,7 +700,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   ],
                 ),
                 child: IconButton(
-                  onPressed: state.isSending
+                  onPressed: state.isSubmitting
                       ? null
                       : () {
                           final text = _composerController.text;
@@ -708,7 +708,7 @@ class _ChatScreenState extends State<ChatScreen> {
                             _handleSend(text);
                           }
                         },
-                  icon: state.isSending
+                  icon: state.isSubmitting
                       ? const SizedBox(
                           width: 18,
                           height: 18,

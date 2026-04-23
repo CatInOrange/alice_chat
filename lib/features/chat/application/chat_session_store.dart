@@ -98,7 +98,7 @@ class ChatSessionStore extends ChangeNotifier {
     );
 
     state
-      ..isSending = true
+      ..isSubmitting = true
       ..appendMessage(userMessage)
       ..markShouldStickToBottom()
       ..pendingClientMessageIds.add(clientMessageId);
@@ -171,7 +171,8 @@ class ChatSessionStore extends ChangeNotifier {
               ..error = error.toString()
               ..clearPending()
               ..clearStreaming()
-              ..isSending = false
+              ..isSubmitting = false
+              ..isAssistantStreaming = false
               ..isEventConnecting = false;
             _cancelWatchdogsForState(state);
             notifyListeners();
@@ -181,7 +182,8 @@ class ChatSessionStore extends ChangeNotifier {
             _eventSubscriptions.remove(sessionId);
             state
               ..clearStreaming()
-              ..isSending = state.pendingClientMessageIds.isNotEmpty
+              ..isSubmitting = state.pendingClientMessageIds.isNotEmpty
+              ..isAssistantStreaming = false
               ..isEventConnecting = false;
             _cancelWatchdogsForState(state);
             notifyListeners();
@@ -224,7 +226,9 @@ class ChatSessionStore extends ChangeNotifier {
         state.streamingMessageIds
           ..clear()
           ..add(message.id);
-        state.isSending = true;
+        state
+          ..isSubmitting = false
+          ..isAssistantStreaming = true;
         break;
       case 'assistant.message.delta':
         final messageId = (event['messageId'] ?? '').toString();
@@ -237,7 +241,9 @@ class ChatSessionStore extends ChangeNotifier {
         if (clientMessageId.isNotEmpty) {
           _clearPendingClientMessage(state, clientMessageId);
         }
-        state.isSending = true;
+        state
+          ..isSubmitting = false
+          ..isAssistantStreaming = true;
         break;
       case 'assistant.message.completed':
         final message = _mapEventMessage(event['message']);
@@ -248,9 +254,9 @@ class ChatSessionStore extends ChangeNotifier {
         if (clientMessageId.isNotEmpty) {
           _clearPendingClientMessage(state, clientMessageId, notify: false);
         }
-        state.isSending =
-            state.pendingClientMessageIds.isNotEmpty ||
-            state.streamingMessageIds.isNotEmpty;
+        state
+          ..isSubmitting = state.pendingClientMessageIds.isNotEmpty
+          ..isAssistantStreaming = false;
         break;
       case 'assistant.message.failed':
         final messageId = (event['messageId'] ?? '').toString();
@@ -263,9 +269,9 @@ class ChatSessionStore extends ChangeNotifier {
         if (clientMessageId.isNotEmpty) {
           _clearPendingClientMessage(state, clientMessageId, notify: false);
         }
-        state.isSending =
-            state.pendingClientMessageIds.isNotEmpty ||
-            state.streamingMessageIds.isNotEmpty;
+        state
+          ..isSubmitting = state.pendingClientMessageIds.isNotEmpty
+          ..isAssistantStreaming = false;
         break;
     }
     notifyListeners();
@@ -279,7 +285,9 @@ class ChatSessionStore extends ChangeNotifier {
         return;
       }
       state.pendingClientMessageIds.remove(clientMessageId);
-      state.isSending = state.streamingMessageIds.isNotEmpty;
+      state
+        ..isSubmitting = false
+        ..isAssistantStreaming = state.streamingMessageIds.isNotEmpty;
       state.appendMessage(
         core.TextMessage(
           id: _uuid.v4(),
@@ -300,9 +308,8 @@ class ChatSessionStore extends ChangeNotifier {
   }) {
     state.pendingClientMessageIds.remove(clientMessageId);
     _sendWatchdogs.remove(clientMessageId)?.cancel();
-    state.isSending =
-        state.pendingClientMessageIds.isNotEmpty ||
-        state.streamingMessageIds.isNotEmpty;
+    state.isSubmitting = state.pendingClientMessageIds.isNotEmpty;
+    state.isAssistantStreaming = state.streamingMessageIds.isNotEmpty;
     if (notify) {
       notifyListeners();
     }
@@ -427,7 +434,9 @@ class ChatViewState {
   String? backendSessionId;
   bool isLoading = false;
   bool isReady = false;
-  bool isSending = false;
+  bool isSubmitting = false;
+  bool isAssistantStreaming = false;
+  bool get isSending => isSubmitting;
   bool isEventConnecting = false;
   String? error;
   int? lastEventSeq;
