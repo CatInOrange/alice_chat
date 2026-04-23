@@ -1,1 +1,1 @@
-export 'domain/contact.dart';
+export 'contact.dart';
