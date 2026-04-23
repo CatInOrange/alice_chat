@@ -36,6 +36,15 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _showJumpToBottom = false;
   final List<String> _appliedMessageIds = [];
 
+  // Composer height tracking for relative positioning of floating elements
+  static const double _composerPaddingVertical = 20.0; // 8 + 12
+  static const double _composerRowHeight = 40.0;
+  static const double _composerMinContentHeight = _composerPaddingVertical + _composerRowHeight; // 60
+  static const double _composerMinHeight = _composerMinContentHeight; // 68 with SafeArea bottom padding
+  static const double _jumpButtonGap = 8.0;
+  static const double _typingIndicatorTotalHeight = 44.0; // 10+10 padding + 24 text row
+  double _composerHeight = _composerMinHeight;
+
   // Cache for MarkdownStyleSheet to avoid rebuilding on every message
   static final _markdownStyleSheetCache = <ThemeData, MarkdownStyleSheet>{};
 
@@ -201,6 +210,8 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
 
+    final effectiveComposerHeight =
+        _composerHeight + MediaQuery.of(context).viewInsets.bottom;
     return Stack(
       children: [
         Chat(
@@ -214,33 +225,31 @@ class _ChatScreenState extends State<ChatScreen> {
         if (_showJumpToBottom)
           Positioned(
             right: 16,
-            bottom: state.isAssistantStreaming ? 78 : 18,
+            bottom:
+                state.isAssistantStreaming
+                    ? effectiveComposerHeight + _typingIndicatorTotalHeight + _jumpButtonGap
+                    : effectiveComposerHeight + _jumpButtonGap,
             child: SafeArea(
               top: false,
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: _jumpToBottom,
-                  borderRadius: BorderRadius.circular(22),
-                  child: Ink(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(22),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x1A1F2430),
-                          blurRadius: 14,
-                          offset: Offset(0, 6),
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
+              child: SizedBox(
+                width: 44,
+                height: 44,
+                child: Material(
+                  color: Colors.white,
+                  shape: const CircleBorder(),
+                  elevation: 6,
+                  shadowColor: const Color(0x1A1F2430),
+                  clipBehavior: Clip.antiAlias,
+                  child: IconButton(
+                    onPressed: _jumpToBottom,
+                    icon: const Icon(
                       Icons.keyboard_arrow_down_rounded,
                       color: Color(0xFF667085),
                       size: 28,
                     ),
+                    splashRadius: 22,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
                   ),
                 ),
               ),
@@ -250,7 +259,7 @@ class _ChatScreenState extends State<ChatScreen> {
           Positioned(
             left: 12,
             right: 12,
-            bottom: 72,
+            bottom: effectiveComposerHeight + _typingIndicatorTotalHeight + _jumpButtonGap,
             child: IgnorePointer(
               child: Align(
                 alignment: Alignment.centerLeft,
@@ -317,14 +326,48 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _applyMessagesIncrementally(List<core.TextMessage> messages) {
-    final nextIds = messages
-        .map((message) => message.id)
-        .toList(growable: false);
+    final existingMessages = _chatController.messages.cast<core.TextMessage>();
 
-    _chatController.setMessages(messages);
+    if (existingMessages.isEmpty) {
+      _chatController.setMessages(messages);
+    } else {
+      final existingById = {
+        for (final message in existingMessages) message.id: message,
+      };
+      final nextById = {for (final message in messages) message.id: message};
+
+      final removed = existingMessages
+          .where((message) => !nextById.containsKey(message.id))
+          .toList(growable: false);
+      for (final message in removed) {
+        _chatController.removeMessage(message, animated: false);
+      }
+
+      for (var index = 0; index < messages.length; index++) {
+        final next = messages[index];
+        final existing = existingById[next.id];
+        if (existing == null) {
+          _chatController.insertMessage(next, index: index, animated: false);
+        } else if (existing != next) {
+          _chatController.updateMessage(existing, next);
+        }
+      }
+
+      final currentIds = _chatController.messages.map((m) => m.id).toList();
+      final nextIds = messages.map((m) => m.id).toList();
+      final orderChanged =
+          currentIds.length != nextIds.length ||
+          currentIds.asMap().entries.any(
+            (entry) => entry.value != nextIds[entry.key],
+          );
+      if (orderChanged) {
+        _chatController.setMessages(messages, animated: false);
+      }
+    }
+
     _appliedMessageIds
       ..clear()
-      ..addAll(nextIds);
+      ..addAll(messages.map((message) => message.id));
   }
 
   void _restoreScrollIfNeeded(ChatViewState state) {
@@ -352,7 +395,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final position = _chatListController.position;
     final offset = position.pixels;
     final atBottom = offset <= 24;
-    final shouldShowJump = offset > 320;
+    final shouldShowJump = offset > 1200;
     if (_showJumpToBottom != shouldShowJump && mounted) {
       setState(() {
         _showJumpToBottom = shouldShowJump;
@@ -795,101 +838,110 @@ class _ChatScreenState extends State<ChatScreen> {
             color: Color(0xFFF6F7FB),
             border: Border(top: BorderSide(color: Color(0xFFE7EAF3))),
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: IconButton(
-                  onPressed: null,
-                  icon: const Icon(Icons.add_rounded),
-                  color: const Color(0xFF98A1B3),
-                  tooltip: '更多功能',
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(24),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x0A1F2430),
-                        blurRadius: 14,
-                        offset: Offset(0, 4),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final measured = constraints.maxHeight;
+              if (measured != _composerHeight) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) setState(() => _composerHeight = measured);
+                });
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: IconButton(
+                      onPressed: null,
+                      icon: const Icon(Icons.add_rounded),
+                      color: const Color(0xFF98A1B3),
+                      tooltip: '更多功能',
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(24),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x0A1F2430),
+                            blurRadius: 14,
+                            offset: Offset(0, 4),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  child: TextField(
-                    controller: _composerController,
-                    minLines: 1,
-                    maxLines: 5,
-                    textInputAction: TextInputAction.send,
-                    decoration: const InputDecoration(
-                      hintText: '发消息…',
-                      isDense: true,
+                      child: TextField(
+                        controller: _composerController,
+                        minLines: 1,
+                        maxLines: 5,
+                        textInputAction: TextInputAction.send,
+                        decoration: const InputDecoration(
+                          hintText: '发消息…',
+                          isDense: true,
+                        ),
+                        onSubmitted: (value) {
+                          if (value.trim().isNotEmpty && !state.isSubmitting) {
+                            _handleSend(value);
+                          }
+                        },
+                      ),
                     ),
-                    onSubmitted: (value) {
-                      if (value.trim().isNotEmpty && !state.isSubmitting) {
-                        _handleSend(value);
-                      }
-                    },
                   ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color:
-                      state.isSubmitting
-                          ? const Color(0xFFD7CCFF)
-                          : theme.colorScheme.primary,
-                  borderRadius: BorderRadius.circular(22),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x1A7C4DFF),
-                      blurRadius: 16,
-                      offset: Offset(0, 6),
+                  const SizedBox(width: 10),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color:
+                          state.isSubmitting
+                              ? const Color(0xFFD7CCFF)
+                              : theme.colorScheme.primary,
+                      borderRadius: BorderRadius.circular(22),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x1A7C4DFF),
+                          blurRadius: 16,
+                          offset: Offset(0, 6),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                child: IconButton(
-                  onPressed:
-                      state.isSubmitting
-                          ? null
-                          : () {
-                            final text = _composerController.text;
-                            if (text.trim().isNotEmpty) {
-                              _handleSend(text);
-                            }
-                          },
-                  icon:
-                      state.isSubmitting
-                          ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                          : const Icon(Icons.arrow_upward_rounded),
-                  color: Colors.white,
-                  tooltip: '发送',
-                ),
-              ),
-            ],
+                    child: IconButton(
+                      onPressed:
+                          state.isSubmitting
+                              ? null
+                              : () {
+                                final text = _composerController.text;
+                                if (text.trim().isNotEmpty) {
+                                  _handleSend(text);
+                                }
+                              },
+                      icon:
+                          state.isSubmitting
+                              ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                              : const Icon(Icons.arrow_upward_rounded),
+                      color: Colors.white,
+                      tooltip: '发送',
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
-        ),
       ),
     );
   }
