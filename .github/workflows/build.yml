@@ -114,7 +114,9 @@ jobs:
               SecretId=os.environ['COS_SECRET_ID'],
               SecretKey=os.environ['COS_SECRET_KEY'],
               Token=None,
-              Scheme='https'
+              Scheme='https',
+              ConnectionTimeout=600,
+              SocketTimeout=600
           )
           client = CosS3Client(config)
 
@@ -131,8 +133,7 @@ jobs:
                           LocalFilePath=local_file,
                           Key=cos_path,
                           PartSize=20,
-                          MAXThread=20,
-                          Timeout=600
+                          MAXThread=20
                       )
                       logger.info('Upload complete!')
                       return True
