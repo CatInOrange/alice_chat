@@ -269,37 +269,6 @@ class _ChatScreenState extends State<ChatScreen> {
   void _applyMessagesIncrementally(List<core.TextMessage> messages) {
     final nextIds = messages.map((message) => message.id).toList(growable: false);
 
-    if (_appliedMessageIds.isEmpty) {
-      _chatController.setMessages(messages);
-      _appliedMessageIds
-        ..clear()
-        ..addAll(nextIds);
-      return;
-    }
-
-    final hasPrefixMatch =
-        messages.length >= _appliedMessageIds.length &&
-        _appliedMessageIds.asMap().entries.every(
-          (entry) => messages[entry.key].id == entry.value,
-        );
-
-    if (hasPrefixMatch && messages.length > _appliedMessageIds.length) {
-      for (final message in messages.skip(_appliedMessageIds.length)) {
-        _chatController.insertMessage(message);
-        _appliedMessageIds.add(message.id);
-      }
-      return;
-    }
-
-    if (nextIds.length == _appliedMessageIds.length) {
-      final sameIdsInOrder = nextIds.asMap().entries.every(
-        (entry) => _appliedMessageIds[entry.key] == entry.value,
-      );
-      if (sameIdsInOrder) {
-        return;
-      }
-    }
-
     _chatController.setMessages(messages);
     _appliedMessageIds
       ..clear()
