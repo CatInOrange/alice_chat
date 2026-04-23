@@ -126,6 +126,19 @@ class OpenClawHttpClient implements OpenClawClient {
   }
 
   @override
+  Future<void> sendClientDebugLog(Map<String, dynamic> payload) async {
+    try {
+      await _httpClient.post(
+        _uri('/api/debug/client-log'),
+        headers: _headers,
+        body: jsonEncode(payload),
+      );
+    } catch (_) {
+      // Best effort only.
+    }
+  }
+
+  @override
   Stream<Map<String, dynamic>> subscribeEvents({
     required String sessionId,
     int? since,

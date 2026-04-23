@@ -13,4 +13,6 @@ abstract class OpenClawClient {
     required String sessionId,
     int? since,
   });
+
+  Future<void> sendClientDebugLog(Map<String, dynamic> payload);
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart' as core;
@@ -37,6 +38,7 @@ class ChatSessionStore extends ChangeNotifier {
   _eventSubscriptions = {};
   final Map<String, Timer> _sendWatchdogs = {};
   final Map<String, Timer> _eventReconnectTimers = {};
+  final Map<String, DateTime> _lastDebugLogAt = {};
 
   ChatViewState stateFor(ChatSession session) {
     return _states.putIfAbsent(
@@ -103,6 +105,11 @@ class ChatSessionStore extends ChangeNotifier {
       ..markShouldStickToBottom()
       ..pendingClientMessageIds.add(clientMessageId);
     _armSendWatchdog(state, clientMessageId);
+    _debugState(
+      'sendMessage.begin',
+      state,
+      extra: {'clientMessageId': clientMessageId, 'text': trimmed},
+    );
     notifyListeners();
 
     try {
@@ -113,6 +120,11 @@ class ChatSessionStore extends ChangeNotifier {
         userId: sessionId,
         clientMessageId: clientMessageId,
       );
+      _debugState(
+        'sendMessage.posted',
+        state,
+        extra: {'clientMessageId': clientMessageId},
+      );
     } catch (error) {
       _clearPendingClientMessage(state, clientMessageId);
       state.appendMessage(
@@ -122,6 +134,11 @@ class ChatSessionStore extends ChangeNotifier {
           createdAt: DateTime.now(),
           text: '❌ 发送失败: ${error.toString()}',
         ),
+      );
+      _debugState(
+        'sendMessage.error',
+        state,
+        extra: {'clientMessageId': clientMessageId, 'error': error.toString()},
       );
       notifyListeners();
     }
@@ -175,6 +192,12 @@ class ChatSessionStore extends ChangeNotifier {
               ..isAssistantStreaming = false
               ..isEventConnecting = false;
             _cancelWatchdogsForState(state);
+            _debugState(
+              'events.onError',
+              state,
+              extra: {'error': error.toString()},
+              force: true,
+            );
             notifyListeners();
             _scheduleEventReconnect(session, sessionId, state);
           },
@@ -186,6 +209,7 @@ class ChatSessionStore extends ChangeNotifier {
               ..isAssistantStreaming = false
               ..isEventConnecting = false;
             _cancelWatchdogsForState(state);
+            _debugState('events.onDone', state, force: true);
             notifyListeners();
             _scheduleEventReconnect(session, sessionId, state);
           },
@@ -203,6 +227,11 @@ class ChatSessionStore extends ChangeNotifier {
       state.reconnectAttempts = 0;
     }
     final type = (event['event'] ?? '').toString();
+    _debugState(
+      'events.$type',
+      state,
+      extra: {'eventType': type, 'event': _compactEvent(event)},
+    );
     switch (type) {
       case 'message.created':
         final clientMessageId = (event['clientMessageId'] ?? '').toString();
@@ -309,6 +338,12 @@ class ChatSessionStore extends ChangeNotifier {
         ),
       );
       _sendWatchdogs.remove(clientMessageId)?.cancel();
+      _debugState(
+        'watchdog.timeout',
+        state,
+        extra: {'clientMessageId': clientMessageId},
+        force: true,
+      );
       notifyListeners();
     });
   }
@@ -322,6 +357,11 @@ class ChatSessionStore extends ChangeNotifier {
     _sendWatchdogs.remove(clientMessageId)?.cancel();
     state.isSubmitting = state.pendingClientMessageIds.isNotEmpty;
     state.isAssistantStreaming = state.streamingMessageIds.isNotEmpty;
+    _debugState(
+      'pending.clear',
+      state,
+      extra: {'clientMessageId': clientMessageId},
+    );
     if (notify) {
       notifyListeners();
     }
@@ -346,6 +386,73 @@ class ChatSessionStore extends ChangeNotifier {
     for (final clientMessageId in state.pendingClientMessageIds.toList()) {
       _sendWatchdogs.remove(clientMessageId)?.cancel();
     }
+  }
+
+  Map<String, dynamic> _compactEvent(Map<String, dynamic> event) {
+    return {
+      if (event['event'] != null) 'event': event['event'],
+      if (event['seq'] != null) 'seq': event['seq'],
+      if (event['clientMessageId'] != null)
+        'clientMessageId': event['clientMessageId'],
+      if (event['messageId'] != null) 'messageId': event['messageId'],
+      if (event['requestId'] != null) 'requestId': event['requestId'],
+      if (event['status'] != null) 'status': event['status'],
+      if (event['message'] is Map<String, dynamic>)
+        'message': {
+          'id': (event['message'] as Map<String, dynamic>)['id'],
+          'role': (event['message'] as Map<String, dynamic>)['role'],
+          'text': ((event['message'] as Map<String, dynamic>)['text'] ?? '')
+              .toString()
+              .substring(
+                0,
+                (((event['message'] as Map<String, dynamic>)['text'] ?? '')
+                            .toString()
+                            .length) >
+                        80
+                    ? 80
+                    : ((event['message'] as Map<String, dynamic>)['text'] ?? '')
+                        .toString()
+                        .length,
+              ),
+        },
+    };
+  }
+
+  void _debugState(
+    String tag,
+    ChatViewState state, {
+    Map<String, dynamic>? extra,
+    bool force = false,
+  }) {
+    final now = DateTime.now();
+    final lastAt = _lastDebugLogAt[tag];
+    if (!force &&
+        lastAt != null &&
+        now.difference(lastAt).inMilliseconds < 250) {
+      return;
+    }
+    _lastDebugLogAt[tag] = now;
+
+    final payload = {
+      'tag': tag,
+      'ts': now.toIso8601String(),
+      'sessionId': state.backendSessionId,
+      'sessionLocalId': state.session.id,
+      'sessionTitle': state.session.title,
+      'isSubmitting': state.isSubmitting,
+      'isAssistantStreaming': state.isAssistantStreaming,
+      'isEventConnecting': state.isEventConnecting,
+      'pendingCount': state.pendingClientMessageIds.length,
+      'streamingCount': state.streamingMessageIds.length,
+      'messageCount': state.messages.length,
+      'lastEventSeq': state.lastEventSeq,
+      'pendingIds': state.pendingClientMessageIds.toList(),
+      'streamingIds': state.streamingMessageIds.toList(),
+      if (extra != null) ...extra,
+    };
+
+    debugPrint('[alicechat.front] ${jsonEncode(payload)}');
+    unawaited(_client.sendClientDebugLog(payload));
   }
 
   void _scheduleEventReconnect(

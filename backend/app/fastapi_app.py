@@ -12,6 +12,7 @@ from .agents.openclaw_channel import ensure_bridge_listener, stop_bridge_listene
 from .app_context import create_app_context
 from .config import UPLOADS_DIR, get_chat_providers
 from .routes.chat import create_chat_router
+from .routes.debug import create_debug_router
 from .routes.events import create_events_router
 from .routes.sessions import create_sessions_router
 from .web.helpers import build_allowed_origins
@@ -60,6 +61,7 @@ def create_app() -> FastAPI:
     app.include_router(create_sessions_router(context))
     app.include_router(create_events_router(context))
     app.include_router(create_chat_router(context))
+    app.include_router(create_debug_router())
 
     app.mount('/uploads', StaticFiles(directory=str(context.uploads_dir), html=False), name='uploads')
     return app

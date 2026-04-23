@@ -1,5 +1,6 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart' as core;
 import 'package:flutter_chat_core/flutter_chat_core.dart'
     show Builders, ChatAnimatedList, TimeAndStatusPosition;
@@ -39,9 +40,10 @@ class _ChatScreenState extends State<ChatScreen> {
       state.isAssistantStreaming ? '正在输入…' : widget.session.subtitle;
 
   Builders get _chatBuilders => Builders(
-        textMessageBuilder: _buildTextMessage,
-        composerBuilder: _buildComposer,
-        chatAnimatedListBuilder: (context, itemBuilder) => ChatAnimatedList(
+    textMessageBuilder: _buildTextMessage,
+    composerBuilder: _buildComposer,
+    chatAnimatedListBuilder:
+        (context, itemBuilder) => ChatAnimatedList(
           key: PageStorageKey('chat-list-${widget.session.id}'),
           itemBuilder: itemBuilder,
           scrollController: _chatListController,
@@ -51,7 +53,7 @@ class _ChatScreenState extends State<ChatScreen> {
           shouldScrollToEndWhenSendingMessage: false,
           bottomPadding: 110,
         ),
-      );
+  );
 
   @override
   void initState() {
@@ -70,6 +72,9 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final state = context.watch<ChatSessionStore>().stateFor(widget.session);
+    debugPrint(
+      '[alicechat.screen] ${jsonEncode({'tag': 'build', 'sessionId': state.backendSessionId, 'sessionLocalId': widget.session.id, 'isSubmitting': state.isSubmitting, 'isAssistantStreaming': state.isAssistantStreaming, 'pendingCount': state.pendingClientMessageIds.length, 'streamingCount': state.streamingMessageIds.length, 'messageCount': state.messages.length, 'lastEventSeq': state.lastEventSeq})}',
+    );
 
     return PopScope(
       canPop: false,
@@ -79,62 +84,58 @@ class _ChatScreenState extends State<ChatScreen> {
         }
       },
       child: Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: widget.onBack ?? () => Navigator.of(context).maybePop(),
-        ),
-        toolbarHeight: 72,
-        titleSpacing: 8,
-        title: Row(
-          children: [
-            _buildHeaderAvatar(radius: 22),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    widget.session.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
+        appBar: AppBar(
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: widget.onBack ?? () => Navigator.of(context).maybePop(),
+          ),
+          toolbarHeight: 72,
+          titleSpacing: 8,
+          title: Row(
+            children: [
+              _buildHeaderAvatar(radius: 22),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      widget.session.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    _assistantSubtitle(state),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: state.isAssistantStreaming
-                          ? theme.colorScheme.primary
-                          : const Color(0xFF98A1B3),
+                    const SizedBox(height: 2),
+                    Text(
+                      _assistantSubtitle(state),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color:
+                            state.isAssistantStreaming
+                                ? theme.colorScheme.primary
+                                : const Color(0xFF98A1B3),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
-        ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1),
-          child: Container(
-            height: 1,
-            color: const Color(0xFFE7EAF3),
+            ],
+          ),
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(1),
+            child: Container(height: 1, color: const Color(0xFFE7EAF3)),
           ),
         ),
-      ),
-      body: DecoratedBox(
-        decoration: const BoxDecoration(
-          color: Color(0xFFF6F7FB),
+        body: DecoratedBox(
+          decoration: const BoxDecoration(color: Color(0xFFF6F7FB)),
+          child: _buildBody(state),
         ),
-        child: _buildBody(state),
       ),
-    ),
-  );
+    );
   }
 
   Widget _buildBody(ChatViewState state) {
@@ -211,7 +212,10 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(18),
@@ -231,9 +235,9 @@ class _ChatScreenState extends State<ChatScreen> {
                       Text(
                         '$_assistantName 正在输入…',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: const Color(0xFF667085),
-                              fontWeight: FontWeight.w600,
-                            ),
+                          color: const Color(0xFF667085),
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ],
                   ),
@@ -262,12 +266,17 @@ class _ChatScreenState extends State<ChatScreen> {
   void _handleStoreChanged() {
     if (!mounted) return;
     final state = context.read<ChatSessionStore>().stateFor(widget.session);
+    debugPrint(
+      '[alicechat.screen] ${jsonEncode({'tag': 'handleStoreChanged', 'sessionId': state.backendSessionId, 'sessionLocalId': widget.session.id, 'isSubmitting': state.isSubmitting, 'isAssistantStreaming': state.isAssistantStreaming, 'pendingCount': state.pendingClientMessageIds.length, 'streamingCount': state.streamingMessageIds.length, 'messageCount': state.messages.length, 'lastEventSeq': state.lastEventSeq})}',
+    );
     _applyMessagesIncrementally(state.messages);
     _restoreScrollIfNeeded(state);
   }
 
   void _applyMessagesIncrementally(List<core.TextMessage> messages) {
-    final nextIds = messages.map((message) => message.id).toList(growable: false);
+    final nextIds = messages
+        .map((message) => message.id)
+        .toList(growable: false);
 
     _chatController.setMessages(messages);
     _appliedMessageIds
@@ -327,7 +336,8 @@ class _ChatScreenState extends State<ChatScreen> {
         return core.User(
           id: 'assistant',
           name: _assistantName,
-          imageSource: widget.session.avatarAssetPath ?? 'assets/avatars/alice.jpg',
+          imageSource:
+              widget.session.avatarAssetPath ?? 'assets/avatars/alice.jpg',
         );
       case 'system':
         return core.User(id: 'system', name: 'System');
@@ -370,9 +380,10 @@ class _ChatScreenState extends State<ChatScreen> {
               width: 34,
               child: Align(
                 alignment: Alignment.bottomLeft,
-                child: showAvatar
-                    ? _buildHeaderAvatar(radius: 15)
-                    : const SizedBox.shrink(),
+                child:
+                    showAvatar
+                        ? _buildHeaderAvatar(radius: 15)
+                        : const SizedBox.shrink(),
               ),
             ),
           if (!sentByMe) const SizedBox(width: 8),
@@ -381,46 +392,54 @@ class _ChatScreenState extends State<ChatScreen> {
               constraints: BoxConstraints(maxWidth: maxWidth),
               child: Column(
                 crossAxisAlignment:
-                    sentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                    sentByMe
+                        ? CrossAxisAlignment.end
+                        : CrossAxisAlignment.start,
                 children: [
                   sentByMe
                       ? SimpleTextMessage(
-                          message: message,
-                          index: index,
-                          showStatus: false,
-                          timeAndStatusPosition: TimeAndStatusPosition.end,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 11,
-                          ),
-                          constraints: BoxConstraints(maxWidth: maxWidth),
-                          borderRadius: bubbleRadius,
-                          sentBackgroundColor: const Color(0xFF7C4DFF),
-                          receivedBackgroundColor: Colors.white,
-                          sentTextStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w500,
-                              ),
-                          receivedTextStyle:
-                              Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                    color: const Color(0xFF1F2430),
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                          timeStyle: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: sentByMe
-                                    ? Colors.white.withOpacity(0.72)
-                                    : const Color(0xFF98A1B3),
-                                fontSize: 11,
-                              ),
-                          topWidget: null,
-                        )
-                      : _buildAssistantMarkdownBubble(
-                          context,
-                          message: message,
-                          index: index,
-                          maxWidth: maxWidth,
-                          bubbleRadius: bubbleRadius,
+                        message: message,
+                        index: index,
+                        showStatus: false,
+                        timeAndStatusPosition: TimeAndStatusPosition.end,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 11,
                         ),
+                        constraints: BoxConstraints(maxWidth: maxWidth),
+                        borderRadius: bubbleRadius,
+                        sentBackgroundColor: const Color(0xFF7C4DFF),
+                        receivedBackgroundColor: Colors.white,
+                        sentTextStyle: Theme.of(
+                          context,
+                        ).textTheme.bodyLarge?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        receivedTextStyle: Theme.of(
+                          context,
+                        ).textTheme.bodyLarge?.copyWith(
+                          color: const Color(0xFF1F2430),
+                          fontWeight: FontWeight.w500,
+                        ),
+                        timeStyle: Theme.of(
+                          context,
+                        ).textTheme.bodySmall?.copyWith(
+                          color:
+                              sentByMe
+                                  ? Colors.white.withOpacity(0.72)
+                                  : const Color(0xFF98A1B3),
+                          fontSize: 11,
+                        ),
+                        topWidget: null,
+                      )
+                      : _buildAssistantMarkdownBubble(
+                        context,
+                        message: message,
+                        index: index,
+                        maxWidth: maxWidth,
+                        bubbleRadius: bubbleRadius,
+                      ),
                 ],
               ),
             ),
@@ -483,18 +502,18 @@ class _ChatScreenState extends State<ChatScreen> {
                 Text(
                   _assistantName,
                   style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF98A1B3),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 11,
-                      ),
+                    color: const Color(0xFF98A1B3),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 11,
+                  ),
                 ),
                 const SizedBox(width: 6),
                 Text(
                   _formatMessageTime(message.createdAt ?? DateTime.now()),
                   style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF98A1B3),
-                        fontSize: 11,
-                      ),
+                    color: const Color(0xFF98A1B3),
+                    fontSize: 11,
+                  ),
                 ),
               ],
             ),
@@ -505,7 +524,8 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   MarkdownStyleSheet _buildMarkdownStyleSheet(ThemeData theme) {
-    final bodyStyle = theme.textTheme.bodyLarge?.copyWith(
+    final bodyStyle =
+        theme.textTheme.bodyLarge?.copyWith(
           color: const Color(0xFF1F2430),
           fontWeight: FontWeight.w500,
           height: 1.28,
@@ -517,7 +537,8 @@ class _ChatScreenState extends State<ChatScreen> {
           height: 1.28,
         );
 
-    final mono = theme.textTheme.bodyMedium?.copyWith(
+    final mono =
+        theme.textTheme.bodyMedium?.copyWith(
           fontFamily: 'monospace',
           color: const Color(0xFF2B2F3A),
           height: 1.25,
@@ -564,9 +585,7 @@ class _ChatScreenState extends State<ChatScreen> {
         fontWeight: FontWeight.w700,
       ),
       horizontalRuleDecoration: const BoxDecoration(
-        border: Border(
-          top: BorderSide(color: Color(0xFFE7EAF3), width: 1),
-        ),
+        border: Border(top: BorderSide(color: Color(0xFFE7EAF3), width: 1)),
       ),
     );
   }
@@ -598,9 +617,7 @@ class _ChatScreenState extends State<ChatScreen> {
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
           decoration: const BoxDecoration(
             color: Color(0xFFF6F7FB),
-            border: Border(
-              top: BorderSide(color: Color(0xFFE7EAF3)),
-            ),
+            border: Border(top: BorderSide(color: Color(0xFFE7EAF3))),
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -656,9 +673,10 @@ class _ChatScreenState extends State<ChatScreen> {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: state.isSubmitting
-                      ? const Color(0xFFD7CCFF)
-                      : theme.colorScheme.primary,
+                  color:
+                      state.isSubmitting
+                          ? const Color(0xFFD7CCFF)
+                          : theme.colorScheme.primary,
                   borderRadius: BorderRadius.circular(22),
                   boxShadow: const [
                     BoxShadow(
@@ -669,24 +687,26 @@ class _ChatScreenState extends State<ChatScreen> {
                   ],
                 ),
                 child: IconButton(
-                  onPressed: state.isSubmitting
-                      ? null
-                      : () {
-                          final text = _composerController.text;
-                          if (text.trim().isNotEmpty) {
-                            _handleSend(text);
-                          }
-                        },
-                  icon: state.isSubmitting
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.arrow_upward_rounded),
+                  onPressed:
+                      state.isSubmitting
+                          ? null
+                          : () {
+                            final text = _composerController.text;
+                            if (text.trim().isNotEmpty) {
+                              _handleSend(text);
+                            }
+                          },
+                  icon:
+                      state.isSubmitting
+                          ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                          : const Icon(Icons.arrow_upward_rounded),
                   color: Colors.white,
                   tooltip: '发送',
                 ),
@@ -712,11 +732,10 @@ class _ChatScreenState extends State<ChatScreen> {
       backgroundColor: const Color(0xFFE9ECF5),
       foregroundColor: const Color(0xFF5C667A),
       child: Text(
-        widget.session.title.isEmpty ? '?' : widget.session.title[0].toUpperCase(),
-        style: TextStyle(
-          fontWeight: FontWeight.w700,
-          fontSize: radius * 0.9,
-        ),
+        widget.session.title.isEmpty
+            ? '?'
+            : widget.session.title[0].toUpperCase(),
+        style: TextStyle(fontWeight: FontWeight.w700, fontSize: radius * 0.9),
       ),
     );
   }
@@ -754,10 +773,7 @@ class _InlineCodeBuilder extends MarkdownElementBuilder {
         color: const Color(0xFFF1EEFF),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Text(
-        text,
-        style: styleSheet.code,
-      ),
+      child: Text(text, style: styleSheet.code),
     );
   }
 }
@@ -777,10 +793,7 @@ class _CodeBlockBuilder extends MarkdownElementBuilder {
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         padding: styleSheet.codeblockPadding,
-        child: Text(
-          text,
-          style: styleSheet.code,
-        ),
+        child: Text(text, style: styleSheet.code),
       ),
     );
   }
@@ -804,10 +817,7 @@ class _BlockquoteBuilder extends MarkdownElementBuilder {
           left: BorderSide(color: Color(0xFFB9A8FF), width: 3),
         ),
       ),
-      child: Text(
-        element.textContent,
-        style: styleSheet.blockquote,
-      ),
+      child: Text(element.textContent, style: styleSheet.blockquote),
     );
   }
 }
