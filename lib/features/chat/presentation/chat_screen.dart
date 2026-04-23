@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart' as core;
 import 'package:flutter_chat_core/flutter_chat_core.dart'
     show Builders, ChatAnimatedList, TimeAndStatusPosition;
@@ -469,59 +470,66 @@ class _ChatScreenState extends State<ChatScreen> {
     final markdownTheme = _getMarkdownStyleSheet(theme);
 
     return RepaintBoundary(
-      child: Container(
-        constraints: BoxConstraints(maxWidth: maxWidth),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: bubbleRadius,
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x081F2430),
-              blurRadius: 10,
-              offset: Offset(0, 3),
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildMarkdownBody(_stripModelNamePrefix(message.text), markdownTheme),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              mainAxisSize: MainAxisSize.max,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onLongPress: () => _copyMessageText(context, message.text),
+        child: Container(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: bubbleRadius,
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x081F2430),
+                blurRadius: 10,
+                offset: Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  _assistantName,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF98A1B3),
-                    fontWeight: FontWeight.w600,
-                    fontSize: 11,
-                  ),
+                _buildMarkdownBody(
+                  _stripModelNamePrefix(message.text),
+                  markdownTheme,
                 ),
-                Text(
-                  " · ",
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF98A1B3),
-                    fontSize: 11,
-                  ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.max,
+                  children: [
+                    Text(
+                      _assistantName,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF98A1B3),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 11,
+                      ),
+                    ),
+                    Text(
+                      " · ",
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF98A1B3),
+                        fontSize: 11,
+                      ),
+                    ),
+                    Text(
+                      _formatMessageTime(message.createdAt ?? DateTime.now()),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF98A1B3),
+                        fontSize: 11,
+                      ),
+                    ),
+                    _buildModelNameText(message.text),
+                  ],
                 ),
-                Text(
-                  _formatMessageTime(message.createdAt ?? DateTime.now()),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF98A1B3),
-                    fontSize: 11,
-                  ),
-                ),
-                _buildModelNameText(message.text),
               ],
             ),
-          ],
+          ),
         ),
       ),
-    ),
     );
   }
 
@@ -618,6 +626,19 @@ class _ChatScreenState extends State<ChatScreen> {
         onTapLink: (text, href, title) {
           _openMarkdownLink(href);
         },
+      ),
+    );
+  }
+
+  Future<void> _copyMessageText(BuildContext context, String text) async {
+    final plainText = _stripModelNamePrefix(text).trim();
+    if (plainText.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: plainText));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('已复制'),
+        duration: Duration(milliseconds: 1200),
       ),
     );
   }
