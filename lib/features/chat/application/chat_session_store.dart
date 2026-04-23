@@ -226,6 +226,12 @@ class ChatSessionStore extends ChangeNotifier {
         state.streamingMessageIds
           ..clear()
           ..add(message.id);
+        final clientMessageId = (event['clientMessageId'] ?? '').toString();
+        if (clientMessageId.isNotEmpty) {
+          _clearPendingClientMessage(state, clientMessageId);
+        } else {
+          _clearOldestPendingClientMessage(state);
+        }
         state
           ..isSubmitting = false
           ..isAssistantStreaming = true;
@@ -240,6 +246,8 @@ class ChatSessionStore extends ChangeNotifier {
         final clientMessageId = (event['clientMessageId'] ?? '').toString();
         if (clientMessageId.isNotEmpty) {
           _clearPendingClientMessage(state, clientMessageId);
+        } else {
+          _clearOldestPendingClientMessage(state);
         }
         state
           ..isSubmitting = false
@@ -253,9 +261,11 @@ class ChatSessionStore extends ChangeNotifier {
         final clientMessageId = (event['clientMessageId'] ?? '').toString();
         if (clientMessageId.isNotEmpty) {
           _clearPendingClientMessage(state, clientMessageId, notify: false);
+        } else {
+          _clearOldestPendingClientMessage(state);
         }
         state
-          ..isSubmitting = state.pendingClientMessageIds.isNotEmpty
+          ..isSubmitting = false
           ..isAssistantStreaming = false;
         break;
       case 'assistant.message.failed':
@@ -268,9 +278,11 @@ class ChatSessionStore extends ChangeNotifier {
         final clientMessageId = (event['clientMessageId'] ?? '').toString();
         if (clientMessageId.isNotEmpty) {
           _clearPendingClientMessage(state, clientMessageId, notify: false);
+        } else {
+          _clearOldestPendingClientMessage(state);
         }
         state
-          ..isSubmitting = state.pendingClientMessageIds.isNotEmpty
+          ..isSubmitting = false
           ..isAssistantStreaming = false;
         break;
     }
@@ -313,6 +325,21 @@ class ChatSessionStore extends ChangeNotifier {
     if (notify) {
       notifyListeners();
     }
+  }
+
+  void _clearOldestPendingClientMessage(
+    ChatViewState state, {
+    bool notify = false,
+  }) {
+    if (state.pendingClientMessageIds.isEmpty) {
+      state.isSubmitting = false;
+      if (notify) {
+        notifyListeners();
+      }
+      return;
+    }
+    final oldest = state.pendingClientMessageIds.first;
+    _clearPendingClientMessage(state, oldest, notify: notify);
   }
 
   void _cancelWatchdogsForState(ChatViewState state) {
