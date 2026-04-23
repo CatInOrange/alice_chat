@@ -310,10 +310,12 @@ class ChatSessionStore extends ChangeNotifier {
         final clientMessageId = (event['clientMessageId'] ?? '').toString();
         final message = _mapEventMessage(event['message']);
         if (message == null) return;
-        if (clientMessageId.isNotEmpty) {
-          state.replaceMessageId(clientMessageId, message.id);
+        if (clientMessageId.isNotEmpty &&
+            state.confirmPendingMessage(clientMessageId, message)) {
+          // Confirmed a pending temp message; no further action needed.
+        } else {
+          state.upsertMessage(message);
         }
-        state.upsertMessage(message);
         break;
       case 'message.status':
         final clientMessageId = (event['clientMessageId'] ?? '').toString();
@@ -760,6 +762,22 @@ class ChatViewState {
 
   void clearStreaming() {
     streamingMessageIds.clear();
+  }
+
+  bool confirmPendingMessage(
+    String clientMessageId,
+    core.TextMessage confirmedMessage,
+  ) {
+    final list = [...messages];
+    final index = list.indexWhere((item) => item.id == clientMessageId);
+    if (index < 0) return false;
+    list[index] = confirmedMessage;
+    list.sort(
+      (a, b) => (a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+          .compareTo(b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)),
+    );
+    messages = List<core.TextMessage>.unmodifiable(list);
+    return true;
   }
 
   void markShouldStickToBottom() {
