@@ -34,6 +34,7 @@ class ChatSessionStore extends ChangeNotifier {
   final OpenClawHttpClient _client;
   final Uuid _uuid = const Uuid();
   final Map<String, ChatViewState> _states = {};
+  final Map<String, String> _sessionIdBySessionKey = {};
   final Map<String, StreamSubscription<Map<String, dynamic>>>
   _eventSubscriptions = {};
   final Map<String, Timer> _sendWatchdogs = {};
@@ -49,12 +50,22 @@ class ChatSessionStore extends ChangeNotifier {
 
   Future<void> ensureReady(ChatSession session) async {
     final state = stateFor(session);
-    if (state.isReady || state.isLoading) return;
+    if (state.isReady || state.isLoading) {
+      if (state.isReady &&
+          state.backendSessionId != null &&
+          state.backendSessionId!.isNotEmpty) {
+        _ensureEventSubscription(session, state.backendSessionId!);
+      }
+      return;
+    }
 
+    final shouldShowLoading = state.messages.isEmpty;
     state
       ..isLoading = true
       ..error = null;
-    notifyListeners();
+    if (shouldShowLoading) {
+      notifyListeners();
+    }
 
     try {
       var sessionId = await _ensureBackendSession(session);
@@ -209,17 +220,25 @@ class ChatSessionStore extends ChangeNotifier {
       ..stickToBottom = stickToBottom;
   }
 
-  String _keyFor(ChatSession session) => session.backendSessionId ?? session.id;
+  String _keyFor(ChatSession session) => session.id;
 
   Future<String> _ensureBackendSession(ChatSession session) async {
     final state = stateFor(session);
     final existing = state.backendSessionId;
     if (existing != null && existing.isNotEmpty) return existing;
 
+    final cacheKey = _keyFor(session);
+    final cachedSessionId = _sessionIdBySessionKey[cacheKey];
+    if (cachedSessionId != null && cachedSessionId.isNotEmpty) {
+      state.backendSessionId = cachedSessionId;
+      return cachedSessionId;
+    }
+
     final sessionId = await _client.ensureSession(
       preferredName: session.backendSessionId ?? session.title,
     );
     state.backendSessionId = sessionId;
+    _sessionIdBySessionKey[cacheKey] = sessionId;
     return sessionId;
   }
 
@@ -447,6 +466,7 @@ class ChatSessionStore extends ChangeNotifier {
       _eventSubscriptions.remove(oldSessionId)?.cancel();
       _eventReconnectTimers.remove(oldSessionId)?.cancel();
     }
+    _sessionIdBySessionKey.remove(_keyFor(state.session));
     state
       ..backendSessionId = null
       ..isReady = false
