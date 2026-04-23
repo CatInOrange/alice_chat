@@ -1,16 +1,8 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
-}
-
-val keystoreProperties = Properties()
-val keystorePropertiesFile = rootProject.file("key.properties")
-if (keystorePropertiesFile.exists()) {
-    keystorePropertiesFile.inputStream().use { keystoreProperties.load(it) }
 }
 
 android {
@@ -39,22 +31,17 @@ android {
     }
 
     signingConfigs {
-        if (keystorePropertiesFile.exists()) {
-            create("customDebug") {
-                val storeFilePath = keystoreProperties["storeFile"] as String
-                storeFile = file(storeFilePath)
-                storePassword = keystoreProperties["storePassword"] as String
-                keyAlias = keystoreProperties["keyAlias"] as String
-                keyPassword = keystoreProperties["keyPassword"] as String
-            }
+        create("customDebug") {
+            storeFile = rootProject.file("debug.keystore")
+            storePassword = "alicechatdebug"
+            keyAlias = "alicechatdebug"
+            keyPassword = "alicechatdebug"
         }
     }
 
     buildTypes {
         debug {
-            if (keystorePropertiesFile.exists()) {
-                signingConfig = signingConfigs.getByName("customDebug")
-            }
+            signingConfig = signingConfigs.getByName("customDebug")
         }
         release {
             // TODO: Replace with a dedicated release keystore before shipping release builds.

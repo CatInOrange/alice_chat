@@ -24,22 +24,18 @@ jobs:
 
       - name: Generate fixed debug keystore
         run: |
+          rm -f android/debug.keystore
           keytool -genkeypair \
             -v \
+            -storetype JKS \
             -keystore android/debug.keystore \
-            -storepass alicechat_debug_store \
+            -storepass alicechatdebug \
             -alias alicechatdebug \
-            -keypass alicechat_debug_key \
+            -keypass alicechatdebug \
             -keyalg RSA \
             -keysize 2048 \
             -validity 10000 \
             -dname "CN=AliceChat Debug, OU=Dev, O=AliceChat, L=Shanghai, ST=Shanghai, C=CN"
-          cat > android/key.properties <<EOF
-          storeFile=../debug.keystore
-          storePassword=alicechat_debug_store
-          keyAlias=alicechatdebug
-          keyPassword=alicechat_debug_key
-          EOF
       
       - name: Build debug APK
         run: flutter build apk --debug
