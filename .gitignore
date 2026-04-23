@@ -10,6 +10,16 @@ build/
 *.apk
 *.apk.zip
 
+# Backend local runtime artifacts
+/backend/data/
+/backend/backend.log
+/backend/config.json
+/backend/__pycache__/
+/backend/**/*.pyc
+
+# Local databases
+/data/
+
 # IDE
 .idea/
 .vscode/
