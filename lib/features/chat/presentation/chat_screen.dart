@@ -34,6 +34,12 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _lastSavedStickToBottom = true;
   final List<String> _appliedMessageIds = [];
 
+  // Cache for MarkdownStyleSheet to avoid rebuilding on every message
+  static final _markdownStyleSheetCache = <ThemeData, MarkdownStyleSheet>{};
+
+  // Cache for parsed markdown widgets
+  static final _markdownWidgetCache = <String, MarkdownBody>{};
+
   String get _assistantName => widget.session.title;
 
   String _assistantSubtitle(ChatViewState state) =>
@@ -460,40 +466,28 @@ class _ChatScreenState extends State<ChatScreen> {
     required BorderRadius bubbleRadius,
   }) {
     final theme = Theme.of(context);
-    final markdownTheme = _buildMarkdownStyleSheet(theme);
+    final markdownTheme = _getMarkdownStyleSheet(theme);
 
-    return Container(
-      constraints: BoxConstraints(maxWidth: maxWidth),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: bubbleRadius,
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x081F2430),
-            blurRadius: 10,
-            offset: Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            MarkdownBody(
-              data: _stripModelNamePrefix(message.text),
-              selectable: true,
-              styleSheet: markdownTheme,
-              softLineBreak: true,
-              onTapLink: (text, href, title) {
-                _openMarkdownLink(href);
-              },
-              builders: {
-                'code': _InlineCodeBuilder(markdownTheme),
-                'pre': _CodeBlockBuilder(markdownTheme),
-                'blockquote': _BlockquoteBuilder(markdownTheme),
-              },
+    return RepaintBoundary(
+      child: Container(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: bubbleRadius,
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x081F2430),
+              blurRadius: 10,
+              offset: Offset(0, 3),
             ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildMarkdownBody(_stripModelNamePrefix(message.text), markdownTheme),
             const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
@@ -527,6 +521,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
       ),
+    ),
     );
   }
 
@@ -593,6 +588,36 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       horizontalRuleDecoration: const BoxDecoration(
         border: Border(top: BorderSide(color: Color(0xFFE7EAF3), width: 1)),
+      ),
+    );
+  }
+
+  MarkdownStyleSheet _getMarkdownStyleSheet(ThemeData theme) {
+    return _markdownStyleSheetCache.putIfAbsent(
+      theme,
+      () => _buildMarkdownStyleSheet(theme),
+    );
+  }
+
+  MarkdownBody _buildMarkdownBody(
+    String text,
+    MarkdownStyleSheet styleSheet,
+  ) {
+    return _markdownWidgetCache.putIfAbsent(
+      text,
+      () => MarkdownBody(
+        data: text,
+        selectable: false, // Disabled for performance
+        styleSheet: styleSheet,
+        softLineBreak: true,
+        builders: {
+          'code': _InlineCodeBuilder(styleSheet),
+          'pre': _CodeBlockBuilder(styleSheet),
+          'blockquote': _BlockquoteBuilder(styleSheet),
+        },
+        onTapLink: (text, href, title) {
+          _openMarkdownLink(href);
+        },
       ),
     );
   }
