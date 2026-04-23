@@ -22,6 +22,32 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Cache Flutter pub
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: flutter-pub-${{ hashFiles('**/pubspec.lock') }}
+          restore-keys: |
+            flutter-pub-
+
+      - name: Cache NDK
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/lib/android/sdk/ndk
+          key: ndk-27.0.12077973
+
+      - name: Cache CMake
+        uses: actions/cache@v4
+        with:
+          path: /usr/local/lib/android/sdk/cmake
+          key: cmake-3.22.1
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}
+
       - name: Generate fixed debug keystore
         run: |
           rm -f android/debug.keystore
