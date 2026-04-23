@@ -481,7 +481,7 @@ class _ChatScreenState extends State<ChatScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             MarkdownBody(
-              data: message.text,
+              data: _stripModelNamePrefix(message.text),
               selectable: true,
               styleSheet: markdownTheme,
               softLineBreak: true,
@@ -610,12 +610,26 @@ class _ChatScreenState extends State<ChatScreen> {
     return '$hour:$minute';
   }
 
+  String _stripModelNamePrefix(String text) {
+    final trimmedLeft = text.trimLeft();
+    if (!trimmedLeft.startsWith('[')) return text;
+    final bracketEnd = trimmedLeft.indexOf(']');
+    if (bracketEnd <= 1) return text;
+    return trimmedLeft.substring(bracketEnd + 1).trimLeft();
+  }
+
+  String? _extractModelName(String text) {
+    final trimmedLeft = text.trimLeft();
+    if (!trimmedLeft.startsWith('[')) return null;
+    final bracketEnd = trimmedLeft.indexOf(']');
+    if (bracketEnd <= 1) return null;
+    final modelName = trimmedLeft.substring(1, bracketEnd).trim();
+    return modelName.isEmpty ? null : modelName;
+  }
+
   Widget _buildModelNameText(String text) {
-    // Parse [ModelName] from beginning of text
-    if (!text.startsWith('[')) return const SizedBox.shrink();
-    final bracketEnd = text.indexOf(']');
-    if (bracketEnd <= 1) return const SizedBox.shrink();
-    final modelName = text.substring(1, bracketEnd);
+    final modelName = _extractModelName(text);
+    if (modelName == null) return const SizedBox.shrink();
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
