@@ -22,23 +22,23 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Restore debug keystore
-        env:
-          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
-          DEBUG_KEYSTORE_PASSWORD: ${{ secrets.DEBUG_KEYSTORE_PASSWORD }}
-          DEBUG_KEY_ALIAS: ${{ secrets.DEBUG_KEY_ALIAS }}
-          DEBUG_KEY_PASSWORD: ${{ secrets.DEBUG_KEY_PASSWORD }}
+      - name: Generate fixed debug keystore
         run: |
-          test -n "$DEBUG_KEYSTORE_BASE64"
-          test -n "$DEBUG_KEYSTORE_PASSWORD"
-          test -n "$DEBUG_KEY_ALIAS"
-          test -n "$DEBUG_KEY_PASSWORD"
-          echo "$DEBUG_KEYSTORE_BASE64" | base64 -d > android/debug.keystore
+          keytool -genkeypair \
+            -v \
+            -keystore android/debug.keystore \
+            -storepass alicechat_debug_store \
+            -alias alicechatdebug \
+            -keypass alicechat_debug_key \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=AliceChat Debug, OU=Dev, O=AliceChat, L=Shanghai, ST=Shanghai, C=CN"
           cat > android/key.properties <<EOF
           storeFile=debug.keystore
-          storePassword=$DEBUG_KEYSTORE_PASSWORD
-          keyAlias=$DEBUG_KEY_ALIAS
-          keyPassword=$DEBUG_KEY_PASSWORD
+          storePassword=alicechat_debug_store
+          keyAlias=alicechatdebug
+          keyPassword=alicechat_debug_key
           EOF
       
       - name: Build debug APK

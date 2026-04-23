@@ -58,11 +58,6 @@ android {
         }
         release {
             // TODO: Replace with a dedicated release keystore before shipping release builds.
-            signingConfig = if (keystorePropertiesFile.exists()) {
-                signingConfigs.getByName("customDebug")
-            } else {
-                signingConfigs.getByName("debug")
-            }
         }
     }
 }
