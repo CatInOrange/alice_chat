@@ -221,7 +221,9 @@ class ChatSessionStore extends ChangeNotifier {
         final message = _mapEventMessage(event['message']);
         if (message == null) return;
         state.upsertMessage(message);
-        state.streamingMessageIds.add(message.id);
+        state.streamingMessageIds
+          ..clear()
+          ..add(message.id);
         state.isSending = true;
         break;
       case 'assistant.message.delta':
@@ -241,7 +243,7 @@ class ChatSessionStore extends ChangeNotifier {
         final message = _mapEventMessage(event['message']);
         if (message == null) return;
         state.upsertMessage(message);
-        state.streamingMessageIds.remove(message.id);
+        state.clearStreaming();
         final clientMessageId = (event['clientMessageId'] ?? '').toString();
         if (clientMessageId.isNotEmpty) {
           _clearPendingClientMessage(state, clientMessageId, notify: false);
@@ -255,8 +257,8 @@ class ChatSessionStore extends ChangeNotifier {
         final error = (event['error'] ?? 'unknown error').toString();
         if (messageId.isNotEmpty) {
           state.upsertOrPatchAssistantMessage(messageId, '❌ 回复失败: $error');
-          state.streamingMessageIds.remove(messageId);
         }
+        state.clearStreaming();
         final clientMessageId = (event['clientMessageId'] ?? '').toString();
         if (clientMessageId.isNotEmpty) {
           _clearPendingClientMessage(state, clientMessageId, notify: false);
