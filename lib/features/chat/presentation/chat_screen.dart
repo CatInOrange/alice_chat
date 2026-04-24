@@ -30,7 +30,6 @@ class _ChatScreenState extends State<ChatScreen> {
   final _chatListController = ScrollController();
   final _chatController = core.InMemoryChatController();
 
-  bool _didRestoreScroll = false;
   double _lastSavedOffset = -1;
   bool _lastSavedStickToBottom = true;
   bool _showJumpToBottom = false;
@@ -314,7 +313,6 @@ class _ChatScreenState extends State<ChatScreen> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.session.id == widget.session.id) return;
 
-    _didRestoreScroll = false;
     _lastSavedOffset = -1;
     _lastSavedStickToBottom = true;
     _appliedMessageIds.clear();
@@ -330,7 +328,6 @@ class _ChatScreenState extends State<ChatScreen> {
       '[alicechat.screen] ${jsonEncode({'tag': 'handleStoreChanged', 'sessionId': state.backendSessionId, 'sessionLocalId': widget.session.id, 'isSubmitting': state.isSubmitting, 'isAssistantStreaming': state.isAssistantStreaming, 'pendingCount': state.pendingClientMessageIds.length, 'streamingCount': state.streamingMessageIds.length, 'messageCount': state.messages.length, 'lastEventSeq': state.lastEventSeq})}',
     );
     _applyMessagesIncrementally(state.messages);
-    _restoreScrollIfNeeded(state);
   }
 
   void _applyMessagesIncrementally(List<core.TextMessage> messages) {
@@ -376,25 +373,6 @@ class _ChatScreenState extends State<ChatScreen> {
     _appliedMessageIds
       ..clear()
       ..addAll(messages.map((message) => message.id));
-  }
-
-  void _restoreScrollIfNeeded(ChatViewState state) {
-    if (_didRestoreScroll) return;
-    if (!state.isReady && state.messages.isEmpty) return;
-
-    _didRestoreScroll = true;
-
-    if (!state.stickToBottom) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_chatListController.hasClients) return;
-        final position = _chatListController.position;
-        final target =
-            state.scrollOffset.clamp(0.0, position.maxScrollExtent).toDouble();
-        if ((position.pixels - target).abs() > 1) {
-          _chatListController.jumpTo(target);
-        }
-      });
-    }
   }
 
   void _handleScroll() {
