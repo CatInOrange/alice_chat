@@ -290,10 +290,24 @@ class ChatSessionStore extends ChangeNotifier {
   }
 
   void _handleEvent(ChatViewState state, Map<String, dynamic> event) {
+    final beforeMessageCount = state.messages.length;
+    final beforeAssistantCount = state.messages
+        .where((message) => message.authorId == 'assistant')
+        .length;
     final seqValue = event['seq'];
     if (seqValue is num) {
       if (state.lastEventSeq != null &&
           seqValue.toInt() <= state.lastEventSeq!) {
+        _debugState(
+          'events.duplicate',
+          state,
+          extra: {
+            'eventType': (event['event'] ?? '').toString(),
+            'seq': seqValue.toInt(),
+            'event': _compactEvent(event),
+          },
+          force: true,
+        );
         return;
       }
       state.lastEventSeq = seqValue.toInt();
@@ -389,6 +403,38 @@ class ChatSessionStore extends ChangeNotifier {
           ..isSubmitting = false
           ..isAssistantStreaming = false;
         break;
+    }
+    final afterAssistantCount = state.messages
+        .where((message) => message.authorId == 'assistant')
+        .length;
+    _debugState(
+      'events.$type.applied',
+      state,
+      extra: {
+        'eventType': type,
+        'beforeMessageCount': beforeMessageCount,
+        'afterMessageCount': state.messages.length,
+        'beforeAssistantCount': beforeAssistantCount,
+        'afterAssistantCount': afterAssistantCount,
+        'assistantDelta': afterAssistantCount - beforeAssistantCount,
+        'messageDelta': state.messages.length - beforeMessageCount,
+      },
+    );
+    if (!state.isAssistantStreaming &&
+        type.startsWith('assistant.message') &&
+        afterAssistantCount == beforeAssistantCount) {
+      _debugState(
+        'assistant.visible-message.missing',
+        state,
+        extra: {
+          'eventType': type,
+          'beforeMessageCount': beforeMessageCount,
+          'afterMessageCount': state.messages.length,
+          'beforeAssistantCount': beforeAssistantCount,
+          'afterAssistantCount': afterAssistantCount,
+        },
+        force: true,
+      );
     }
     notifyListeners();
   }
@@ -633,12 +679,21 @@ class ChatSessionStore extends ChangeNotifier {
     int? limitToLatest,
   }) async {
     final rawMessages = await _client.loadMessages(sessionId);
-    final messages =
-        rawMessages
-            .map(domain.ChatMessage.fromBackend)
-            .where((message) => message.text.trim().isNotEmpty)
-            .toList()
-          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    final mappedMessages = rawMessages.map(domain.ChatMessage.fromBackend).toList();
+    final filteredOutMessages = mappedMessages
+        .where((message) => message.text.trim().isEmpty)
+        .toList(growable: false);
+    final messages = mappedMessages
+        .where((message) => message.text.trim().isNotEmpty)
+        .toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+
+    _debugBackendLoad(
+      sessionId,
+      mappedMessages,
+      filteredOutMessages,
+      limitToLatest: limitToLatest,
+    );
 
     final visibleMessages =
         limitToLatest != null && messages.length > limitToLatest
@@ -655,6 +710,48 @@ class ChatSessionStore extends ChangeNotifier {
           ),
         )
         .toList(growable: false);
+  }
+
+  void _debugBackendLoad(
+    String sessionId,
+    List<domain.ChatMessage> mappedMessages,
+    List<domain.ChatMessage> filteredOutMessages, {
+    int? limitToLatest,
+  }) {
+    final assistantMessages = mappedMessages
+        .where((message) => message.authorId == 'assistant')
+        .toList(growable: false);
+    final recentPreview = mappedMessages.reversed.take(5).map((message) {
+      final text = message.text;
+      final preview = text.length > 60 ? text.substring(0, 60) : text;
+      return {
+        'id': message.id,
+        'authorId': message.authorId,
+        'textLength': text.length,
+        'preview': preview,
+      };
+    }).toList(growable: false);
+    final payload = {
+      'tag': 'loadMessages.result',
+      'ts': DateTime.now().toIso8601String(),
+      'sessionId': sessionId,
+      'rawCount': mappedMessages.length,
+      'assistantCount': assistantMessages.length,
+      'filteredEmptyCount': filteredOutMessages.length,
+      'visibleCountBeforeLimit': mappedMessages.length - filteredOutMessages.length,
+      'limitToLatest': limitToLatest,
+      'recentPreview': recentPreview,
+      if (filteredOutMessages.isNotEmpty)
+        'filteredPreview': filteredOutMessages.take(3).map((message) {
+          return {
+            'id': message.id,
+            'authorId': message.authorId,
+            'textLength': message.text.length,
+          };
+        }).toList(growable: false),
+    };
+    debugPrint('[alicechat.front] ${jsonEncode(payload)}');
+    unawaited(_client.sendClientDebugLog(payload));
   }
 }
 

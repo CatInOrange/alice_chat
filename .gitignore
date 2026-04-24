@@ -36,3 +36,6 @@ local.properties
 
 # Generated placeholders
 coverage/
+
+# Project info (local)
+PROJECT_INFO.md
