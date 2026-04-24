@@ -212,8 +212,10 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
 
+    // Composer 在 Chat 内部 Stack 里，实际占用高度 = _composerHeight + SafeArea bottom
+    final mediaQuery = MediaQuery.of(context);
     final effectiveComposerHeight =
-        _composerHeight + MediaQuery.of(context).viewInsets.bottom;
+        _composerHeight + mediaQuery.padding.bottom + mediaQuery.viewInsets.bottom;
     return Stack(
       children: [
         Chat(
@@ -377,34 +379,23 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _handleScroll() {
     if (!_chatListController.hasClients) return;
-    final position = _chatListController.position;
-    if (!position.hasContentDimensions) return;
-    final offset = position.pixels;
-    final maxExtent = position.maxScrollExtent;
-
-    // 只有内容够长（可滚动）时才需要跳转按钮
-    final canScroll = maxExtent > 600;
-    final atBottom = offset <= 24;
-    final shouldShowJump = canScroll && offset > 300 && !atBottom;
+    final offset = _chatListController.offset;
+    final shouldShowJump = offset > 300;
     if (_showJumpToBottom != shouldShowJump && mounted) {
-      setState(() {
-        _showJumpToBottom = shouldShowJump;
-      });
+      setState(() => _showJumpToBottom = shouldShowJump);
     }
-
+    final atBottom = offset <= 24;
     if ((_lastSavedOffset - offset).abs() < 24 &&
         _lastSavedStickToBottom == atBottom) {
       return;
     }
     _lastSavedOffset = offset;
     _lastSavedStickToBottom = atBottom;
-    if (mounted) {
-      context.read<ChatSessionStore>().updateScrollState(
-        widget.session,
-        offset: offset,
-        stickToBottom: atBottom,
-      );
-    }
+    context.read<ChatSessionStore>().updateScrollState(
+      widget.session,
+      offset: offset,
+      stickToBottom: atBottom,
+    );
   }
 
   void _jumpToBottom() {
