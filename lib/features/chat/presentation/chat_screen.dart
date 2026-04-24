@@ -229,7 +229,7 @@ class _ChatScreenState extends State<ChatScreen> {
         if (_showJumpToBottom)
           Positioned(
             right: 16,
-            bottom: state.isAssistantStreaming ? 78 : 30,
+            bottom: state.isAssistantStreaming ? 278 : 230,
             child: SafeArea(
               top: false,
               child: SizedBox(
