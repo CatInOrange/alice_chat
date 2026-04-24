@@ -1,5 +1,6 @@
 import { WebSocketServer } from 'ws';
 import fs from 'node:fs/promises';
+import { createChannelReplyPipeline } from 'openclaw/plugin-sdk/channel-reply-pipeline';
 
 const CHANNEL_ID = 'alicechat';
 const activeServers = new Map();
@@ -171,10 +172,18 @@ function createBridgeServer(ctx) {
     const media = [];
     ws.send(JSON.stringify({ type: 'chat.accepted', requestId, sessionKey, agent: agentId }));
 
+    const { onModelSelected, ...replyPipeline } = createChannelReplyPipeline({
+      cfg: currentCfg,
+      agentId,
+      channel: CHANNEL_ID,
+      accountId,
+    });
+
     await channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher({
       ctx: inboundCtx,
       cfg: currentCfg,
       dispatcherOptions: {
+        ...replyPipeline,
         onReplyStart: () => {
           ws.send(JSON.stringify({ type: 'chat.typing', requestId }));
         },
@@ -200,6 +209,7 @@ function createBridgeServer(ctx) {
       },
       replyOptions: {
         images,
+        onModelSelected,
       },
     });
 
@@ -220,8 +230,8 @@ function createBridgeServer(ctx) {
       const url = new URL(`http://${req.headers.host || 'localhost'}${req.url || ''}`);
       const token = url.searchParams.get('token');
 
-      // Token 验证：使用环境变量 ALICECHAT_SECRET
-      const expectedToken = process.env.ALICECHAT_SECRET || 'alicechat-secret-token';
+      // Token 验证：优先使用 channel config token，再回退到环境变量
+      const expectedToken = String(process.env.ALICECHAT_SECRET || 'alicechat-secret-token');
       if (!token || token.length < 16 || token !== expectedToken) {
         console.error(`[AliceChat] Unauthorized connection attempt from ${req.socket.remoteAddress}`);
         ws.close(1008, 'Authentication failed');
