@@ -121,31 +121,33 @@ class _MainScaffoldState extends State<_MainScaffold> {
             ),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.contacts_outlined),
-            selectedIcon: Icon(Icons.contacts),
-            label: '通讯录',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.web_outlined),
-            selectedIcon: Icon(Icons.web),
-            label: '网页',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings),
-            label: '设置',
-          ),
-        ],
-      ),
+      bottomNavigationBar: _activeChatSession == null
+          ? NavigationBar(
+              selectedIndex: _currentIndex,
+              onDestinationSelected: (index) {
+                setState(() {
+                  _currentIndex = index;
+                });
+              },
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.contacts_outlined),
+                  selectedIcon: Icon(Icons.contacts),
+                  label: '通讯录',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.web_outlined),
+                  selectedIcon: Icon(Icons.web),
+                  label: '网页',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.settings_outlined),
+                  selectedIcon: Icon(Icons.settings),
+                  label: '设置',
+                ),
+              ],
+            )
+          : null,
     );
   }
 }
