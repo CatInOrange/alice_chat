@@ -377,27 +377,34 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _handleScroll() {
     if (!_chatListController.hasClients) return;
-    final store = context.read<ChatSessionStore>();
     final position = _chatListController.position;
+    if (!position.hasContentDimensions) return;
     final offset = position.pixels;
+    final maxExtent = position.maxScrollExtent;
+
+    // 只有内容够长（可滚动）时才需要跳转按钮
+    final canScroll = maxExtent > 600;
     final atBottom = offset <= 24;
-    final shouldShowJump = offset > 300;
+    final shouldShowJump = canScroll && offset > 300 && !atBottom;
     if (_showJumpToBottom != shouldShowJump && mounted) {
       setState(() {
         _showJumpToBottom = shouldShowJump;
       });
     }
+
     if ((_lastSavedOffset - offset).abs() < 24 &&
         _lastSavedStickToBottom == atBottom) {
       return;
     }
     _lastSavedOffset = offset;
     _lastSavedStickToBottom = atBottom;
-    store.updateScrollState(
-      widget.session,
-      offset: offset,
-      stickToBottom: atBottom,
-    );
+    if (mounted) {
+      context.read<ChatSessionStore>().updateScrollState(
+        widget.session,
+        offset: offset,
+        stickToBottom: atBottom,
+      );
+    }
   }
 
   void _jumpToBottom() {
