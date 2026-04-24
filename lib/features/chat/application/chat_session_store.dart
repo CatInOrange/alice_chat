@@ -16,7 +16,7 @@ class ChatSessionStore extends ChangeNotifier {
           client ??
           OpenClawHttpClient(
             const OpenClawConfig(
-              baseUrl: 'https://alice.newthu.com',
+              baseUrl: 'https://chat.newthu.com',
               modelId: 'bian',
               providerId: 'alicechat-channel',
               agent: 'main',
@@ -291,9 +291,10 @@ class ChatSessionStore extends ChangeNotifier {
 
   void _handleEvent(ChatViewState state, Map<String, dynamic> event) {
     final beforeMessageCount = state.messages.length;
-    final beforeAssistantCount = state.messages
-        .where((message) => message.authorId == 'assistant')
-        .length;
+    final beforeAssistantCount =
+        state.messages
+            .where((message) => message.authorId == 'assistant')
+            .length;
     final seqValue = event['seq'];
     if (seqValue is num) {
       if (state.lastEventSeq != null &&
@@ -404,9 +405,10 @@ class ChatSessionStore extends ChangeNotifier {
           ..isAssistantStreaming = false;
         break;
     }
-    final afterAssistantCount = state.messages
-        .where((message) => message.authorId == 'assistant')
-        .length;
+    final afterAssistantCount =
+        state.messages
+            .where((message) => message.authorId == 'assistant')
+            .length;
     _debugState(
       'events.$type.applied',
       state,
@@ -679,14 +681,16 @@ class ChatSessionStore extends ChangeNotifier {
     int? limitToLatest,
   }) async {
     final rawMessages = await _client.loadMessages(sessionId);
-    final mappedMessages = rawMessages.map(domain.ChatMessage.fromBackend).toList();
+    final mappedMessages =
+        rawMessages.map(domain.ChatMessage.fromBackend).toList();
     final filteredOutMessages = mappedMessages
         .where((message) => message.text.trim().isEmpty)
         .toList(growable: false);
-    final messages = mappedMessages
-        .where((message) => message.text.trim().isNotEmpty)
-        .toList()
-      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    final messages =
+        mappedMessages
+            .where((message) => message.text.trim().isNotEmpty)
+            .toList()
+          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
     _debugBackendLoad(
       sessionId,
@@ -721,16 +725,19 @@ class ChatSessionStore extends ChangeNotifier {
     final assistantMessages = mappedMessages
         .where((message) => message.authorId == 'assistant')
         .toList(growable: false);
-    final recentPreview = mappedMessages.reversed.take(5).map((message) {
-      final text = message.text;
-      final preview = text.length > 60 ? text.substring(0, 60) : text;
-      return {
-        'id': message.id,
-        'authorId': message.authorId,
-        'textLength': text.length,
-        'preview': preview,
-      };
-    }).toList(growable: false);
+    final recentPreview = mappedMessages.reversed
+        .take(5)
+        .map((message) {
+          final text = message.text;
+          final preview = text.length > 60 ? text.substring(0, 60) : text;
+          return {
+            'id': message.id,
+            'authorId': message.authorId,
+            'textLength': text.length,
+            'preview': preview,
+          };
+        })
+        .toList(growable: false);
     final payload = {
       'tag': 'loadMessages.result',
       'ts': DateTime.now().toIso8601String(),
@@ -738,17 +745,21 @@ class ChatSessionStore extends ChangeNotifier {
       'rawCount': mappedMessages.length,
       'assistantCount': assistantMessages.length,
       'filteredEmptyCount': filteredOutMessages.length,
-      'visibleCountBeforeLimit': mappedMessages.length - filteredOutMessages.length,
+      'visibleCountBeforeLimit':
+          mappedMessages.length - filteredOutMessages.length,
       'limitToLatest': limitToLatest,
       'recentPreview': recentPreview,
       if (filteredOutMessages.isNotEmpty)
-        'filteredPreview': filteredOutMessages.take(3).map((message) {
-          return {
-            'id': message.id,
-            'authorId': message.authorId,
-            'textLength': message.text.length,
-          };
-        }).toList(growable: false),
+        'filteredPreview': filteredOutMessages
+            .take(3)
+            .map((message) {
+              return {
+                'id': message.id,
+                'authorId': message.authorId,
+                'textLength': message.text.length,
+              };
+            })
+            .toList(growable: false),
     };
     debugPrint('[alicechat.front] ${jsonEncode(payload)}');
     unawaited(_client.sendClientDebugLog(payload));
