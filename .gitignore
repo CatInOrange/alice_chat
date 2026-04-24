@@ -19,6 +19,9 @@ build/
 /backend/__pycache__/
 /backend/**/*.pyc
 
+# Local config
+/config.json
+
 # Local databases
 /data/
 
