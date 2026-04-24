@@ -9,6 +9,8 @@ build/
 # Local build artifacts
 *.apk
 *.apk.zip
+*.bak
+*.bak.*
 
 # Backend local runtime artifacts
 /backend/data/
