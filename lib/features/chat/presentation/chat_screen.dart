@@ -39,10 +39,13 @@ class _ChatScreenState extends State<ChatScreen> {
   // Composer height tracking for relative positioning of floating elements
   static const double _composerPaddingVertical = 20.0; // 8 + 12
   static const double _composerRowHeight = 40.0;
-  static const double _composerMinContentHeight = _composerPaddingVertical + _composerRowHeight; // 60
-  static const double _composerMinHeight = _composerMinContentHeight; // 68 with SafeArea bottom padding
+  static const double _composerMinContentHeight =
+      _composerPaddingVertical + _composerRowHeight; // 60
+  static const double _composerMinHeight =
+      _composerMinContentHeight; // 68 with SafeArea bottom padding
   static const double _jumpButtonGap = 8.0;
-  static const double _typingIndicatorTotalHeight = 44.0; // 10+10 padding + 24 text row
+  static const double _typingIndicatorTotalHeight =
+      44.0; // 10+10 padding + 24 text row
   double _composerHeight = _composerMinHeight;
 
   // Cache for MarkdownStyleSheet to avoid rebuilding on every message
@@ -227,7 +230,9 @@ class _ChatScreenState extends State<ChatScreen> {
             right: 16,
             bottom:
                 state.isAssistantStreaming
-                    ? effectiveComposerHeight + _typingIndicatorTotalHeight + _jumpButtonGap
+                    ? effectiveComposerHeight +
+                        _typingIndicatorTotalHeight +
+                        _jumpButtonGap
                     : effectiveComposerHeight + _jumpButtonGap,
             child: SafeArea(
               top: false,
@@ -259,7 +264,10 @@ class _ChatScreenState extends State<ChatScreen> {
           Positioned(
             left: 12,
             right: 12,
-            bottom: effectiveComposerHeight + _typingIndicatorTotalHeight + _jumpButtonGap,
+            bottom:
+                effectiveComposerHeight +
+                _typingIndicatorTotalHeight +
+                _jumpButtonGap,
             child: IgnorePointer(
               child: Align(
                 alignment: Alignment.centerLeft,
@@ -395,7 +403,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final position = _chatListController.position;
     final offset = position.pixels;
     final atBottom = offset <= 24;
-    final shouldShowJump = offset > 1200;
+    final shouldShowJump = offset > 300;
     if (_showJumpToBottom != shouldShowJump && mounted) {
       setState(() {
         _showJumpToBottom = shouldShowJump;
@@ -700,10 +708,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  MarkdownBody _buildMarkdownBody(
-    String text,
-    MarkdownStyleSheet styleSheet,
-  ) {
+  MarkdownBody _buildMarkdownBody(String text, MarkdownStyleSheet styleSheet) {
     return _markdownWidgetCache.putIfAbsent(
       text,
       () => MarkdownBody(
@@ -723,7 +728,10 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Future<void> _showMessageActionSheet(BuildContext context, String text) async {
+  Future<void> _showMessageActionSheet(
+    BuildContext context,
+    String text,
+  ) async {
     final plainText = _stripModelNamePrefix(text).trim();
     if (plainText.isEmpty) return;
 
@@ -806,17 +814,11 @@ class _ChatScreenState extends State<ChatScreen> {
       children: [
         Text(
           " | ",
-          style: const TextStyle(
-            color: Color(0xFF98A1B3),
-            fontSize: 11,
-          ),
+          style: const TextStyle(color: Color(0xFF98A1B3), fontSize: 11),
         ),
         Text(
           modelName,
-          style: const TextStyle(
-            color: Color(0xFF98A1B3),
-            fontSize: 11,
-          ),
+          style: const TextStyle(color: Color(0xFF98A1B3), fontSize: 11),
         ),
       ],
     );
