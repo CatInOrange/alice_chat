@@ -57,9 +57,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   String _assistantSubtitle(ChatViewState state) {
     if (!state.isAssistantStreaming) return widget.session.subtitle;
-    final sequence = state.assistantProgressSequence;
-    if (sequence == null) return '正在输入…';
-    return _buildProgressLabel(sequence);
+    return '正在输入…';
   }
 
   Builders get _chatBuilders => Builders(
@@ -804,16 +802,21 @@ class _ChatScreenState extends State<ChatScreen> {
   String _buildProgressLabel(int sequence) {
     final n = sequence.toString().padLeft(2, '0');
     const texts = [
-      '我想想哦...',
-      '有点眉目了',
-      '正在帮你捋顺',
-      '快整理好了',
-      '马上发你',
+      '我先捋一捋哦...',
+      '脑袋转起来啦',
+      '唔，有点灵感了',
+      '我在认真组织语句',
+      '别急别急，快顺出来了',
+      '这一段马上就好',
+      '我再润一下会更顺',
+      '已经差不多啦',
+      '正在给你收个尾',
+      '马上发到你手里',
     ];
     final text =
         sequence >= 1 && sequence <= texts.length
             ? texts[sequence - 1]
-            : '再等一下下...';
+            : '再等我一下下，马上就贴过来';
     return '$n $text';
   }
 
