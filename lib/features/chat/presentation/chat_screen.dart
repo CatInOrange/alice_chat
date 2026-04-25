@@ -35,6 +35,7 @@ class _ChatScreenState extends State<ChatScreen> {
   static const double _pullTriggerDistance = 72;
   static const double _pullMaxVisualDistance = 108;
   static const double _edgeHintHeight = 52;
+  static const double _edgeHintCardHeight = 64;
 
   double _lastSavedOffset = -1;
   bool _lastSavedStickToBottom = true;
@@ -622,80 +623,96 @@ class _ChatScreenState extends State<ChatScreen> {
     required String dividerLabel,
   }) {
     final visibleHeight = height.clamp(0.0, _pullMaxVisualDistance);
+    final card = Container(
+      height: _edgeHintCardHeight,
+      margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x121F2430),
+            blurRadius: 14,
+            offset: Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              loading
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Icon(
+                      alignment == Alignment.topCenter
+                          ? Icons.keyboard_arrow_up_rounded
+                          : Icons.keyboard_arrow_down_rounded,
+                      size: 18,
+                      color: const Color(0xFF667085),
+                    ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF667085),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Expanded(
+                child: Divider(color: Color(0xFFE7EAF3), height: 1),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(
+                  dividerLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF98A1B3),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const Expanded(
+                child: Divider(color: Color(0xFFE7EAF3), height: 1),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+
     return IgnorePointer(
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
         curve: Curves.easeOutCubic,
         height: visibleHeight,
-        alignment: alignment,
-        child: Opacity(
-          opacity: (visibleHeight / _edgeHintHeight).clamp(0.0, 1.0),
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.96),
-              borderRadius: BorderRadius.circular(18),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x121F2430),
-                  blurRadius: 14,
-                  offset: Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    loading
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Icon(
-                            alignment == Alignment.topCenter
-                                ? Icons.keyboard_arrow_up_rounded
-                                : Icons.keyboard_arrow_down_rounded,
-                            size: 18,
-                            color: const Color(0xFF667085),
-                          ),
-                    const SizedBox(width: 8),
-                    Text(
-                      label,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF667085),
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Divider(color: Color(0xFFE7EAF3), height: 1),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Text(
-                        dividerLabel,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF98A1B3),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    const Expanded(
-                      child: Divider(color: Color(0xFFE7EAF3), height: 1),
-                    ),
-                  ],
-                ),
-              ],
+        child: ClipRect(
+          child: Align(
+            alignment: alignment,
+            child: SizedBox(
+              height: _edgeHintCardHeight + 12,
+              child: Opacity(
+                opacity: (visibleHeight / _edgeHintHeight).clamp(0.0, 1.0),
+                child: card,
+              ),
             ),
           ),
         ),
