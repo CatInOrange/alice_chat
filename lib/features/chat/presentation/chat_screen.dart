@@ -24,17 +24,25 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
+enum _PullEdgeState { idle, pulling, armed, loading }
+
 class _ChatScreenState extends State<ChatScreen> {
   final _currentUserId = 'user';
   final _composerController = TextEditingController();
   final _chatListController = ScrollController();
   final _chatController = core.InMemoryChatController();
 
+  static const double _pullTriggerDistance = 72;
+  static const double _pullMaxVisualDistance = 108;
+  static const double _edgeHintHeight = 52;
+
   double _lastSavedOffset = -1;
   bool _lastSavedStickToBottom = true;
   bool _showJumpToBottom = false;
-  bool _loadingOlderTriggered = false;
-  bool _refreshLatestTriggered = false;
+  double _topPullDistance = 0;
+  double _bottomPullDistance = 0;
+  _PullEdgeState _topPullState = _PullEdgeState.idle;
+  _PullEdgeState _bottomPullState = _PullEdgeState.idle;
   final List<String> _appliedMessageIds = [];
 
   // Composer height tracking for relative positioning of floating elements
@@ -218,9 +226,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
     return Stack(
       children: [
-        NotificationListener<OverscrollNotification>(
+        NotificationListener<ScrollNotification>(
           onNotification: (notification) {
-            _handleOverscroll(notification);
+            _handleScrollNotification(notification, state);
             return false;
           },
           child: Chat(
@@ -260,6 +268,34 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                 ),
               ),
+            ),
+          ),
+        if (_topPullState != _PullEdgeState.idle || state.isLoadingOlder)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: _buildEdgeHint(
+              context,
+              alignment: Alignment.topCenter,
+              height: _effectiveTopHintHeight(state),
+              label: _topHintLabel(state),
+              loading: state.isLoadingOlder,
+              dividerLabel: state.hasMoreHistory ? '再往上就是老记录了' : '已经翻到底了'
+            ),
+          ),
+        if (_bottomPullState != _PullEdgeState.idle || state.isRefreshingLatest)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: _buildEdgeHint(
+              context,
+              alignment: Alignment.bottomCenter,
+              height: _effectiveBottomHintHeight(state),
+              label: _bottomHintLabel(state),
+              loading: state.isRefreshingLatest,
+              dividerLabel: '我是有底线的',
             ),
           ),
         if (state.isAssistantStreaming)
@@ -303,55 +339,6 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                       ),
                     ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        if (state.isLoadingOlder)
-          const Positioned(
-            top: 12,
-            left: 0,
-            right: 0,
-            child: IgnorePointer(
-              child: Center(
-                child: SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              ),
-            ),
-          ),
-        if (state.isRefreshingLatest)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: state.isAssistantStreaming ? 124 : 72,
-            child: IgnorePointer(
-              child: Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.96),
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x121F2430),
-                        blurRadius: 12,
-                        offset: Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Text(
-                    '正在检查有没有漏掉的消息…',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFF667085),
-                      fontWeight: FontWeight.w600,
-                    ),
                   ),
                 ),
               ),
@@ -437,12 +424,6 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() => _showJumpToBottom = shouldShowJump);
     }
     final atBottom = offset <= 24;
-    if (offset > 48) {
-      _refreshLatestTriggered = false;
-    }
-    if (offset < (_chatListController.position.maxScrollExtent - 48)) {
-      _loadingOlderTriggered = false;
-    }
     if ((_lastSavedOffset - offset).abs() < 24 &&
         _lastSavedStickToBottom == atBottom) {
       return;
@@ -456,21 +437,88 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  void _handleOverscroll(OverscrollNotification notification) {
+  void _handleScrollNotification(
+    ScrollNotification notification,
+    ChatViewState state,
+  ) {
     if (!_chatListController.hasClients) return;
-    final metrics = notification.metrics;
-    final atBottom = metrics.pixels <= 24;
-    final atTop = metrics.pixels >= metrics.maxScrollExtent - 24;
 
-    if (notification.overscroll < 0 && atBottom && !_refreshLatestTriggered) {
-      _refreshLatestTriggered = true;
-      _triggerRefreshLatest();
+    if (notification is OverscrollNotification) {
+      final metrics = notification.metrics;
+      final atBottom = metrics.pixels <= 24;
+      final atTop = metrics.pixels >= metrics.maxScrollExtent - 24;
+      var didChange = false;
+
+      if (notification.overscroll < 0 && atBottom && !state.isRefreshingLatest) {
+        final nextDistance = (_bottomPullDistance + (-notification.overscroll * 0.65))
+            .clamp(0.0, _pullMaxVisualDistance);
+        final nextState = nextDistance >= _pullTriggerDistance
+            ? _PullEdgeState.armed
+            : _PullEdgeState.pulling;
+        if (nextDistance != _bottomPullDistance || nextState != _bottomPullState) {
+          _bottomPullDistance = nextDistance;
+          _bottomPullState = nextState;
+          didChange = true;
+        }
+      } else if (notification.overscroll > 0 && atTop && !state.isLoadingOlder) {
+        final nextDistance = (_topPullDistance + (notification.overscroll * 0.65))
+            .clamp(0.0, _pullMaxVisualDistance);
+        final nextState = nextDistance >= _pullTriggerDistance
+            ? _PullEdgeState.armed
+            : _PullEdgeState.pulling;
+        if (nextDistance != _topPullDistance || nextState != _topPullState) {
+          _topPullDistance = nextDistance;
+          _topPullState = nextState;
+          didChange = true;
+        }
+      }
+
+      if (didChange && mounted) {
+        setState(() {});
+      }
       return;
     }
 
-    if (notification.overscroll > 0 && atTop && !_loadingOlderTriggered) {
-      _loadingOlderTriggered = true;
-      _triggerLoadOlder();
+    if (notification is ScrollUpdateNotification) {
+      final metrics = notification.metrics;
+      var didChange = false;
+      if (metrics.pixels > 24 && _bottomPullState != _PullEdgeState.loading) {
+        if (_bottomPullDistance != 0 || _bottomPullState != _PullEdgeState.idle) {
+          _bottomPullDistance = 0;
+          _bottomPullState = _PullEdgeState.idle;
+          didChange = true;
+        }
+      }
+      if (metrics.pixels < metrics.maxScrollExtent - 24 &&
+          _topPullState != _PullEdgeState.loading) {
+        if (_topPullDistance != 0 || _topPullState != _PullEdgeState.idle) {
+          _topPullDistance = 0;
+          _topPullState = _PullEdgeState.idle;
+          didChange = true;
+        }
+      }
+      if (didChange && mounted) {
+        setState(() {});
+      }
+      return;
+    }
+
+    if (notification is ScrollEndNotification) {
+      if (_bottomPullState == _PullEdgeState.armed && !state.isRefreshingLatest) {
+        _bottomPullState = _PullEdgeState.loading;
+        _bottomPullDistance = _edgeHintHeight;
+        if (mounted) setState(() {});
+        _triggerRefreshLatest();
+        return;
+      }
+      if (_topPullState == _PullEdgeState.armed && !state.isLoadingOlder) {
+        _topPullState = _PullEdgeState.loading;
+        _topPullDistance = _edgeHintHeight;
+        if (mounted) setState(() {});
+        _triggerLoadOlder();
+        return;
+      }
+      _resetPullHints();
     }
   }
 
@@ -479,19 +527,180 @@ class _ChatScreenState extends State<ChatScreen> {
     final store = context.read<ChatSessionStore>();
     final beforeExtent = _chatListController.position.maxScrollExtent;
     final loaded = await store.loadOlderMessages(widget.session);
-    if (!mounted || !loaded || !_chatListController.hasClients) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_chatListController.hasClients) return;
-      final afterExtent = _chatListController.position.maxScrollExtent;
-      final delta = afterExtent - beforeExtent;
-      if (delta.abs() > 0.5) {
-        _chatListController.jumpTo(_chatListController.offset + delta);
-      }
-    });
+    if (!mounted) return;
+    if (loaded && _chatListController.hasClients) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_chatListController.hasClients) return;
+        final afterExtent = _chatListController.position.maxScrollExtent;
+        final delta = afterExtent - beforeExtent;
+        if (delta.abs() > 0.5) {
+          _chatListController.jumpTo(_chatListController.offset + delta);
+        }
+      });
+    }
+    _resetTopPullHint();
   }
 
   Future<void> _triggerRefreshLatest() async {
     await context.read<ChatSessionStore>().refreshLatestMessages(widget.session);
+    if (!mounted) return;
+    _resetBottomPullHint();
+  }
+
+  void _resetTopPullHint() {
+    if (_topPullDistance == 0 && _topPullState == _PullEdgeState.idle) return;
+    setState(() {
+      _topPullDistance = 0;
+      _topPullState = _PullEdgeState.idle;
+    });
+  }
+
+  void _resetBottomPullHint() {
+    if (_bottomPullDistance == 0 && _bottomPullState == _PullEdgeState.idle) {
+      return;
+    }
+    setState(() {
+      _bottomPullDistance = 0;
+      _bottomPullState = _PullEdgeState.idle;
+    });
+  }
+
+  void _resetPullHints() {
+    if (!mounted) return;
+    if ((_topPullDistance == 0 || _topPullState == _PullEdgeState.loading) &&
+        (_bottomPullDistance == 0 || _bottomPullState == _PullEdgeState.loading)) {
+      return;
+    }
+    setState(() {
+      if (_topPullState != _PullEdgeState.loading) {
+        _topPullDistance = 0;
+        _topPullState = _PullEdgeState.idle;
+      }
+      if (_bottomPullState != _PullEdgeState.loading) {
+        _bottomPullDistance = 0;
+        _bottomPullState = _PullEdgeState.idle;
+      }
+    });
+  }
+
+  double _effectiveTopHintHeight(ChatViewState state) {
+    if (state.isLoadingOlder) return _edgeHintHeight;
+    return _topPullDistance.clamp(0.0, _pullMaxVisualDistance);
+  }
+
+  double _effectiveBottomHintHeight(ChatViewState state) {
+    if (state.isRefreshingLatest) return _edgeHintHeight;
+    return _bottomPullDistance.clamp(0.0, _pullMaxVisualDistance);
+  }
+
+  String _topHintLabel(ChatViewState state) {
+    if (state.isLoadingOlder) return '正在翻更早的消息…';
+    return switch (_topPullState) {
+      _PullEdgeState.armed => '松手加载更早消息',
+      _PullEdgeState.pulling => '上拉加载更早消息',
+      _PullEdgeState.loading => '正在翻更早的消息…',
+      _PullEdgeState.idle => '上拉加载更早消息',
+    };
+  }
+
+  String _bottomHintLabel(ChatViewState state) {
+    if (state.isRefreshingLatest) return '正在检查有没有漏掉的消息…';
+    return switch (_bottomPullState) {
+      _PullEdgeState.armed => '松手刷新',
+      _PullEdgeState.pulling => '下拉检查漏消息',
+      _PullEdgeState.loading => '正在检查有没有漏掉的消息…',
+      _PullEdgeState.idle => '下拉检查漏消息',
+    };
+  }
+
+  Widget _buildEdgeHint(
+    BuildContext context, {
+    required Alignment alignment,
+    required double height,
+    required String label,
+    required bool loading,
+    required String dividerLabel,
+  }) {
+    final visibleHeight = height.clamp(0.0, _pullMaxVisualDistance);
+    return IgnorePointer(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOutCubic,
+        height: visibleHeight,
+        alignment: alignment,
+        child: Opacity(
+          opacity: (visibleHeight / _edgeHintHeight).clamp(0.0, 1.0),
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.96),
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x121F2430),
+                  blurRadius: 14,
+                  offset: Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    loading
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Icon(
+                            alignment == Alignment.topCenter
+                                ? Icons.keyboard_arrow_up_rounded
+                                : Icons.keyboard_arrow_down_rounded,
+                            size: 18,
+                            color: const Color(0xFF667085),
+                          ),
+                    const SizedBox(width: 8),
+                    Text(
+                      label,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF667085),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Divider(color: Color(0xFFE7EAF3), height: 1),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Text(
+                        dividerLabel,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: const Color(0xFF98A1B3),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const Expanded(
+                      child: Divider(color: Color(0xFFE7EAF3), height: 1),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _jumpToBottom() {
@@ -607,7 +816,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         ).textTheme.bodySmall?.copyWith(
                           color:
                               sentByMe
-                                  ? Colors.white.withOpacity(0.72)
+                                  ? Colors.white.withValues(alpha: 0.72)
                                   : const Color(0xFF98A1B3),
                           fontSize: 11,
                         ),
