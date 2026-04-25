@@ -43,12 +43,20 @@ class _WebviewScreenState extends State<WebviewScreen>
     );
 
     final config = await OpenClawSettingsStore.load();
-    final url = config.baseUrl.trim();
+    final password = (config.appPassword ?? '').trim();
+    final base = config.baseUrl.trim();
+    final uri = Uri.parse(base.isEmpty ? 'https://chat.newthu.com' : base);
+    final isAliceClaw = uri.port == 18080 || uri.host == 'alice.newthu.com';
+    final targetUrl = isAliceClaw && password.isNotEmpty
+        ? uri.replace(queryParameters: {
+            ...uri.queryParameters,
+            'app_password': password,
+          }).toString()
+        : uri.toString();
     await _controller.loadRequest(
-      Uri.parse(url.isEmpty ? 'https://chat.newthu.com' : url),
+      Uri.parse(targetUrl),
       headers: {
-        if ((config.appPassword ?? '').trim().isNotEmpty)
-          'X-AliceChat-Password': config.appPassword!.trim(),
+        if (password.isNotEmpty) 'X-AliceChat-Password': password,
       },
     );
   }
