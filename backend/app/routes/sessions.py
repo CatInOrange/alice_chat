@@ -35,13 +35,29 @@ def create_sessions_router(context: AppContext) -> APIRouter:
         return {'ok': True, 'deletedId': session_id}
 
     @router.get('/api/sessions/{session_id}/messages')
-    async def session_messages(session_id: str, includeRaw: int = 0) -> dict:
+    async def session_messages(
+        session_id: str,
+        includeRaw: int = 0,
+        limit: int = 20,
+        before: str = '',
+        after: str = '',
+    ) -> dict:
         session_id = require_existing_session(context.session_store, session_id)
-        messages = context.message_store.list_session_messages(session_id)
+        page = context.message_store.list_session_messages_page(
+            session_id,
+            limit=limit,
+            before_message_id=str(before or '').strip() or None,
+            after_message_id=str(after or '').strip() or None,
+        )
+        messages = page['messages']
         if not includeRaw:
             for message in messages:
                 message.pop('rawText', None)
-        return {'sessionId': session_id, 'messages': messages}
+        return {
+            'sessionId': session_id,
+            'messages': messages,
+            'paging': page['paging'],
+        }
 
     @router.post('/api/sessions/{session_id}/messages')
     async def session_messages_create(session_id: str, body: CreateSessionMessageBody) -> dict:

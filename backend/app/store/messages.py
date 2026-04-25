@@ -22,6 +22,19 @@ class MessageStore:
     def __init__(self, db: DbConfig | None = None):
         self.db = db or DbConfig()
 
+    def _row_to_message(self, r) -> dict:
+        return {
+            "id": r["id"],
+            "sessionId": r["session_id"],
+            "role": r["role"],
+            "text": r["text"],
+            "rawText": r["raw_text"],
+            "attachments": json.loads(r["attachments_json"] or "[]"),
+            "source": r["source"],
+            "meta": r["meta"],
+            "createdAt": r["created_at"],
+        }
+
     def ensure_schema(self) -> None:
         with connect(self.db) as conn:
             migrate(conn)
@@ -59,20 +72,93 @@ class MessageStore:
                 "SELECT * FROM messages WHERE session_id=? ORDER BY created_at ASC LIMIT ?",
                 (session_id, int(limit)),
             ).fetchall()
-            return [
-                {
-                    "id": r["id"],
-                    "sessionId": r["session_id"],
-                    "role": r["role"],
-                    "text": r["text"],
-                    "rawText": r["raw_text"],
-                    "attachments": json.loads(r["attachments_json"] or "[]"),
-                    "source": r["source"],
-                    "meta": r["meta"],
-                    "createdAt": r["created_at"],
-                }
-                for r in rows
-            ]
+            return [self._row_to_message(r) for r in rows]
+
+    def list_session_messages_page(
+        self,
+        session_id: str,
+        *,
+        limit: int = 20,
+        before_message_id: str | None = None,
+        after_message_id: str | None = None,
+    ) -> dict:
+        self.ensure_schema()
+        page_limit = max(1, min(int(limit or 20), 100))
+
+        with connect(self.db) as conn:
+            anchor = None
+            anchor_id = str(before_message_id or after_message_id or "").strip()
+            if anchor_id:
+                anchor = conn.execute(
+                    "SELECT id, created_at FROM messages WHERE session_id=? AND id=? LIMIT 1",
+                    (session_id, anchor_id),
+                ).fetchone()
+
+            if before_message_id and anchor is not None:
+                rows = conn.execute(
+                    """
+                    SELECT *
+                    FROM messages
+                    WHERE session_id=?
+                      AND (created_at < ? OR (created_at = ? AND id < ?))
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT ?
+                    """,
+                    (
+                        session_id,
+                        float(anchor["created_at"]),
+                        float(anchor["created_at"]),
+                        str(anchor["id"]),
+                        page_limit + 1,
+                    ),
+                ).fetchall()
+                has_more_before = len(rows) > page_limit
+                selected = list(reversed(rows[:page_limit]))
+            elif after_message_id and anchor is not None:
+                rows = conn.execute(
+                    """
+                    SELECT *
+                    FROM messages
+                    WHERE session_id=?
+                      AND (created_at > ? OR (created_at = ? AND id > ?))
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT ?
+                    """,
+                    (
+                        session_id,
+                        float(anchor["created_at"]),
+                        float(anchor["created_at"]),
+                        str(anchor["id"]),
+                        page_limit + 1,
+                    ),
+                ).fetchall()
+                has_more_before = False
+                selected = list(rows[:page_limit])
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT *
+                    FROM messages
+                    WHERE session_id=?
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT ?
+                    """,
+                    (session_id, page_limit + 1),
+                ).fetchall()
+                has_more_before = len(rows) > page_limit
+                selected = list(reversed(rows[:page_limit]))
+
+        items = [self._row_to_message(r) for r in selected]
+        return {
+            "messages": items,
+            "paging": {
+                "limit": page_limit,
+                "hasMoreBefore": has_more_before,
+                "hasMoreAfter": False,
+                "oldestMessageId": items[0]["id"] if items else None,
+                "newestMessageId": items[-1]["id"] if items else None,
+            },
+        }
 
     def create_message(
         self,

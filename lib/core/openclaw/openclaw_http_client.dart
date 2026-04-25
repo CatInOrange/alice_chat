@@ -70,9 +70,21 @@ class OpenClawHttpClient implements OpenClawClient {
   }
 
   @override
-  Future<List<Map<String, dynamic>>> loadMessages(String sessionId) async {
+  Future<MessagePageResult> loadMessages(
+    String sessionId, {
+    int? limit,
+    String? beforeMessageId,
+    String? afterMessageId,
+  }) async {
+    final queryParameters = <String, String>{
+      if (limit != null) 'limit': limit.toString(),
+      if (beforeMessageId != null && beforeMessageId.isNotEmpty)
+        'before': beforeMessageId,
+      if (afterMessageId != null && afterMessageId.isNotEmpty)
+        'after': afterMessageId,
+    };
     final response = await _httpClient.get(
-      _uri('/api/sessions/$sessionId/messages'),
+      _uri('/api/sessions/$sessionId/messages', queryParameters: queryParameters),
       headers: _headers,
     );
     if (response.statusCode >= 400) {
@@ -80,8 +92,11 @@ class OpenClawHttpClient implements OpenClawClient {
     }
 
     final json = jsonDecode(response.body) as Map<String, dynamic>;
-    return (json['messages'] as List<dynamic>? ?? const [])
-        .cast<Map<String, dynamic>>();
+    return MessagePageResult(
+      messages: (json['messages'] as List<dynamic>? ?? const [])
+          .cast<Map<String, dynamic>>(),
+      paging: (json['paging'] as Map<String, dynamic>? ?? const {}),
+    );
   }
 
   @override

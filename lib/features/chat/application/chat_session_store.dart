@@ -27,6 +27,8 @@ class ChatSessionStore extends ChangeNotifier {
           );
 
   static const int initialMessageLimit = 20;
+  static const int olderMessagePageSize = 5;
+  static const int latestRefreshPageSize = 20;
   static const Duration sendStuckTimeout = Duration(seconds: 45);
   static const Duration eventReconnectBaseDelay = Duration(seconds: 1);
   static const Duration eventReconnectMaxDelay = Duration(seconds: 8);
@@ -69,11 +71,11 @@ class ChatSessionStore extends ChangeNotifier {
 
     try {
       var sessionId = await _ensureBackendSession(session);
-      List<core.TextMessage> messages;
+      MessageLoadResult initialLoad;
       try {
-        messages = await _loadMessages(
+        initialLoad = await _loadMessagesPage(
           sessionId,
-          limitToLatest: initialMessageLimit,
+          limit: initialMessageLimit,
         );
       } catch (error) {
         if (!_isUnknownSessionError(error)) rethrow;
@@ -85,15 +87,18 @@ class ChatSessionStore extends ChangeNotifier {
           force: true,
         );
         sessionId = await _ensureBackendSession(session);
-        messages = await _loadMessages(
+        initialLoad = await _loadMessagesPage(
           sessionId,
-          limitToLatest: initialMessageLimit,
+          limit: initialMessageLimit,
         );
       }
 
       state
         ..backendSessionId = sessionId
-        ..replaceMessages(messages)
+        ..replaceMessages(initialLoad.messages)
+        ..hasMoreHistory = initialLoad.hasMoreBefore
+        ..oldestLoadedMessageId = initialLoad.oldestMessageId
+        ..newestLoadedMessageId = initialLoad.newestMessageId
         ..isLoading = false
         ..isReady = true;
 
@@ -220,6 +225,74 @@ class ChatSessionStore extends ChangeNotifier {
       ..stickToBottom = stickToBottom;
   }
 
+  Future<bool> loadOlderMessages(ChatSession session) async {
+    final state = stateFor(session);
+    final sessionId = state.backendSessionId ?? await _ensureBackendSession(session);
+    final beforeMessageId = state.oldestLoadedMessageId;
+    if (beforeMessageId == null || beforeMessageId.isEmpty) return false;
+    if (state.isLoadingOlder || !state.hasMoreHistory) return false;
+
+    state.isLoadingOlder = true;
+    notifyListeners();
+    try {
+      final page = await _loadMessagesPage(
+        sessionId,
+        limit: olderMessagePageSize,
+        beforeMessageId: beforeMessageId,
+      );
+      if (page.messages.isNotEmpty) {
+        state.mergeMessages(page.messages);
+      }
+      state
+        ..hasMoreHistory = page.hasMoreBefore
+        ..oldestLoadedMessageId =
+            page.oldestMessageId ?? state.oldestLoadedMessageId
+        ..newestLoadedMessageId =
+            page.newestMessageId ?? state.newestLoadedMessageId
+        ..error = null;
+      return page.messages.isNotEmpty;
+    } catch (error) {
+      state.error = error.toString();
+      return false;
+    } finally {
+      state.isLoadingOlder = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> refreshLatestMessages(ChatSession session) async {
+    final state = stateFor(session);
+    final sessionId = state.backendSessionId ?? await _ensureBackendSession(session);
+    if (state.isRefreshingLatest) return false;
+
+    state.isRefreshingLatest = true;
+    notifyListeners();
+    try {
+      final afterMessageId = state.newestLoadedMessageId;
+      final page = await _loadMessagesPage(
+        sessionId,
+        limit: latestRefreshPageSize,
+        afterMessageId: afterMessageId,
+      );
+      if (page.messages.isNotEmpty) {
+        state.mergeMessages(page.messages);
+      }
+      state
+        ..oldestLoadedMessageId =
+            page.oldestMessageId ?? state.oldestLoadedMessageId
+        ..newestLoadedMessageId =
+            page.newestMessageId ?? state.newestLoadedMessageId
+        ..error = null;
+      return page.messages.isNotEmpty;
+    } catch (error) {
+      state.error = error.toString();
+      return false;
+    } finally {
+      state.isRefreshingLatest = false;
+      notifyListeners();
+    }
+  }
+
   String _keyFor(ChatSession session) => session.id;
 
   Future<String> _ensureBackendSession(ChatSession session) async {
@@ -261,6 +334,7 @@ class ChatSessionStore extends ChangeNotifier {
               ..error = error.toString()
               ..clearPending()
               ..clearStreaming()
+              ..clearAssistantProgress()
               ..isSubmitting = false
               ..isAssistantStreaming = false
               ..isEventConnecting = false;
@@ -278,6 +352,7 @@ class ChatSessionStore extends ChangeNotifier {
             _eventSubscriptions.remove(sessionId);
             state
               ..clearStreaming()
+              ..clearAssistantProgress()
               ..isSubmitting = state.pendingClientMessageIds.isNotEmpty
               ..isAssistantStreaming = false
               ..isEventConnecting = false;
@@ -331,6 +406,7 @@ class ChatSessionStore extends ChangeNotifier {
         } else {
           state.upsertMessage(message);
         }
+        state.trackMessageWindow(message.id);
         break;
       case 'message.status':
         final clientMessageId = (event['clientMessageId'] ?? '').toString();
@@ -381,6 +457,7 @@ class ChatSessionStore extends ChangeNotifier {
         state
           ..clearStreaming()
           ..clearAssistantProgress();
+        state.trackMessageWindow(message.id);
         final clientMessageId = (event['clientMessageId'] ?? '').toString();
         if (clientMessageId.isNotEmpty) {
           _clearPendingClientMessage(state, clientMessageId, notify: false);
@@ -631,15 +708,36 @@ class ChatSessionStore extends ChangeNotifier {
         _eventReconnectTimers.remove(sessionId)?.cancel();
         if (state.backendSessionId != sessionId) return;
         try {
-          final messages = await _loadMessages(
+          final page = await _loadMessagesPage(
             sessionId,
-            limitToLatest: initialMessageLimit,
+            limit: latestRefreshPageSize,
+            afterMessageId: state.newestLoadedMessageId,
           );
+          if (page.messages.isNotEmpty) {
+            state.mergeMessages(page.messages);
+          }
           state
-            ..replaceMessages(messages)
+            ..oldestLoadedMessageId =
+                page.oldestMessageId ?? state.oldestLoadedMessageId
+            ..newestLoadedMessageId =
+                page.newestMessageId ?? state.newestLoadedMessageId
             ..error = null;
           notifyListeners();
-        } catch (_) {}
+        } catch (_) {
+          try {
+            final initial = await _loadMessagesPage(
+              sessionId,
+              limit: initialMessageLimit,
+            );
+            state
+              ..replaceMessages(initial.messages)
+              ..hasMoreHistory = initial.hasMoreBefore
+              ..oldestLoadedMessageId = initial.oldestMessageId
+              ..newestLoadedMessageId = initial.newestMessageId
+              ..error = null;
+            notifyListeners();
+          } catch (_) {}
+        }
         _ensureEventSubscription(session, sessionId);
       },
     );
@@ -686,35 +784,38 @@ class ChatSessionStore extends ChangeNotifier {
     );
   }
 
-  Future<List<core.TextMessage>> _loadMessages(
+  Future<MessageLoadResult> _loadMessagesPage(
     String sessionId, {
-    int? limitToLatest,
+    int? limit,
+    String? beforeMessageId,
+    String? afterMessageId,
   }) async {
-    final rawMessages = await _client.loadMessages(sessionId);
-    final mappedMessages =
-        rawMessages.map(domain.ChatMessage.fromBackend).toList();
+    final page = await _client.loadMessages(
+      sessionId,
+      limit: limit,
+      beforeMessageId: beforeMessageId,
+      afterMessageId: afterMessageId,
+    );
+    final mappedMessages = page.messages.map(domain.ChatMessage.fromBackend).toList();
     final filteredOutMessages = mappedMessages
         .where((message) => message.text.trim().isEmpty)
         .toList(growable: false);
-    final messages =
-        mappedMessages
-            .where((message) => message.text.trim().isNotEmpty)
-            .toList()
-          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    final messages = mappedMessages
+        .where((message) => message.text.trim().isNotEmpty)
+        .toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
     _debugBackendLoad(
       sessionId,
       mappedMessages,
       filteredOutMessages,
-      limitToLatest: limitToLatest,
+      limit: limit,
+      beforeMessageId: beforeMessageId,
+      afterMessageId: afterMessageId,
+      paging: page.paging,
     );
 
-    final visibleMessages =
-        limitToLatest != null && messages.length > limitToLatest
-            ? messages.sublist(messages.length - limitToLatest)
-            : messages;
-
-    return visibleMessages
+    final chatMessages = messages
         .map(
           (message) => core.TextMessage(
             id: message.id.isEmpty ? _uuid.v4() : message.id,
@@ -724,13 +825,28 @@ class ChatSessionStore extends ChangeNotifier {
           ),
         )
         .toList(growable: false);
+
+    final paging = page.paging;
+    return MessageLoadResult(
+      messages: chatMessages,
+      hasMoreBefore: paging['hasMoreBefore'] == true,
+      oldestMessageId:
+          (paging['oldestMessageId'] ?? (chatMessages.isNotEmpty ? chatMessages.first.id : null))
+              ?.toString(),
+      newestMessageId:
+          (paging['newestMessageId'] ?? (chatMessages.isNotEmpty ? chatMessages.last.id : null))
+              ?.toString(),
+    );
   }
 
   void _debugBackendLoad(
     String sessionId,
     List<domain.ChatMessage> mappedMessages,
     List<domain.ChatMessage> filteredOutMessages, {
-    int? limitToLatest,
+    int? limit,
+    String? beforeMessageId,
+    String? afterMessageId,
+    Map<String, dynamic>? paging,
   }) {
     final assistantMessages = mappedMessages
         .where((message) => message.authorId == 'assistant')
@@ -757,7 +873,10 @@ class ChatSessionStore extends ChangeNotifier {
       'filteredEmptyCount': filteredOutMessages.length,
       'visibleCountBeforeLimit':
           mappedMessages.length - filteredOutMessages.length,
-      'limitToLatest': limitToLatest,
+      'limit': limit,
+      'beforeMessageId': beforeMessageId,
+      'afterMessageId': afterMessageId,
+      'paging': paging,
       'recentPreview': recentPreview,
       if (filteredOutMessages.isNotEmpty)
         'filteredPreview': filteredOutMessages
@@ -774,6 +893,20 @@ class ChatSessionStore extends ChangeNotifier {
     debugPrint('[alicechat.front] ${jsonEncode(payload)}');
     unawaited(_client.sendClientDebugLog(payload));
   }
+}
+
+class MessageLoadResult {
+  const MessageLoadResult({
+    required this.messages,
+    required this.hasMoreBefore,
+    this.oldestMessageId,
+    this.newestMessageId,
+  });
+
+  final List<core.TextMessage> messages;
+  final bool hasMoreBefore;
+  final String? oldestMessageId;
+  final String? newestMessageId;
 }
 
 class ChatViewState {
@@ -795,14 +928,23 @@ class ChatViewState {
   int reconnectAttempts = 0;
   double scrollOffset = 0;
   bool stickToBottom = true;
+  bool isLoadingOlder = false;
+  bool isRefreshingLatest = false;
+  bool hasMoreHistory = true;
   int? assistantProgressSequence;
   String? assistantProgressMessageId;
+  String? oldestLoadedMessageId;
+  String? newestLoadedMessageId;
   List<core.TextMessage> messages = const [];
   final Set<String> pendingClientMessageIds = <String>{};
   final Set<String> streamingMessageIds = <String>{};
 
   void replaceMessages(List<core.TextMessage> nextMessages) {
     messages = List<core.TextMessage>.unmodifiable(nextMessages);
+    if (nextMessages.isNotEmpty) {
+      oldestLoadedMessageId = nextMessages.first.id;
+      newestLoadedMessageId = nextMessages.last.id;
+    }
   }
 
   void appendMessage(core.TextMessage message) {
@@ -822,6 +964,29 @@ class ChatViewState {
       );
     }
     messages = List<core.TextMessage>.unmodifiable(list);
+    trackMessageWindow(message.id);
+  }
+
+  void mergeMessages(List<core.TextMessage> incoming) {
+    if (incoming.isEmpty) return;
+    final merged = [...messages];
+    for (final message in incoming) {
+      final index = merged.indexWhere((item) => item.id == message.id);
+      if (index >= 0) {
+        merged[index] = message;
+      } else {
+        merged.add(message);
+      }
+    }
+    merged.sort(
+      (a, b) => (a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+          .compareTo(b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)),
+    );
+    messages = List<core.TextMessage>.unmodifiable(merged);
+    if (messages.isNotEmpty) {
+      oldestLoadedMessageId = messages.first.id;
+      newestLoadedMessageId = messages.last.id;
+    }
   }
 
   void replaceMessageId(String oldId, String newId) {
@@ -895,6 +1060,13 @@ class ChatViewState {
   void clearAssistantProgress() {
     assistantProgressMessageId = null;
     assistantProgressSequence = null;
+  }
+
+  void trackMessageWindow(String? messageId) {
+    final id = messageId?.trim();
+    if (id == null || id.isEmpty) return;
+    oldestLoadedMessageId ??= id;
+    newestLoadedMessageId = id;
   }
 
   bool confirmPendingMessage(

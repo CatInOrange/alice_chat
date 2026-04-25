@@ -1,7 +1,19 @@
+class MessagePageResult {
+  const MessagePageResult({required this.messages, required this.paging});
+
+  final List<Map<String, dynamic>> messages;
+  final Map<String, dynamic> paging;
+}
+
 abstract class OpenClawClient {
   Future<String> ensureSession({required String preferredName});
 
-  Future<List<Map<String, dynamic>>> loadMessages(String sessionId);
+  Future<MessagePageResult> loadMessages(
+    String sessionId, {
+    int? limit,
+    String? beforeMessageId,
+    String? afterMessageId,
+  });
 
   Future<String> sendMessage({
     required String sessionId,

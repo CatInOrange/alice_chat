@@ -33,6 +33,8 @@ class _ChatScreenState extends State<ChatScreen> {
   double _lastSavedOffset = -1;
   bool _lastSavedStickToBottom = true;
   bool _showJumpToBottom = false;
+  bool _loadingOlderTriggered = false;
+  bool _refreshLatestTriggered = false;
   final List<String> _appliedMessageIds = [];
 
   // Composer height tracking for relative positioning of floating elements
@@ -214,19 +216,21 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
 
-    // Composer 在 Chat 内部 Stack 里，实际占用高度 = _composerHeight + SafeArea bottom
-    final mediaQuery = MediaQuery.of(context);
-    final effectiveComposerHeight =
-        _composerHeight + mediaQuery.padding.bottom + mediaQuery.viewInsets.bottom;
     return Stack(
       children: [
-        Chat(
-          currentUserId: _currentUserId,
-          resolveUser: _resolveUser,
-          chatController: _chatController,
-          onMessageSend: _handleSend,
-          builders: _chatBuilders,
-          backgroundColor: const Color(0xFFF6F7FB),
+        NotificationListener<OverscrollNotification>(
+          onNotification: (notification) {
+            _handleOverscroll(notification);
+            return false;
+          },
+          child: Chat(
+            currentUserId: _currentUserId,
+            resolveUser: _resolveUser,
+            chatController: _chatController,
+            onMessageSend: _handleSend,
+            builders: _chatBuilders,
+            backgroundColor: const Color(0xFFF6F7FB),
+          ),
         ),
         if (_showJumpToBottom)
           Positioned(
@@ -299,6 +303,55 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                       ),
                     ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        if (state.isLoadingOlder)
+          const Positioned(
+            top: 12,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(
+              child: Center(
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
+          ),
+        if (state.isRefreshingLatest)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: state.isAssistantStreaming ? 124 : 72,
+            child: IgnorePointer(
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.96),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x121F2430),
+                        blurRadius: 12,
+                        offset: Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Text(
+                    '正在检查有没有漏掉的消息…',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF667085),
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),
@@ -384,6 +437,12 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() => _showJumpToBottom = shouldShowJump);
     }
     final atBottom = offset <= 24;
+    if (offset > 48) {
+      _refreshLatestTriggered = false;
+    }
+    if (offset < (_chatListController.position.maxScrollExtent - 48)) {
+      _loadingOlderTriggered = false;
+    }
     if ((_lastSavedOffset - offset).abs() < 24 &&
         _lastSavedStickToBottom == atBottom) {
       return;
@@ -395,6 +454,44 @@ class _ChatScreenState extends State<ChatScreen> {
       offset: offset,
       stickToBottom: atBottom,
     );
+  }
+
+  void _handleOverscroll(OverscrollNotification notification) {
+    if (!_chatListController.hasClients) return;
+    final metrics = notification.metrics;
+    final atBottom = metrics.pixels <= 24;
+    final atTop = metrics.pixels >= metrics.maxScrollExtent - 24;
+
+    if (notification.overscroll < 0 && atBottom && !_refreshLatestTriggered) {
+      _refreshLatestTriggered = true;
+      _triggerRefreshLatest();
+      return;
+    }
+
+    if (notification.overscroll > 0 && atTop && !_loadingOlderTriggered) {
+      _loadingOlderTriggered = true;
+      _triggerLoadOlder();
+    }
+  }
+
+  Future<void> _triggerLoadOlder() async {
+    if (!_chatListController.hasClients) return;
+    final store = context.read<ChatSessionStore>();
+    final beforeExtent = _chatListController.position.maxScrollExtent;
+    final loaded = await store.loadOlderMessages(widget.session);
+    if (!mounted || !loaded || !_chatListController.hasClients) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_chatListController.hasClients) return;
+      final afterExtent = _chatListController.position.maxScrollExtent;
+      final delta = afterExtent - beforeExtent;
+      if (delta.abs() > 0.5) {
+        _chatListController.jumpTo(_chatListController.offset + delta);
+      }
+    });
+  }
+
+  Future<void> _triggerRefreshLatest() async {
+    await context.read<ChatSessionStore>().refreshLatestMessages(widget.session);
   }
 
   void _jumpToBottom() {
