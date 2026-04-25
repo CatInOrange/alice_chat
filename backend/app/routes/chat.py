@@ -158,17 +158,7 @@ def create_chat_router(context: AppContext) -> APIRouter:
                         'sessionId': session_id,
                         'clientMessageId': client_message_id,
                         'requestId': request_id,
-                        'message': {
-                            'id': assistant_message_id,
-                            'sessionId': session_id,
-                            'role': 'assistant',
-                            'text': '',
-                            'rawText': '',
-                            'attachments': [],
-                            'source': resolved.message_source,
-                            'meta': '',
-                            'createdAt': asyncio.get_running_loop().time(),
-                        },
+                        'messageId': assistant_message_id,
                     },
                 )
 
@@ -180,15 +170,13 @@ def create_chat_router(context: AppContext) -> APIRouter:
                     delta_seq += 1
                     assistant_raw_parts.append(delta_text)
                     events_bus.publish_threadsafe(
-                        'assistant.message.delta',
+                        'assistant.progress',
                         {
                             'sessionId': session_id,
                             'clientMessageId': client_message_id,
                             'requestId': request_id,
                             'messageId': assistant_message_id,
                             'sequence': delta_seq,
-                            'delta': delta_text,
-                            'text': ''.join(assistant_raw_parts),
                         },
                     )
 

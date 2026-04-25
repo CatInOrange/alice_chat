@@ -339,12 +339,11 @@ class ChatSessionStore extends ChangeNotifier {
         }
         break;
       case 'assistant.message.started':
-        final message = _mapEventMessage(event['message']);
-        if (message == null) return;
-        state.upsertMessage(message);
-        state.streamingMessageIds
-          ..clear()
-          ..add(message.id);
+        final messageId = (event['messageId'] ?? '').toString();
+        state.streamingMessageIds.clear();
+        if (messageId.isNotEmpty) {
+          state.streamingMessageIds.add(messageId);
+        }
         final clientMessageId = (event['clientMessageId'] ?? '').toString();
         if (clientMessageId.isNotEmpty) {
           _clearPendingClientMessage(state, clientMessageId);
@@ -355,12 +354,15 @@ class ChatSessionStore extends ChangeNotifier {
           ..isSubmitting = false
           ..isAssistantStreaming = true;
         break;
-      case 'assistant.message.delta':
+      case 'assistant.progress':
         final messageId = (event['messageId'] ?? '').toString();
-        final text = (event['text'] ?? '').toString();
-        if (messageId.isNotEmpty) {
-          state.upsertOrPatchAssistantMessage(messageId, text);
-          state.streamingMessageIds.add(messageId);
+        final sequenceValue = event['sequence'];
+        final sequence = sequenceValue is num ? sequenceValue.toInt() : 0;
+        if (messageId.isNotEmpty && sequence > 0) {
+          state.setAssistantProgress(messageId: messageId, sequence: sequence);
+          state.streamingMessageIds
+            ..clear()
+            ..add(messageId);
         }
         final clientMessageId = (event['clientMessageId'] ?? '').toString();
         if (clientMessageId.isNotEmpty) {
@@ -376,7 +378,9 @@ class ChatSessionStore extends ChangeNotifier {
         final message = _mapEventMessage(event['message']);
         if (message == null) return;
         state.upsertMessage(message);
-        state.clearStreaming();
+        state
+          ..clearStreaming()
+          ..clearAssistantProgress();
         final clientMessageId = (event['clientMessageId'] ?? '').toString();
         if (clientMessageId.isNotEmpty) {
           _clearPendingClientMessage(state, clientMessageId, notify: false);
@@ -388,12 +392,18 @@ class ChatSessionStore extends ChangeNotifier {
           ..isAssistantStreaming = false;
         break;
       case 'assistant.message.failed':
-        final messageId = (event['messageId'] ?? '').toString();
         final error = (event['error'] ?? 'unknown error').toString();
-        if (messageId.isNotEmpty) {
-          state.upsertOrPatchAssistantMessage(messageId, '❌ 回复失败: $error');
-        }
-        state.clearStreaming();
+        state
+          ..clearStreaming()
+          ..clearAssistantProgress();
+        state.appendMessage(
+          core.TextMessage(
+            id: _uuid.v4(),
+            authorId: 'assistant',
+            createdAt: DateTime.now(),
+            text: '❌ 回复失败: $error',
+          ),
+        );
         final clientMessageId = (event['clientMessageId'] ?? '').toString();
         if (clientMessageId.isNotEmpty) {
           _clearPendingClientMessage(state, clientMessageId, notify: false);
@@ -785,6 +795,8 @@ class ChatViewState {
   int reconnectAttempts = 0;
   double scrollOffset = 0;
   bool stickToBottom = true;
+  int? assistantProgressSequence;
+  String? assistantProgressMessageId;
   List<core.TextMessage> messages = const [];
   final Set<String> pendingClientMessageIds = <String>{};
   final Set<String> streamingMessageIds = <String>{};
@@ -870,6 +882,19 @@ class ChatViewState {
 
   void clearStreaming() {
     streamingMessageIds.clear();
+  }
+
+  void setAssistantProgress({
+    required String messageId,
+    required int sequence,
+  }) {
+    assistantProgressMessageId = messageId;
+    assistantProgressSequence = sequence;
+  }
+
+  void clearAssistantProgress() {
+    assistantProgressMessageId = null;
+    assistantProgressSequence = null;
   }
 
   bool confirmPendingMessage(

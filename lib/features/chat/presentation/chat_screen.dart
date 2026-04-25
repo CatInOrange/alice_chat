@@ -55,8 +55,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
   String get _assistantName => widget.session.title;
 
-  String _assistantSubtitle(ChatViewState state) =>
-      state.isAssistantStreaming ? '正在输入…' : widget.session.subtitle;
+  String _assistantSubtitle(ChatViewState state) {
+    if (!state.isAssistantStreaming) return widget.session.subtitle;
+    final sequence = state.assistantProgressSequence;
+    if (sequence == null) return '正在输入…';
+    return _buildProgressLabel(sequence);
+  }
 
   Builders get _chatBuilders => Builders(
     textMessageBuilder: _buildTextMessage,
@@ -286,7 +290,11 @@ class _ChatScreenState extends State<ChatScreen> {
                       _buildHeaderAvatar(radius: 12),
                       const SizedBox(width: 8),
                       Text(
-                        '$_assistantName 正在输入…',
+                        state.assistantProgressSequence == null
+                            ? '正在输入…'
+                            : _buildProgressLabel(
+                              state.assistantProgressSequence!,
+                            ),
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: const Color(0xFF667085),
                           fontWeight: FontWeight.w600,
@@ -790,6 +798,22 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       ],
     );
+  }
+
+  String _buildProgressLabel(int sequence) {
+    final n = sequence.toString().padLeft(2, '0');
+    const texts = [
+      '我想想哦...',
+      '有点眉目了',
+      '正在帮你捋顺',
+      '快整理好了',
+      '马上发你',
+    ];
+    final text =
+        sequence >= 1 && sequence <= texts.length
+            ? texts[sequence - 1]
+            : '再等一下下...';
+    return '$n $text';
   }
 
   Widget _buildComposer(BuildContext context) {
