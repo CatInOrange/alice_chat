@@ -45,7 +45,11 @@ class _WebviewScreenState extends State<WebviewScreen>
     final config = await OpenClawSettingsStore.load();
     final password = (config.appPassword ?? '').trim();
     final base = config.baseUrl.trim();
-    final uri = Uri.parse(base.isEmpty ? 'https://chat.newthu.com' : base);
+    if (base.isEmpty) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
+    final uri = Uri.parse(base);
     final isAliceClaw = uri.port == 18080 || uri.host == 'alice.newthu.com';
     final targetUrl = isAliceClaw && password.isNotEmpty
         ? uri.replace(queryParameters: {

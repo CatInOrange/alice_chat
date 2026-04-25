@@ -9,7 +9,7 @@ class OpenClawSettingsStore {
   static const _appPasswordKey = 'openclaw.appPassword';
 
   static const OpenClawConfig _defaultConfig = OpenClawConfig(
-    baseUrl: 'https://chat.newthu.com',
+    baseUrl: '',
     modelId: 'bian',
     providerId: 'alicechat-channel',
     agent: 'main',

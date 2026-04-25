@@ -17,7 +17,7 @@ class ChatSessionStore extends ChangeNotifier {
           client ??
           OpenClawHttpClient(
             const OpenClawConfig(
-              baseUrl: 'https://chat.newthu.com',
+              baseUrl: '',
               modelId: 'bian',
               providerId: 'alicechat-channel',
               agent: 'main',
@@ -26,7 +26,7 @@ class ChatSessionStore extends ChangeNotifier {
                   'ws://127.0.0.1:18791?token=yuanzhe-7611681-668128-zheyuan-012345',
             ),
           ) {
-    unawaited(reloadConfig());
+    _configReady = reloadConfig();
   }
 
   static const int initialMessageLimit = 20;
@@ -37,6 +37,7 @@ class ChatSessionStore extends ChangeNotifier {
   static const Duration eventReconnectMaxDelay = Duration(seconds: 8);
 
   OpenClawHttpClient _client;
+  late Future<void> _configReady;
   final Uuid _uuid = const Uuid();
   final Map<String, ChatViewState> _states = {};
   final Map<String, String> _sessionIdBySessionKey = {};
@@ -54,9 +55,18 @@ class ChatSessionStore extends ChangeNotifier {
       _resetBackendSession(state);
       state
         ..isLoading = false
+        ..isReady = false
         ..error = null;
     }
     notifyListeners();
+  }
+
+  Future<void> _ensureConfigReady() async {
+    await _configReady;
+    final baseUrl = _client.config.baseUrl.trim();
+    if (baseUrl.isEmpty) {
+      throw Exception('请先在设置页填写后端地址');
+    }
   }
 
   OpenClawConfig get currentConfig => _client.config;
@@ -88,6 +98,7 @@ class ChatSessionStore extends ChangeNotifier {
     }
 
     try {
+      await _ensureConfigReady();
       var sessionId = await _ensureBackendSession(session);
       MessageLoadResult initialLoad;
       try {
@@ -130,9 +141,13 @@ class ChatSessionStore extends ChangeNotifier {
     }
   }
 
-  Future<void> retry(ChatSession session) => ensureReady(session);
+  Future<void> retry(ChatSession session) async {
+    _configReady = reloadConfig();
+    await ensureReady(session);
+  }
 
   Future<void> sendMessage(ChatSession session, String text) async {
+    await _ensureConfigReady();
     final state = stateFor(session);
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
@@ -244,6 +259,7 @@ class ChatSessionStore extends ChangeNotifier {
   }
 
   Future<bool> loadOlderMessages(ChatSession session) async {
+    await _ensureConfigReady();
     final state = stateFor(session);
     final sessionId = state.backendSessionId ?? await _ensureBackendSession(session);
     final beforeMessageId = state.oldestLoadedMessageId;
@@ -279,6 +295,8 @@ class ChatSessionStore extends ChangeNotifier {
   }
 
   Future<bool> refreshLatestMessages(ChatSession session) async {
+    _configReady = reloadConfig();
+    await _ensureConfigReady();
     final state = stateFor(session);
     final sessionId = state.backendSessionId ?? await _ensureBackendSession(session);
     if (state.isRefreshingLatest) return false;
