@@ -8,17 +8,36 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.29.3'
           channel: 'stable'
-      
+
+      - name: Restore Android signing files
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ALICECHAT_UPLOAD_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ALICECHAT_UPLOAD_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ALICECHAT_UPLOAD_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ALICECHAT_UPLOAD_KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_BASE64"
+          test -n "$STORE_PASSWORD"
+          test -n "$KEY_ALIAS"
+          test -n "$KEY_PASSWORD"
+          echo "$KEYSTORE_BASE64" | base64 -d > android/upload-keystore.p12
+          cat > android/key.properties <<EOF
+          storeFile=upload-keystore.p12
+          storePassword=$STORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+
       - name: Get dependencies
         run: flutter pub get
 
@@ -64,33 +83,19 @@ jobs:
           path: ~/.flutter-devtools
           key: flutter-artifacts-${{ runner.os }}
 
-      - name: Generate fixed debug keystore
-        run: |
-          rm -f android/debug.keystore
-          keytool -genkeypair \
-            -v \
-            -storetype JKS \
-            -keystore android/debug.keystore \
-            -storepass alicechatdebug \
-            -alias alicechatdebug \
-            -keypass alicechatdebug \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 10000 \
-            -dname "CN=AliceChat Debug, OU=Dev, O=AliceChat, L=Shanghai, ST=Shanghai, C=CN"
-      
-      - name: Build debug APK
-        run: flutter build apk --debug
+      - name: Build release APK
+        run: flutter build apk --release
 
       - name: Compress APK
         run: |
           cd build/app/outputs/flutter-apk
-          zip app-debug.apk.zip app-debug.apk
-          echo "Compressed size: $(du -h app-debug.apk.zip | cut -f1)"
+          zip app-release.apk.zip app-release.apk
+          echo "Compressed size: $(du -h app-release.apk.zip | cut -f1)"
 
       - name: Setup COS CLI
         run: |
           pip install cos-python-sdk-v5
+
       - name: Upload to Tencent COS
         env:
           COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
@@ -119,8 +124,8 @@ jobs:
           )
           client = CosS3Client(config)
 
-          local_file = 'build/app/outputs/flutter-apk/app-debug.apk.zip'
-          cos_path = 'apk/app-debug.apk.zip'
+          local_file = 'build/app/outputs/flutter-apk/app-release.apk.zip'
+          cos_path = 'apk/app-release.apk.zip'
 
           def upload_with_retry(client, bucket, local_file, cos_path, max_retries=3):
               for attempt in range(max_retries):
@@ -152,10 +157,11 @@ jobs:
           else:
               logger.error('Upload failed after all retries')
               exit(1)
+          EOF
         continue-on-error: true
-      
+
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: alicechat-debug-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: alicechat-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk

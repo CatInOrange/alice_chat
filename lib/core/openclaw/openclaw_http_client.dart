@@ -26,9 +26,9 @@ class OpenClawHttpClient implements OpenClawClient {
       'Content-Type': 'application/json',
       'Accept': 'application/json, text/event-stream',
     };
-    final token = config.apiToken;
-    if (token != null && token.isNotEmpty) {
-      headers['Authorization'] = 'Bearer $token';
+    final password = config.appPassword?.trim();
+    if (password != null && password.isNotEmpty) {
+      headers['X-AliceChat-Password'] = password;
     }
     return headers;
   }
@@ -40,7 +40,7 @@ class OpenClawHttpClient implements OpenClawClient {
       headers: _headers,
     );
     if (sessionsResponse.statusCode >= 400) {
-      throw Exception('加载会话失败: ${sessionsResponse.body}');
+      throw _buildRequestException('加载会话失败', sessionsResponse);
     }
 
     final sessionsJson =
@@ -61,7 +61,7 @@ class OpenClawHttpClient implements OpenClawClient {
       body: jsonEncode({'name': preferredName}),
     );
     if (createResponse.statusCode >= 400) {
-      throw Exception('创建会话失败: ${createResponse.body}');
+      throw _buildRequestException('创建会话失败', createResponse);
     }
 
     final createJson = jsonDecode(createResponse.body) as Map<String, dynamic>;
@@ -88,7 +88,7 @@ class OpenClawHttpClient implements OpenClawClient {
       headers: _headers,
     );
     if (response.statusCode >= 400) {
-      throw Exception('加载消息失败: ${response.body}');
+      throw _buildRequestException('加载消息失败', response);
     }
 
     final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -130,7 +130,7 @@ class OpenClawHttpClient implements OpenClawClient {
     );
 
     if (response.statusCode >= 400) {
-      throw Exception('发送消息失败: ${response.body}');
+      throw _buildRequestException('发送消息失败', response);
     }
 
     final json = jsonDecode(response.body) as Map<String, dynamic>;
@@ -171,8 +171,11 @@ class OpenClawHttpClient implements OpenClawClient {
     request.headers.addAll(_headers);
     final response = await _httpClient.send(request);
     if (response.statusCode >= 400) {
+      final body = await response.stream.bytesToString();
       throw Exception(
-        '订阅事件失败: ${response.reasonPhrase ?? response.statusCode}',
+        response.statusCode == 401
+            ? '认证失败，请检查设置中的访问密码'
+            : '订阅事件失败: ${body.isNotEmpty ? body : (response.reasonPhrase ?? response.statusCode.toString())}',
       );
     }
 
@@ -217,5 +220,13 @@ class OpenClawHttpClient implements OpenClawClient {
         dataLines.add(line.substring(5).trim());
       }
     }
+  }
+
+  Exception _buildRequestException(String prefix, http.Response response) {
+    if (response.statusCode == 401) {
+      return Exception('认证失败，请检查设置中的访问密码');
+    }
+    final body = response.body.trim();
+    return Exception('$prefix: ${body.isNotEmpty ? body : response.statusCode}');
   }
 }

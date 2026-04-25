@@ -72,3 +72,19 @@ AliceChat/
 ## Notes
 
 Flyer Chat is backend-agnostic and fits this use case well, especially for OpenClaw-style assistant/chat streaming.
+
+## Android signing for GitHub Actions
+
+This repo uses a fixed upload keystore restored from GitHub Secrets during CI. Required repository secrets:
+
+- `ALICECHAT_UPLOAD_KEYSTORE_BASE64`
+- `ALICECHAT_UPLOAD_STORE_PASSWORD`
+- `ALICECHAT_UPLOAD_KEY_ALIAS`
+- `ALICECHAT_UPLOAD_KEY_PASSWORD`
+
+CI restores:
+
+- `android/upload-keystore.p12`
+- `android/key.properties`
+
+The workflow builds a signed release APK so later installs can upgrade in place instead of failing with signature mismatch.

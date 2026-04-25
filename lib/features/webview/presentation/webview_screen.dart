@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../../../core/openclaw/openclaw_settings.dart';
+
 class WebviewScreen extends StatefulWidget {
   const WebviewScreen({super.key});
 
@@ -13,7 +15,6 @@ class _WebviewScreenState extends State<WebviewScreen>
   late final WebViewController _controller;
   bool _loading = true;
 
-  /// 防止 Tab 切换时 WebView 状态被销毁重建
   @override
   bool get wantKeepAlive => true;
 
@@ -41,8 +42,15 @@ class _WebviewScreenState extends State<WebviewScreen>
       ),
     );
 
-    // 加载页面
-    await _controller.loadRequest(Uri.parse('https://alice.newthu.com'));
+    final config = await OpenClawSettingsStore.load();
+    final url = config.baseUrl.trim();
+    await _controller.loadRequest(
+      Uri.parse(url.isEmpty ? 'https://chat.newthu.com' : url),
+      headers: {
+        if ((config.appPassword ?? '').trim().isNotEmpty)
+          'X-AliceChat-Password': config.appPassword!.trim(),
+      },
+    );
   }
 
   @override
@@ -61,8 +69,7 @@ class _WebviewScreenState extends State<WebviewScreen>
       body: Stack(
         children: [
           WebViewWidget(controller: _controller),
-          if (_loading)
-            const Center(child: CircularProgressIndicator()),
+          if (_loading) const Center(child: CircularProgressIndicator()),
         ],
       ),
     );

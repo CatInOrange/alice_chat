@@ -6,7 +6,7 @@ class OpenClawConfig {
     required this.agent,
     required this.sessionName,
     this.bridgeUrl,
-    this.apiToken,
+    this.appPassword,
   });
 
   final String baseUrl;
@@ -15,7 +15,7 @@ class OpenClawConfig {
   final String agent;
   final String sessionName;
   final String? bridgeUrl;
-  final String? apiToken;
+  final String? appPassword;
 
   OpenClawConfig copyWith({
     String? baseUrl,
@@ -24,7 +24,7 @@ class OpenClawConfig {
     String? agent,
     String? sessionName,
     String? bridgeUrl,
-    String? apiToken,
+    String? appPassword,
   }) {
     return OpenClawConfig(
       baseUrl: baseUrl ?? this.baseUrl,
@@ -33,7 +33,7 @@ class OpenClawConfig {
       agent: agent ?? this.agent,
       sessionName: sessionName ?? this.sessionName,
       bridgeUrl: bridgeUrl ?? this.bridgeUrl,
-      apiToken: apiToken ?? this.apiToken,
+      appPassword: appPassword ?? this.appPassword,
     );
   }
 }

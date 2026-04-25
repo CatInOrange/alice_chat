@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/openclaw/openclaw_http_client.dart';
 import '../../../core/openclaw/openclaw_config.dart';
+import '../../../core/openclaw/openclaw_settings.dart';
 import '../domain/chat_message.dart' as domain;
 import '../domain/chat_session.dart';
 
@@ -24,7 +25,9 @@ class ChatSessionStore extends ChangeNotifier {
               bridgeUrl:
                   'ws://127.0.0.1:18791?token=yuanzhe-7611681-668128-zheyuan-012345',
             ),
-          );
+          ) {
+    unawaited(reloadConfig());
+  }
 
   static const int initialMessageLimit = 20;
   static const int olderMessagePageSize = 5;
@@ -33,7 +36,7 @@ class ChatSessionStore extends ChangeNotifier {
   static const Duration eventReconnectBaseDelay = Duration(seconds: 1);
   static const Duration eventReconnectMaxDelay = Duration(seconds: 8);
 
-  final OpenClawHttpClient _client;
+  OpenClawHttpClient _client;
   final Uuid _uuid = const Uuid();
   final Map<String, ChatViewState> _states = {};
   final Map<String, String> _sessionIdBySessionKey = {};
@@ -42,6 +45,21 @@ class ChatSessionStore extends ChangeNotifier {
   final Map<String, Timer> _sendWatchdogs = {};
   final Map<String, Timer> _eventReconnectTimers = {};
   final Map<String, DateTime> _lastDebugLogAt = {};
+
+  Future<void> reloadConfig() async {
+    final config = await OpenClawSettingsStore.load();
+    _client = OpenClawHttpClient(config);
+    _dropRealtimeConnections();
+    for (final state in _states.values) {
+      _resetBackendSession(state);
+      state
+        ..isLoading = false
+        ..error = null;
+    }
+    notifyListeners();
+  }
+
+  OpenClawConfig get currentConfig => _client.config;
 
   ChatViewState stateFor(ChatSession session) {
     return _states.putIfAbsent(
@@ -199,7 +217,7 @@ class ChatSessionStore extends ChangeNotifier {
           id: _uuid.v4(),
           authorId: 'assistant',
           createdAt: DateTime.now(),
-          text: '❌ 发送失败: ${finalError.toString()}',
+          text: '❌ ${_humanizeError(finalError)}',
         ),
       );
       _debugState(
@@ -252,7 +270,7 @@ class ChatSessionStore extends ChangeNotifier {
         ..error = null;
       return page.messages.isNotEmpty;
     } catch (error) {
-      state.error = error.toString();
+      state.error = _humanizeError(error);
       return false;
     } finally {
       state.isLoadingOlder = false;
@@ -285,7 +303,7 @@ class ChatSessionStore extends ChangeNotifier {
         ..error = null;
       return page.messages.isNotEmpty;
     } catch (error) {
-      state.error = error.toString();
+      state.error = _humanizeError(error);
       return false;
     } finally {
       state.isRefreshingLatest = false;
@@ -331,7 +349,7 @@ class ChatSessionStore extends ChangeNotifier {
           onError: (error) {
             _eventSubscriptions.remove(sessionId);
             state
-              ..error = error.toString()
+              ..error = _humanizeError(error)
               ..clearPending()
               ..clearStreaming()
               ..clearAssistantProgress()
@@ -402,7 +420,6 @@ class ChatSessionStore extends ChangeNotifier {
         if (message == null) return;
         if (clientMessageId.isNotEmpty &&
             state.confirmPendingMessage(clientMessageId, message)) {
-          // Confirmed a pending temp message; no further action needed.
         } else {
           state.upsertMessage(message);
         }
@@ -595,6 +612,23 @@ class ChatSessionStore extends ChangeNotifier {
   bool _isUnknownSessionError(Object error) {
     final text = error.toString().toLowerCase();
     return text.contains('unknown session id') || text.contains('404');
+  }
+
+  String _humanizeError(Object error) {
+    final text = error.toString();
+    if (text.contains('认证失败')) return text;
+    return text.replaceFirst(RegExp(r'^Exception:\s*'), '');
+  }
+
+  void _dropRealtimeConnections() {
+    for (final subscription in _eventSubscriptions.values) {
+      subscription.cancel();
+    }
+    for (final timer in _eventReconnectTimers.values) {
+      timer.cancel();
+    }
+    _eventSubscriptions.clear();
+    _eventReconnectTimers.clear();
   }
 
   void _resetBackendSession(ChatViewState state) {

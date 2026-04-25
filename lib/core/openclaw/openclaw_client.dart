@@ -18,6 +18,8 @@ abstract class OpenClawClient {
   Future<String> sendMessage({
     required String sessionId,
     required String text,
+    String? contactId,
+    String? userId,
     String? clientMessageId,
   });
 
