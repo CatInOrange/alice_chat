@@ -156,9 +156,9 @@ class ChatService:
         for img in images or []:
             if isinstance(img, dict) and img.get("url"):
                 image_url = str(img.get("url") or "").strip()
-                if image_url.startswith('/'):
+                if image_url.lower().startswith(('http://', 'https://')):
                     stored_url = image_url
-                elif image_url.lower().startswith(('http://', 'https://')):
+                elif image_url.startswith('/api/') or image_url.startswith('/uploads/'):
                     stored_url = image_url
                 else:
                     stored_url = build_protected_media_url(image_url)

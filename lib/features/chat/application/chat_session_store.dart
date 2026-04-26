@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart' as core;
@@ -983,18 +984,33 @@ class ChatSessionStore extends ChangeNotifier {
     if (lower.startsWith('http://') || lower.startsWith('https://')) {
       return value;
     }
-    if (!value.startsWith('/')) {
-      return value;
+
+    String normalizedPath = value;
+    if (!value.startsWith('/api/') &&
+        !value.startsWith('/uploads/') &&
+        _looksLikeLocalAbsolutePath(value)) {
+      normalizedPath = '/api/media/file?path=${Uri.encodeComponent(value)}';
+    }
+
+    if (!normalizedPath.startsWith('/')) {
+      return normalizedPath;
     }
     final baseUrl = _client.config.baseUrl.trim();
     if (baseUrl.isEmpty) {
-      return value;
+      return normalizedPath;
     }
     final normalizedBase =
         baseUrl.endsWith('/')
             ? baseUrl.substring(0, baseUrl.length - 1)
             : baseUrl;
-    return '$normalizedBase$value';
+    return '$normalizedBase$normalizedPath';
+  }
+
+  bool _looksLikeLocalAbsolutePath(String value) {
+    if (value.startsWith('/')) {
+      return true;
+    }
+    return Platform.isWindows && RegExp(r'^[A-Za-z]:[\\/]').hasMatch(value);
   }
 
   core.Message _toCoreMessage(domain.ChatMessage message) {
