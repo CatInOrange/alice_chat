@@ -7,16 +7,20 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
+import kotlin.random.Random
 
 class AliceChatForegroundService : Service() {
     private val client: OkHttpClient = OkHttpClient.Builder()
@@ -130,7 +134,7 @@ class AliceChatForegroundService : Service() {
         val payloadText = dataLines.joinToString("\n").trim()
         if (payloadText.isEmpty()) return
 
-        val json = org.json.JSONObject(payloadText)
+        val json = JSONObject(payloadText)
         if (json.has("seq")) {
             lastSeq = json.optLong("seq")
         }
@@ -147,15 +151,14 @@ class AliceChatForegroundService : Service() {
         if (role != "assistant") return
         val text = message.optString("text").trim()
         if (text.isEmpty()) return
-        val title = payload.optString("senderName").ifBlank { "AliceChat" }
+        val title = payload.optString("senderName").ifBlank { resolveTitleForSession(sessionId) }
         val messageId = message.optString("id")
-        showMessageNotification(sessionId, title, text, messageId)
+        showMessageNotification(sessionId, title, messageId)
     }
 
     private fun showMessageNotification(
         sessionId: String,
         title: String,
-        body: String,
         messageId: String
     ) {
         val intent = Intent(this, MainActivity::class.java).apply {
@@ -169,17 +172,20 @@ class AliceChatForegroundService : Service() {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val teaser = pickTeaser(title)
         val notification = NotificationCompat.Builder(this, MESSAGE_CHANNEL_ID)
             .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentText(teaser)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(teaser))
             .setSmallIcon(R.mipmap.ic_launcher)
+            .setLargeIcon(loadAvatarBitmap(sessionId))
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .build()
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify((sessionId + messageId + body).hashCode(), notification)
+        manager.notify((sessionId + messageId + teaser).hashCode(), notification)
     }
 
     private fun createChannels() {
@@ -221,6 +227,51 @@ class AliceChatForegroundService : Service() {
             .setOngoing(true)
             .setSilent(true)
             .build()
+    }
+
+    private fun resolveTitleForSession(sessionId: String): String {
+        return when (sessionId) {
+            "alice:main", "alice" -> "alice"
+            "yulinglong:main", "yulinglong" -> "玲珑"
+            "lisuxin:main", "lisuxin" -> "素心"
+            else -> "AliceChat"
+        }
+    }
+
+    private fun pickTeaser(title: String): String {
+        val pool = when (title) {
+            "alice" -> listOf(
+                "Alice 又来找你玩啦。",
+                "Alice 带着新消息冒泡了。",
+                "快看，Alice 正在等你回应。"
+            )
+            "玲珑" -> listOf(
+                "玲珑又来敲你了。",
+                "玲珑留了一句话，不看会后悔。",
+                "玲珑那边有新动静。"
+            )
+            "素心" -> listOf(
+                "素心抱着新消息跑来了。",
+                "素心又勤勤恳恳地来汇报了。",
+                "素心那边有更新，瞧一眼吧。"
+            )
+            else -> listOf(
+                "有条新消息在等你翻牌。",
+                "有人轻轻敲了敲你的聊天窗。",
+                "新动静来了，快去看看。"
+            )
+        }
+        return pool[Random.nextInt(pool.size)]
+    }
+
+    private fun loadAvatarBitmap(sessionId: String): Bitmap? {
+        val resId = when (sessionId) {
+            "alice:main", "alice" -> R.drawable.alice_avatar
+            "yulinglong:main", "yulinglong" -> R.drawable.linglong_avatar
+            "lisuxin:main", "lisuxin" -> R.drawable.lisuxin_avatar
+            else -> return null
+        }
+        return BitmapFactory.decodeResource(resources, resId)
     }
 
     companion object {

@@ -76,6 +76,7 @@ class _MainScaffoldState extends State<_MainScaffold>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    NotificationService.instance.registerContacts(_contacts);
     NotificationService.instance.setAppForeground(true);
     _notificationOpenSub = NotificationService.instance.onNotificationOpened
         .listen(_handleNotificationOpen);
@@ -106,6 +107,7 @@ class _MainScaffoldState extends State<_MainScaffold>
   void _navigateToChat(Contact contact) {
     final session = _sessionFromContact(contact);
     setState(() {
+      _currentIndex = 0;
       _activeChatSession = session;
     });
     final resolvedSessionId = session.backendSessionId ?? session.id;
@@ -133,17 +135,20 @@ class _MainScaffoldState extends State<_MainScaffold>
   void _handleNotificationOpen(NotificationOpenData data) {
     final sessionId = data.sessionId.trim();
     if (sessionId.isEmpty) return;
-    Contact? contact;
+    final contact =
+        NotificationService.instance.contactForSessionId(sessionId) ??
+        _findContactBySessionId(sessionId);
+    if (contact == null) return;
+    _navigateToChat(contact);
+  }
+
+  Contact? _findContactBySessionId(String sessionId) {
     for (final item in _contacts) {
       if ((item.backendSessionId ?? '').trim() == sessionId || item.id == sessionId) {
-        contact = item;
-        break;
+        return item;
       }
     }
-    if (contact == null) {
-      return;
-    }
-    _navigateToChat(contact);
+    return null;
   }
 
   void _closeChat() {
