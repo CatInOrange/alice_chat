@@ -73,6 +73,7 @@ class NotificationService extends ChangeNotifier {
   final Map<String, Uint8List> _avatarCache = {};
 
   bool _initialized = false;
+  bool _isAppForeground = true;
   String _activeSessionId = '';
   String? _deviceId;
 
@@ -138,6 +139,7 @@ class NotificationService extends ChangeNotifier {
   }
 
   Future<void> setAppForeground(bool isForeground) async {
+    _isAppForeground = isForeground;
     await NativeDebugBridge.instance.log(
       'notifications',
       'setAppForeground foreground=$isForeground active=$_activeSessionId',
@@ -153,12 +155,21 @@ class NotificationService extends ChangeNotifier {
     String messageId = '',
     bool force = false,
     bool suppressForActiveSession = true,
+    bool foregroundOnly = false,
+    String source = 'flutter',
   }) async {
     final normalizedSessionId = sessionId.trim();
     await NativeDebugBridge.instance.log(
       'notifications',
-      'decision=received session=$normalizedSessionId title=$title force=$force active=$_activeSessionId messageId=$messageId bodyLen=${body.length}',
+      'decision=received source=$source session=$normalizedSessionId title=$title force=$force foregroundOnly=$foregroundOnly appForeground=$_isAppForeground active=$_activeSessionId messageId=$messageId bodyLen=${body.length}',
     );
+    if (foregroundOnly && !_isAppForeground) {
+      await NativeDebugBridge.instance.log(
+        'notifications',
+        'decision=suppressed_background source=$source session=$normalizedSessionId messageId=$messageId',
+      );
+      return;
+    }
     if (suppressForActiveSession &&
         !force &&
         normalizedSessionId.isNotEmpty &&
@@ -205,12 +216,12 @@ class NotificationService extends ChangeNotifier {
       );
       await NativeDebugBridge.instance.log(
         'notifications',
-        'decision=shown session=$normalizedSessionId messageId=$messageId notificationId=$notificationId resolvedTitle=$resolvedTitle teaser=$teaser icon=${largeIcon != null}',
+        'decision=shown source=$source session=$normalizedSessionId messageId=$messageId notificationId=$notificationId resolvedTitle=$resolvedTitle teaser=$teaser icon=${largeIcon != null}',
       );
     } catch (error) {
       await NativeDebugBridge.instance.log(
         'notifications',
-        'decision=show_failed session=$normalizedSessionId messageId=$messageId notificationId=$notificationId error=$error',
+        'decision=show_failed source=$source session=$normalizedSessionId messageId=$messageId notificationId=$notificationId error=$error',
         level: 'ERROR',
       );
       rethrow;

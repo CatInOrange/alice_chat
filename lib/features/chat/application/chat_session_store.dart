@@ -556,6 +556,8 @@ class ChatSessionStore extends ChangeNotifier {
             body: notificationBody,
             senderName: state.session.title,
             messageId: message.id,
+            foregroundOnly: true,
+            source: 'flutter-session-store',
           ),
         );
         break;

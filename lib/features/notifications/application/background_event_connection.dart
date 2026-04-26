@@ -180,6 +180,7 @@ class BackgroundEventConnection {
         messageId: messageId,
         force: false,
         suppressForActiveSession: false,
+        source: 'flutter-background-events',
       ),
     );
   }
