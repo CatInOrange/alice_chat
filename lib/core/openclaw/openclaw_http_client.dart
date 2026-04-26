@@ -155,7 +155,7 @@ class OpenClawHttpClient implements OpenClawClient {
 
   @override
   Stream<Map<String, dynamic>> subscribeEvents({
-    required String sessionId,
+    String? sessionId,
     int? since,
   }) async* {
     final request = http.Request(
@@ -163,7 +163,7 @@ class OpenClawHttpClient implements OpenClawClient {
       _uri(
         '/api/events',
         queryParameters: {
-          'sessionId': sessionId,
+          if (sessionId != null && sessionId.isNotEmpty) 'sessionId': sessionId,
           if (since != null) 'since': since.toString(),
         },
       ),

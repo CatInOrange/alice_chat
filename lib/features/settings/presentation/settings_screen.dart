@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../../core/openclaw/openclaw_settings.dart';
 import '../../chat/application/chat_session_store.dart';
+import '../../notifications/application/notification_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -15,6 +16,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _urlController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePassword = true;
+  bool _backgroundServiceEnabled = true;
   bool _isSaving = false;
   bool _didLoad = false;
 
@@ -31,6 +33,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     _urlController.text = config.baseUrl;
     _passwordController.text = config.appPassword ?? '';
+    _backgroundServiceEnabled = await OpenClawSettingsStore.loadBackgroundServiceEnabled();
     setState(() {});
   }
 
@@ -57,11 +60,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
         baseUrl: baseUrl,
         appPassword: password,
       );
+      await OpenClawSettingsStore.saveBackgroundServiceEnabled(
+        _backgroundServiceEnabled,
+      );
       if (!mounted) return;
       await context.read<ChatSessionStore>().reloadConfig();
+      await NotificationService.instance.refreshConfig();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('设置已保存，后续请求会携带访问密码')),
+        const SnackBar(content: Text('设置已保存，通知注册也会同步刷新')),
       );
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -107,6 +114,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
               ),
+            ),
+            const SizedBox(height: 24),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('后台常驻连接'),
+              subtitle: const Text('退到后台后启用 Android 前台服务维持消息监听'),
+              value: _backgroundServiceEnabled,
+              onChanged: (value) {
+                setState(() {
+                  _backgroundServiceEnabled = value;
+                });
+              },
             ),
             const SizedBox(height: 24),
             SizedBox(

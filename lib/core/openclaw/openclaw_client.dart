@@ -24,7 +24,7 @@ abstract class OpenClawClient {
   });
 
   Stream<Map<String, dynamic>> subscribeEvents({
-    required String sessionId,
+    String? sessionId,
     int? since,
   });
 

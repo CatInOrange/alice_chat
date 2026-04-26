@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import '../../../core/openclaw/openclaw_http_client.dart';
 import '../../../core/openclaw/openclaw_config.dart';
 import '../../../core/openclaw/openclaw_settings.dart';
+import '../../notifications/application/notification_service.dart';
 import '../domain/chat_message.dart' as domain;
 import '../domain/chat_session.dart';
 
@@ -502,6 +503,15 @@ class ChatSessionStore extends ChangeNotifier {
         state
           ..isSubmitting = false
           ..isAssistantStreaming = false;
+        unawaited(
+          NotificationService.instance.showChatNotification(
+            sessionId: state.backendSessionId ?? state.session.id,
+            title: state.session.title,
+            body: message.text,
+            senderName: state.session.title,
+            messageId: message.id,
+          ),
+        );
         break;
       case 'assistant.message.failed':
         final error = (event['error'] ?? 'unknown error').toString();

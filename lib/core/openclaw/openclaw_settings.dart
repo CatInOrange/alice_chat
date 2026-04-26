@@ -7,6 +7,7 @@ class OpenClawSettingsStore {
 
   static const _baseUrlKey = 'openclaw.baseUrl';
   static const _appPasswordKey = 'openclaw.appPassword';
+  static const _backgroundServiceEnabledKey = 'alicechat.backgroundServiceEnabled';
 
   static const OpenClawConfig _defaultConfig = OpenClawConfig(
     baseUrl: '',
@@ -34,5 +35,15 @@ class OpenClawSettingsStore {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_baseUrlKey, baseUrl.trim());
     await prefs.setString(_appPasswordKey, appPassword);
+  }
+
+  static Future<bool> loadBackgroundServiceEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_backgroundServiceEnabledKey) ?? true;
+  }
+
+  static Future<void> saveBackgroundServiceEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_backgroundServiceEnabledKey, enabled);
   }
 }

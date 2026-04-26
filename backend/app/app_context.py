@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .config import load_config
-from .services import ChatService, EventsBus, RequestDeduper
-from .store import MessageStore, SessionStore
+from .services import ChatService, EventsBus, PushService, RequestDeduper
+from .store import MessageStore, PushDeviceStore, SessionStore
 
 
 @dataclass(slots=True)
@@ -15,6 +15,8 @@ class AppContext:
     events_bus: EventsBus
     chat_service: ChatService
     request_deduper: RequestDeduper
+    push_device_store: PushDeviceStore
+    push_service: PushService
     uploads_dir: Path
     config: dict
 
@@ -25,6 +27,7 @@ def create_app_context(*, uploads_dir: Path) -> AppContext:
     events_bus = EventsBus()
     chat_service = ChatService(sessions=session_store, messages=message_store)
     request_deduper = RequestDeduper()
+    push_device_store = PushDeviceStore()
 
     uploads_dir = uploads_dir.resolve()
     uploads_dir.mkdir(parents=True, exist_ok=True)
@@ -35,6 +38,8 @@ def create_app_context(*, uploads_dir: Path) -> AppContext:
         events_bus=events_bus,
         chat_service=chat_service,
         request_deduper=request_deduper,
+        push_device_store=push_device_store,
+        push_service=PushService(push_device_store, load_config()),
         uploads_dir=uploads_dir,
         config=load_config(),
     )

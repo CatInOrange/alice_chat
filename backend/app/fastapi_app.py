@@ -14,6 +14,7 @@ from .config import UPLOADS_DIR, get_chat_providers
 from .routes.chat import create_chat_router
 from .routes.debug import create_debug_router
 from .routes.events import create_events_router
+from .routes.push import create_push_router
 from .routes.sessions import create_sessions_router
 from .web.helpers import build_allowed_origins
 
@@ -26,6 +27,7 @@ def create_app() -> FastAPI:
         context.session_store.ensure_schema()
         context.message_store.ensure_schema()
         context.events_bus.store.ensure_schema()
+        context.push_device_store.ensure_schema()
         context.events_bus.bind_loop(asyncio.get_running_loop())
         try:
             for provider in get_chat_providers():
@@ -61,6 +63,7 @@ def create_app() -> FastAPI:
     app.include_router(create_sessions_router(context))
     app.include_router(create_events_router(context))
     app.include_router(create_chat_router(context))
+    app.include_router(create_push_router(context))
     app.include_router(create_debug_router())
 
     app.mount('/uploads', StaticFiles(directory=str(context.uploads_dir), html=False), name='uploads')

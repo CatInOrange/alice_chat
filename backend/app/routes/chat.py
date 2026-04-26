@@ -226,6 +226,23 @@ def create_chat_router(context: AppContext) -> APIRouter:
                         'message': persisted,
                     },
                 )
+                try:
+                    context.push_service.notify_new_message(
+                        user_id=resolved.user_id or 'alicechat-user',
+                        session_id=session_id,
+                        title=resolved.contact_id or resolved.session_name or 'AliceChat',
+                        body=assistant_visible,
+                        message_id=str(persisted.get('id') or assistant_message_id),
+                        sender_id=resolved.contact_id or resolved.agent or 'assistant',
+                        sender_name=resolved.contact_id or resolved.session_name or 'AliceChat',
+                    )
+                except Exception:
+                    _LOG.exception(
+                        '[alicechat.push] notify_failed sessionId=%s clientMessageId=%s requestId=%s',
+                        session_id,
+                        client_message_id,
+                        request_id,
+                    )
             except TimeoutError:
                 _LOG.warning(
                     '[alicechat.chat] request_timeout sessionId=%s clientMessageId=%s requestId=%s',

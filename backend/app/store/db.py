@@ -103,6 +103,26 @@ def migrate(conn: sqlite3.Connection) -> None:
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS push_devices (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            device_id TEXT NOT NULL UNIQUE,
+            platform TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            push_token TEXT NOT NULL,
+            app_version TEXT NOT NULL DEFAULT '',
+            device_name TEXT NOT NULL DEFAULT '',
+            notification_enabled INTEGER NOT NULL DEFAULT 1,
+            last_seen_at REAL NOT NULL DEFAULT 0,
+            last_foreground_at REAL NOT NULL DEFAULT 0,
+            active_session_id TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_push_devices_user ON push_devices(user_id, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_push_devices_token ON push_devices(push_token);
         """
     )
     conn.commit()
