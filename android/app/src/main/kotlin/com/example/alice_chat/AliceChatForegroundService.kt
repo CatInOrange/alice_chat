@@ -33,6 +33,8 @@ class AliceChatForegroundService : Service() {
     @Volatile
     private var activeSessionId: String = ""
     @Volatile
+    private var appForeground: Boolean = true
+    @Volatile
     private var lastSeq: Long? = null
     private var workerThread: Thread? = null
 
@@ -44,7 +46,7 @@ class AliceChatForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         activeSessionId = intent?.getStringExtra(EXTRA_ACTIVE_SESSION_ID)?.trim().orEmpty()
-        DebugLogBuffer.append("fg-service", "onStartCommand activeSessionId=$activeSessionId running=$running startId=$startId")
+        DebugLogBuffer.append("fg-service", "onStartCommand activeSessionId=$activeSessionId appForeground=$appForeground running=$running startId=$startId action=${intent?.action.orEmpty()}")
         startForeground(SERVICE_NOTIFICATION_ID, buildServiceNotification())
         if (!running) {
             running = true
@@ -91,7 +93,7 @@ class AliceChatForegroundService : Service() {
         val rawBaseUrl = baseUrlEntry.second
         DebugLogBuffer.append(
             "fg-service",
-            "connectAndConsumeSse baseUrlKey=${baseUrlEntry.first} baseUrl=$rawBaseUrl lastSeq=${lastSeq ?: "null"} active=$activeSessionId"
+            "connectAndConsumeSse baseUrlKey=${baseUrlEntry.first} baseUrl=$rawBaseUrl lastSeq=${lastSeq ?: "null"} active=$activeSessionId appForeground=$appForeground"
         )
         if (rawBaseUrl.isEmpty()) {
             DebugLogBuffer.append(
@@ -170,7 +172,7 @@ class AliceChatForegroundService : Service() {
         }
         val payload = json.optJSONObject("payload") ?: json
         val sessionId = payload.optString("sessionId").trim()
-        DebugLogBuffer.append("fg-service", "parsed sessionId=$sessionId active=$activeSessionId")
+        DebugLogBuffer.append("fg-service", "parsed sessionId=$sessionId active=$activeSessionId appForeground=$appForeground")
         if (sessionId.isEmpty()) {
             DebugLogBuffer.append("fg-service", "decision=skip_empty_session")
             return
@@ -191,21 +193,22 @@ class AliceChatForegroundService : Service() {
             DebugLogBuffer.append("fg-service", "decision=skip_empty_text session=$sessionId role=$role")
             return
         }
-        if (sessionId.isNotEmpty() && sessionId == activeSessionId) {
-            DebugLogBuffer.append("fg-service", "decision=suppress_active_session session=$sessionId")
+        if (appForeground && sessionId.isNotEmpty() && sessionId == activeSessionId) {
+            DebugLogBuffer.append("fg-service", "decision=suppress_active_session session=$sessionId active=$activeSessionId appForeground=$appForeground")
             return
         }
         val title = payload.optString("senderName").ifBlank { resolveTitleForSession(sessionId) }
         val messageId = message.optString("id")
         val preview = if (text.isNotEmpty()) text else "[图片]"
-        DebugLogBuffer.append("fg-service", "decision=notify_attempt session=$sessionId title=$title messageId=$messageId textLen=${preview.length} active=$activeSessionId")
-        showMessageNotification(sessionId, title, messageId)
+        DebugLogBuffer.append("fg-service", "decision=notify_attempt session=$sessionId title=$title messageId=$messageId textLen=${preview.length} active=$activeSessionId appForeground=$appForeground hasAttachments=$hasAttachments")
+        showMessageNotification(sessionId, title, messageId, preview)
     }
 
     private fun showMessageNotification(
         eventSessionId: String,
         title: String,
-        messageId: String
+        messageId: String,
+        preview: String
     ) {
         val intent = Intent(this, MainActivity::class.java).apply {
             action = MainActivity.ACTION_OPEN_CHAT_NOTIFICATION
@@ -238,9 +241,11 @@ class AliceChatForegroundService : Service() {
         } else {
             true
         }
-        DebugLogBuffer.append("fg-service", "decision=post notificationId=$notificationId eventSession=$eventSessionId channel=$MESSAGE_CHANNEL_ID enabled=$notificationsEnabled")
+        val activeNotifications = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) manager.activeNotifications.size else -1
+        DebugLogBuffer.append("fg-service", "decision=post notificationId=$notificationId eventSession=$eventSessionId channel=$MESSAGE_CHANNEL_ID enabled=$notificationsEnabled activeCount=$activeNotifications title=$title teaser=$teaser preview=${preview.take(80)}")
         manager.notify(notificationId, notification)
-        DebugLogBuffer.append("fg-service", "decision=posted notificationId=$notificationId eventSession=$eventSessionId teaser=$teaser")
+        val activeNotificationsAfter = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) manager.activeNotifications.size else -1
+        DebugLogBuffer.append("fg-service", "decision=posted notificationId=$notificationId eventSession=$eventSessionId activeCountAfter=$activeNotificationsAfter teaser=$teaser preview=${preview.take(80)}")
     }
 
     private fun createChannels() {
@@ -362,7 +367,12 @@ class AliceChatForegroundService : Service() {
 
         fun updateActiveSession(sessionId: String) {
             instance?.activeSessionId = sessionId.trim()
-            DebugLogBuffer.append("fg-service", "activeSessionUpdated session=${sessionId.trim()} viaMethodChannel=${instance != null}")
+            DebugLogBuffer.append("fg-service", "activeSessionUpdated session=${sessionId.trim()} viaMethodChannel=${instance != null} appForeground=${instance?.appForeground}")
+        }
+
+        fun updateAppForeground(isForeground: Boolean) {
+            instance?.appForeground = isForeground
+            DebugLogBuffer.append("fg-service", "appForegroundUpdated foreground=$isForeground viaMethodChannel=${instance != null} active=${instance?.activeSessionId.orEmpty()}")
         }
 
         fun updateSessionMetadata(sessionId: String, title: String, avatarAssetPath: String) {

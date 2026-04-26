@@ -72,6 +72,12 @@ class MainActivity : FlutterActivity() {
                     AliceChatForegroundService.updateSessionMetadata(sessionId, title, avatarAssetPath)
                     result.success(null)
                 }
+                "updateAppForeground" -> {
+                    val isForeground = call.argument<Boolean>("isForeground") ?: true
+                    appendLog("main", "updateAppForeground foreground=$isForeground")
+                    AliceChatForegroundService.updateAppForeground(isForeground)
+                    result.success(null)
+                }
                 "consumePendingNotificationOpen" -> {
                     appendLog("main", "consumePendingNotificationOpen session=${pendingNotificationSessionId.orEmpty()}")
                     result.success(pendingNotificationSessionId)

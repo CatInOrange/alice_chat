@@ -18,6 +18,7 @@ class BackgroundConnectionService {
 
   bool _serviceRequested = false;
   String _activeSessionId = '';
+  bool _appForeground = true;
   bool _serviceInitialized = false;
   final Map<String, Map<String, String>> _sessionMetadata = {};
 
@@ -41,7 +42,7 @@ class BackgroundConnectionService {
     _activeSessionId = sessionId.trim();
     await NativeDebugBridge.instance.log(
       'bg-service',
-      'start requested session=$_activeSessionId launchMode=background-notify-all prevRequested=$previousRequested',
+      'start requested session=$_activeSessionId appForeground=$_appForeground launchMode=background-notify-all prevRequested=$previousRequested',
     );
     try {
       await _channel.invokeMethod('startForegroundService', {
@@ -49,7 +50,7 @@ class BackgroundConnectionService {
       });
       await NativeDebugBridge.instance.log(
         'bg-service',
-        'startForegroundService invoked successfully requested=$_serviceRequested active=$_activeSessionId forwarded=$_activeSessionId',
+        'startForegroundService invoked successfully requested=$_serviceRequested active=$_activeSessionId appForeground=$_appForeground forwarded=$_activeSessionId',
       );
     } catch (error) {
       await NativeDebugBridge.instance.log(
@@ -89,7 +90,7 @@ class BackgroundConnectionService {
     _activeSessionId = sessionId.trim();
     await NativeDebugBridge.instance.log(
       'bg-service',
-      'updateActiveSession session=$_activeSessionId serviceRequested=$_serviceRequested',
+      'updateActiveSession session=$_activeSessionId appForeground=$_appForeground serviceRequested=$_serviceRequested',
     );
     if (!_serviceRequested) return;
     try {
@@ -146,6 +147,31 @@ class BackgroundConnectionService {
     }
   }
 
+  Future<void> updateAppForeground(bool isForeground) async {
+    _appForeground = isForeground;
+    await NativeDebugBridge.instance.log(
+      'bg-service',
+      'updateAppForeground foreground=$_appForeground active=$_activeSessionId serviceRequested=$_serviceRequested',
+    );
+    if (!_serviceRequested) return;
+    try {
+      await _channel.invokeMethod('updateAppForeground', {
+        'isForeground': _appForeground,
+      });
+      await NativeDebugBridge.instance.log(
+        'bg-service',
+        'updateAppForeground invoked successfully foreground=$_appForeground active=$_activeSessionId',
+      );
+    } catch (error) {
+      await NativeDebugBridge.instance.log(
+        'bg-service',
+        'updateAppForeground failed error=$error',
+        level: 'ERROR',
+      );
+      debugPrint('[alicechat.bg] update foreground failed: $error');
+    }
+  }
+
   Future<String?> consumePendingNotificationOpen() async {
     try {
       final result = await _channel.invokeMethod<String>(
@@ -164,10 +190,12 @@ class BackgroundConnectionService {
   }
 
   Future<void> onAppLifecycleChanged(AppLifecycleState state) async {
+    _appForeground = state == AppLifecycleState.resumed;
     await NativeDebugBridge.instance.log(
       'bg-service',
-      'lifecycle state=$state active=$_activeSessionId requested=$_serviceRequested mode=always-on',
+      'lifecycle state=$state foreground=$_appForeground active=$_activeSessionId requested=$_serviceRequested mode=always-on',
     );
+    await updateAppForeground(_appForeground);
     if (!_serviceInitialized) {
       await NativeDebugBridge.instance.log(
         'bg-service',
@@ -178,13 +206,13 @@ class BackgroundConnectionService {
     if (state == AppLifecycleState.resumed) {
       await NativeDebugBridge.instance.log(
         'bg-service',
-        'lifecycle decision=keep_running on resumed mode=always-on',
+        'lifecycle decision=keep_running on resumed mode=always-on active=$_activeSessionId foreground=$_appForeground',
       );
       return;
     }
     await NativeDebugBridge.instance.log(
       'bg-service',
-      'lifecycle decision=ensure_started on state=$state mode=always-on',
+      'lifecycle decision=ensure_started on state=$state mode=always-on active=$_activeSessionId foreground=$_appForeground',
     );
     await start(sessionId: _activeSessionId);
   }

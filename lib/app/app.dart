@@ -82,6 +82,7 @@ class _MainScaffoldState extends State<_MainScaffold>
       ),
     );
     NotificationService.instance.setAppForeground(true);
+    unawaited(BackgroundConnectionService.instance.updateAppForeground(true));
     _notificationOpenSub = NotificationService.instance.onNotificationOpened
         .listen(_handleNotificationOpen);
     unawaited(_ensureBackgroundServiceConfigured());
@@ -121,6 +122,7 @@ class _MainScaffoldState extends State<_MainScaffold>
       ),
     );
     NotificationService.instance.setAppForeground(isForeground);
+    unawaited(BackgroundConnectionService.instance.updateAppForeground(isForeground));
     unawaited(
       BackgroundConnectionService.instance.onAppLifecycleChanged(state),
     );
@@ -138,6 +140,12 @@ class _MainScaffoldState extends State<_MainScaffold>
       _currentIndex = 0;
       _activeChatSession = session;
     });
+    unawaited(
+      NativeDebugBridge.instance.log(
+        'app',
+        'navigateToChat committed contact=${contact.name} sessionLocal=${session.id} backend=${session.backendSessionId ?? ''}',
+      ),
+    );
   }
 
   ChatSession _sessionFromContact(Contact contact) {
@@ -219,6 +227,12 @@ class _MainScaffoldState extends State<_MainScaffold>
     setState(() {
       _activeChatSession = null;
     });
+    unawaited(
+      NativeDebugBridge.instance.log(
+        'app',
+        'closeChat committed current_cleared=true',
+      ),
+    );
     unawaited(NotificationService.instance.clearActiveSession());
     unawaited(BackgroundConnectionService.instance.updateActiveSession(''));
   }
@@ -261,6 +275,12 @@ class _MainScaffoldState extends State<_MainScaffold>
               ? NavigationBar(
                 selectedIndex: _currentIndex,
                 onDestinationSelected: (index) {
+                  unawaited(
+                    NativeDebugBridge.instance.log(
+                      'app',
+                      'bottomNav selectedIndex=$index activeChat=${_activeChatSession?.backendSessionId ?? _activeChatSession?.id ?? ''}',
+                    ),
+                  );
                   setState(() {
                     _currentIndex = index;
                   });
