@@ -76,12 +76,12 @@ class AliceChatForegroundService : Service() {
 
     private fun connectAndConsumeSse() {
         val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-        val rawBaseUrl = prefs.getString("flutter.openclaw.baseUrl", "")?.trim().orEmpty()
+        val rawBaseUrl = prefs.getString("openclaw.baseUrl", "")?.trim().orEmpty()
         if (rawBaseUrl.isEmpty()) {
             Thread.sleep(RECONNECT_DELAY_MS)
             return
         }
-        val password = prefs.getString("flutter.openclaw.appPassword", "")?.trim().orEmpty()
+        val password = prefs.getString("openclaw.appPassword", "")?.trim().orEmpty()
         val baseUrl = rawBaseUrl.removeSuffix("/")
         val urlBuilder = StringBuilder("$baseUrl/api/events")
         lastSeq?.let {

@@ -87,11 +87,14 @@ class BackgroundEventConnection {
       return;
     }
 
-    final sessionId = (event['sessionId'] ?? '').toString().trim();
+    final payload = event['payload'];
+    if (payload is! Map<String, dynamic>) return;
+
+    final sessionId = (payload['sessionId'] ?? '').toString().trim();
     if (sessionId.isEmpty) return;
     if (sessionId == _activeSessionId) return;
 
-    final message = event['message'];
+    final message = payload['message'];
     if (message is! Map<String, dynamic>) return;
 
     final role = (message['role'] ?? '').toString();
@@ -100,8 +103,8 @@ class BackgroundEventConnection {
     final text = (message['text'] ?? '').toString().trim();
     if (text.isEmpty) return;
 
-    final title = _resolveTitle(sessionId, event, message);
-    final messageId = (message['id'] ?? event['messageId'] ?? '').toString();
+    final title = _resolveTitle(sessionId, payload, message);
+    final messageId = (message['id'] ?? payload['messageId'] ?? '').toString();
 
     unawaited(
       NotificationService.instance.showChatNotification(
