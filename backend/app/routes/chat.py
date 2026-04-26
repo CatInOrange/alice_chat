@@ -16,7 +16,6 @@ from ..services.routing import resolve_routing
 from ..web.helpers import build_route_key, require_existing_session
 
 _LOG = logging.getLogger(__name__)
-_CHAT_TIMEOUT_SECONDS = 150.0
 
 
 def create_chat_router(context: AppContext) -> APIRouter:
@@ -180,15 +179,12 @@ def create_chat_router(context: AppContext) -> APIRouter:
                         },
                     )
 
-                result = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        chat_service.run_chat_stream,
-                        resolved,
-                        emit,
-                        session_id=session_id,
-                        route_key=requested_route_key,
-                    ),
-                    timeout=_CHAT_TIMEOUT_SECONDS,
+                result = await asyncio.to_thread(
+                    chat_service.run_chat_stream,
+                    resolved,
+                    emit,
+                    session_id=session_id,
+                    route_key=requested_route_key,
                 )
                 assistant_raw = str(result.get('rawReply') or result.get('reply') or ''.join(assistant_raw_parts))
                 assistant_visible = str(result.get('reply') or assistant_raw)
@@ -243,29 +239,6 @@ def create_chat_router(context: AppContext) -> APIRouter:
                         client_message_id,
                         request_id,
                     )
-            except TimeoutError:
-                _LOG.warning(
-                    '[alicechat.chat] request_timeout sessionId=%s clientMessageId=%s requestId=%s',
-                    session_id,
-                    client_message_id,
-                    request_id,
-                )
-                await request_deduper.mark_failed(
-                    session_id,
-                    client_message_id,
-                    f'chat timed out after {_CHAT_TIMEOUT_SECONDS:.0f}s',
-                )
-                await events_bus.publish(
-                    'assistant.message.failed',
-                    {
-                        'sessionId': session_id,
-                        'clientMessageId': client_message_id,
-                        'requestId': request_id,
-                        'messageId': assistant_message_id,
-                        'error': f'chat timed out after {_CHAT_TIMEOUT_SECONDS:.0f}s',
-                        'reason': 'timeout',
-                    },
-                )
             except Exception as exc:  # noqa: BLE001
                 _LOG.exception(
                     '[alicechat.chat] request_failed sessionId=%s clientMessageId=%s requestId=%s',
