@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -8,10 +9,12 @@ import 'package:flutter_chat_core/flutter_chat_core.dart'
     show Builders, TimeAndStatusPosition;
 import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:http/http.dart' as http;
 import 'package:markdown/markdown.dart' as md;
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/debug/native_debug_bridge.dart';
 import '../application/chat_session_store.dart';
 import '../domain/chat_session.dart';
 
@@ -28,6 +31,8 @@ class ChatScreen extends StatefulWidget {
 enum _PullEdgeState { idle, pulling, armed, loading }
 
 class _ChatScreenState extends State<ChatScreen> {
+  static final Map<String, Uint8List> _imageBytesCache = <String, Uint8List>{};
+
   final _currentUserId = 'user';
   final _composerController = TextEditingController();
   final _imagePicker = ImagePicker();
@@ -1311,6 +1316,13 @@ class _ChatScreenState extends State<ChatScreen> {
     final sentByMe = isSentByMe ?? false;
     final showAvatar = !sentByMe && (groupStatus == null || groupStatus.isLast);
     final maxWidth = MediaQuery.of(context).size.width * 0.72;
+    final config = context.read<ChatSessionStore>().currentConfig;
+    final password = config.appPassword?.trim();
+    final headers =
+        (password == null || password.isEmpty)
+            ? const <String, String>{}
+            : <String, String>{'X-AliceChat-Password': password};
+    final cacheKey = '${message.id}|${message.source}';
     return Padding(
       padding: EdgeInsets.fromLTRB(
         12,
@@ -1351,25 +1363,56 @@ class _ChatScreenState extends State<ChatScreen> {
                         maxWidth: maxWidth,
                         maxHeight: 320,
                       ),
-                      child: Image.network(
-                        message.source,
-                        fit: BoxFit.cover,
-                        headers: () {
-                          final config =
-                              context.read<ChatSessionStore>().currentConfig;
-                          final password = config.appPassword?.trim();
-                          if (password == null || password.isEmpty) {
-                            return null;
+                      child: FutureBuilder<Uint8List>(
+                        future: _loadProtectedImageBytes(
+                          cacheKey: cacheKey,
+                          url: message.source,
+                          headers: headers,
+                        ),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState ==
+                              ConnectionState.waiting) {
+                            return Container(
+                              width: maxWidth,
+                              height: 180,
+                              color: Colors.white,
+                              alignment: Alignment.center,
+                              child: const CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            );
                           }
-                          return {'X-AliceChat-Password': password};
-                        }(),
-                        errorBuilder:
-                            (_, __, ___) => Container(
+                          if (snapshot.hasError || !snapshot.hasData) {
+                            return Container(
                               width: maxWidth,
                               color: Colors.white,
                               padding: const EdgeInsets.all(18),
-                              child: const Text('图片加载失败'),
-                            ),
+                              child: Text(
+                                '图片加载失败\n${snapshot.error ?? 'empty bytes'}',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            );
+                          }
+                          return Image.memory(
+                            snapshot.data!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, error, stackTrace) {
+                              unawaited(
+                                NativeDebugBridge.instance.log(
+                                  'chat-image',
+                                  'decode error messageId=${message.id} source=${message.source} error=$error',
+                                  level: 'ERROR',
+                                ),
+                              );
+                              return Container(
+                                width: maxWidth,
+                                color: Colors.white,
+                                padding: const EdgeInsets.all(18),
+                                child: const Text('图片解码失败'),
+                              );
+                            },
+                          );
+                        },
                       ),
                     ),
                   ),
@@ -1395,6 +1438,36 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       ),
     );
+  }
+
+  Future<Uint8List> _loadProtectedImageBytes({
+    required String cacheKey,
+    required String url,
+    required Map<String, String> headers,
+  }) async {
+    final cached = _imageBytesCache[cacheKey];
+    if (cached != null) {
+      return cached;
+    }
+    await NativeDebugBridge.instance.log(
+      'chat-image',
+      'fetch start url=$url headers=${headers.keys.toList()}',
+    );
+    final response = await http.get(Uri.parse(url), headers: headers);
+    await NativeDebugBridge.instance.log(
+      'chat-image',
+      'fetch done url=$url status=${response.statusCode} contentType=${response.headers['content-type'] ?? ''} bytes=${response.bodyBytes.length}',
+      level: response.statusCode >= 400 ? 'ERROR' : 'INFO',
+    );
+    if (response.statusCode >= 400) {
+      throw Exception('http ${response.statusCode}');
+    }
+    final bytes = response.bodyBytes;
+    if (bytes.isEmpty) {
+      throw Exception('empty image body');
+    }
+    _imageBytesCache[cacheKey] = bytes;
+    return bytes;
   }
 
   Widget _buildHeaderAvatar({double radius = 20}) {
