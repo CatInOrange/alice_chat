@@ -6,6 +6,7 @@ import uuid
 
 from .db import DbConfig, connect, migrate
 from .models import Message
+from ..media_utils import normalize_attachment_payload
 
 
 def _now() -> float:
@@ -23,13 +24,18 @@ class MessageStore:
         self.db = db or DbConfig()
 
     def _row_to_message(self, r) -> dict:
+        attachments = [
+            normalize_attachment_payload(item)
+            for item in json.loads(r["attachments_json"] or "[]")
+            if isinstance(item, dict)
+        ]
         return {
             "id": r["id"],
             "sessionId": r["session_id"],
             "role": r["role"],
             "text": r["text"],
             "rawText": r["raw_text"],
-            "attachments": json.loads(r["attachments_json"] or "[]"),
+            "attachments": attachments,
             "source": r["source"],
             "meta": r["meta"],
             "createdAt": r["created_at"],
@@ -176,13 +182,18 @@ class MessageStore:
         self.ensure_schema()
         msg_id = message_id or _new_id("msg")
         created = float(created_at or _now())
+        normalized_attachments = [
+            normalize_attachment_payload(item)
+            for item in (attachments or [])
+            if isinstance(item, dict)
+        ]
         payload = {
             "id": msg_id,
             "sessionId": session_id,
             "role": role or "assistant",
             "text": text or "",
             "rawText": str(raw_text or ""),
-            "attachments": attachments or [],
+            "attachments": normalized_attachments,
             "source": source,
             "meta": meta or "",
             "createdAt": created,

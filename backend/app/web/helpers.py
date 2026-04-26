@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from urllib.parse import quote
-
 from fastapi import HTTPException
 
 from ..config import get_cors_config
+from ..media_utils import build_protected_media_url as _build_protected_media_url
 from ..store import SessionStore
 
 
@@ -72,4 +71,4 @@ def require_existing_session(session_store: SessionStore, session_id: str) -> st
 
 
 def build_protected_media_url(path: str) -> str:
-    return f"/api/media/file?path={quote(path, safe='')}"
+    return _build_protected_media_url(path)
