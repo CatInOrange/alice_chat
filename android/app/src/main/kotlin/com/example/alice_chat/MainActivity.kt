@@ -25,7 +25,7 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
-            "alicechat/background_connection",
+            "alicechat/background_connection"
         ).setMethodCallHandler { call, result ->
             when (call.method) {
                 "startForegroundService" -> {

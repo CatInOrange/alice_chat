@@ -156,7 +156,7 @@ class AliceChatForegroundService : Service() {
         sessionId: String,
         title: String,
         body: String,
-        messageId: String,
+        messageId: String
     ) {
         val intent = Intent(this, MainActivity::class.java).apply {
             putExtra(EXTRA_SESSION_ID, sessionId)
@@ -167,7 +167,7 @@ class AliceChatForegroundService : Service() {
             this,
             sessionId.hashCode(),
             intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val notification = NotificationCompat.Builder(this, MESSAGE_CHANNEL_ID)
             .setContentTitle(title)
@@ -188,7 +188,7 @@ class AliceChatForegroundService : Service() {
         val serviceChannel = NotificationChannel(
             SERVICE_CHANNEL_ID,
             "AliceChat 后台连接",
-            NotificationManager.IMPORTANCE_LOW,
+            NotificationManager.IMPORTANCE_LOW
         ).apply {
             description = "保持 AliceChat 后台长连接"
             setShowBadge(false)
@@ -196,7 +196,7 @@ class AliceChatForegroundService : Service() {
         val messageChannel = NotificationChannel(
             MESSAGE_CHANNEL_ID,
             "AliceChat 消息通知",
-            NotificationManager.IMPORTANCE_HIGH,
+            NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = "AliceChat 新消息提醒"
             setShowBadge(true)
@@ -211,7 +211,7 @@ class AliceChatForegroundService : Service() {
             this,
             0,
             launchIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(this, SERVICE_CHANNEL_ID)
             .setContentTitle("AliceChat 正在后台运行")
