@@ -39,7 +39,9 @@ ThemeData buildAliceChatTheme() {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(24),
-        borderSide: BorderSide(color: colorScheme.primary.withOpacity(0.18)),
+        borderSide: BorderSide(
+          color: colorScheme.primary.withValues(alpha: 0.18),
+        ),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
       hintStyle: const TextStyle(

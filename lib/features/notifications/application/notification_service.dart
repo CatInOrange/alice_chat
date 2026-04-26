@@ -81,6 +81,7 @@ class NotificationService extends ChangeNotifier {
       StreamController<NotificationOpenData>.broadcast();
   final Random _random = Random();
   final Map<String, Contact> _contactsBySessionId = {};
+  final Map<String, Contact> _contactsByContactId = {};
   final Map<String, Uint8List> _avatarCache = {};
 
   bool _initialized = false;
@@ -106,14 +107,28 @@ class NotificationService extends ChangeNotifier {
 
   void registerContacts(Iterable<Contact> contacts) {
     for (final contact in contacts) {
-      final sessionId = (contact.backendSessionId ?? contact.id).trim();
+      final contactId = contact.id.trim();
+      if (contactId.isNotEmpty) {
+        _contactsByContactId[contactId] = contact;
+      }
+      final sessionId = (contact.backendSessionId ?? '').trim();
       if (sessionId.isEmpty) continue;
       _contactsBySessionId[sessionId] = contact;
     }
   }
 
+  void bindSessionToContact({required String sessionId, required Contact contact}) {
+    final normalizedSessionId = sessionId.trim();
+    if (normalizedSessionId.isEmpty) return;
+    _contactsBySessionId[normalizedSessionId] = contact;
+  }
+
   Contact? contactForSessionId(String sessionId) {
     return _contactsBySessionId[sessionId.trim()];
+  }
+
+  Contact? contactForContactId(String contactId) {
+    return _contactsByContactId[contactId.trim()];
   }
 
   Future<void> setActiveSession(String sessionId) async {

@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart' as core;
 import 'package:flutter_chat_core/flutter_chat_core.dart'
-    show Builders, ChatAnimatedList, TimeAndStatusPosition;
+    show Builders, TimeAndStatusPosition;
 import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:markdown/markdown.dart' as md;
@@ -53,9 +53,6 @@ class _ChatScreenState extends State<ChatScreen> {
       _composerPaddingVertical + _composerRowHeight; // 60
   static const double _composerMinHeight =
       _composerMinContentHeight; // 68 with SafeArea bottom padding
-  static const double _jumpButtonGap = 8.0;
-  static const double _typingIndicatorTotalHeight =
-      44.0; // 10+10 padding + 24 text row
   double _composerHeight = _composerMinHeight;
 
   // Cache for MarkdownStyleSheet to avoid rebuilding on every message

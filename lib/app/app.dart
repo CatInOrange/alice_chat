@@ -52,7 +52,6 @@ class _MainScaffoldState extends State<_MainScaffold>
       name: 'alice',
       subtitle: '点击进入真实聊天',
       avatarAssetPath: 'assets/avatars/alice.jpg',
-      backendSessionId: 'alice:main',
       isGatewayBacked: true,
     ),
     const Contact(
@@ -60,7 +59,6 @@ class _MainScaffoldState extends State<_MainScaffold>
       name: '玲珑',
       subtitle: '聪明的大脑不休息～',
       avatarAssetPath: 'assets/avatars/linglong.jpg',
-      backendSessionId: 'yulinglong:main',
       isGatewayBacked: true,
     ),
     const Contact(
@@ -68,7 +66,6 @@ class _MainScaffoldState extends State<_MainScaffold>
       name: '素心',
       subtitle: '搬砖永不停歇！',
       avatarAssetPath: 'assets/avatars/lisuxin.jpg',
-      backendSessionId: 'lisuxin:main',
       isGatewayBacked: true,
     ),
   ];
@@ -113,19 +110,11 @@ class _MainScaffoldState extends State<_MainScaffold>
 
   void _navigateToChat(Contact contact) {
     final session = _sessionFromContact(contact);
-    unawaited(NativeDebugBridge.instance.log('app', 'navigateToChat contact=${contact.name} session=${session.backendSessionId ?? session.id}'));
+    unawaited(NativeDebugBridge.instance.log('app', 'navigateToChat contact=${contact.name} sessionLocal=${session.id} backend=${session.backendSessionId ?? ''}'));
     setState(() {
       _currentIndex = 0;
       _activeChatSession = session;
     });
-    final resolvedSessionId = session.backendSessionId ?? session.id;
-    unawaited(NotificationService.instance.setActiveSession(resolvedSessionId));
-    unawaited(
-      BackgroundConnectionService.instance.updateActiveSession(
-        resolvedSessionId,
-        session: session,
-      ),
-    );
   }
 
   ChatSession _sessionFromContact(Contact contact) {
@@ -137,6 +126,27 @@ class _MainScaffoldState extends State<_MainScaffold>
       backendSessionId: contact.backendSessionId,
       contactId: contact.id,
       isGatewayBacked: contact.isGatewayBacked,
+    );
+  }
+
+  Future<void> _syncActiveSessionFromStore(ChatSession session) async {
+    if (!mounted || _activeChatSession?.id != session.id) return;
+    final state = context.read<ChatSessionStore>().stateFor(session);
+    final backendSessionId = (state.backendSessionId ?? '').trim();
+    if (backendSessionId.isEmpty) return;
+    final contact = NotificationService.instance.contactForContactId(
+      session.contactId ?? session.id,
+    );
+    if (contact != null) {
+      NotificationService.instance.bindSessionToContact(
+        sessionId: backendSessionId,
+        contact: contact,
+      );
+    }
+    await NotificationService.instance.setActiveSession(backendSessionId);
+    await BackgroundConnectionService.instance.updateActiveSession(
+      backendSessionId,
+      session: session,
     );
   }
 
@@ -160,6 +170,12 @@ class _MainScaffoldState extends State<_MainScaffold>
     return null;
   }
 
+  void _handleSessionStateChanged() {
+    final activeSession = _activeChatSession;
+    if (activeSession == null) return;
+    unawaited(_syncActiveSessionFromStore(activeSession));
+  }
+
   void _closeChat() {
     unawaited(NativeDebugBridge.instance.log('app', 'closeChat current=${_activeChatSession?.backendSessionId ?? _activeChatSession?.id ?? ''}'));
     setState(() {
@@ -171,6 +187,10 @@ class _MainScaffoldState extends State<_MainScaffold>
 
   @override
   Widget build(BuildContext context) {
+    context.watch<ChatSessionStore>();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _handleSessionStateChanged();
+    });
     return Scaffold(
       body: Stack(
         children: [
