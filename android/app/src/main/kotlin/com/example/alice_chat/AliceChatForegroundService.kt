@@ -82,14 +82,22 @@ class AliceChatForegroundService : Service() {
 
     private fun connectAndConsumeSse() {
         val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-        val rawBaseUrl = prefs.getString("openclaw.baseUrl", "")?.trim().orEmpty()
-        DebugLogBuffer.append("fg-service", "connectAndConsumeSse baseUrl=$rawBaseUrl lastSeq=${lastSeq ?: "null"} active=$activeSessionId")
+        val baseUrlEntry = readFlutterStringPref(prefs, "openclaw.baseUrl")
+        val passwordEntry = readFlutterStringPref(prefs, "openclaw.appPassword")
+        val rawBaseUrl = baseUrlEntry.second
+        DebugLogBuffer.append(
+            "fg-service",
+            "connectAndConsumeSse baseUrlKey=${baseUrlEntry.first} baseUrl=$rawBaseUrl lastSeq=${lastSeq ?: "null"} active=$activeSessionId"
+        )
         if (rawBaseUrl.isEmpty()) {
-            DebugLogBuffer.append("fg-service", "missing baseUrl, retry later")
+            DebugLogBuffer.append(
+                "fg-service",
+                "missing baseUrl, retry later keys=${prefs.all.keys.filter { it.contains("baseUrl") || it.contains("appPassword") }}"
+            )
             Thread.sleep(RECONNECT_DELAY_MS)
             return
         }
-        val password = prefs.getString("openclaw.appPassword", "")?.trim().orEmpty()
+        val password = passwordEntry.second
         val baseUrl = rawBaseUrl.removeSuffix("/")
         val urlBuilder = StringBuilder("$baseUrl/api/events")
         lastSeq?.let {
@@ -301,6 +309,20 @@ class AliceChatForegroundService : Service() {
             else -> return null
         }
         return BitmapFactory.decodeResource(resources, resId)
+    }
+
+    private fun readFlutterStringPref(
+        prefs: android.content.SharedPreferences,
+        key: String,
+    ): Pair<String, String> {
+        val candidates = listOf("flutter.$key", key)
+        for (candidate in candidates) {
+            val value = prefs.getString(candidate, null)?.trim().orEmpty()
+            if (value.isNotEmpty()) {
+                return candidate to value
+            }
+        }
+        return candidates.first() to ""
     }
 
     companion object {
