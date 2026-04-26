@@ -13,6 +13,10 @@ import java.util.Locale
 class MainActivity : FlutterActivity() {
     private var pendingNotificationSessionId: String? = null
 
+    companion object {
+        const val ACTION_OPEN_CHAT_NOTIFICATION = "com.example.alice_chat.OPEN_CHAT_NOTIFICATION"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         captureIntent(intent)
@@ -91,10 +95,19 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun captureIntent(intent: Intent?) {
-        val sessionId = intent?.getStringExtra(AliceChatForegroundService.EXTRA_SESSION_ID)
-        appendLog("main", "captureIntent session=${sessionId.orEmpty()}")
-        if (!sessionId.isNullOrBlank()) {
+        val action = intent?.action.orEmpty()
+        val sessionId = intent?.getStringExtra(AliceChatForegroundService.EXTRA_SESSION_ID)?.trim().orEmpty()
+        val messageId = intent?.getStringExtra(AliceChatForegroundService.EXTRA_MESSAGE_ID)?.trim().orEmpty()
+        appendLog("main", "captureIntent action=$action session=$sessionId messageId=$messageId")
+        if (action != ACTION_OPEN_CHAT_NOTIFICATION) {
+            appendLog("main", "captureIntent ignored_non_notification action=$action")
+            return
+        }
+        if (sessionId.isNotEmpty()) {
             pendingNotificationSessionId = sessionId
+            appendLog("main", "captureIntent accepted_notification session=$sessionId")
+        } else {
+            appendLog("main", "captureIntent ignored_empty_notification_session messageId=$messageId")
         }
     }
 

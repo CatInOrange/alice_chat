@@ -135,8 +135,7 @@ class BackgroundConnectionService {
       await stop();
       return;
     }
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive) {
+    if (state == AppLifecycleState.paused) {
       await NativeDebugBridge.instance.log(
         'bg-service',
         'lifecycle decision=start on state=$state',

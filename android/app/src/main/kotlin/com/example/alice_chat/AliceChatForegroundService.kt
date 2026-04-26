@@ -192,18 +192,19 @@ class AliceChatForegroundService : Service() {
     }
 
     private fun showMessageNotification(
-        sessionId: String,
+        eventSessionId: String,
         title: String,
         messageId: String
     ) {
         val intent = Intent(this, MainActivity::class.java).apply {
-            putExtra(EXTRA_SESSION_ID, sessionId)
+            action = MainActivity.ACTION_OPEN_CHAT_NOTIFICATION
+            putExtra(EXTRA_SESSION_ID, eventSessionId)
             putExtra(EXTRA_MESSAGE_ID, messageId)
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pendingIntent = PendingIntent.getActivity(
             this,
-            sessionId.hashCode(),
+            (eventSessionId + messageId).hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -213,22 +214,22 @@ class AliceChatForegroundService : Service() {
             .setContentText(teaser)
             .setStyle(NotificationCompat.BigTextStyle().bigText(teaser))
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setLargeIcon(loadAvatarBitmap(sessionId))
+            .setLargeIcon(loadAvatarBitmap(eventSessionId))
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .build()
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val notificationId = (sessionId + messageId + teaser).hashCode()
+        val notificationId = (eventSessionId + messageId + teaser).hashCode()
         val notificationsEnabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             manager.areNotificationsEnabled()
         } else {
             true
         }
-        DebugLogBuffer.append("fg-service", "decision=post notificationId=$notificationId session=$sessionId channel=$MESSAGE_CHANNEL_ID enabled=$notificationsEnabled")
+        DebugLogBuffer.append("fg-service", "decision=post notificationId=$notificationId eventSession=$eventSessionId channel=$MESSAGE_CHANNEL_ID enabled=$notificationsEnabled")
         manager.notify(notificationId, notification)
-        DebugLogBuffer.append("fg-service", "decision=posted notificationId=$notificationId session=$sessionId teaser=$teaser")
+        DebugLogBuffer.append("fg-service", "decision=posted notificationId=$notificationId eventSession=$eventSessionId teaser=$teaser")
     }
 
     private fun createChannels() {
