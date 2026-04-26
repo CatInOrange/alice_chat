@@ -61,14 +61,15 @@ class MainActivity : FlutterActivity() {
                 "updateActiveSession" -> {
                     val sessionId = call.argument<String>("sessionId").orEmpty()
                     appendLog("main", "updateActiveSession session=$sessionId")
-                    val serviceIntent = Intent(this, AliceChatForegroundService::class.java).apply {
-                        putExtra(AliceChatForegroundService.EXTRA_ACTIVE_SESSION_ID, sessionId)
-                    }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(serviceIntent)
-                    } else {
-                        startService(serviceIntent)
-                    }
+                    AliceChatForegroundService.updateActiveSession(sessionId)
+                    result.success(null)
+                }
+                "updateSessionMetadata" -> {
+                    val sessionId = call.argument<String>("sessionId").orEmpty()
+                    val title = call.argument<String>("title").orEmpty()
+                    val avatarAssetPath = call.argument<String>("avatarAssetPath").orEmpty()
+                    appendLog("main", "updateSessionMetadata session=$sessionId title=$title avatar=$avatarAssetPath")
+                    AliceChatForegroundService.updateSessionMetadata(sessionId, title, avatarAssetPath)
                     result.success(null)
                 }
                 "consumePendingNotificationOpen" -> {

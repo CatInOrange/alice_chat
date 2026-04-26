@@ -19,6 +19,7 @@ class BackgroundConnectionService {
   bool _serviceRequested = false;
   String _activeSessionId = '';
   bool _serviceInitialized = false;
+  final Map<String, Map<String, String>> _sessionMetadata = {};
 
   bool get isServiceRequested => _serviceRequested;
   String get activeSessionId => _activeSessionId;
@@ -106,6 +107,42 @@ class BackgroundConnectionService {
         level: 'ERROR',
       );
       debugPrint('[alicechat.bg] update session failed: $error');
+    }
+  }
+
+  Future<void> updateSessionMetadata({
+    required String sessionId,
+    required String title,
+    String avatarAssetPath = '',
+  }) async {
+    final normalizedSessionId = sessionId.trim();
+    if (normalizedSessionId.isEmpty) return;
+    _sessionMetadata[normalizedSessionId] = {
+      'title': title.trim(),
+      'avatarAssetPath': avatarAssetPath.trim(),
+    };
+    await NativeDebugBridge.instance.log(
+      'bg-service',
+      'updateSessionMetadata session=$normalizedSessionId title=${title.trim()} avatar=${avatarAssetPath.trim()}',
+    );
+    if (!_serviceRequested) return;
+    try {
+      await _channel.invokeMethod('updateSessionMetadata', {
+        'sessionId': normalizedSessionId,
+        'title': title.trim(),
+        'avatarAssetPath': avatarAssetPath.trim(),
+      });
+      await NativeDebugBridge.instance.log(
+        'bg-service',
+        'updateSessionMetadata invoked successfully session=$normalizedSessionId',
+      );
+    } catch (error) {
+      await NativeDebugBridge.instance.log(
+        'bg-service',
+        'updateSessionMetadata failed error=$error',
+        level: 'ERROR',
+      );
+      debugPrint('[alicechat.bg] update metadata failed: $error');
     }
   }
 

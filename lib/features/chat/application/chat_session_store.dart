@@ -9,7 +9,6 @@ import 'package:uuid/uuid.dart';
 import '../../../core/openclaw/openclaw_http_client.dart';
 import '../../../core/openclaw/openclaw_config.dart';
 import '../../../core/openclaw/openclaw_settings.dart';
-import '../../notifications/application/notification_service.dart';
 import '../domain/chat_message.dart' as domain;
 import '../domain/chat_session.dart';
 
@@ -544,22 +543,6 @@ class ChatSessionStore extends ChangeNotifier {
         state
           ..isSubmitting = false
           ..isAssistantStreaming = false;
-        final notificationBody = switch (message) {
-          core.TextMessage textMessage => textMessage.text,
-          core.ImageMessage _ => '[图片]',
-          _ => '你收到一条新消息',
-        };
-        unawaited(
-          NotificationService.instance.showChatNotification(
-            sessionId: state.backendSessionId ?? state.session.id,
-            title: state.session.title,
-            body: notificationBody,
-            senderName: state.session.title,
-            messageId: message.id,
-            foregroundOnly: true,
-            source: 'flutter-session-store',
-          ),
-        );
         break;
       case 'assistant.message.failed':
         final error = (event['error'] ?? 'unknown error').toString();

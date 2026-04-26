@@ -48,7 +48,10 @@ class AliceChatForegroundService : Service() {
         startForeground(SERVICE_NOTIFICATION_ID, buildServiceNotification())
         if (!running) {
             running = true
+            instance = this
             startEventLoop()
+        } else {
+            instance = this
         }
         return START_STICKY
     }
@@ -60,6 +63,7 @@ class AliceChatForegroundService : Service() {
         running = false
         workerThread?.interrupt()
         workerThread = null
+        instance = null
         super.onDestroy()
     }
 
@@ -181,13 +185,20 @@ class AliceChatForegroundService : Service() {
             return
         }
         val text = message.optString("text").trim()
-        if (text.isEmpty()) {
+        val attachments = message.optJSONArray("attachments")
+        val hasAttachments = attachments != null && attachments.length() > 0
+        if (text.isEmpty() && !hasAttachments) {
             DebugLogBuffer.append("fg-service", "decision=skip_empty_text session=$sessionId role=$role")
+            return
+        }
+        if (sessionId.isNotEmpty() && sessionId == activeSessionId) {
+            DebugLogBuffer.append("fg-service", "decision=suppress_active_session session=$sessionId")
             return
         }
         val title = payload.optString("senderName").ifBlank { resolveTitleForSession(sessionId) }
         val messageId = message.optString("id")
-        DebugLogBuffer.append("fg-service", "decision=notify_attempt session=$sessionId title=$title messageId=$messageId textLen=${text.length}")
+        val preview = if (text.isNotEmpty()) text else "[图片]"
+        DebugLogBuffer.append("fg-service", "decision=notify_attempt session=$sessionId title=$title messageId=$messageId textLen=${preview.length} active=$activeSessionId")
         showMessageNotification(sessionId, title, messageId)
     }
 
@@ -274,6 +285,10 @@ class AliceChatForegroundService : Service() {
     }
 
     private fun resolveTitleForSession(sessionId: String): String {
+        val cached = sessionMetadata[sessionId]?.get("title")?.trim().orEmpty()
+        if (cached.isNotEmpty()) {
+            return cached
+        }
         return when (sessionId) {
             "alice:main", "alice" -> "alice"
             "yulinglong:main", "yulinglong" -> "玲珑"
@@ -340,5 +355,24 @@ class AliceChatForegroundService : Service() {
         const val EXTRA_SESSION_ID = "sessionId"
         const val EXTRA_MESSAGE_ID = "messageId"
         private const val RECONNECT_DELAY_MS = 3000L
+
+        @Volatile
+        private var instance: AliceChatForegroundService? = null
+        private val sessionMetadata = mutableMapOf<String, MutableMap<String, String>>()
+
+        fun updateActiveSession(sessionId: String) {
+            instance?.activeSessionId = sessionId.trim()
+            DebugLogBuffer.append("fg-service", "activeSessionUpdated session=${sessionId.trim()} viaMethodChannel=${instance != null}")
+        }
+
+        fun updateSessionMetadata(sessionId: String, title: String, avatarAssetPath: String) {
+            val normalized = sessionId.trim()
+            if (normalized.isEmpty()) return
+            sessionMetadata[normalized] = mutableMapOf(
+                "title" to title.trim(),
+                "avatarAssetPath" to avatarAssetPath.trim(),
+            )
+            DebugLogBuffer.append("fg-service", "sessionMetadataUpdated session=$normalized title=${title.trim()} avatar=${avatarAssetPath.trim()}")
+        }
     }
 }

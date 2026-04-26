@@ -165,6 +165,11 @@ class _MainScaffoldState extends State<_MainScaffold>
         sessionId: backendSessionId,
         contact: contact,
       );
+      await BackgroundConnectionService.instance.updateSessionMetadata(
+        sessionId: backendSessionId,
+        title: contact.name,
+        avatarAssetPath: contact.avatarAssetPath ?? '',
+      );
     }
     await NotificationService.instance.setActiveSession(backendSessionId);
     await BackgroundConnectionService.instance.updateActiveSession(
