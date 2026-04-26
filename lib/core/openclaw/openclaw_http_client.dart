@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
@@ -84,7 +85,10 @@ class OpenClawHttpClient implements OpenClawClient {
         'after': afterMessageId,
     };
     final response = await _httpClient.get(
-      _uri('/api/sessions/$sessionId/messages', queryParameters: queryParameters),
+      _uri(
+        '/api/sessions/$sessionId/messages',
+        queryParameters: queryParameters,
+      ),
       headers: _headers,
     );
     if (response.statusCode >= 400) {
@@ -93,8 +97,9 @@ class OpenClawHttpClient implements OpenClawClient {
 
     final json = jsonDecode(response.body) as Map<String, dynamic>;
     return MessagePageResult(
-      messages: (json['messages'] as List<dynamic>? ?? const [])
-          .cast<Map<String, dynamic>>(),
+      messages:
+          (json['messages'] as List<dynamic>? ?? const [])
+              .cast<Map<String, dynamic>>(),
       paging: (json['paging'] as Map<String, dynamic>? ?? const {}),
     );
   }
@@ -103,6 +108,7 @@ class OpenClawHttpClient implements OpenClawClient {
   Future<String> sendMessage({
     required String sessionId,
     required String text,
+    List<Map<String, dynamic>> attachments = const [],
     String? contactId,
     String? userId,
     String? clientMessageId,
@@ -122,6 +128,7 @@ class OpenClawHttpClient implements OpenClawClient {
           'bridgeUrl': config.bridgeUrl,
         'messageSource': 'chat',
         'ttsEnabled': false,
+        if (attachments.isNotEmpty) 'attachments': attachments,
         if (contactId != null && contactId.isNotEmpty) 'contactId': contactId,
         if (userId != null && userId.isNotEmpty) 'userId': userId,
         if (clientMessageId != null && clientMessageId.isNotEmpty)
@@ -141,7 +148,41 @@ class OpenClawHttpClient implements OpenClawClient {
   }
 
   @override
-  Future<Map<String, dynamic>> sendClientDebugLog(Map<String, dynamic> payload) async {
+  Future<UploadMediaResult> uploadMedia({
+    required String filePath,
+    String? filename,
+  }) async {
+    final request = http.MultipartRequest('POST', _uri('/api/media/upload'));
+    final password = config.appPassword?.trim();
+    if (password != null && password.isNotEmpty) {
+      request.headers['X-AliceChat-Password'] = password;
+    }
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        'file',
+        filePath,
+        filename: filename ?? File(filePath).uri.pathSegments.last,
+      ),
+    );
+    final response = await _httpClient.send(request);
+    final body = await response.stream.bytesToString();
+    if (response.statusCode >= 400) {
+      throw Exception(
+        '上传媒体失败: ${body.isNotEmpty ? body : response.statusCode}',
+      );
+    }
+    final json = jsonDecode(body) as Map<String, dynamic>;
+    return UploadMediaResult(
+      attachment: Map<String, dynamic>.from(
+        (json['attachment'] as Map?)?.cast<String, dynamic>() ?? const {},
+      ),
+    );
+  }
+
+  @override
+  Future<Map<String, dynamic>> sendClientDebugLog(
+    Map<String, dynamic> payload,
+  ) async {
     try {
       final response = await _httpClient.post(
         _uri('/api/debug/client-log'),
@@ -158,9 +199,14 @@ class OpenClawHttpClient implements OpenClawClient {
   }
 
   @override
-  Future<Map<String, dynamic>> loadLatestClientDebugLogs({int limit = 5}) async {
+  Future<Map<String, dynamic>> loadLatestClientDebugLogs({
+    int limit = 5,
+  }) async {
     final response = await _httpClient.get(
-      _uri('/api/debug/client-log/latest', queryParameters: {'limit': '$limit'}),
+      _uri(
+        '/api/debug/client-log/latest',
+        queryParameters: {'limit': '$limit'},
+      ),
       headers: _headers,
     );
     if (response.statusCode >= 400) {
@@ -243,6 +289,8 @@ class OpenClawHttpClient implements OpenClawClient {
       return Exception('认证失败，请检查设置中的访问密码');
     }
     final body = response.body.trim();
-    return Exception('$prefix: ${body.isNotEmpty ? body : response.statusCode}');
+    return Exception(
+      '$prefix: ${body.isNotEmpty ? body : response.statusCode}',
+    );
   }
 }

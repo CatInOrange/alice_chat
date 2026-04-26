@@ -222,12 +222,15 @@ def create_chat_router(context: AppContext) -> APIRouter:
                         'message': persisted,
                     },
                 )
+                notification_body = assistant_visible
+                if not notification_body.strip() and (result.get('images') or []):
+                    notification_body = '[图片]'
                 try:
                     context.push_service.notify_new_message(
                         user_id=resolved.user_id or 'alicechat-user',
                         session_id=session_id,
                         title=resolved.contact_id or resolved.session_name or 'AliceChat',
-                        body=assistant_visible,
+                        body=notification_body,
                         message_id=str(persisted.get('id') or assistant_message_id),
                         sender_id=resolved.contact_id or resolved.agent or 'assistant',
                         sender_name=resolved.contact_id or resolved.session_name or 'AliceChat',

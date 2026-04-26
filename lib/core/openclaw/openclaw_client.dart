@@ -5,6 +5,12 @@ class MessagePageResult {
   final Map<String, dynamic> paging;
 }
 
+class UploadMediaResult {
+  const UploadMediaResult({required this.attachment});
+
+  final Map<String, dynamic> attachment;
+}
+
 abstract class OpenClawClient {
   Future<String> ensureSession({required String preferredName});
 
@@ -18,15 +24,18 @@ abstract class OpenClawClient {
   Future<String> sendMessage({
     required String sessionId,
     required String text,
+    List<Map<String, dynamic>> attachments = const [],
     String? contactId,
     String? userId,
     String? clientMessageId,
   });
 
-  Stream<Map<String, dynamic>> subscribeEvents({
-    String? sessionId,
-    int? since,
+  Future<UploadMediaResult> uploadMedia({
+    required String filePath,
+    String? filename,
   });
+
+  Stream<Map<String, dynamic>> subscribeEvents({String? sessionId, int? since});
 
   Future<Map<String, dynamic>> sendClientDebugLog(Map<String, dynamic> payload);
 

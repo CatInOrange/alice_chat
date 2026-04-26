@@ -14,3 +14,8 @@ class CreateSessionMessageBody(BaseModel):
     meta: str | None = None
     source: str | None = None
     attachments: list[dict] | None = None
+
+
+class UploadMediaResponse(BaseModel):
+    ok: bool
+    attachment: dict

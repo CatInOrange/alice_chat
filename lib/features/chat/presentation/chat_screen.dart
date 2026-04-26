@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart' as core;
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart'
     show Builders, TimeAndStatusPosition;
 import 'package:flutter_chat_ui/flutter_chat_ui.dart';
@@ -29,6 +30,7 @@ enum _PullEdgeState { idle, pulling, armed, loading }
 class _ChatScreenState extends State<ChatScreen> {
   final _currentUserId = 'user';
   final _composerController = TextEditingController();
+  final _imagePicker = ImagePicker();
   final _chatListController = ScrollController();
   final _chatController = core.InMemoryChatController();
 
@@ -70,6 +72,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Builders get _chatBuilders => Builders(
     textMessageBuilder: _buildTextMessage,
+    imageMessageBuilder: _buildImageMessage,
     composerBuilder: _buildComposer,
     chatAnimatedListBuilder:
         (context, itemBuilder) => ChatAnimatedList(
@@ -279,7 +282,7 @@ class _ChatScreenState extends State<ChatScreen> {
               height: _effectiveTopHintHeight(state),
               label: _topHintLabel(state),
               loading: state.isLoadingOlder,
-              dividerLabel: state.hasMoreHistory ? '再往上就是老记录了' : '已经翻到底了'
+              dividerLabel: state.hasMoreHistory ? '再往上就是老记录了' : '已经翻到底了',
             ),
           ),
         if (_bottomPullState != _PullEdgeState.idle || state.isRefreshingLatest)
@@ -369,8 +372,8 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {});
   }
 
-  void _applyMessagesIncrementally(List<core.TextMessage> messages) {
-    final existingMessages = _chatController.messages.cast<core.TextMessage>();
+  void _applyMessagesIncrementally(List<core.Message> messages) {
+    final existingMessages = _chatController.messages;
 
     if (existingMessages.isEmpty) {
       _chatController.setMessages(messages);
@@ -447,23 +450,32 @@ class _ChatScreenState extends State<ChatScreen> {
       final atTop = metrics.pixels >= metrics.maxScrollExtent - 24;
       var didChange = false;
 
-      if (notification.overscroll < 0 && atBottom && !state.isRefreshingLatest) {
-        final nextDistance = (_bottomPullDistance + (-notification.overscroll * 0.65))
+      if (notification.overscroll < 0 &&
+          atBottom &&
+          !state.isRefreshingLatest) {
+        final nextDistance = (_bottomPullDistance +
+                (-notification.overscroll * 0.65))
             .clamp(0.0, _pullMaxVisualDistance);
-        final nextState = nextDistance >= _pullTriggerDistance
-            ? _PullEdgeState.armed
-            : _PullEdgeState.pulling;
-        if (nextDistance != _bottomPullDistance || nextState != _bottomPullState) {
+        final nextState =
+            nextDistance >= _pullTriggerDistance
+                ? _PullEdgeState.armed
+                : _PullEdgeState.pulling;
+        if (nextDistance != _bottomPullDistance ||
+            nextState != _bottomPullState) {
           _bottomPullDistance = nextDistance;
           _bottomPullState = nextState;
           didChange = true;
         }
-      } else if (notification.overscroll > 0 && atTop && !state.isLoadingOlder) {
-        final nextDistance = (_topPullDistance + (notification.overscroll * 0.65))
+      } else if (notification.overscroll > 0 &&
+          atTop &&
+          !state.isLoadingOlder) {
+        final nextDistance = (_topPullDistance +
+                (notification.overscroll * 0.65))
             .clamp(0.0, _pullMaxVisualDistance);
-        final nextState = nextDistance >= _pullTriggerDistance
-            ? _PullEdgeState.armed
-            : _PullEdgeState.pulling;
+        final nextState =
+            nextDistance >= _pullTriggerDistance
+                ? _PullEdgeState.armed
+                : _PullEdgeState.pulling;
         if (nextDistance != _topPullDistance || nextState != _topPullState) {
           _topPullDistance = nextDistance;
           _topPullState = nextState;
@@ -481,7 +493,8 @@ class _ChatScreenState extends State<ChatScreen> {
       final metrics = notification.metrics;
       var didChange = false;
       if (metrics.pixels > 24 && _bottomPullState != _PullEdgeState.loading) {
-        if (_bottomPullDistance != 0 || _bottomPullState != _PullEdgeState.idle) {
+        if (_bottomPullDistance != 0 ||
+            _bottomPullState != _PullEdgeState.idle) {
           _bottomPullDistance = 0;
           _bottomPullState = _PullEdgeState.idle;
           didChange = true;
@@ -502,7 +515,8 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     if (notification is ScrollEndNotification) {
-      if (_bottomPullState == _PullEdgeState.armed && !state.isRefreshingLatest) {
+      if (_bottomPullState == _PullEdgeState.armed &&
+          !state.isRefreshingLatest) {
         _bottomPullState = _PullEdgeState.loading;
         _bottomPullDistance = _edgeHintHeight;
         if (mounted) setState(() {});
@@ -540,7 +554,9 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _triggerRefreshLatest() async {
-    await context.read<ChatSessionStore>().refreshLatestMessages(widget.session);
+    await context.read<ChatSessionStore>().refreshLatestMessages(
+      widget.session,
+    );
     if (!mounted) return;
     _resetBottomPullHint();
   }
@@ -566,7 +582,8 @@ class _ChatScreenState extends State<ChatScreen> {
   void _resetPullHints() {
     if (!mounted) return;
     if ((_topPullDistance == 0 || _topPullState == _PullEdgeState.loading) &&
-        (_bottomPullDistance == 0 || _bottomPullState == _PullEdgeState.loading)) {
+        (_bottomPullDistance == 0 ||
+            _bottomPullState == _PullEdgeState.loading)) {
       return;
     }
     setState(() {
@@ -643,17 +660,17 @@ class _ChatScreenState extends State<ChatScreen> {
             children: [
               loading
                   ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                   : Icon(
-                      alignment == Alignment.topCenter
-                          ? Icons.keyboard_arrow_up_rounded
-                          : Icons.keyboard_arrow_down_rounded,
-                      size: 18,
-                      color: const Color(0xFF667085),
-                    ),
+                    alignment == Alignment.topCenter
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    size: 18,
+                    color: const Color(0xFF667085),
+                  ),
               const SizedBox(width: 8),
               Flexible(
                 child: Text(
@@ -731,6 +748,22 @@ class _ChatScreenState extends State<ChatScreen> {
     if (trimmed.isEmpty) return;
     _composerController.clear();
     await context.read<ChatSessionStore>().sendMessage(widget.session, trimmed);
+  }
+
+  Future<void> _handlePickImage() async {
+    final file = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 92,
+    );
+    if (file == null) return;
+    final caption = _composerController.text.trim();
+    _composerController.clear();
+    if (!mounted) return;
+    await context.read<ChatSessionStore>().sendImageMessage(
+      widget.session,
+      filePath: file.path,
+      caption: caption,
+    );
   }
 
   Future<core.User> _resolveUser(String id) async {
@@ -1175,10 +1208,13 @@ class _ChatScreenState extends State<ChatScreen> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: IconButton(
-                      onPressed: null,
-                      icon: const Icon(Icons.add_rounded),
-                      color: const Color(0xFF98A1B3),
-                      tooltip: '更多功能',
+                      onPressed: state.isSubmitting ? null : _handlePickImage,
+                      icon: const Icon(Icons.image_outlined),
+                      color:
+                          state.isSubmitting
+                              ? const Color(0xFF98A1B3)
+                              : theme.colorScheme.primary,
+                      tooltip: '发送图片',
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -1261,6 +1297,93 @@ class _ChatScreenState extends State<ChatScreen> {
             },
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildImageMessage(
+    BuildContext context,
+    core.ImageMessage message,
+    int index, {
+    bool? isSentByMe,
+    core.MessageGroupStatus? groupStatus,
+  }) {
+    final sentByMe = isSentByMe ?? false;
+    final showAvatar = !sentByMe && (groupStatus == null || groupStatus.isLast);
+    final maxWidth = MediaQuery.of(context).size.width * 0.72;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        12,
+        groupStatus?.isFirst == true || groupStatus == null ? 10 : 3,
+        12,
+        groupStatus?.isLast == true || groupStatus == null ? 10 : 3,
+      ),
+      child: Row(
+        mainAxisAlignment:
+            sentByMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (!sentByMe)
+            SizedBox(
+              width: 34,
+              child: Align(
+                alignment: Alignment.bottomLeft,
+                child:
+                    showAvatar
+                        ? _buildHeaderAvatar(radius: 15)
+                        : const SizedBox.shrink(),
+              ),
+            ),
+          if (!sentByMe) const SizedBox(width: 8),
+          Flexible(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxWidth),
+              child: Column(
+                crossAxisAlignment:
+                    sentByMe
+                        ? CrossAxisAlignment.end
+                        : CrossAxisAlignment.start,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(18),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: maxWidth,
+                        maxHeight: 320,
+                      ),
+                      child: Image.network(
+                        message.source,
+                        fit: BoxFit.cover,
+                        errorBuilder:
+                            (_, __, ___) => Container(
+                              width: maxWidth,
+                              color: Colors.white,
+                              padding: const EdgeInsets.all(18),
+                              child: const Text('图片加载失败'),
+                            ),
+                      ),
+                    ),
+                  ),
+                  if ((message.text ?? '').trim().isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      message.text!.trim(),
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
+                  const SizedBox(height: 4),
+                  Text(
+                    _formatMessageTime(message.createdAt ?? DateTime.now()),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF98A1B3),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (sentByMe) const SizedBox(width: 42),
+        ],
       ),
     );
   }

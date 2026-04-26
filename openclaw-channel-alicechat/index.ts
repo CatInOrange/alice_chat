@@ -196,10 +196,16 @@ function createBridgeServer(ctx) {
               ws.send(JSON.stringify({ type: 'chat.delta', requestId, delta, reply: accumulated }));
             }
           }
-          if (payload?.mediaUrl) {
+          const mediaUrls = Array.isArray(payload?.mediaUrls)
+            ? payload.mediaUrls
+            : payload?.mediaUrl
+              ? [payload.mediaUrl]
+              : [];
+          for (const mediaUrl of mediaUrls) {
+            if (!mediaUrl) continue;
             const item = {
-              url: payload.mediaUrl,
-              type: classifyMedia(payload.mediaUrl, payload.audioAsVoice),
+              url: mediaUrl,
+              type: classifyMedia(mediaUrl, payload.audioAsVoice),
               audioAsVoice: !!payload.audioAsVoice,
             };
             media.push(item);

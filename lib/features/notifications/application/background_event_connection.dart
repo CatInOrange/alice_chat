@@ -59,7 +59,8 @@ class BackgroundEventConnection {
   void rememberSession({required String sessionId, required String title}) {
     final normalizedSessionId = sessionId.trim();
     if (normalizedSessionId.isEmpty) return;
-    _sessionTitles[normalizedSessionId] = title.trim().isEmpty ? 'AliceChat' : title.trim();
+    _sessionTitles[normalizedSessionId] =
+        title.trim().isEmpty ? 'AliceChat' : title.trim();
   }
 
   void _attach() {
@@ -126,6 +127,7 @@ class BackgroundEventConnection {
 
     final role = (message['role'] ?? '').toString();
     final text = (message['text'] ?? '').toString().trim();
+    final attachments = (message['attachments'] as List<dynamic>? ?? const []);
     final messageId = (message['id'] ?? event['messageId'] ?? '').toString();
     if (sessionId.isEmpty) {
       unawaited(
@@ -145,7 +147,13 @@ class BackgroundEventConnection {
       );
       return;
     }
-    if (text.isEmpty) {
+    final preview =
+        text.isNotEmpty
+            ? text
+            : attachments.isNotEmpty
+            ? '[图片]'
+            : '';
+    if (preview.isEmpty) {
       unawaited(
         NativeDebugBridge.instance.log(
           'bg-events',
@@ -159,7 +167,7 @@ class BackgroundEventConnection {
     unawaited(
       NativeDebugBridge.instance.log(
         'bg-events',
-        'decision=notify_attempt type=$type session=$sessionId messageId=$messageId seq=${_lastSeq ?? 'null'} title=$title textLen=${text.length}',
+        'decision=notify_attempt type=$type session=$sessionId messageId=$messageId seq=${_lastSeq ?? 'null'} title=$title textLen=${preview.length}',
       ),
     );
 
@@ -167,7 +175,7 @@ class BackgroundEventConnection {
       NotificationService.instance.showChatNotification(
         sessionId: sessionId,
         title: title,
-        body: text,
+        body: preview,
         senderName: title,
         messageId: messageId,
         force: false,
@@ -185,13 +193,17 @@ class BackgroundEventConnection {
       return cached;
     }
 
-    final eventTitle = (event['sessionTitle'] ?? event['senderName'] ?? '').toString().trim();
+    final eventTitle =
+        (event['sessionTitle'] ?? event['senderName'] ?? '').toString().trim();
     if (eventTitle.isNotEmpty) {
       _sessionTitles[sessionId] = eventTitle;
       return eventTitle;
     }
 
-    final messageTitle = (message['senderName'] ?? message['authorName'] ?? '').toString().trim();
+    final messageTitle =
+        (message['senderName'] ?? message['authorName'] ?? '')
+            .toString()
+            .trim();
     if (messageTitle.isNotEmpty) {
       _sessionTitles[sessionId] = messageTitle;
       return messageTitle;

@@ -57,11 +57,14 @@ class ChatService:
         for item in attachments:
             if not isinstance(item, dict):
                 continue
-            att_type = str(item.get("type") or "url").strip()
+            kind = str(item.get("kind") or "").strip().lower()
+            att_type = str(item.get("type") or ("url" if item.get("url") else "base64")).strip()
             att_data = str(item.get("data") or item.get("url") or "").strip()
             if not att_data:
                 continue
-            att_media_type = item.get("mediaType") or item.get("media_type") or None
+            att_media_type = item.get("mimeType") or item.get("mediaType") or item.get("media_type") or None
+            if kind and kind != 'image':
+                continue
             # Reuse backend Attachment model.
             from ..agents.base import ChatAttachment
 
@@ -99,9 +102,23 @@ class ChatService:
         user_attachments = []
         for att in attachments:
             if getattr(att, "type") == "url":
-                user_attachments.append({"kind": "image", "mimeType": getattr(att, "media_type") or "image/png", "url": getattr(att, "data")})
+                user_attachments.append({
+                    "id": f"att_{__import__('uuid').uuid4().hex[:12]}",
+                    "kind": "image",
+                    "mimeType": getattr(att, "media_type") or "image/png",
+                    "url": getattr(att, "data"),
+                    "status": "ready",
+                    "meta": {},
+                })
             elif getattr(att, "type") == "base64":
-                user_attachments.append({"kind": "image", "mimeType": getattr(att, "media_type") or "image/png", "data": getattr(att, "data")})
+                user_attachments.append({
+                    "id": f"att_{__import__('uuid').uuid4().hex[:12]}",
+                    "kind": "image",
+                    "mimeType": getattr(att, "media_type") or "image/png",
+                    "data": getattr(att, "data"),
+                    "status": "ready",
+                    "meta": {},
+                })
 
         if not history_text and not user_attachments:
             return None
@@ -138,10 +155,14 @@ class ChatService:
         for img in images or []:
             if isinstance(img, dict) and img.get("url"):
                 assistant_attachments.append({
+                    "id": f"att_{__import__('uuid').uuid4().hex[:12]}",
                     "kind": "image",
                     "mimeType": img.get("mimeType") or img.get("mime_type") or "image/png",
                     "url": img.get("url"),
                     "filename": img.get("filename") or "",
+                    "name": img.get("filename") or "",
+                    "status": "ready",
+                    "meta": {},
                 })
         msg = self.messages.create_message(
             session_id=session_id,

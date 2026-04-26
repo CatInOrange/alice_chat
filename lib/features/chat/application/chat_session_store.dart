@@ -148,10 +148,32 @@ class ChatSessionStore extends ChangeNotifier {
   }
 
   Future<void> sendMessage(ChatSession session, String text) async {
+    await _sendMessageInternal(session, text: text, attachments: const []);
+  }
+
+  Future<void> sendImageMessage(
+    ChatSession session, {
+    required String filePath,
+    String caption = '',
+  }) async {
+    await _ensureConfigReady();
+    final upload = await _client.uploadMedia(filePath: filePath);
+    await _sendMessageInternal(
+      session,
+      text: caption,
+      attachments: [upload.attachment],
+    );
+  }
+
+  Future<void> _sendMessageInternal(
+    ChatSession session, {
+    required String text,
+    required List<Map<String, dynamic>> attachments,
+  }) async {
     await _ensureConfigReady();
     final state = stateFor(session);
     final trimmed = text.trim();
-    if (trimmed.isEmpty) return;
+    if (trimmed.isEmpty && attachments.isEmpty) return;
 
     var sessionId =
         state.backendSessionId ?? await _ensureBackendSession(session);
@@ -159,12 +181,22 @@ class ChatSessionStore extends ChangeNotifier {
     _ensureEventSubscription(session, sessionId);
 
     final clientMessageId = 'client_${_uuid.v4()}';
-    final userMessage = core.TextMessage(
-      id: clientMessageId,
-      authorId: 'user',
-      createdAt: DateTime.now(),
-      text: trimmed,
-    );
+    final userMessage =
+        attachments.isNotEmpty
+            ? core.ImageMessage(
+              id: clientMessageId,
+              authorId: 'user',
+              createdAt: DateTime.now(),
+              source: (attachments.first['url'] ?? '').toString(),
+              text: trimmed.isEmpty ? null : trimmed,
+              metadata: {'attachments': attachments},
+            )
+            : core.TextMessage(
+              id: clientMessageId,
+              authorId: 'user',
+              createdAt: DateTime.now(),
+              text: trimmed,
+            );
 
     state
       ..isSubmitting = true
@@ -175,7 +207,11 @@ class ChatSessionStore extends ChangeNotifier {
     _debugState(
       'sendMessage.begin',
       state,
-      extra: {'clientMessageId': clientMessageId, 'text': trimmed},
+      extra: {
+        'clientMessageId': clientMessageId,
+        'text': trimmed,
+        'attachmentCount': attachments.length,
+      },
     );
     notifyListeners();
 
@@ -183,6 +219,7 @@ class ChatSessionStore extends ChangeNotifier {
       await _client.sendMessage(
         sessionId: sessionId,
         text: trimmed,
+        attachments: attachments,
         contactId: session.contactId,
         userId: sessionId,
         clientMessageId: clientMessageId,
@@ -212,6 +249,7 @@ class ChatSessionStore extends ChangeNotifier {
           await _client.sendMessage(
             sessionId: sessionId,
             text: trimmed,
+            attachments: attachments,
             contactId: session.contactId,
             userId: sessionId,
             clientMessageId: clientMessageId,
@@ -262,7 +300,8 @@ class ChatSessionStore extends ChangeNotifier {
   Future<bool> loadOlderMessages(ChatSession session) async {
     await _ensureConfigReady();
     final state = stateFor(session);
-    final sessionId = state.backendSessionId ?? await _ensureBackendSession(session);
+    final sessionId =
+        state.backendSessionId ?? await _ensureBackendSession(session);
     final beforeMessageId = state.oldestLoadedMessageId;
     if (beforeMessageId == null || beforeMessageId.isEmpty) return false;
     if (state.isLoadingOlder || !state.hasMoreHistory) return false;
@@ -299,7 +338,8 @@ class ChatSessionStore extends ChangeNotifier {
     _configReady = reloadConfig();
     await _ensureConfigReady();
     final state = stateFor(session);
-    final sessionId = state.backendSessionId ?? await _ensureBackendSession(session);
+    final sessionId =
+        state.backendSessionId ?? await _ensureBackendSession(session);
     if (state.isRefreshingLatest) return false;
 
     state.isRefreshingLatest = true;
@@ -503,11 +543,16 @@ class ChatSessionStore extends ChangeNotifier {
         state
           ..isSubmitting = false
           ..isAssistantStreaming = false;
+        final notificationBody = switch (message) {
+          core.TextMessage textMessage => textMessage.text,
+          core.ImageMessage _ => '[图片]',
+          _ => '你收到一条新消息',
+        };
         unawaited(
           NotificationService.instance.showChatNotification(
             sessionId: state.backendSessionId ?? state.session.id,
             title: state.session.title,
-            body: message.text,
+            body: notificationBody,
             senderName: state.session.title,
             messageId: message.id,
           ),
@@ -822,28 +867,10 @@ class ChatSessionStore extends ChangeNotifier {
     super.dispose();
   }
 
-  core.TextMessage? _mapEventMessage(dynamic raw) {
+  core.Message? _mapEventMessage(dynamic raw) {
     if (raw is! Map<String, dynamic>) return null;
-    final createdAtValue = raw['createdAt'];
-    final createdAt =
-        createdAtValue is num
-            ? DateTime.fromMillisecondsSinceEpoch(
-              (createdAtValue * 1000).round(),
-            )
-            : DateTime.now();
-    final role = (raw['role'] ?? '').toString();
-    final authorId =
-        role == 'assistant'
-            ? 'assistant'
-            : role == 'system'
-            ? 'system'
-            : 'user';
-    return core.TextMessage(
-      id: (raw['id'] ?? _uuid.v4()).toString(),
-      authorId: authorId,
-      createdAt: createdAt,
-      text: (raw['text'] ?? '').toString(),
-    );
+    final message = domain.ChatMessage.fromBackend(raw);
+    return _toCoreMessage(message);
   }
 
   Future<MessageLoadResult> _loadMessagesPage(
@@ -858,14 +885,14 @@ class ChatSessionStore extends ChangeNotifier {
       beforeMessageId: beforeMessageId,
       afterMessageId: afterMessageId,
     );
-    final mappedMessages = page.messages.map(domain.ChatMessage.fromBackend).toList();
+    final mappedMessages =
+        page.messages.map(domain.ChatMessage.fromBackend).toList();
     final filteredOutMessages = mappedMessages
-        .where((message) => message.text.trim().isEmpty)
+        .where((message) => !message.hasVisibleContent)
         .toList(growable: false);
-    final messages = mappedMessages
-        .where((message) => message.text.trim().isNotEmpty)
-        .toList()
-      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    final messages =
+        mappedMessages.where((message) => message.hasVisibleContent).toList()
+          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
     _debugBackendLoad(
       sessionId,
@@ -877,26 +904,19 @@ class ChatSessionStore extends ChangeNotifier {
       paging: page.paging,
     );
 
-    final chatMessages = messages
-        .map(
-          (message) => core.TextMessage(
-            id: message.id.isEmpty ? _uuid.v4() : message.id,
-            authorId: message.authorId,
-            createdAt: message.createdAt,
-            text: message.text,
-          ),
-        )
-        .toList(growable: false);
+    final chatMessages = messages.map(_toCoreMessage).toList(growable: false);
 
     final paging = page.paging;
     return MessageLoadResult(
       messages: chatMessages,
       hasMoreBefore: paging['hasMoreBefore'] == true,
       oldestMessageId:
-          (paging['oldestMessageId'] ?? (chatMessages.isNotEmpty ? chatMessages.first.id : null))
+          (paging['oldestMessageId'] ??
+                  (chatMessages.isNotEmpty ? chatMessages.first.id : null))
               ?.toString(),
       newestMessageId:
-          (paging['newestMessageId'] ?? (chatMessages.isNotEmpty ? chatMessages.last.id : null))
+          (paging['newestMessageId'] ??
+                  (chatMessages.isNotEmpty ? chatMessages.last.id : null))
               ?.toString(),
     );
   }
@@ -955,6 +975,61 @@ class ChatSessionStore extends ChangeNotifier {
     debugPrint('[alicechat.front] ${jsonEncode(payload)}');
     unawaited(_client.sendClientDebugLog(payload));
   }
+
+  core.Message _toCoreMessage(domain.ChatMessage message) {
+    final id = message.id.isEmpty ? _uuid.v4() : message.id;
+    final firstAttachment =
+        message.attachments.isNotEmpty ? message.attachments.first : null;
+    if (firstAttachment != null &&
+        firstAttachment.kind == 'image' &&
+        firstAttachment.url.trim().isNotEmpty) {
+      return core.ImageMessage(
+        id: id,
+        authorId: message.authorId,
+        createdAt: message.createdAt,
+        source: firstAttachment.url,
+        text: message.text.trim().isEmpty ? null : message.text,
+        width: firstAttachment.width,
+        height: firstAttachment.height,
+        size: firstAttachment.size,
+        metadata: {
+          'attachments': message.attachments
+              .map(
+                (e) => {
+                  'id': e.id,
+                  'kind': e.kind,
+                  'url': e.url,
+                  'mimeType': e.mimeType,
+                  'name': e.name,
+                },
+              )
+              .toList(growable: false),
+        },
+      );
+    }
+    return core.TextMessage(
+      id: id,
+      authorId: message.authorId,
+      createdAt: message.createdAt,
+      text: message.text,
+      metadata:
+          message.attachments.isEmpty
+              ? null
+              : {
+                'attachments': message.attachments
+                    .map(
+                      (e) => {
+                        'id': e.id,
+                        'kind': e.kind,
+                        'url': e.url,
+                        'mimeType': e.mimeType,
+                        'name': e.name,
+                      },
+                    )
+                    .toList(growable: false),
+              },
+    );
+  }
 }
 
 class MessageLoadResult {
@@ -965,7 +1040,7 @@ class MessageLoadResult {
     this.newestMessageId,
   });
 
-  final List<core.TextMessage> messages;
+  final List<core.Message> messages;
   final bool hasMoreBefore;
   final String? oldestMessageId;
   final String? newestMessageId;
@@ -997,23 +1072,23 @@ class ChatViewState {
   String? assistantProgressMessageId;
   String? oldestLoadedMessageId;
   String? newestLoadedMessageId;
-  List<core.TextMessage> messages = const [];
+  List<core.Message> messages = const [];
   final Set<String> pendingClientMessageIds = <String>{};
   final Set<String> streamingMessageIds = <String>{};
 
-  void replaceMessages(List<core.TextMessage> nextMessages) {
-    messages = List<core.TextMessage>.unmodifiable(nextMessages);
+  void replaceMessages(List<core.Message> nextMessages) {
+    messages = List<core.Message>.unmodifiable(nextMessages);
     if (nextMessages.isNotEmpty) {
       oldestLoadedMessageId = nextMessages.first.id;
       newestLoadedMessageId = nextMessages.last.id;
     }
   }
 
-  void appendMessage(core.TextMessage message) {
-    messages = List<core.TextMessage>.unmodifiable([...messages, message]);
+  void appendMessage(core.Message message) {
+    messages = List<core.Message>.unmodifiable([...messages, message]);
   }
 
-  void upsertMessage(core.TextMessage message) {
+  void upsertMessage(core.Message message) {
     final list = [...messages];
     final index = list.indexWhere((item) => item.id == message.id);
     if (index >= 0) {
@@ -1025,11 +1100,11 @@ class ChatViewState {
             .compareTo(b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)),
       );
     }
-    messages = List<core.TextMessage>.unmodifiable(list);
+    messages = List<core.Message>.unmodifiable(list);
     trackMessageWindow(message.id);
   }
 
-  void mergeMessages(List<core.TextMessage> incoming) {
+  void mergeMessages(List<core.Message> incoming) {
     if (incoming.isEmpty) return;
     final merged = [...messages];
     for (final message in incoming) {
@@ -1044,7 +1119,7 @@ class ChatViewState {
       (a, b) => (a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
           .compareTo(b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)),
     );
-    messages = List<core.TextMessage>.unmodifiable(merged);
+    messages = List<core.Message>.unmodifiable(merged);
     if (messages.isNotEmpty) {
       oldestLoadedMessageId = messages.first.id;
       newestLoadedMessageId = messages.last.id;
@@ -1056,13 +1131,28 @@ class ChatViewState {
     final index = list.indexWhere((item) => item.id == oldId);
     if (index < 0) return;
     final old = list[index];
-    list[index] = core.TextMessage(
-      id: newId,
-      authorId: old.authorId,
-      createdAt: old.createdAt,
-      text: old.text,
-    );
-    messages = List<core.TextMessage>.unmodifiable(list);
+    if (old is core.TextMessage) {
+      list[index] = core.TextMessage(
+        id: newId,
+        authorId: old.authorId,
+        createdAt: old.createdAt,
+        text: old.text,
+        metadata: old.metadata,
+      );
+    } else if (old is core.ImageMessage) {
+      list[index] = core.ImageMessage(
+        id: newId,
+        authorId: old.authorId,
+        createdAt: old.createdAt,
+        source: old.source,
+        text: old.text,
+        width: old.width,
+        height: old.height,
+        size: old.size,
+        metadata: old.metadata,
+      );
+    }
+    messages = List<core.Message>.unmodifiable(list);
   }
 
   void patchMessageText(String messageId, String nextText) {
@@ -1070,13 +1160,28 @@ class ChatViewState {
     final index = list.indexWhere((item) => item.id == messageId);
     if (index < 0) return;
     final old = list[index];
-    list[index] = core.TextMessage(
-      id: old.id,
-      authorId: old.authorId,
-      createdAt: old.createdAt,
-      text: nextText,
-    );
-    messages = List<core.TextMessage>.unmodifiable(list);
+    if (old is core.TextMessage) {
+      list[index] = core.TextMessage(
+        id: old.id,
+        authorId: old.authorId,
+        createdAt: old.createdAt,
+        text: nextText,
+        metadata: old.metadata,
+      );
+    } else if (old is core.ImageMessage) {
+      list[index] = core.ImageMessage(
+        id: old.id,
+        authorId: old.authorId,
+        createdAt: old.createdAt,
+        source: old.source,
+        text: nextText,
+        width: old.width,
+        height: old.height,
+        size: old.size,
+        metadata: old.metadata,
+      );
+    }
+    messages = List<core.Message>.unmodifiable(list);
   }
 
   void upsertOrPatchAssistantMessage(String messageId, String text) {
@@ -1084,12 +1189,15 @@ class ChatViewState {
     final index = list.indexWhere((item) => item.id == messageId);
     if (index >= 0) {
       final old = list[index];
-      list[index] = core.TextMessage(
-        id: old.id,
-        authorId: old.authorId,
-        createdAt: old.createdAt,
-        text: text,
-      );
+      if (old is core.TextMessage) {
+        list[index] = core.TextMessage(
+          id: old.id,
+          authorId: old.authorId,
+          createdAt: old.createdAt,
+          text: text,
+          metadata: old.metadata,
+        );
+      }
     } else {
       list.add(
         core.TextMessage(
@@ -1100,7 +1208,7 @@ class ChatViewState {
         ),
       );
     }
-    messages = List<core.TextMessage>.unmodifiable(list);
+    messages = List<core.Message>.unmodifiable(list);
   }
 
   void clearPending() {
@@ -1133,7 +1241,7 @@ class ChatViewState {
 
   bool confirmPendingMessage(
     String clientMessageId,
-    core.TextMessage confirmedMessage,
+    core.Message confirmedMessage,
   ) {
     final list = [...messages];
     final index = list.indexWhere((item) => item.id == clientMessageId);
@@ -1143,7 +1251,7 @@ class ChatViewState {
       (a, b) => (a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
           .compareTo(b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)),
     );
-    messages = List<core.TextMessage>.unmodifiable(list);
+    messages = List<core.Message>.unmodifiable(list);
     return true;
   }
 
