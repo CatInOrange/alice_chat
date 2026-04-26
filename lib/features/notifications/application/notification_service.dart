@@ -58,21 +58,9 @@ class NotificationService extends ChangeNotifier {
   ];
 
   static const Map<String, List<String>> _characterQuips = {
-    'alice': [
-      'Alice 又来找你玩啦。',
-      'Alice 带着新消息冒泡了。',
-      '快看，Alice 正在等你回应。',
-    ],
-    '玲珑': [
-      '玲珑又来敲你了。',
-      '玲珑留了一句话，不看会后悔。',
-      '玲珑那边有新动静。',
-    ],
-    '素心': [
-      '素心抱着新消息跑来了。',
-      '素心又勤勤恳恳地来汇报了。',
-      '素心那边有更新，瞧一眼吧。',
-    ],
+    'alice': ['Alice 又来找你玩啦。', 'Alice 带着新消息冒泡了。', '快看，Alice 正在等你回应。'],
+    '玲珑': ['玲珑又来敲你了。', '玲珑留了一句话，不看会后悔。', '玲珑那边有新动静。'],
+    '素心': ['素心抱着新消息跑来了。', '素心又勤勤恳恳地来汇报了。', '素心那边有更新，瞧一眼吧。'],
   };
 
   final FlutterLocalNotificationsPlugin _localNotifications =
@@ -117,7 +105,10 @@ class NotificationService extends ChangeNotifier {
     }
   }
 
-  void bindSessionToContact({required String sessionId, required Contact contact}) {
+  void bindSessionToContact({
+    required String sessionId,
+    required Contact contact,
+  }) {
     final normalizedSessionId = sessionId.trim();
     if (normalizedSessionId.isEmpty) return;
     _contactsBySessionId[normalizedSessionId] = contact;
@@ -161,13 +152,15 @@ class NotificationService extends ChangeNotifier {
     String senderName = '',
     String messageId = '',
     bool force = false,
+    bool suppressForActiveSession = true,
   }) async {
     final normalizedSessionId = sessionId.trim();
     await NativeDebugBridge.instance.log(
       'notifications',
       'decision=received session=$normalizedSessionId title=$title force=$force active=$_activeSessionId messageId=$messageId bodyLen=${body.length}',
     );
-    if (!force &&
+    if (suppressForActiveSession &&
+        !force &&
         normalizedSessionId.isNotEmpty &&
         normalizedSessionId == _activeSessionId) {
       await NativeDebugBridge.instance.log(
@@ -177,7 +170,11 @@ class NotificationService extends ChangeNotifier {
       return;
     }
     final contact = contactForSessionId(normalizedSessionId);
-    final resolvedTitle = _resolveTitle(title: title, senderName: senderName, contact: contact);
+    final resolvedTitle = _resolveTitle(
+      title: title,
+      senderName: senderName,
+      contact: contact,
+    );
     final teaser = _pickTeaser(resolvedTitle);
     final payload = {
       'sessionId': normalizedSessionId,
@@ -253,7 +250,9 @@ class NotificationService extends ChangeNotifier {
         targetHeight: 192,
       );
       final frame = await codec.getNextFrame();
-      final bytes = await frame.image.toByteData(format: ui.ImageByteFormat.png);
+      final bytes = await frame.image.toByteData(
+        format: ui.ImageByteFormat.png,
+      );
       if (bytes == null) return null;
       final png = bytes.buffer.asUint8List();
       _avatarCache[normalized] = png;

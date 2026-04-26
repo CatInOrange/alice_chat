@@ -179,6 +179,7 @@ class BackgroundEventConnection {
         senderName: title,
         messageId: messageId,
         force: false,
+        suppressForActiveSession: false,
       ),
     );
   }

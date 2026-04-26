@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 
 import '../../../core/debug/native_debug_bridge.dart';
 import '../../../core/openclaw/openclaw_settings.dart';
-import '../../chat/domain/chat_session.dart';
 
 class BackgroundConnectionService {
   BackgroundConnectionService._();
@@ -19,7 +18,6 @@ class BackgroundConnectionService {
 
   bool _serviceRequested = false;
   String _activeSessionId = '';
-  ChatSession? _activeSession;
 
   bool get isServiceRequested => _serviceRequested;
   String get activeSessionId => _activeSessionId;
@@ -82,12 +80,8 @@ class BackgroundConnectionService {
     }
   }
 
-  Future<void> updateActiveSession(
-    String sessionId, {
-    ChatSession? session,
-  }) async {
+  Future<void> updateActiveSession(String sessionId) async {
     _activeSessionId = sessionId.trim();
-    _activeSession = session ?? _activeSession;
     await NativeDebugBridge.instance.log(
       'bg-service',
       'updateActiveSession session=$_activeSessionId serviceRequested=$_serviceRequested',

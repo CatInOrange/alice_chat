@@ -75,21 +75,25 @@ class _MainScaffoldState extends State<_MainScaffold>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     NotificationService.instance.registerContacts(_contacts);
-    unawaited(NativeDebugBridge.instance.log('app', 'initState register contacts count=${_contacts.length}'));
+    unawaited(
+      NativeDebugBridge.instance.log(
+        'app',
+        'initState register contacts count=${_contacts.length}',
+      ),
+    );
     NotificationService.instance.setAppForeground(true);
     _notificationOpenSub = NotificationService.instance.onNotificationOpened
         .listen(_handleNotificationOpen);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final sessionId = await BackgroundConnectionService.instance
-          .consumePendingNotificationOpen();
+      final sessionId =
+          await BackgroundConnectionService.instance
+              .consumePendingNotificationOpen();
       await NativeDebugBridge.instance.log(
         'app',
         'postFrame consumePendingNotificationOpen session=${sessionId ?? ''}',
       );
       if (!mounted || sessionId == null) return;
-      _handleNotificationOpen(
-        NotificationOpenData(sessionId: sessionId),
-      );
+      _handleNotificationOpen(NotificationOpenData(sessionId: sessionId));
     });
   }
 
@@ -103,14 +107,26 @@ class _MainScaffoldState extends State<_MainScaffold>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final isForeground = state == AppLifecycleState.resumed;
-    unawaited(NativeDebugBridge.instance.log('app', 'lifecycle=$state foreground=$isForeground'));
+    unawaited(
+      NativeDebugBridge.instance.log(
+        'app',
+        'lifecycle=$state foreground=$isForeground',
+      ),
+    );
     NotificationService.instance.setAppForeground(isForeground);
-    unawaited(BackgroundConnectionService.instance.onAppLifecycleChanged(state));
+    unawaited(
+      BackgroundConnectionService.instance.onAppLifecycleChanged(state),
+    );
   }
 
   void _navigateToChat(Contact contact) {
     final session = _sessionFromContact(contact);
-    unawaited(NativeDebugBridge.instance.log('app', 'navigateToChat contact=${contact.name} sessionLocal=${session.id} backend=${session.backendSessionId ?? ''}'));
+    unawaited(
+      NativeDebugBridge.instance.log(
+        'app',
+        'navigateToChat contact=${contact.name} sessionLocal=${session.id} backend=${session.backendSessionId ?? ''}',
+      ),
+    );
     setState(() {
       _currentIndex = 0;
       _activeChatSession = session;
@@ -146,13 +162,17 @@ class _MainScaffoldState extends State<_MainScaffold>
     await NotificationService.instance.setActiveSession(backendSessionId);
     await BackgroundConnectionService.instance.updateActiveSession(
       backendSessionId,
-      session: session,
     );
   }
 
   void _handleNotificationOpen(NotificationOpenData data) {
     final sessionId = data.sessionId.trim();
-    unawaited(NativeDebugBridge.instance.log('app', 'handleNotificationOpen session=$sessionId messageId=${data.messageId}'));
+    unawaited(
+      NativeDebugBridge.instance.log(
+        'app',
+        'handleNotificationOpen session=$sessionId messageId=${data.messageId}',
+      ),
+    );
     if (sessionId.isEmpty) return;
     final contact =
         NotificationService.instance.contactForSessionId(sessionId) ??
@@ -163,7 +183,8 @@ class _MainScaffoldState extends State<_MainScaffold>
 
   Contact? _findContactBySessionId(String sessionId) {
     for (final item in _contacts) {
-      if ((item.backendSessionId ?? '').trim() == sessionId || item.id == sessionId) {
+      if ((item.backendSessionId ?? '').trim() == sessionId ||
+          item.id == sessionId) {
         return item;
       }
     }
@@ -177,7 +198,12 @@ class _MainScaffoldState extends State<_MainScaffold>
   }
 
   void _closeChat() {
-    unawaited(NativeDebugBridge.instance.log('app', 'closeChat current=${_activeChatSession?.backendSessionId ?? _activeChatSession?.id ?? ''}'));
+    unawaited(
+      NativeDebugBridge.instance.log(
+        'app',
+        'closeChat current=${_activeChatSession?.backendSessionId ?? _activeChatSession?.id ?? ''}',
+      ),
+    );
     setState(() {
       _activeChatSession = null;
     });
@@ -218,33 +244,34 @@ class _MainScaffoldState extends State<_MainScaffold>
             ),
         ],
       ),
-      bottomNavigationBar: _activeChatSession == null
-          ? NavigationBar(
-              selectedIndex: _currentIndex,
-              onDestinationSelected: (index) {
-                setState(() {
-                  _currentIndex = index;
-                });
-              },
-              destinations: const [
-                NavigationDestination(
-                  icon: Icon(Icons.contacts_outlined),
-                  selectedIcon: Icon(Icons.contacts),
-                  label: '通讯录',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.web_outlined),
-                  selectedIcon: Icon(Icons.web),
-                  label: '网页',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.settings_outlined),
-                  selectedIcon: Icon(Icons.settings),
-                  label: '设置',
-                ),
-              ],
-            )
-          : null,
+      bottomNavigationBar:
+          _activeChatSession == null
+              ? NavigationBar(
+                selectedIndex: _currentIndex,
+                onDestinationSelected: (index) {
+                  setState(() {
+                    _currentIndex = index;
+                  });
+                },
+                destinations: const [
+                  NavigationDestination(
+                    icon: Icon(Icons.contacts_outlined),
+                    selectedIcon: Icon(Icons.contacts),
+                    label: '通讯录',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.web_outlined),
+                    selectedIcon: Icon(Icons.web),
+                    label: '网页',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.settings_outlined),
+                    selectedIcon: Icon(Icons.settings),
+                    label: '设置',
+                  ),
+                ],
+              )
+              : null,
     );
   }
 }
