@@ -1354,6 +1354,15 @@ class _ChatScreenState extends State<ChatScreen> {
                       child: Image.network(
                         message.source,
                         fit: BoxFit.cover,
+                        headers: () {
+                          final config =
+                              context.read<ChatSessionStore>().currentConfig;
+                          final password = config.appPassword?.trim();
+                          if (password == null || password.isEmpty) {
+                            return null;
+                          }
+                          return {'X-AliceChat-Password': password};
+                        }(),
                         errorBuilder:
                             (_, __, ___) => Container(
                               width: maxWidth,

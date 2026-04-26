@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from ..agents import ChatRequest, create_agent_backend
 from ..config import get_chat_config, get_chat_provider
 from ..store import MessageStore, SessionStore
+from ..web.helpers import build_protected_media_url
 
 
 @dataclass(slots=True)
@@ -154,15 +155,24 @@ class ChatService:
         assistant_attachments = []
         for img in images or []:
             if isinstance(img, dict) and img.get("url"):
+                image_url = str(img.get("url") or "").strip()
+                if image_url.startswith('/'):
+                    stored_url = image_url
+                elif image_url.lower().startswith(('http://', 'https://')):
+                    stored_url = image_url
+                else:
+                    stored_url = build_protected_media_url(image_url)
                 assistant_attachments.append({
                     "id": f"att_{__import__('uuid').uuid4().hex[:12]}",
                     "kind": "image",
                     "mimeType": img.get("mimeType") or img.get("mime_type") or "image/png",
-                    "url": img.get("url"),
+                    "url": stored_url,
                     "filename": img.get("filename") or "",
                     "name": img.get("filename") or "",
                     "status": "ready",
-                    "meta": {},
+                    "meta": {
+                        "rawUrl": image_url,
+                    },
                 })
         msg = self.messages.create_message(
             session_id=session_id,

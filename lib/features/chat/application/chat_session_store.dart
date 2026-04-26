@@ -976,6 +976,27 @@ class ChatSessionStore extends ChangeNotifier {
     unawaited(_client.sendClientDebugLog(payload));
   }
 
+  String _resolveMediaUrl(String rawUrl) {
+    final value = rawUrl.trim();
+    if (value.isEmpty) return value;
+    final lower = value.toLowerCase();
+    if (lower.startsWith('http://') || lower.startsWith('https://')) {
+      return value;
+    }
+    if (!value.startsWith('/')) {
+      return value;
+    }
+    final baseUrl = _client.config.baseUrl.trim();
+    if (baseUrl.isEmpty) {
+      return value;
+    }
+    final normalizedBase =
+        baseUrl.endsWith('/')
+            ? baseUrl.substring(0, baseUrl.length - 1)
+            : baseUrl;
+    return '$normalizedBase$value';
+  }
+
   core.Message _toCoreMessage(domain.ChatMessage message) {
     final id = message.id.isEmpty ? _uuid.v4() : message.id;
     final firstAttachment =
@@ -987,7 +1008,7 @@ class ChatSessionStore extends ChangeNotifier {
         id: id,
         authorId: message.authorId,
         createdAt: message.createdAt,
-        source: firstAttachment.url,
+        source: _resolveMediaUrl(firstAttachment.url),
         text: message.text.trim().isEmpty ? null : message.text,
         width: firstAttachment.width,
         height: firstAttachment.height,
@@ -998,7 +1019,8 @@ class ChatSessionStore extends ChangeNotifier {
                 (e) => {
                   'id': e.id,
                   'kind': e.kind,
-                  'url': e.url,
+                  'url': _resolveMediaUrl(e.url),
+                  'rawUrl': e.url,
                   'mimeType': e.mimeType,
                   'name': e.name,
                 },
@@ -1021,7 +1043,8 @@ class ChatSessionStore extends ChangeNotifier {
                       (e) => {
                         'id': e.id,
                         'kind': e.kind,
-                        'url': e.url,
+                        'url': _resolveMediaUrl(e.url),
+                        'rawUrl': e.url,
                         'mimeType': e.mimeType,
                         'name': e.name,
                       },

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import quote
+
 from fastapi import HTTPException
 
 from ..config import get_cors_config
@@ -67,3 +69,7 @@ def require_existing_session(session_store: SessionStore, session_id: str) -> st
     if not session_store.exists(resolved):
         raise HTTPException(status_code=404, detail="unknown session id")
     return resolved
+
+
+def build_protected_media_url(path: str) -> str:
+    return f"/api/media/file?path={quote(path, safe='')}"
