@@ -43,11 +43,11 @@ class BackgroundConnectionService {
     );
     try {
       await _channel.invokeMethod('startForegroundService', {
-        'sessionId': '',
+        'sessionId': _activeSessionId,
       });
       await NativeDebugBridge.instance.log(
         'bg-service',
-        'startForegroundService invoked successfully requested=$_serviceRequested active=$_activeSessionId',
+        'startForegroundService invoked successfully requested=$_serviceRequested active=$_activeSessionId forwarded=$_activeSessionId',
       );
     } catch (error) {
       await NativeDebugBridge.instance.log(
