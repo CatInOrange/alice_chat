@@ -165,14 +165,14 @@ class NotificationService extends ChangeNotifier {
     final normalizedSessionId = sessionId.trim();
     await NativeDebugBridge.instance.log(
       'notifications',
-      'showChatNotification session=$normalizedSessionId title=$title force=$force active=$_activeSessionId messageId=$messageId',
+      'decision=received session=$normalizedSessionId title=$title force=$force active=$_activeSessionId messageId=$messageId bodyLen=${body.length}',
     );
     if (!force &&
         normalizedSessionId.isNotEmpty &&
         normalizedSessionId == _activeSessionId) {
       await NativeDebugBridge.instance.log(
         'notifications',
-        'showChatNotification suppressed by active session=$normalizedSessionId',
+        'decision=suppressed_active_session session=$normalizedSessionId messageId=$messageId',
       );
       return;
     }
@@ -186,6 +186,8 @@ class NotificationService extends ChangeNotifier {
       'preview': body,
     };
     final largeIcon = await _loadLargeIcon(contact?.avatarAssetPath);
+    final notificationId =
+        normalizedSessionId.hashCode ^ messageId.hashCode ^ teaser.hashCode;
     final androidDetails = AndroidNotificationDetails(
       _androidChannelId,
       _androidChannelName,
@@ -196,17 +198,26 @@ class NotificationService extends ChangeNotifier {
       largeIcon: largeIcon,
       category: AndroidNotificationCategory.message,
     );
-    await _localNotifications.show(
-      normalizedSessionId.hashCode ^ messageId.hashCode ^ teaser.hashCode,
-      resolvedTitle,
-      teaser,
-      NotificationDetails(android: androidDetails),
-      payload: jsonEncode(payload),
-    );
-    await NativeDebugBridge.instance.log(
-      'notifications',
-      'local notification shown session=$normalizedSessionId resolvedTitle=$resolvedTitle teaser=$teaser',
-    );
+    try {
+      await _localNotifications.show(
+        notificationId,
+        resolvedTitle,
+        teaser,
+        NotificationDetails(android: androidDetails),
+        payload: jsonEncode(payload),
+      );
+      await NativeDebugBridge.instance.log(
+        'notifications',
+        'decision=shown session=$normalizedSessionId messageId=$messageId notificationId=$notificationId resolvedTitle=$resolvedTitle teaser=$teaser icon=${largeIcon != null}',
+      );
+    } catch (error) {
+      await NativeDebugBridge.instance.log(
+        'notifications',
+        'decision=show_failed session=$normalizedSessionId messageId=$messageId notificationId=$notificationId error=$error',
+        level: 'ERROR',
+      );
+      rethrow;
+    }
   }
 
   String _resolveTitle({

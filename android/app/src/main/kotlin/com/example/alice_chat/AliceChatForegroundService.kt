@@ -44,7 +44,7 @@ class AliceChatForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         activeSessionId = intent?.getStringExtra(EXTRA_ACTIVE_SESSION_ID)?.trim().orEmpty()
-        DebugLogBuffer.append("fg-service", "onStartCommand activeSessionId=$activeSessionId running=$running")
+        DebugLogBuffer.append("fg-service", "onStartCommand activeSessionId=$activeSessionId running=$running startId=$startId")
         startForeground(SERVICE_NOTIFICATION_ID, buildServiceNotification())
         if (!running) {
             running = true
@@ -115,10 +115,13 @@ class AliceChatForegroundService : Service() {
         client.newCall(requestBuilder.build()).execute().use { response ->
             DebugLogBuffer.append("fg-service", "sse response code=${response.code}")
             if (!response.isSuccessful) {
+                DebugLogBuffer.append("fg-service", "decision=retry_http code=${response.code} lastSeq=${lastSeq ?: "null"}")
                 Thread.sleep(RECONNECT_DELAY_MS)
                 return
             }
+            DebugLogBuffer.append("fg-service", "decision=stream_connected lastSeq=${lastSeq ?: "null"}")
             consumeSseResponse(response)
+            DebugLogBuffer.append("fg-service", "decision=stream_ended lastSeq=${lastSeq ?: "null"}")
         }
     }
 
@@ -165,26 +168,26 @@ class AliceChatForegroundService : Service() {
         val sessionId = payload.optString("sessionId").trim()
         DebugLogBuffer.append("fg-service", "parsed sessionId=$sessionId active=$activeSessionId")
         if (sessionId.isEmpty()) {
-            DebugLogBuffer.append("fg-service", "skip: empty sessionId")
+            DebugLogBuffer.append("fg-service", "decision=skip_empty_session")
             return
         }
         val message = payload.optJSONObject("message") ?: run {
-            DebugLogBuffer.append("fg-service", "skip: missing message object")
+            DebugLogBuffer.append("fg-service", "decision=skip_missing_message session=$sessionId")
             return
         }
         val role = message.optString("role").trim()
         if (role != "assistant") {
-            DebugLogBuffer.append("fg-service", "skip: role=$role")
+            DebugLogBuffer.append("fg-service", "decision=skip_role session=$sessionId role=$role")
             return
         }
         val text = message.optString("text").trim()
         if (text.isEmpty()) {
-            DebugLogBuffer.append("fg-service", "skip: empty text")
+            DebugLogBuffer.append("fg-service", "decision=skip_empty_text session=$sessionId role=$role")
             return
         }
         val title = payload.optString("senderName").ifBlank { resolveTitleForSession(sessionId) }
         val messageId = message.optString("id")
-        DebugLogBuffer.append("fg-service", "showMessageNotification session=$sessionId title=$title messageId=$messageId")
+        DebugLogBuffer.append("fg-service", "decision=notify_attempt session=$sessionId title=$title messageId=$messageId textLen=${text.length}")
         showMessageNotification(sessionId, title, messageId)
     }
 
@@ -217,8 +220,15 @@ class AliceChatForegroundService : Service() {
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .build()
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.notify((sessionId + messageId + teaser).hashCode(), notification)
-        DebugLogBuffer.append("fg-service", "notification posted session=$sessionId teaser=$teaser")
+        val notificationId = (sessionId + messageId + teaser).hashCode()
+        val notificationsEnabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            manager.areNotificationsEnabled()
+        } else {
+            true
+        }
+        DebugLogBuffer.append("fg-service", "decision=post notificationId=$notificationId session=$sessionId channel=$MESSAGE_CHANNEL_ID enabled=$notificationsEnabled")
+        manager.notify(notificationId, notification)
+        DebugLogBuffer.append("fg-service", "decision=posted notificationId=$notificationId session=$sessionId teaser=$teaser")
     }
 
     private fun createChannels() {

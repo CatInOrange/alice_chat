@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../core/debug/native_debug_bridge.dart';
 import '../../../core/openclaw/openclaw_http_client.dart';
 import '../../../core/openclaw/openclaw_settings.dart';
 import 'notification_service.dart';
@@ -26,17 +27,29 @@ class BackgroundEventConnection {
 
     final config = await OpenClawSettingsStore.load();
     if (config.baseUrl.trim().isEmpty) {
+      await NativeDebugBridge.instance.log(
+        'bg-events',
+        'start skipped missing baseUrl',
+      );
       debugPrint('[alicechat.bg.events] skipped, missing baseUrl');
       return;
     }
 
     _client = OpenClawHttpClient(config);
     _running = true;
+    await NativeDebugBridge.instance.log(
+      'bg-events',
+      'start running=true lastSeq=${_lastSeq ?? 'null'}',
+    );
     _attach();
   }
 
   Future<void> stop() async {
     _running = false;
+    await NativeDebugBridge.instance.log(
+      'bg-events',
+      'stop requested lastSeq=${_lastSeq ?? 'null'}',
+    );
     await _subscription?.cancel();
     _subscription = null;
     _reconnectTimer?.cancel();
@@ -53,15 +66,34 @@ class BackgroundEventConnection {
     final client = _client;
     if (!_running || client == null) return;
 
+    unawaited(
+      NativeDebugBridge.instance.log(
+        'bg-events',
+        'attach subscribe since=${_lastSeq ?? 'null'}',
+      ),
+    );
     _subscription = client
         .subscribeEvents(since: _lastSeq)
         .listen(
           _onEvent,
           onError: (error, stackTrace) {
+            unawaited(
+              NativeDebugBridge.instance.log(
+                'bg-events',
+                'stream error error=$error lastSeq=${_lastSeq ?? 'null'}',
+                level: 'ERROR',
+              ),
+            );
             debugPrint('[alicechat.bg.events] stream error: $error');
             _scheduleReconnect();
           },
           onDone: () {
+            unawaited(
+              NativeDebugBridge.instance.log(
+                'bg-events',
+                'stream done lastSeq=${_lastSeq ?? 'null'}',
+              ),
+            );
             debugPrint('[alicechat.bg.events] stream done');
             _scheduleReconnect();
           },
@@ -80,23 +112,56 @@ class BackgroundEventConnection {
       return;
     }
 
-    final payload = event['payload'];
-    if (payload is! Map<String, dynamic>) return;
-
-    final sessionId = (payload['sessionId'] ?? '').toString().trim();
-    if (sessionId.isEmpty) return;
-
-    final message = payload['message'];
-    if (message is! Map<String, dynamic>) return;
+    final sessionId = (event['sessionId'] ?? '').toString().trim();
+    final message = event['message'];
+    if (message is! Map<String, dynamic>) {
+      unawaited(
+        NativeDebugBridge.instance.log(
+          'bg-events',
+          'decision=skip_missing_message type=$type session=$sessionId seq=${_lastSeq ?? 'null'}',
+        ),
+      );
+      return;
+    }
 
     final role = (message['role'] ?? '').toString();
-    if (role != 'assistant') return;
-
     final text = (message['text'] ?? '').toString().trim();
-    if (text.isEmpty) return;
+    final messageId = (message['id'] ?? event['messageId'] ?? '').toString();
+    if (sessionId.isEmpty) {
+      unawaited(
+        NativeDebugBridge.instance.log(
+          'bg-events',
+          'decision=skip_empty_session type=$type messageId=$messageId seq=${_lastSeq ?? 'null'}',
+        ),
+      );
+      return;
+    }
+    if (role != 'assistant') {
+      unawaited(
+        NativeDebugBridge.instance.log(
+          'bg-events',
+          'decision=skip_role type=$type session=$sessionId role=$role messageId=$messageId',
+        ),
+      );
+      return;
+    }
+    if (text.isEmpty) {
+      unawaited(
+        NativeDebugBridge.instance.log(
+          'bg-events',
+          'decision=skip_empty_text type=$type session=$sessionId role=$role messageId=$messageId',
+        ),
+      );
+      return;
+    }
 
-    final title = _resolveTitle(sessionId, payload, message);
-    final messageId = (message['id'] ?? payload['messageId'] ?? '').toString();
+    final title = _resolveTitle(sessionId, event, message);
+    unawaited(
+      NativeDebugBridge.instance.log(
+        'bg-events',
+        'decision=notify_attempt type=$type session=$sessionId messageId=$messageId seq=${_lastSeq ?? 'null'} title=$title textLen=${text.length}',
+      ),
+    );
 
     unawaited(
       NotificationService.instance.showChatNotification(
@@ -140,6 +205,12 @@ class BackgroundEventConnection {
     _subscription?.cancel();
     _subscription = null;
     _reconnectTimer?.cancel();
+    unawaited(
+      NativeDebugBridge.instance.log(
+        'bg-events',
+        'scheduleReconnect delaySeconds=3 lastSeq=${_lastSeq ?? 'null'}',
+      ),
+    );
     _reconnectTimer = Timer(const Duration(seconds: 3), _attach);
   }
 }

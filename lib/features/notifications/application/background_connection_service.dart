@@ -34,27 +34,50 @@ class BackgroundConnectionService {
       );
       return;
     }
+    final previousRequested = _serviceRequested;
     _serviceRequested = true;
     _activeSessionId = sessionId.trim();
     await NativeDebugBridge.instance.log(
       'bg-service',
-      'start requested session=$_activeSessionId launchMode=background-notify-all',
+      'start requested session=$_activeSessionId launchMode=background-notify-all prevRequested=$previousRequested',
     );
     try {
       await _channel.invokeMethod('startForegroundService', {
         'sessionId': '',
       });
+      await NativeDebugBridge.instance.log(
+        'bg-service',
+        'startForegroundService invoked successfully requested=$_serviceRequested active=$_activeSessionId',
+      );
     } catch (error) {
+      await NativeDebugBridge.instance.log(
+        'bg-service',
+        'startForegroundService failed error=$error',
+        level: 'ERROR',
+      );
       debugPrint('[alicechat.bg] start service failed: $error');
     }
   }
 
   Future<void> stop() async {
+    final previousRequested = _serviceRequested;
     _serviceRequested = false;
-    await NativeDebugBridge.instance.log('bg-service', 'stop requested');
+    await NativeDebugBridge.instance.log(
+      'bg-service',
+      'stop requested prevRequested=$previousRequested active=$_activeSessionId',
+    );
     try {
       await _channel.invokeMethod('stopForegroundService');
+      await NativeDebugBridge.instance.log(
+        'bg-service',
+        'stopForegroundService invoked successfully',
+      );
     } catch (error) {
+      await NativeDebugBridge.instance.log(
+        'bg-service',
+        'stopForegroundService failed error=$error',
+        level: 'ERROR',
+      );
       debugPrint('[alicechat.bg] stop service failed: $error');
     }
   }
@@ -74,7 +97,16 @@ class BackgroundConnectionService {
       await _channel.invokeMethod('updateActiveSession', {
         'sessionId': _activeSessionId,
       });
+      await NativeDebugBridge.instance.log(
+        'bg-service',
+        'updateActiveSession invoked successfully session=$_activeSessionId',
+      );
     } catch (error) {
+      await NativeDebugBridge.instance.log(
+        'bg-service',
+        'updateActiveSession failed error=$error',
+        level: 'ERROR',
+      );
       debugPrint('[alicechat.bg] update session failed: $error');
     }
   }
@@ -102,11 +134,19 @@ class BackgroundConnectionService {
       'lifecycle state=$state active=$_activeSessionId requested=$_serviceRequested',
     );
     if (state == AppLifecycleState.resumed) {
+      await NativeDebugBridge.instance.log(
+        'bg-service',
+        'lifecycle decision=stop on resumed',
+      );
       await stop();
       return;
     }
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
+      await NativeDebugBridge.instance.log(
+        'bg-service',
+        'lifecycle decision=start on state=$state',
+      );
       await start(sessionId: _activeSessionId);
     }
   }
