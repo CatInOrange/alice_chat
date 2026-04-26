@@ -50,8 +50,8 @@ class _MainScaffoldState extends State<_MainScaffold>
   static final List<Contact> _contacts = [
     const Contact(
       id: 'alice',
-      name: 'alice',
-      subtitle: '点击进入真实聊天',
+      name: '晚秋',
+      subtitle: '知心姐姐永远都在^^',
       avatarAssetPath: 'assets/avatars/alice.jpg',
       isGatewayBacked: true,
     ),

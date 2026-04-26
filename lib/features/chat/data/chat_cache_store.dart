@@ -31,7 +31,7 @@ class ChatCacheStore {
   ChatCacheStore._();
 
   static const String _dbName = 'alice_chat_cache.db';
-  static const int _dbVersion = 1;
+  static const int _dbVersion = 2;
   static const int maxMessagesPerSession = 100;
 
   static final ChatCacheStore instance = ChatCacheStore._();
@@ -47,44 +47,55 @@ class ChatCacheStore {
       path,
       version: _dbVersion,
       onCreate: (db, version) async {
-        await db.execute('''
-          CREATE TABLE chat_session_cache (
-            session_key TEXT PRIMARY KEY,
-            backend_session_id TEXT,
-            title TEXT,
-            subtitle TEXT,
-            avatar_asset_path TEXT,
-            oldest_message_id TEXT,
-            newest_message_id TEXT,
-            last_event_seq INTEGER,
-            has_more_history INTEGER,
-            cached_at INTEGER NOT NULL
-          )
-        ''');
-        await db.execute('''
-          CREATE TABLE chat_message_cache (
-            id TEXT PRIMARY KEY,
-            session_key TEXT NOT NULL,
-            backend_session_id TEXT,
-            author_id TEXT NOT NULL,
-            message_type TEXT NOT NULL,
-            text TEXT,
-            source TEXT,
-            attachments_json TEXT,
-            metadata_json TEXT,
-            created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
-          )
-        ''');
-        await db.execute(
-          'CREATE INDEX idx_chat_message_cache_session_created ON chat_message_cache(session_key, created_at)',
-        );
-        await db.execute(
-          'CREATE INDEX idx_chat_message_cache_backend_created ON chat_message_cache(backend_session_id, created_at)',
-        );
+        await _createSchema(db);
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('DROP TABLE IF EXISTS chat_message_cache');
+          await db.execute('DROP TABLE IF EXISTS chat_session_cache');
+          await _createSchema(db);
+        }
       },
     );
     return _db!;
+  }
+
+  Future<void> _createSchema(Database db) async {
+    await db.execute('''
+      CREATE TABLE chat_session_cache (
+        session_key TEXT PRIMARY KEY,
+        backend_session_id TEXT,
+        title TEXT,
+        subtitle TEXT,
+        avatar_asset_path TEXT,
+        oldest_message_id TEXT,
+        newest_message_id TEXT,
+        last_event_seq INTEGER,
+        has_more_history INTEGER,
+        cached_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE chat_message_cache (
+        id TEXT PRIMARY KEY,
+        session_key TEXT NOT NULL,
+        backend_session_id TEXT,
+        author_id TEXT NOT NULL,
+        message_type TEXT NOT NULL,
+        text TEXT,
+        source TEXT,
+        attachments_json TEXT,
+        metadata_json TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX idx_chat_message_cache_session_created ON chat_message_cache(session_key, created_at)',
+    );
+    await db.execute(
+      'CREATE INDEX idx_chat_message_cache_backend_created ON chat_message_cache(backend_session_id, created_at)',
+    );
   }
 
   Future<ChatCacheSnapshot?> loadSessionSnapshot(ChatSession session) async {
@@ -202,7 +213,7 @@ class ChatCacheStore {
       'author_id': message.authorId,
       'message_type': message is core.ImageMessage ? 'image' : 'text',
       'text': _textFromMessage(message),
-      'source': message is core.ImageMessage ? message.source : null,
+      'source': _preferredImageSource(message, attachments),
       'attachments_json': jsonEncode(attachments),
       'metadata_json': metadata == null ? null : jsonEncode(metadata),
       'created_at': createdAt,
@@ -215,12 +226,13 @@ class ChatCacheStore {
     final authorId = (row['author_id'] ?? '').toString();
     final type = (row['message_type'] ?? 'text').toString();
     final text = _stringOrNull(row['text']);
-    final source = _stringOrNull(row['source']);
+    final rawSource = _stringOrNull(row['source']);
     final createdAt = DateTime.fromMillisecondsSinceEpoch(
       _intOrNull(row['created_at']) ?? DateTime.now().millisecondsSinceEpoch,
     );
     final metadata = _decodeMap(row['metadata_json']);
     final attachments = _decodeList(row['attachments_json']);
+    final source = _preferredCachedSource(rawSource, attachments);
     if (type == 'image' && source != null && source.trim().isNotEmpty) {
       final imageMetadata = <String, dynamic>{
         if (metadata != null) ...metadata,
@@ -249,6 +261,31 @@ class ChatCacheStore {
       text: text ?? '',
       metadata: textMetadata.isEmpty ? null : textMetadata,
     );
+  }
+
+  String? _preferredImageSource(
+    core.Message message,
+    List<Map<String, dynamic>> attachments,
+  ) {
+    final attachmentUrl = _stringOrNull(_firstAttachmentValue(attachments, 'url'));
+    if (attachmentUrl != null && attachmentUrl.trim().isNotEmpty) {
+      return attachmentUrl;
+    }
+    if (message is core.ImageMessage) {
+      return message.source;
+    }
+    return null;
+  }
+
+  String? _preferredCachedSource(
+    String? rawSource,
+    List<Map<String, dynamic>> attachments,
+  ) {
+    final attachmentUrl = _stringOrNull(_firstAttachmentValue(attachments, 'url'));
+    if (attachmentUrl != null && attachmentUrl.trim().isNotEmpty) {
+      return attachmentUrl;
+    }
+    return rawSource;
   }
 
   dynamic _firstAttachmentValue(List<Map<String, dynamic>> items, String key) {

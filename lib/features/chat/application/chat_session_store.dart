@@ -1026,10 +1026,20 @@ class ChatSessionStore extends ChangeNotifier {
     if (lower.startsWith('http://') || lower.startsWith('https://')) {
       return value;
     }
+    final baseUrl = _client.config.baseUrl.trim();
+    if (_looksLikeLocalAbsolutePath(value)) {
+      if (baseUrl.isEmpty) {
+        return value;
+      }
+      final normalizedBase =
+          baseUrl.endsWith('/')
+              ? baseUrl.substring(0, baseUrl.length - 1)
+              : baseUrl;
+      return '$normalizedBase/api/media/file?path=${Uri.encodeComponent(value)}';
+    }
     if (!value.startsWith('/')) {
       return value;
     }
-    final baseUrl = _client.config.baseUrl.trim();
     if (baseUrl.isEmpty) {
       return value;
     }
@@ -1038,6 +1048,14 @@ class ChatSessionStore extends ChangeNotifier {
             ? baseUrl.substring(0, baseUrl.length - 1)
             : baseUrl;
     return '$normalizedBase$value';
+  }
+
+  bool _looksLikeLocalAbsolutePath(String value) {
+    if (value.startsWith('/root/')) return true;
+    if (value.startsWith('/Users/')) return true;
+    if (value.startsWith('/home/')) return true;
+    final windowsDrive = RegExp(r'^[a-zA-Z]:[\\/]');
+    return windowsDrive.hasMatch(value);
   }
 
   core.Message _toCoreMessage(domain.ChatMessage message) {
