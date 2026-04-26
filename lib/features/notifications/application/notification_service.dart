@@ -159,7 +159,7 @@ class NotificationService extends ChangeNotifier {
       importance: Importance.high,
       priority: Priority.high,
       styleInformation: const DefaultStyleInformation(true, true),
-      largeIcon: largeIcon == null ? null : ByteArrayAndroidBitmap(largeIcon),
+      largeIcon: largeIcon,
       category: AndroidNotificationCategory.message,
     );
     await _localNotifications.show(
