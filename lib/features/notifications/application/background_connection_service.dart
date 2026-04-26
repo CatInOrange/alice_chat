@@ -38,11 +38,11 @@ class BackgroundConnectionService {
     _activeSessionId = sessionId.trim();
     await NativeDebugBridge.instance.log(
       'bg-service',
-      'start requested session=$_activeSessionId',
+      'start requested session=$_activeSessionId launchMode=background-notify-all',
     );
     try {
       await _channel.invokeMethod('startForegroundService', {
-        'sessionId': _activeSessionId,
+        'sessionId': '',
       });
     } catch (error) {
       debugPrint('[alicechat.bg] start service failed: $error');

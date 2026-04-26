@@ -168,10 +168,6 @@ class AliceChatForegroundService : Service() {
             DebugLogBuffer.append("fg-service", "skip: empty sessionId")
             return
         }
-        if (sessionId == activeSessionId) {
-            DebugLogBuffer.append("fg-service", "skip: suppressed by active session=$activeSessionId")
-            return
-        }
         val message = payload.optJSONObject("message") ?: run {
             DebugLogBuffer.append("fg-service", "skip: missing message object")
             return

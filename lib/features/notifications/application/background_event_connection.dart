@@ -18,10 +18,8 @@ class BackgroundEventConnection {
   final Map<String, String> _sessionTitles = {};
   int? _lastSeq;
   bool _running = false;
-  String _activeSessionId = '';
 
   bool get isRunning => _running;
-  String get activeSessionId => _activeSessionId;
 
   Future<void> start() async {
     if (_running) return;
@@ -39,7 +37,6 @@ class BackgroundEventConnection {
 
   Future<void> stop() async {
     _running = false;
-    _activeSessionId = '';
     await _subscription?.cancel();
     _subscription = null;
     _reconnectTimer?.cancel();
@@ -50,10 +47,6 @@ class BackgroundEventConnection {
     final normalizedSessionId = sessionId.trim();
     if (normalizedSessionId.isEmpty) return;
     _sessionTitles[normalizedSessionId] = title.trim().isEmpty ? 'AliceChat' : title.trim();
-  }
-
-  void setActiveSession(String sessionId) {
-    _activeSessionId = sessionId.trim();
   }
 
   void _attach() {
@@ -92,7 +85,6 @@ class BackgroundEventConnection {
 
     final sessionId = (payload['sessionId'] ?? '').toString().trim();
     if (sessionId.isEmpty) return;
-    if (sessionId == _activeSessionId) return;
 
     final message = payload['message'];
     if (message is! Map<String, dynamic>) return;
@@ -113,7 +105,7 @@ class BackgroundEventConnection {
         body: text,
         senderName: title,
         messageId: messageId,
-        force: true,
+        force: false,
       ),
     );
   }
