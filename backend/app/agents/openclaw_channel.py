@@ -304,7 +304,9 @@ class OpenClawChannelAgentBackend(AgentBackend):
         finally:
             await ws.close()
 
-        reply = accumulated_text.strip() or "……我刚刚没有拿到可显示的回复。"
+        reply = accumulated_text.strip()
+        if not reply and not final_media:
+            reply = "……我刚刚没有拿到可显示的回复。"
         final_msg = f"[OPENCLAW_CHANNEL FINAL] reply={reply!r} media_count={len(final_media)}"
         print(final_msg, flush=True)
         _LOG.warning(final_msg)

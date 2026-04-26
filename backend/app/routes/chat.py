@@ -188,7 +188,7 @@ def create_chat_router(context: AppContext) -> APIRouter:
                 )
                 assistant_raw = str(result.get('rawReply') or result.get('reply') or ''.join(assistant_raw_parts))
                 assistant_visible = str(result.get('reply') or assistant_raw)
-                persisted = chat_service.persist_assistant_message(
+                persisted_messages = chat_service.persist_assistant_message(
                     session_id=session_id,
                     reply=assistant_visible,
                     raw_reply=assistant_raw,
@@ -196,6 +196,7 @@ def create_chat_router(context: AppContext) -> APIRouter:
                     meta=resolved.assistant_meta,
                     source=resolved.message_source,
                 )
+                persisted = persisted_messages[-1]
                 _LOG.info(
                     '[alicechat.chat] request_completed sessionId=%s clientMessageId=%s requestId=%s deltaCount=%s',
                     session_id,
@@ -212,16 +213,17 @@ def create_chat_router(context: AppContext) -> APIRouter:
                         'reply': assistant_visible,
                     },
                 )
-                await events_bus.publish(
-                    'assistant.message.completed',
-                    {
-                        'sessionId': session_id,
-                        'clientMessageId': client_message_id,
-                        'requestId': request_id,
-                        'messageId': assistant_message_id,
-                        'message': persisted,
-                    },
-                )
+                for item in persisted_messages:
+                    await events_bus.publish(
+                        'assistant.message.completed',
+                        {
+                            'sessionId': session_id,
+                            'clientMessageId': client_message_id,
+                            'requestId': request_id,
+                            'messageId': item.get('id') or assistant_message_id,
+                            'message': item,
+                        },
+                    )
                 notification_body = assistant_visible
                 if not notification_body.strip() and (result.get('images') or []):
                     notification_body = '[图片]'

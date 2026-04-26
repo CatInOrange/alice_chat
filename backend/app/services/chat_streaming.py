@@ -164,7 +164,7 @@ class ChatStreamingService:
             source=resolved.message_source,
         )
 
-        persisted = chat_service.persist_assistant_message(
+        persisted_messages = chat_service.persist_assistant_message(
             session_id=session_id,
             reply=assistant_visible,
             raw_reply=assistant_raw,
@@ -172,7 +172,8 @@ class ChatStreamingService:
             meta=resolved.assistant_meta,
             source=resolved.message_source,
         )
-        await events_bus.publish('message.created', {'message': persisted})
+        for item in persisted_messages:
+            await events_bus.publish('message.created', {'message': item})
 
         yield format_sse(
             {
@@ -181,7 +182,7 @@ class ChatStreamingService:
                 'ts': 0,
                 'payload': {
                     'ok': True,
-                    'messageId': persisted.get('id', ''),
+                    'messageId': (persisted_messages[-1].get('id', '') if persisted_messages else ''),
                     'userText': resolved.history_text,
                     'reply': assistant_visible,
                     'rawReply': assistant_raw,

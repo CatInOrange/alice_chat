@@ -8,6 +8,7 @@ During migration we keep message payload format identical to the legacy backend.
 """
 
 from dataclasses import dataclass, replace
+import uuid
 
 from ..agents import ChatRequest, create_agent_backend
 from ..config import get_chat_config, get_chat_provider
@@ -143,22 +144,24 @@ class ChatService:
         images: list[dict] | None = None,
         meta: str = "",
         source: str = "chat",
-    ) -> dict:
-        """Persist assistant message.
+    ) -> list[dict]:
+        """Persist assistant output.
 
-        `reply` is the display text (stage directives already stripped).
-        `raw_reply` keeps the original streamed text for debugging / reprocessing.
+        Images and text are stored as separate assistant messages.
+        Image messages stay image-only. Text, when present, is persisted as its
+        own assistant text message.
         """
 
         from ..utils import strip_stage_directives
 
+        visible_text = strip_stage_directives(str(reply or "")).strip()
         assistant_attachments = []
         for img in images or []:
             if isinstance(img, dict) and img.get("url"):
                 image_url = str(img.get("url") or "").strip()
                 stored_url = normalize_attachment_url(image_url)
                 assistant_attachments.append({
-                    "id": f"att_{__import__('uuid').uuid4().hex[:12]}",
+                    "id": f"att_{uuid.uuid4().hex[:12]}",
                     "kind": "image",
                     "mimeType": img.get("mimeType") or img.get("mime_type") or "image/png",
                     "url": stored_url,
@@ -169,17 +172,49 @@ class ChatService:
                         "rawUrl": image_url,
                     },
                 })
-        msg = self.messages.create_message(
-            session_id=session_id,
-            role="assistant",
-            text=strip_stage_directives(str(reply or "")),
-            raw_text=str(raw_reply or ""),
-            attachments=assistant_attachments,
-            source=str(source or "chat"),
-            meta=str(meta or ""),
-        )
 
-        return msg
+        persisted: list[dict] = []
+
+        if assistant_attachments:
+            persisted.append(
+                self.messages.create_message(
+                    session_id=session_id,
+                    role="assistant",
+                    text="",
+                    raw_text=str(raw_reply or ""),
+                    attachments=assistant_attachments,
+                    source=str(source or "chat"),
+                    meta=str(meta or ""),
+                )
+            )
+
+        if visible_text:
+            persisted.append(
+                self.messages.create_message(
+                    session_id=session_id,
+                    role="assistant",
+                    text=visible_text,
+                    raw_text=str(raw_reply or ""),
+                    attachments=[],
+                    source=str(source or "chat"),
+                    meta=str(meta or ""),
+                )
+            )
+
+        if persisted:
+            return persisted
+
+        return [
+            self.messages.create_message(
+                session_id=session_id,
+                role="assistant",
+                text="",
+                raw_text=str(raw_reply or ""),
+                attachments=[],
+                source=str(source or "chat"),
+                meta=str(meta or ""),
+            )
+        ]
 
     def _build_prior_messages(self, session_id: str, *, limit: int = 12) -> list[dict]:
         history = self.messages.list_session_messages(session_id, limit=2000)
