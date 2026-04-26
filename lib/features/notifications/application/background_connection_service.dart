@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -172,7 +173,7 @@ class BackgroundConnectionService {
     }
   }
 
-  Future<String?> consumePendingNotificationOpen() async {
+  Future<Map<String, dynamic>?> consumePendingNotificationOpen() async {
     try {
       final result = await _channel.invokeMethod<String>(
         'consumePendingNotificationOpen',
@@ -180,9 +181,12 @@ class BackgroundConnectionService {
       final value = result?.trim();
       await NativeDebugBridge.instance.log(
         'bg-service',
-        'consumePendingNotificationOpen session=${value ?? ''}',
+        'consumePendingNotificationOpen payload=${value ?? ''}',
       );
-      return (value == null || value.isEmpty) ? null : value;
+      if (value == null || value.isEmpty) return null;
+      final decoded = jsonDecode(value);
+      if (decoded is Map<String, dynamic>) return decoded;
+      return null;
     } catch (error) {
       debugPrint('[alicechat.bg] consume pending open failed: $error');
       return null;

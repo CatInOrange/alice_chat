@@ -87,15 +87,20 @@ class _MainScaffoldState extends State<_MainScaffold>
         .listen(_handleNotificationOpen);
     unawaited(_ensureBackgroundServiceConfigured());
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final sessionId =
+      final payload =
           await BackgroundConnectionService.instance
               .consumePendingNotificationOpen();
       await NativeDebugBridge.instance.log(
         'app',
-        'postFrame consumePendingNotificationOpen session=${sessionId ?? ''}',
+        'postFrame consumePendingNotificationOpen payload=${payload ?? {}}',
       );
-      if (!mounted || sessionId == null) return;
-      _handleNotificationOpen(NotificationOpenData(sessionId: sessionId));
+      if (!mounted || payload == null) return;
+      _handleNotificationOpen(
+        NotificationOpenData(
+          sessionId: (payload['sessionId'] as String? ?? '').trim(),
+          messageId: (payload['messageId'] as String? ?? '').trim(),
+        ),
+      );
     });
   }
 

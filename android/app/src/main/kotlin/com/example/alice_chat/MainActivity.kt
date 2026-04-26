@@ -11,10 +11,11 @@ import java.util.Date
 import java.util.Locale
 
 class MainActivity : FlutterActivity() {
-    private var pendingNotificationSessionId: String? = null
+    private var pendingNotificationOpenPayload: String? = null
 
     companion object {
         const val ACTION_OPEN_CHAT_NOTIFICATION = "com.example.alice_chat.OPEN_CHAT_NOTIFICATION"
+        const val EXTRA_NOTIFICATION_OPEN_PAYLOAD = "notificationOpenPayload"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -79,9 +80,9 @@ class MainActivity : FlutterActivity() {
                     result.success(null)
                 }
                 "consumePendingNotificationOpen" -> {
-                    appendLog("main", "consumePendingNotificationOpen session=${pendingNotificationSessionId.orEmpty()}")
-                    result.success(pendingNotificationSessionId)
-                    pendingNotificationSessionId = null
+                    appendLog("main", "consumePendingNotificationOpen payload=${pendingNotificationOpenPayload.orEmpty()}")
+                    result.success(pendingNotificationOpenPayload)
+                    pendingNotificationOpenPayload = null
                 }
                 else -> result.notImplemented()
             }
@@ -105,14 +106,18 @@ class MainActivity : FlutterActivity() {
         val action = intent?.action.orEmpty()
         val sessionId = intent?.getStringExtra(AliceChatForegroundService.EXTRA_SESSION_ID)?.trim().orEmpty()
         val messageId = intent?.getStringExtra(AliceChatForegroundService.EXTRA_MESSAGE_ID)?.trim().orEmpty()
-        appendLog("main", "captureIntent action=$action session=$sessionId messageId=$messageId")
+        val payload = intent?.getStringExtra(EXTRA_NOTIFICATION_OPEN_PAYLOAD).orEmpty()
+        appendLog("main", "captureIntent action=$action session=$sessionId messageId=$messageId payload=$payload")
         if (action != ACTION_OPEN_CHAT_NOTIFICATION) {
             appendLog("main", "captureIntent ignored_non_notification action=$action")
             return
         }
-        if (sessionId.isNotEmpty()) {
-            pendingNotificationSessionId = sessionId
-            appendLog("main", "captureIntent accepted_notification session=$sessionId")
+        if (payload.isNotEmpty()) {
+            pendingNotificationOpenPayload = payload
+            appendLog("main", "captureIntent accepted_notification payload=$payload")
+        } else if (sessionId.isNotEmpty()) {
+            pendingNotificationOpenPayload = "{\"sessionId\":\"$sessionId\",\"messageId\":\"$messageId\"}"
+            appendLog("main", "captureIntent accepted_notification fallbackPayload=$pendingNotificationOpenPayload")
         } else {
             appendLog("main", "captureIntent ignored_empty_notification_session messageId=$messageId")
         }

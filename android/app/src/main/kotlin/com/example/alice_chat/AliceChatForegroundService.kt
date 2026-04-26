@@ -16,6 +16,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.json.JSONObject
+import java.io.IOException
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
@@ -210,15 +211,21 @@ class AliceChatForegroundService : Service() {
         messageId: String,
         preview: String
     ) {
+        val payload = JSONObject().apply {
+            put("sessionId", eventSessionId)
+            put("messageId", messageId)
+        }.toString()
         val intent = Intent(this, MainActivity::class.java).apply {
             action = MainActivity.ACTION_OPEN_CHAT_NOTIFICATION
             putExtra(EXTRA_SESSION_ID, eventSessionId)
             putExtra(EXTRA_MESSAGE_ID, messageId)
+            putExtra(MainActivity.EXTRA_NOTIFICATION_OPEN_PAYLOAD, payload)
+            data = android.net.Uri.parse("alicechat://notification-open/${eventSessionId}/${messageId.ifEmpty { "latest" }}")
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pendingIntent = PendingIntent.getActivity(
             this,
-            (eventSessionId + messageId).hashCode(),
+            (eventSessionId + ":" + messageId + ":open").hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -329,13 +336,38 @@ class AliceChatForegroundService : Service() {
     }
 
     private fun loadAvatarBitmap(sessionId: String): Bitmap? {
+        val metadataAvatar = sessionMetadata[sessionId]?.get("avatarAssetPath")?.trim().orEmpty()
+        val metadataBitmap = loadAvatarBitmapFromMetadata(metadataAvatar)
+        if (metadataBitmap != null) {
+            return metadataBitmap
+        }
         val resId = when (sessionId) {
             "alice:main", "alice" -> R.drawable.alice_avatar
             "yulinglong:main", "yulinglong" -> R.drawable.linglong_avatar
             "lisuxin:main", "lisuxin" -> R.drawable.lisuxin_avatar
-            else -> return null
+            else -> 0
         }
-        return BitmapFactory.decodeResource(resources, resId)
+        return if (resId != 0) BitmapFactory.decodeResource(resources, resId) else null
+    }
+
+    private fun loadAvatarBitmapFromMetadata(avatarAssetPath: String): Bitmap? {
+        if (avatarAssetPath.isBlank()) return null
+        val resId = when (avatarAssetPath.substringAfterLast('/')) {
+            "alice.jpg", "alice_avatar.jpg" -> R.drawable.alice_avatar
+            "linglong.jpg", "linglong_avatar.jpg" -> R.drawable.linglong_avatar
+            "lisuxin.jpg", "lisuxin_avatar.jpg" -> R.drawable.lisuxin_avatar
+            else -> 0
+        }
+        if (resId != 0) {
+            return BitmapFactory.decodeResource(resources, resId)
+        }
+        return try {
+            assets.open(avatarAssetPath).use { input ->
+                BitmapFactory.decodeStream(input)
+            }
+        } catch (_: IOException) {
+            null
+        }
     }
 
     private fun readFlutterStringPref(
