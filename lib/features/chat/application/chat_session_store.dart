@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import '../../../core/openclaw/openclaw_http_client.dart';
 import '../../../core/openclaw/openclaw_config.dart';
 import '../../../core/openclaw/openclaw_settings.dart';
+import '../data/chat_cache_store.dart';
 import '../domain/chat_message.dart' as domain;
 import '../domain/chat_session.dart';
 
@@ -39,6 +40,7 @@ class ChatSessionStore extends ChangeNotifier {
   OpenClawHttpClient _client;
   late Future<void> _configReady;
   final Uuid _uuid = const Uuid();
+  final ChatCacheStore _cacheStore = ChatCacheStore.instance;
   final Map<String, ChatViewState> _states = {};
   final Map<String, String> _sessionIdBySessionKey = {};
   final Map<String, StreamSubscription<Map<String, dynamic>>>
@@ -97,6 +99,8 @@ class ChatSessionStore extends ChangeNotifier {
       notifyListeners();
     }
 
+    await _hydrateStateFromCache(session, state);
+
     try {
       await _ensureConfigReady();
       var sessionId = await _ensureBackendSession(session);
@@ -133,6 +137,7 @@ class ChatSessionStore extends ChangeNotifier {
 
       _ensureEventSubscription(session, sessionId);
       notifyListeners();
+      unawaited(_persistStateCache(session, state));
     } catch (error) {
       state
         ..isLoading = false
@@ -323,6 +328,7 @@ class ChatSessionStore extends ChangeNotifier {
         ..newestLoadedMessageId =
             page.newestMessageId ?? state.newestLoadedMessageId
         ..error = null;
+      unawaited(_persistStateCache(session, state));
       return page.messages.isNotEmpty;
     } catch (error) {
       state.error = _humanizeError(error);
@@ -359,6 +365,7 @@ class ChatSessionStore extends ChangeNotifier {
         ..newestLoadedMessageId =
             page.newestMessageId ?? state.newestLoadedMessageId
         ..error = null;
+      unawaited(_persistStateCache(session, state));
       return page.messages.isNotEmpty;
     } catch (error) {
       state.error = _humanizeError(error);
@@ -600,6 +607,14 @@ class ChatSessionStore extends ChangeNotifier {
         force: true,
       );
     }
+    final shouldPersist =
+        type == 'message.created' ||
+        type == 'assistant.message.completed' ||
+        type == 'assistant.message.failed' ||
+        type == 'message.status';
+    if (shouldPersist) {
+      unawaited(_persistStateCache(state.session, state));
+    }
     notifyListeners();
   }
 
@@ -782,6 +797,47 @@ class ChatSessionStore extends ChangeNotifier {
     unawaited(_client.sendClientDebugLog(payload));
   }
 
+  Future<void> _hydrateStateFromCache(
+    ChatSession session,
+    ChatViewState state,
+  ) async {
+    final snapshot = await _cacheStore.loadSessionSnapshot(session);
+    if (snapshot == null || snapshot.messages.isEmpty) {
+      return;
+    }
+    state
+      ..replaceMessages(snapshot.messages)
+      ..backendSessionId = snapshot.backendSessionId ?? state.backendSessionId
+      ..oldestLoadedMessageId =
+          snapshot.oldestMessageId ?? state.oldestLoadedMessageId
+      ..newestLoadedMessageId =
+          snapshot.newestMessageId ?? state.newestLoadedMessageId
+      ..lastEventSeq = snapshot.lastEventSeq ?? state.lastEventSeq
+      ..hasMoreHistory = snapshot.hasMoreHistory ?? state.hasMoreHistory
+      ..isReady = true;
+    if (snapshot.backendSessionId != null &&
+        snapshot.backendSessionId!.isNotEmpty) {
+      _sessionIdBySessionKey[_keyFor(session)] = snapshot.backendSessionId!;
+    }
+    notifyListeners();
+  }
+
+  Future<void> _persistStateCache(
+    ChatSession session,
+    ChatViewState state,
+  ) async {
+    if (state.messages.isEmpty) return;
+    await _cacheStore.saveSessionSnapshot(
+      session: session,
+      messages: state.stableMessagesForCache,
+      backendSessionId: state.backendSessionId,
+      oldestMessageId: state.oldestLoadedMessageId,
+      newestMessageId: state.newestLoadedMessageId,
+      lastEventSeq: state.lastEventSeq,
+      hasMoreHistory: state.hasMoreHistory,
+    );
+  }
+
   void _scheduleEventReconnect(
     ChatSession session,
     String sessionId,
@@ -815,6 +871,7 @@ class ChatSessionStore extends ChangeNotifier {
                 page.newestMessageId ?? state.newestLoadedMessageId
             ..error = null;
           notifyListeners();
+          unawaited(_persistStateCache(session, state));
         } catch (_) {
           try {
             final initial = await _loadMessagesPage(
@@ -828,6 +885,7 @@ class ChatSessionStore extends ChangeNotifier {
               ..newestLoadedMessageId = initial.newestMessageId
               ..error = null;
             notifyListeners();
+            unawaited(_persistStateCache(session, state));
           } catch (_) {}
         }
         _ensureEventSubscription(session, sessionId);
@@ -1261,6 +1319,17 @@ class ChatViewState {
     );
     messages = List<core.Message>.unmodifiable(list);
     return true;
+  }
+
+  List<core.Message> get stableMessagesForCache {
+    return List<core.Message>.unmodifiable(
+      messages.where((message) {
+        if (pendingClientMessageIds.contains(message.id)) return false;
+        if (streamingMessageIds.contains(message.id)) return false;
+        if (message.id.startsWith('client_')) return false;
+        return true;
+      }),
+    );
   }
 
   void markShouldStickToBottom() {
