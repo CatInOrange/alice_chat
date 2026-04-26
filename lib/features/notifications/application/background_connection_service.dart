@@ -18,6 +18,7 @@ class BackgroundConnectionService {
 
   bool _serviceRequested = false;
   String _activeSessionId = '';
+  bool _serviceInitialized = false;
 
   bool get isServiceRequested => _serviceRequested;
   String get activeSessionId => _activeSessionId;
@@ -26,6 +27,7 @@ class BackgroundConnectionService {
     final enabled = await OpenClawSettingsStore.loadBackgroundServiceEnabled();
     if (!enabled) {
       _serviceRequested = false;
+      _serviceInitialized = false;
       await NativeDebugBridge.instance.log(
         'bg-service',
         'start skipped because background service disabled',
@@ -34,6 +36,7 @@ class BackgroundConnectionService {
     }
     final previousRequested = _serviceRequested;
     _serviceRequested = true;
+    _serviceInitialized = true;
     _activeSessionId = sessionId.trim();
     await NativeDebugBridge.instance.log(
       'bg-service',
@@ -60,6 +63,7 @@ class BackgroundConnectionService {
   Future<void> stop() async {
     final previousRequested = _serviceRequested;
     _serviceRequested = false;
+    _serviceInitialized = false;
     await NativeDebugBridge.instance.log(
       'bg-service',
       'stop requested prevRequested=$previousRequested active=$_activeSessionId',
@@ -125,22 +129,26 @@ class BackgroundConnectionService {
   Future<void> onAppLifecycleChanged(AppLifecycleState state) async {
     await NativeDebugBridge.instance.log(
       'bg-service',
-      'lifecycle state=$state active=$_activeSessionId requested=$_serviceRequested',
+      'lifecycle state=$state active=$_activeSessionId requested=$_serviceRequested mode=always-on',
     );
+    if (!_serviceInitialized) {
+      await NativeDebugBridge.instance.log(
+        'bg-service',
+        'lifecycle decision=skip_not_initialized state=$state mode=always-on',
+      );
+      return;
+    }
     if (state == AppLifecycleState.resumed) {
       await NativeDebugBridge.instance.log(
         'bg-service',
-        'lifecycle decision=stop on resumed',
+        'lifecycle decision=keep_running on resumed mode=always-on',
       );
-      await stop();
       return;
     }
-    if (state == AppLifecycleState.paused) {
-      await NativeDebugBridge.instance.log(
-        'bg-service',
-        'lifecycle decision=start on state=$state',
-      );
-      await start(sessionId: _activeSessionId);
-    }
+    await NativeDebugBridge.instance.log(
+      'bg-service',
+      'lifecycle decision=ensure_started on state=$state mode=always-on',
+    );
+    await start(sessionId: _activeSessionId);
   }
 }

@@ -84,6 +84,7 @@ class _MainScaffoldState extends State<_MainScaffold>
     NotificationService.instance.setAppForeground(true);
     _notificationOpenSub = NotificationService.instance.onNotificationOpened
         .listen(_handleNotificationOpen);
+    unawaited(_ensureBackgroundServiceConfigured());
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final sessionId =
           await BackgroundConnectionService.instance
@@ -102,6 +103,12 @@ class _MainScaffoldState extends State<_MainScaffold>
     WidgetsBinding.instance.removeObserver(this);
     _notificationOpenSub?.cancel();
     super.dispose();
+  }
+
+  Future<void> _ensureBackgroundServiceConfigured() async {
+    await BackgroundConnectionService.instance.start(
+      sessionId: _activeChatSession?.backendSessionId ?? '',
+    );
   }
 
   @override
