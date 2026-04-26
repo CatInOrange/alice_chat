@@ -44,6 +44,7 @@ class _MainScaffoldState extends State<_MainScaffold>
   int _currentIndex = 0;
   ChatSession? _activeChatSession;
   StreamSubscription<NotificationOpenData>? _notificationOpenSub;
+  String _lastConsumedNotificationKey = '';
 
   // Single source of truth for contacts
   static final List<Contact> _contacts = [
@@ -87,20 +88,7 @@ class _MainScaffoldState extends State<_MainScaffold>
         .listen(_handleNotificationOpen);
     unawaited(_ensureBackgroundServiceConfigured());
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final payload =
-          await BackgroundConnectionService.instance
-              .consumePendingNotificationOpen();
-      await NativeDebugBridge.instance.log(
-        'app',
-        'postFrame consumePendingNotificationOpen payload=${payload ?? {}}',
-      );
-      if (!mounted || payload == null) return;
-      _handleNotificationOpen(
-        NotificationOpenData(
-          sessionId: (payload['sessionId'] as String? ?? '').trim(),
-          messageId: (payload['messageId'] as String? ?? '').trim(),
-        ),
-      );
+      await _consumePendingNotificationOpen(source: 'postFrame');
     });
   }
 
@@ -127,10 +115,15 @@ class _MainScaffoldState extends State<_MainScaffold>
       ),
     );
     NotificationService.instance.setAppForeground(isForeground);
-    unawaited(BackgroundConnectionService.instance.updateAppForeground(isForeground));
+    unawaited(
+      BackgroundConnectionService.instance.updateAppForeground(isForeground),
+    );
     unawaited(
       BackgroundConnectionService.instance.onAppLifecycleChanged(state),
     );
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_consumePendingNotificationOpen(source: 'resumed'));
+    }
   }
 
   void _navigateToChat(Contact contact) {
@@ -190,19 +183,58 @@ class _MainScaffoldState extends State<_MainScaffold>
     );
   }
 
-  void _handleNotificationOpen(NotificationOpenData data) {
+  Future<void> _consumePendingNotificationOpen({
+    required String source,
+  }) async {
+    final payload =
+        await BackgroundConnectionService.instance.consumePendingNotificationOpen();
+    await NativeDebugBridge.instance.log(
+      'app',
+      '$source consumePendingNotificationOpen payload=${payload ?? {}}',
+    );
+    if (!mounted || payload == null) return;
+    final data = NotificationOpenData(
+      sessionId: (payload['sessionId'] as String? ?? '').trim(),
+      messageId: (payload['messageId'] as String? ?? '').trim(),
+    );
+    final notificationKey = '${data.sessionId}::${data.messageId}';
+    if (notificationKey == '::') return;
+    if (notificationKey == _lastConsumedNotificationKey) {
+      await NativeDebugBridge.instance.log(
+        'app',
+        '$source skipDuplicateNotificationOpen key=$notificationKey',
+      );
+      return;
+    }
+    _lastConsumedNotificationKey = notificationKey;
+    _handleNotificationOpen(data, source: source);
+  }
+
+  void _handleNotificationOpen(
+    NotificationOpenData data, {
+    String source = 'stream',
+  }) {
     final sessionId = data.sessionId.trim();
     unawaited(
       NativeDebugBridge.instance.log(
         'app',
-        'handleNotificationOpen session=$sessionId messageId=${data.messageId}',
+        'handleNotificationOpen source=$source session=$sessionId messageId=${data.messageId}',
       ),
     );
     if (sessionId.isEmpty) return;
     final contact =
         NotificationService.instance.contactForSessionId(sessionId) ??
         _findContactBySessionId(sessionId);
-    if (contact == null) return;
+    if (contact == null) {
+      unawaited(
+        NativeDebugBridge.instance.log(
+          'app',
+          'handleNotificationOpen source=$source unresolvedSession=$sessionId messageId=${data.messageId}',
+          level: 'WARN',
+        ),
+      );
+      return;
+    }
     _navigateToChat(contact);
   }
 
