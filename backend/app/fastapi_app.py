@@ -64,7 +64,7 @@ def create_app() -> FastAPI:
     app.include_router(create_events_router(context))
     app.include_router(create_chat_router(context))
     app.include_router(create_push_router(context))
-    app.include_router(create_debug_router())
+    app.include_router(create_debug_router(context))
 
     app.mount('/uploads', StaticFiles(directory=str(context.uploads_dir), html=False), name='uploads')
     return app

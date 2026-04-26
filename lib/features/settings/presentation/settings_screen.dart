@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/debug/native_debug_bridge.dart';
 import '../../../core/openclaw/openclaw_settings.dart';
 import '../../chat/application/chat_session_store.dart';
 import '../../notifications/application/notification_service.dart';
+import 'debug_logs_panel.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -66,6 +68,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) return;
       await context.read<ChatSessionStore>().reloadConfig();
       await NotificationService.instance.refreshConfig();
+      await NativeDebugBridge.instance.log(
+        'settings',
+        'settings saved baseUrl=${baseUrl.isEmpty ? '(empty)' : baseUrl} backgroundService=$_backgroundServiceEnabled',
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('设置已保存，通知注册也会同步刷新')),
@@ -79,7 +85,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Connection Settings')),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -135,6 +141,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: Text(_isSaving ? 'Saving...' : 'Save'),
               ),
             ),
+            const SizedBox(height: 24),
+            const DebugLogsPanel(),
           ],
         ),
       ),

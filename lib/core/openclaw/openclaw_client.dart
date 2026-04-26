@@ -28,5 +28,7 @@ abstract class OpenClawClient {
     int? since,
   });
 
-  Future<void> sendClientDebugLog(Map<String, dynamic> payload);
+  Future<Map<String, dynamic>> sendClientDebugLog(Map<String, dynamic> payload);
+
+  Future<Map<String, dynamic>> loadLatestClientDebugLogs({int limit = 5});
 }

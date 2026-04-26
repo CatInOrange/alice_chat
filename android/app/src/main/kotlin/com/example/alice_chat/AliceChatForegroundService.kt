@@ -38,11 +38,13 @@ class AliceChatForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        DebugLogBuffer.append("fg-service", "onCreate")
         createChannels()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         activeSessionId = intent?.getStringExtra(EXTRA_ACTIVE_SESSION_ID)?.trim().orEmpty()
+        DebugLogBuffer.append("fg-service", "onStartCommand activeSessionId=$activeSessionId running=$running")
         startForeground(SERVICE_NOTIFICATION_ID, buildServiceNotification())
         if (!running) {
             running = true
@@ -54,6 +56,7 @@ class AliceChatForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        DebugLogBuffer.append("fg-service", "onDestroy")
         running = false
         workerThread?.interrupt()
         workerThread = null
@@ -61,13 +64,16 @@ class AliceChatForegroundService : Service() {
     }
 
     private fun startEventLoop() {
+        DebugLogBuffer.append("fg-service", "startEventLoop")
         workerThread = thread(start = true, name = "alicechat-sse") {
             while (running) {
                 try {
                     connectAndConsumeSse()
                 } catch (_: InterruptedException) {
+                    DebugLogBuffer.append("fg-service", "event loop interrupted")
                     break
-                } catch (_: Exception) {
+                } catch (error: Exception) {
+                    DebugLogBuffer.append("fg-service", "event loop error=${error.message}")
                     Thread.sleep(RECONNECT_DELAY_MS)
                 }
             }
@@ -77,7 +83,9 @@ class AliceChatForegroundService : Service() {
     private fun connectAndConsumeSse() {
         val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
         val rawBaseUrl = prefs.getString("openclaw.baseUrl", "")?.trim().orEmpty()
+        DebugLogBuffer.append("fg-service", "connectAndConsumeSse baseUrl=$rawBaseUrl lastSeq=${lastSeq ?: "null"} active=$activeSessionId")
         if (rawBaseUrl.isEmpty()) {
+            DebugLogBuffer.append("fg-service", "missing baseUrl, retry later")
             Thread.sleep(RECONNECT_DELAY_MS)
             return
         }
@@ -97,6 +105,7 @@ class AliceChatForegroundService : Service() {
         }
 
         client.newCall(requestBuilder.build()).execute().use { response ->
+            DebugLogBuffer.append("fg-service", "sse response code=${response.code}")
             if (!response.isSuccessful) {
                 Thread.sleep(RECONNECT_DELAY_MS)
                 return
@@ -134,25 +143,44 @@ class AliceChatForegroundService : Service() {
         val payloadText = dataLines.joinToString("\n").trim()
         if (payloadText.isEmpty()) return
 
+        DebugLogBuffer.append("fg-service", "raw event eventName=${eventName.orEmpty()} payload=$payloadText")
         val json = JSONObject(payloadText)
         if (json.has("seq")) {
             lastSeq = json.optLong("seq")
         }
         val effectiveEvent = eventName ?: json.optString("type")
+        DebugLogBuffer.append("fg-service", "effectiveEvent=$effectiveEvent")
         if (effectiveEvent != "assistant.message.completed" && effectiveEvent != "message.created") {
             return
         }
         val payload = json.optJSONObject("payload") ?: json
         val sessionId = payload.optString("sessionId").trim()
-        if (sessionId.isEmpty()) return
-        if (sessionId == activeSessionId) return
-        val message = payload.optJSONObject("message") ?: return
+        DebugLogBuffer.append("fg-service", "parsed sessionId=$sessionId active=$activeSessionId")
+        if (sessionId.isEmpty()) {
+            DebugLogBuffer.append("fg-service", "skip: empty sessionId")
+            return
+        }
+        if (sessionId == activeSessionId) {
+            DebugLogBuffer.append("fg-service", "skip: suppressed by active session=$activeSessionId")
+            return
+        }
+        val message = payload.optJSONObject("message") ?: run {
+            DebugLogBuffer.append("fg-service", "skip: missing message object")
+            return
+        }
         val role = message.optString("role").trim()
-        if (role != "assistant") return
+        if (role != "assistant") {
+            DebugLogBuffer.append("fg-service", "skip: role=$role")
+            return
+        }
         val text = message.optString("text").trim()
-        if (text.isEmpty()) return
+        if (text.isEmpty()) {
+            DebugLogBuffer.append("fg-service", "skip: empty text")
+            return
+        }
         val title = payload.optString("senderName").ifBlank { resolveTitleForSession(sessionId) }
         val messageId = message.optString("id")
+        DebugLogBuffer.append("fg-service", "showMessageNotification session=$sessionId title=$title messageId=$messageId")
         showMessageNotification(sessionId, title, messageId)
     }
 
@@ -186,6 +214,7 @@ class AliceChatForegroundService : Service() {
             .build()
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify((sessionId + messageId + teaser).hashCode(), notification)
+        DebugLogBuffer.append("fg-service", "notification posted session=$sessionId teaser=$teaser")
     }
 
     private fun createChannels() {

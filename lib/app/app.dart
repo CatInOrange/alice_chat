@@ -8,6 +8,7 @@ import '../features/contacts/presentation/contacts_screen.dart';
 import '../features/chat/application/chat_session_store.dart';
 import '../features/chat/domain/chat_session.dart';
 import '../features/chat/presentation/chat_screen.dart';
+import '../core/debug/native_debug_bridge.dart';
 import '../features/notifications/application/background_connection_service.dart';
 import '../features/notifications/application/notification_service.dart';
 import '../features/settings/presentation/settings_screen.dart';
@@ -77,12 +78,17 @@ class _MainScaffoldState extends State<_MainScaffold>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     NotificationService.instance.registerContacts(_contacts);
+    unawaited(NativeDebugBridge.instance.log('app', 'initState register contacts count=${_contacts.length}'));
     NotificationService.instance.setAppForeground(true);
     _notificationOpenSub = NotificationService.instance.onNotificationOpened
         .listen(_handleNotificationOpen);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final sessionId = await BackgroundConnectionService.instance
           .consumePendingNotificationOpen();
+      await NativeDebugBridge.instance.log(
+        'app',
+        'postFrame consumePendingNotificationOpen session=${sessionId ?? ''}',
+      );
       if (!mounted || sessionId == null) return;
       _handleNotificationOpen(
         NotificationOpenData(sessionId: sessionId),
@@ -100,12 +106,14 @@ class _MainScaffoldState extends State<_MainScaffold>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final isForeground = state == AppLifecycleState.resumed;
+    unawaited(NativeDebugBridge.instance.log('app', 'lifecycle=$state foreground=$isForeground'));
     NotificationService.instance.setAppForeground(isForeground);
     unawaited(BackgroundConnectionService.instance.onAppLifecycleChanged(state));
   }
 
   void _navigateToChat(Contact contact) {
     final session = _sessionFromContact(contact);
+    unawaited(NativeDebugBridge.instance.log('app', 'navigateToChat contact=${contact.name} session=${session.backendSessionId ?? session.id}'));
     setState(() {
       _currentIndex = 0;
       _activeChatSession = session;
@@ -134,6 +142,7 @@ class _MainScaffoldState extends State<_MainScaffold>
 
   void _handleNotificationOpen(NotificationOpenData data) {
     final sessionId = data.sessionId.trim();
+    unawaited(NativeDebugBridge.instance.log('app', 'handleNotificationOpen session=$sessionId messageId=${data.messageId}'));
     if (sessionId.isEmpty) return;
     final contact =
         NotificationService.instance.contactForSessionId(sessionId) ??
@@ -152,6 +161,7 @@ class _MainScaffoldState extends State<_MainScaffold>
   }
 
   void _closeChat() {
+    unawaited(NativeDebugBridge.instance.log('app', 'closeChat current=${_activeChatSession?.backendSessionId ?? _activeChatSession?.id ?? ''}'));
     setState(() {
       _activeChatSession = null;
     });

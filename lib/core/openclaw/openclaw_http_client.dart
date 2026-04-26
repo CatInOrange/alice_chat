@@ -141,16 +141,32 @@ class OpenClawHttpClient implements OpenClawClient {
   }
 
   @override
-  Future<void> sendClientDebugLog(Map<String, dynamic> payload) async {
+  Future<Map<String, dynamic>> sendClientDebugLog(Map<String, dynamic> payload) async {
     try {
-      await _httpClient.post(
+      final response = await _httpClient.post(
         _uri('/api/debug/client-log'),
         headers: _headers,
         body: jsonEncode(payload),
       );
+      if (response.statusCode >= 400) {
+        throw _buildRequestException('上传调试日志失败', response);
+      }
+      return jsonDecode(response.body) as Map<String, dynamic>;
     } catch (_) {
-      // Best effort only.
+      rethrow;
     }
+  }
+
+  @override
+  Future<Map<String, dynamic>> loadLatestClientDebugLogs({int limit = 5}) async {
+    final response = await _httpClient.get(
+      _uri('/api/debug/client-log/latest', queryParameters: {'limit': '$limit'}),
+      headers: _headers,
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('加载调试日志失败', response);
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
   @override

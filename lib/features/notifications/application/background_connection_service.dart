@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/debug/native_debug_bridge.dart';
 import '../../../core/openclaw/openclaw_settings.dart';
 import '../../chat/domain/chat_session.dart';
 
@@ -27,10 +28,18 @@ class BackgroundConnectionService {
     final enabled = await OpenClawSettingsStore.loadBackgroundServiceEnabled();
     if (!enabled) {
       _serviceRequested = false;
+      await NativeDebugBridge.instance.log(
+        'bg-service',
+        'start skipped because background service disabled',
+      );
       return;
     }
     _serviceRequested = true;
     _activeSessionId = sessionId.trim();
+    await NativeDebugBridge.instance.log(
+      'bg-service',
+      'start requested session=$_activeSessionId',
+    );
     try {
       await _channel.invokeMethod('startForegroundService', {
         'sessionId': _activeSessionId,
@@ -42,6 +51,7 @@ class BackgroundConnectionService {
 
   Future<void> stop() async {
     _serviceRequested = false;
+    await NativeDebugBridge.instance.log('bg-service', 'stop requested');
     try {
       await _channel.invokeMethod('stopForegroundService');
     } catch (error) {
@@ -55,6 +65,10 @@ class BackgroundConnectionService {
   }) async {
     _activeSessionId = sessionId.trim();
     _activeSession = session ?? _activeSession;
+    await NativeDebugBridge.instance.log(
+      'bg-service',
+      'updateActiveSession session=$_activeSessionId serviceRequested=$_serviceRequested',
+    );
     if (!_serviceRequested) return;
     try {
       await _channel.invokeMethod('updateActiveSession', {
@@ -71,6 +85,10 @@ class BackgroundConnectionService {
         'consumePendingNotificationOpen',
       );
       final value = result?.trim();
+      await NativeDebugBridge.instance.log(
+        'bg-service',
+        'consumePendingNotificationOpen session=${value ?? ''}',
+      );
       return (value == null || value.isEmpty) ? null : value;
     } catch (error) {
       debugPrint('[alicechat.bg] consume pending open failed: $error');
@@ -79,6 +97,10 @@ class BackgroundConnectionService {
   }
 
   Future<void> onAppLifecycleChanged(AppLifecycleState state) async {
+    await NativeDebugBridge.instance.log(
+      'bg-service',
+      'lifecycle state=$state active=$_activeSessionId requested=$_serviceRequested',
+    );
     if (state == AppLifecycleState.resumed) {
       await stop();
       return;

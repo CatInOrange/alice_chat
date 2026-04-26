@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -10,6 +9,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../../core/debug/native_debug_bridge.dart';
 import '../../../core/openclaw/openclaw_config.dart';
 import '../../../core/openclaw/openclaw_settings.dart';
 import '../../contacts/domain/contact.dart';
@@ -93,8 +93,10 @@ class NotificationService extends ChangeNotifier {
   Future<void> initialize() async {
     if (_initialized) return;
     _initialized = true;
+    await NativeDebugBridge.instance.log('notifications', 'initialize start');
     await _initLocalNotifications();
     await _ensureDeviceRegistration();
+    await NativeDebugBridge.instance.log('notifications', 'initialize done');
   }
 
   Future<void> refreshConfig() async {
@@ -116,15 +118,24 @@ class NotificationService extends ChangeNotifier {
 
   Future<void> setActiveSession(String sessionId) async {
     _activeSessionId = sessionId.trim();
+    await NativeDebugBridge.instance.log(
+      'notifications',
+      'setActiveSession session=$_activeSessionId',
+    );
     await _reportPresence(isForeground: true);
   }
 
   Future<void> clearActiveSession() async {
     _activeSessionId = '';
+    await NativeDebugBridge.instance.log('notifications', 'clearActiveSession');
     await _reportPresence(isForeground: true);
   }
 
   Future<void> setAppForeground(bool isForeground) async {
+    await NativeDebugBridge.instance.log(
+      'notifications',
+      'setAppForeground foreground=$isForeground active=$_activeSessionId',
+    );
     await _reportPresence(isForeground: isForeground);
   }
 
@@ -137,9 +148,17 @@ class NotificationService extends ChangeNotifier {
     bool force = false,
   }) async {
     final normalizedSessionId = sessionId.trim();
+    await NativeDebugBridge.instance.log(
+      'notifications',
+      'showChatNotification session=$normalizedSessionId title=$title force=$force active=$_activeSessionId messageId=$messageId',
+    );
     if (!force &&
         normalizedSessionId.isNotEmpty &&
         normalizedSessionId == _activeSessionId) {
+      await NativeDebugBridge.instance.log(
+        'notifications',
+        'showChatNotification suppressed by active session=$normalizedSessionId',
+      );
       return;
     }
     final contact = contactForSessionId(normalizedSessionId);
@@ -168,6 +187,10 @@ class NotificationService extends ChangeNotifier {
       teaser,
       NotificationDetails(android: androidDetails),
       payload: jsonEncode(payload),
+    );
+    await NativeDebugBridge.instance.log(
+      'notifications',
+      'local notification shown session=$normalizedSessionId resolvedTitle=$resolvedTitle teaser=$teaser',
     );
   }
 
@@ -225,7 +248,14 @@ class NotificationService extends ChangeNotifier {
         if (payload == null || payload.isEmpty) return;
         try {
           final json = jsonDecode(payload) as Map<String, dynamic>;
-          _openController.add(NotificationOpenData.fromMap(json));
+          final data = NotificationOpenData.fromMap(json);
+          unawaited(
+            NativeDebugBridge.instance.log(
+              'notifications',
+              'notification tapped session=${data.sessionId} messageId=${data.messageId}',
+            ),
+          );
+          _openController.add(data);
         } catch (_) {}
       },
     );
@@ -263,6 +293,11 @@ class NotificationService extends ChangeNotifier {
       );
       await _reportPresence(isForeground: true, configOverride: config);
     } catch (error) {
+      await NativeDebugBridge.instance.log(
+        'notifications',
+        'local registration failed: $error',
+        level: 'ERROR',
+      );
       debugPrint('[alicechat.notifications] local registration failed: $error');
     }
   }
@@ -284,6 +319,11 @@ class NotificationService extends ChangeNotifier {
         ),
       );
     } catch (error) {
+      await NativeDebugBridge.instance.log(
+        'notifications',
+        'presence failed foreground=$isForeground active=$_activeSessionId error=$error',
+        level: 'ERROR',
+      );
       debugPrint('[alicechat.notifications] presence failed: $error');
     }
   }
