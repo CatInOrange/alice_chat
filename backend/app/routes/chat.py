@@ -196,7 +196,7 @@ def create_chat_router(context: AppContext) -> APIRouter:
                     meta=resolved.assistant_meta,
                     source=resolved.message_source,
                 )
-                persisted = persisted_messages[-1]
+                persisted = persisted_messages[-1] if persisted_messages else None
                 _LOG.info(
                     '[alicechat.chat] request_completed sessionId=%s clientMessageId=%s requestId=%s deltaCount=%s',
                     session_id,
@@ -208,7 +208,7 @@ def create_chat_router(context: AppContext) -> APIRouter:
                     session_id,
                     client_message_id,
                     {
-                        'messageId': persisted.get('id'),
+                        'messageId': persisted.get('id') if persisted else '',
                         'requestId': request_id,
                         'reply': assistant_visible,
                     },

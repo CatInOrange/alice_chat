@@ -8,12 +8,16 @@ During migration we keep message payload format identical to the legacy backend.
 """
 
 from dataclasses import dataclass, replace
+import logging
 import uuid
 
 from ..agents import ChatRequest, create_agent_backend
 from ..config import get_chat_config, get_chat_provider
 from ..store import MessageStore, SessionStore
 from ..media_utils import normalize_attachment_url
+
+
+_LOG = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -204,17 +208,15 @@ class ChatService:
         if persisted:
             return persisted
 
-        return [
-            self.messages.create_message(
-                session_id=session_id,
-                role="assistant",
-                text="",
-                raw_text=str(raw_reply or ""),
-                attachments=[],
-                source=str(source or "chat"),
-                meta=str(meta or ""),
-            )
-        ]
+        _LOG.warning(
+            "[alicechat.chat_service] skip empty assistant message session_id=%s source=%s raw_reply_len=%s visible_text_len=%s image_count=%s",
+            session_id,
+            str(source or "chat"),
+            len(str(raw_reply or "")),
+            len(visible_text),
+            len(assistant_attachments),
+        )
+        return []
 
     def _build_prior_messages(self, session_id: str, *, limit: int = 12) -> list[dict]:
         history = self.messages.list_session_messages(session_id, limit=2000)
