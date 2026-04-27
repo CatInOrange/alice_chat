@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../features/contacts/domain/contact.dart';
@@ -41,6 +43,10 @@ class _MainScaffold extends StatefulWidget {
 
 class _MainScaffoldState extends State<_MainScaffold>
     with WidgetsBindingObserver {
+  static const MethodChannel _appControlChannel = MethodChannel(
+    'alicechat/app_control',
+  );
+
   int _currentIndex = 0;
   ChatSession? _activeChatSession;
   StreamSubscription<NotificationOpenData>? _notificationOpenSub;
@@ -274,73 +280,109 @@ class _MainScaffoldState extends State<_MainScaffold>
     unawaited(BackgroundConnectionService.instance.updateActiveSession(''));
   }
 
+  Future<void> _handleRootBack() async {
+    if (_activeChatSession != null) {
+      _closeChat();
+      return;
+    }
+    if (!defaultTargetPlatform.name.toLowerCase().contains('android')) {
+      return;
+    }
+    unawaited(
+      NativeDebugBridge.instance.log(
+        'app',
+        'rootBack moveTaskToBack currentIndex=$_currentIndex',
+      ),
+    );
+    try {
+      await _appControlChannel.invokeMethod<void>('moveTaskToBack');
+    } catch (error) {
+      unawaited(
+        NativeDebugBridge.instance.log(
+          'app',
+          'rootBack moveTaskToBack failed error=$error',
+          level: 'WARN',
+        ),
+      );
+      await SystemNavigator.pop();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     context.watch<ChatSessionStore>();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _handleSessionStateChanged();
     });
-    return Scaffold(
-      body: Stack(
-        children: [
-          IndexedStack(
-            index: _currentIndex,
-            children: [
-              ContactsScreen(
-                contacts: _contacts,
-                onContactTap: _navigateToChat,
-              ),
-              const WebviewScreen(key: ValueKey('webview')),
-              const SettingsScreen(),
-            ],
-          ),
-          if (_activeChatSession != null)
-            Positioned.fill(
-              child: Material(
-                color: Colors.transparent,
-                child: ChatScreen(
-                  key: ValueKey('chat-${_activeChatSession!.id}'),
-                  session: _activeChatSession!,
-                  onBack: _closeChat,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          unawaited(_handleRootBack());
+        }
+      },
+      child: Scaffold(
+        body: Stack(
+          children: [
+            IndexedStack(
+              index: _currentIndex,
+              children: [
+                ContactsScreen(
+                  contacts: _contacts,
+                  onContactTap: _navigateToChat,
+                ),
+                const WebviewScreen(key: ValueKey('webview')),
+                const SettingsScreen(),
+              ],
+            ),
+            if (_activeChatSession != null)
+              Positioned.fill(
+                child: Material(
+                  color: Colors.transparent,
+                  child: ChatScreen(
+                    key: ValueKey('chat-${_activeChatSession!.id}'),
+                    session: _activeChatSession!,
+                    onBack: _closeChat,
+                  ),
                 ),
               ),
-            ),
-        ],
-      ),
-      bottomNavigationBar:
-          _activeChatSession == null
-              ? NavigationBar(
-                selectedIndex: _currentIndex,
-                onDestinationSelected: (index) {
-                  unawaited(
-                    NativeDebugBridge.instance.log(
-                      'app',
-                      'bottomNav selectedIndex=$index activeChat=${_activeChatSession?.backendSessionId ?? _activeChatSession?.id ?? ''}',
+          ],
+        ),
+        bottomNavigationBar:
+            _activeChatSession == null
+                ? NavigationBar(
+                  selectedIndex: _currentIndex,
+                  onDestinationSelected: (index) {
+                    unawaited(
+                      NativeDebugBridge.instance.log(
+                        'app',
+                        'bottomNav selectedIndex=$index activeChat=${_activeChatSession?.backendSessionId ?? _activeChatSession?.id ?? ''}',
+                      ),
+                    );
+                    setState(() {
+                      _currentIndex = index;
+                    });
+                  },
+                  destinations: const [
+                    NavigationDestination(
+                      icon: Icon(Icons.contacts_outlined),
+                      selectedIcon: Icon(Icons.contacts),
+                      label: '通讯录',
                     ),
-                  );
-                  setState(() {
-                    _currentIndex = index;
-                  });
-                },
-                destinations: const [
-                  NavigationDestination(
-                    icon: Icon(Icons.contacts_outlined),
-                    selectedIcon: Icon(Icons.contacts),
-                    label: '通讯录',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.web_outlined),
-                    selectedIcon: Icon(Icons.web),
-                    label: '网页',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.settings_outlined),
-                    selectedIcon: Icon(Icons.settings),
-                    label: '设置',
-                  ),
-                ],
-              )
-              : null,
+                    NavigationDestination(
+                      icon: Icon(Icons.web_outlined),
+                      selectedIcon: Icon(Icons.web),
+                      label: '网页',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.settings_outlined),
+                      selectedIcon: Icon(Icons.settings),
+                      label: '设置',
+                    ),
+                  ],
+                )
+                : null,
+      ),
     );
   }
 }

@@ -100,6 +100,18 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "alicechat/app_control"
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "moveTaskToBack" -> {
+                    appendLog("main", "moveTaskToBack requested")
+                    result.success(moveTaskToBack(true))
+                }
+                else -> result.notImplemented()
+            }
+        }
     }
 
     private fun captureIntent(intent: Intent?) {
