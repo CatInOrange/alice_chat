@@ -1,0 +1,27 @@
+{
+  "id": "builtin.echo",
+  "name": "Echo",
+  "version": "0.1.0",
+  "description": "Echo back a message to user.",
+  "capabilities": [
+    {
+      "name": "echo.say",
+      "description": "Send a message to user chat.",
+      "argsSchema": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string" }
+        },
+        "required": ["text"]
+      },
+      "resultSchema": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" }
+        }
+      },
+      "permissions": ["ui.sendToUser"],
+      "entry": "./index.js#say"
+    }
+  ]
+}

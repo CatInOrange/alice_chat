@@ -51,6 +51,7 @@ class _ChatScreenState extends State<ChatScreen> {
   _PullEdgeState _topPullState = _PullEdgeState.idle;
   _PullEdgeState _bottomPullState = _PullEdgeState.idle;
   final List<String> _appliedMessageIds = [];
+  DateTime? _lastBuildLogAt;
 
   // Composer height tracking for relative positioning of floating elements
   static const double _composerPaddingVertical = 20.0; // 8 + 12
@@ -107,9 +108,14 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final state = context.watch<ChatSessionStore>().stateFor(widget.session);
-    debugPrint(
-      '[alicechat.screen] ${jsonEncode({'tag': 'build', 'sessionId': state.backendSessionId, 'sessionLocalId': widget.session.id, 'isSubmitting': state.isSubmitting, 'isAssistantStreaming': state.isAssistantStreaming, 'pendingCount': state.pendingClientMessageIds.length, 'streamingCount': state.streamingMessageIds.length, 'messageCount': state.messages.length, 'lastEventSeq': state.lastEventSeq})}',
-    );
+    final now = DateTime.now();
+    if (_lastBuildLogAt == null ||
+        now.difference(_lastBuildLogAt!).inMilliseconds >= 500) {
+      _lastBuildLogAt = now;
+      debugPrint(
+        '[alicechat.screen] ${jsonEncode({'tag': 'build', 'sessionId': state.backendSessionId, 'sessionLocalId': widget.session.id, 'isSubmitting': state.isSubmitting, 'isAssistantStreaming': state.isAssistantStreaming, 'pendingCount': state.pendingClientMessageIds.length, 'streamingCount': state.streamingMessageIds.length, 'messageCount': state.messages.length, 'lastEventSeq': state.lastEventSeq})}',
+      );
+    }
 
     return PopScope(
       canPop: false,
@@ -381,38 +387,25 @@ class _ChatScreenState extends State<ChatScreen> {
     if (existingMessages.isEmpty) {
       _chatController.setMessages(messages);
     } else {
-      final existingById = {
-        for (final message in existingMessages) message.id: message,
-      };
-      final nextById = {for (final message in messages) message.id: message};
+      final existingIds = existingMessages.map((m) => m.id).toSet();
+      final nextIds = messages.map((m) => m.id).toSet();
 
-      final removed = existingMessages
-          .where((message) => !nextById.containsKey(message.id))
-          .toList(growable: false);
-      for (final message in removed) {
-        _chatController.removeMessage(message, animated: false);
+      // If the ID sets are identical and counts match, check for content changes
+      if (existingIds.length == nextIds.length &&
+          existingIds.containsAll(nextIds) &&
+          existingIds.length == _appliedMessageIds.length &&
+          _appliedMessageIds.toSet() == existingIds) {
+        // IDs match exactly with what we last applied; check if any content changed
+        final existingById = {for (final m in existingMessages) m.id: m};
+        final hasContentChanges = messages.any((next) {
+          final existing = existingById[next.id];
+          return existing == null || existing != next;
+        });
+        if (!hasContentChanges) return;
       }
 
-      for (var index = 0; index < messages.length; index++) {
-        final next = messages[index];
-        final existing = existingById[next.id];
-        if (existing == null) {
-          _chatController.insertMessage(next, index: index, animated: false);
-        } else if (existing != next) {
-          _chatController.updateMessage(existing, next);
-        }
-      }
-
-      final currentIds = _chatController.messages.map((m) => m.id).toList();
-      final nextIds = messages.map((m) => m.id).toList();
-      final orderChanged =
-          currentIds.length != nextIds.length ||
-          currentIds.asMap().entries.any(
-            (entry) => entry.value != nextIds[entry.key],
-          );
-      if (orderChanged) {
-        _chatController.setMessages(messages, animated: false);
-      }
+      // Simple approach: just replace the whole list
+      _chatController.setMessages(messages, animated: false);
     }
 
     _appliedMessageIds

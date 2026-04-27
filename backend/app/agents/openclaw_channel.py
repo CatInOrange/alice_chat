@@ -11,6 +11,11 @@ from collections.abc import Callable
 from .base import AgentBackend, ChatAttachment, ChatRequest, StreamEmitter
 
 _BRIDGE_CONNECT_RETRY_DELAYS = (0.25, 0.5, 1.0)
+_PUSH_LISTENER_PING_INTERVAL_SECONDS = 60
+_PUSH_LISTENER_PING_TIMEOUT_SECONDS = 60
+_PUSH_LISTENER_RECV_IDLE_SECONDS = 90
+_REQUEST_PING_INTERVAL_SECONDS = 60
+_REQUEST_PING_TIMEOUT_SECONDS = 60
 _LOG = logging.getLogger(__name__)
 
 
@@ -172,8 +177,17 @@ async def _bridge_listener_loop(provider_config: dict, stop_event: threading.Eve
     bridge_url = str(provider_config.get("bridgeUrl") or "ws://127.0.0.1:18800").strip()
     sender_id = str(provider_config.get("senderId") or "alicechat-user")
     sender_name = str(provider_config.get("senderName") or "AliceChat User")
-    ws = await _open_bridge_connection(bridge_url, ping_interval=20, ping_timeout=20)
-    print(f"[OpenClawChannel] push listener connected to {bridge_url}")
+    ws = await _open_bridge_connection(
+        bridge_url,
+        ping_interval=_PUSH_LISTENER_PING_INTERVAL_SECONDS,
+        ping_timeout=_PUSH_LISTENER_PING_TIMEOUT_SECONDS,
+    )
+    print(
+        "[OpenClawChannel] push listener connected to "
+        f"{bridge_url} (ping_interval={_PUSH_LISTENER_PING_INTERVAL_SECONDS}s, "
+        f"ping_timeout={_PUSH_LISTENER_PING_TIMEOUT_SECONDS}s, "
+        f"recv_idle={_PUSH_LISTENER_RECV_IDLE_SECONDS}s)"
+    )
     try:
         await ws.send(json.dumps({
             "type": "bridge.register",
@@ -185,7 +199,7 @@ async def _bridge_listener_loop(provider_config: dict, stop_event: threading.Eve
         }))
         while not stop_event.is_set():
             try:
-                raw = await asyncio.wait_for(ws.recv(), timeout=30)
+                raw = await asyncio.wait_for(ws.recv(), timeout=_PUSH_LISTENER_RECV_IDLE_SECONDS)
             except TimeoutError:
                 await ws.send(json.dumps({"type": "ping", "ts": time.time()}))
                 continue
@@ -216,7 +230,11 @@ class OpenClawChannelAgentBackend(AgentBackend):
         request_id = str(uuid.uuid4())
         session_key = str(request.context.get("sessionKey") or "").strip() or f"agent:{agent}:{session_name}"
 
-        ws = await _open_bridge_connection(bridge_url)
+        ws = await _open_bridge_connection(
+            bridge_url,
+            ping_interval=_REQUEST_PING_INTERVAL_SECONDS,
+            ping_timeout=_REQUEST_PING_TIMEOUT_SECONDS,
+        )
         try:
             peer = None
             local = None
@@ -249,7 +267,10 @@ class OpenClawChannelAgentBackend(AgentBackend):
                 "conversationLabel": session_name,
             }
             outbound_text = json.dumps(outbound, ensure_ascii=False)
-            conn_msg = f"[OPENCLAW_CHANNEL CONN] bridge_url={bridge_url} local={local} peer={peer}"
+            conn_msg = (
+                f"[OPENCLAW_CHANNEL CONN] bridge_url={bridge_url} local={local} peer={peer} "
+                f"ping_interval={_REQUEST_PING_INTERVAL_SECONDS}s ping_timeout={_REQUEST_PING_TIMEOUT_SECONDS}s"
+            )
             print(conn_msg, flush=True)
             _LOG.warning(conn_msg)
             print(f"[OPENCLAW_CHANNEL OUTBOUND] {outbound_text}", flush=True)
@@ -258,9 +279,19 @@ class OpenClawChannelAgentBackend(AgentBackend):
 
             accumulated_text = ""
             final_media: list[dict] = []
+            saw_relevant_frame = False
+            saw_final_frame = False
+            last_frame_type = ""
 
             while True:
-                raw = await asyncio.wait_for(ws.recv(), timeout=timeout_seconds)
+                try:
+                    raw = await asyncio.wait_for(ws.recv(), timeout=timeout_seconds)
+                except TimeoutError as exc:
+                    raise RuntimeError(
+                        "Timeout waiting for OpenClaw bridge final frame "
+                        f"(requestId={request_id}, last_frame_type={last_frame_type or 'none'}, "
+                        f"saw_relevant_frame={saw_relevant_frame})"
+                    ) from exc
                 print(f"[OPENCLAW_CHANNEL RAW] {raw}", flush=True)
                 _LOG.warning("[OPENCLAW_CHANNEL RAW] %s", raw)
                 frame = json.loads(raw)
@@ -273,7 +304,9 @@ class OpenClawChannelAgentBackend(AgentBackend):
                     _LOG.warning(skip_msg)
                     continue
 
-                ftype = frame.get("type")
+                saw_relevant_frame = True
+                ftype = str(frame.get("type") or "")
+                last_frame_type = ftype
                 if ftype == "chat.delta":
                     delta = str(frame.get("delta") or "")
                     accumulated_text = _extract_text_candidates(frame, accumulated_text + delta)
@@ -289,6 +322,7 @@ class OpenClawChannelAgentBackend(AgentBackend):
                     if isinstance(media, dict):
                         final_media.append(media)
                 elif ftype == "chat.final":
+                    saw_final_frame = True
                     accumulated_text = _extract_text_candidates(frame, accumulated_text)
                     more_media = frame.get("media") or []
                     if isinstance(more_media, list):
@@ -301,10 +335,20 @@ class OpenClawChannelAgentBackend(AgentBackend):
                     if accumulated_text.strip() and ftype in {"message", "assistant", "reply"}:
                         break
                     continue
+        except Exception as exc:
+            raise RuntimeError(
+                "OpenClaw bridge request failed "
+                f"(requestId={request_id}, sessionKey={session_key}, cause={exc})"
+            ) from exc
         finally:
             await ws.close()
 
         reply = accumulated_text.strip()
+        if not saw_final_frame and not reply and not final_media:
+            raise RuntimeError(
+                "OpenClaw bridge request ended without final frame or visible content "
+                f"(requestId={request_id}, sessionKey={session_key}, last_frame_type={last_frame_type or 'none'})"
+            )
         if not reply and not final_media:
             reply = "……我刚刚没有拿到可显示的回复。"
         final_msg = f"[OPENCLAW_CHANNEL FINAL] reply={reply!r} media_count={len(final_media)}"

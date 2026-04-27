@@ -1,0 +1,86 @@
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  font-family:
+    "IBM Plex Sans",
+    "Noto Sans SC",
+    "Segoe UI",
+    sans-serif;
+  color: #5b463c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  color-scheme: light;
+  --lunaria-app-bg: #f6efe8;
+  --lunaria-app-bg-soft: #fbf7f3;
+  --lunaria-text: #5b463c;
+  --lunaria-text-muted: #8f786b;
+  --lunaria-text-subtle: #b39f95;
+  --lunaria-border: rgba(158, 132, 118, 0.18);
+  --lunaria-border-strong: rgba(158, 132, 118, 0.28);
+  --lunaria-surface: rgba(255, 250, 245, 0.9);
+  --lunaria-card: #fffaf5;
+  --lunaria-primary: #dc8d79;
+  --lunaria-primary-strong: #c86f59;
+  --lunaria-selection: rgba(220, 141, 121, 0.22);
+}
+
+::selection {
+  background: var(--lunaria-selection);
+  color: var(--lunaria-text);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+body {
+  background:
+    radial-gradient(circle at top left, rgba(255, 224, 211, 0.78), transparent 30%),
+    radial-gradient(circle at bottom right, rgba(210, 226, 217, 0.72), transparent 28%),
+    linear-gradient(180deg, #fbf7f3 0%, #f4ece4 100%);
+}
+
+input,
+textarea,
+select {
+  color: var(--lunaria-text);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--lunaria-text-subtle);
+}
+
+input[type="range"] {
+  accent-color: var(--lunaria-primary);
+}
+
+/* Thin Custom Scrollbars for overlays */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(189, 161, 147, 0.52);
+  border-radius: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(171, 142, 128, 0.72);
+}

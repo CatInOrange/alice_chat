@@ -1,0 +1,30 @@
+{
+  "name": "@openclaw/live2d",
+  "version": "0.1.0",
+  "description": "Live2D Python backend bridge channel for OpenClaw",
+  "type": "module",
+  "main": "index.ts",
+  "openclaw": {
+    "extensions": ["./index.ts"],
+    "channel": {
+      "id": "live2d",
+      "label": "Live2D",
+      "selectionLabel": "Live2D Bridge",
+      "docsPath": "/channels/live2d",
+      "blurb": "Bridge channel between OpenClaw and the Live2D Python backend.",
+      "order": 95,
+      "aliases": ["live2d"]
+    },
+    "install": {
+      "npmSpec": "@openclaw/live2d",
+      "defaultChoice": "npm"
+    }
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.0.0"
+  },
+  "license": "MIT"
+}

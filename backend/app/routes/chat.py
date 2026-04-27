@@ -143,6 +143,32 @@ def create_chat_router(context: AppContext) -> APIRouter:
             request_id = uuid.uuid4().hex
             assistant_raw_parts: list[str] = []
             delta_seq = 0
+            terminal_event_sent = False
+            terminal_result_marked = False
+
+            async def publish_failed(reason: str, error_text: str) -> None:
+                nonlocal terminal_event_sent, terminal_result_marked
+                if not terminal_result_marked:
+                    await request_deduper.mark_failed(
+                        session_id,
+                        client_message_id,
+                        error_text,
+                    )
+                    terminal_result_marked = True
+                if not terminal_event_sent:
+                    await events_bus.publish(
+                        'assistant.message.failed',
+                        {
+                            'sessionId': session_id,
+                            'clientMessageId': client_message_id,
+                            'requestId': request_id,
+                            'messageId': assistant_message_id,
+                            'error': error_text,
+                            'reason': reason,
+                        },
+                    )
+                    terminal_event_sent = True
+
             try:
                 _LOG.info(
                     '[alicechat.chat] request_started sessionId=%s clientMessageId=%s requestId=%s route=%s',
@@ -213,6 +239,7 @@ def create_chat_router(context: AppContext) -> APIRouter:
                         'reply': assistant_visible,
                     },
                 )
+                terminal_result_marked = True
                 for item in persisted_messages:
                     await events_bus.publish(
                         'assistant.message.completed',
@@ -224,6 +251,7 @@ def create_chat_router(context: AppContext) -> APIRouter:
                             'message': item,
                         },
                     )
+                terminal_event_sent = True
                 notification_body = assistant_visible
                 if not notification_body.strip() and (result.get('images') or []):
                     notification_body = '[图片]'
@@ -251,22 +279,20 @@ def create_chat_router(context: AppContext) -> APIRouter:
                     client_message_id,
                     request_id,
                 )
-                await request_deduper.mark_failed(
-                    session_id,
-                    client_message_id,
-                    str(exc),
-                )
-                await events_bus.publish(
-                    'assistant.message.failed',
-                    {
-                        'sessionId': session_id,
-                        'clientMessageId': client_message_id,
-                        'requestId': request_id,
-                        'messageId': assistant_message_id,
-                        'error': str(exc),
-                        'reason': 'exception',
-                    },
-                )
+                await publish_failed('exception', str(exc))
+            finally:
+                if not terminal_event_sent:
+                    fallback_error = (
+                        'assistant request terminated without completed/failed terminal event '
+                        f'(requestId={request_id})'
+                    )
+                    _LOG.error(
+                        '[alicechat.chat] request_missing_terminal sessionId=%s clientMessageId=%s requestId=%s',
+                        session_id,
+                        client_message_id,
+                        request_id,
+                    )
+                    await publish_failed('missing_terminal', fallback_error)
 
         asyncio.create_task(run_job())
 

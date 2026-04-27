@@ -1,0 +1,209 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 18080
+  },
+  "desktop": {
+    "backendUrl": "http://127.0.0.1:18080"
+  },
+  "cors": {
+    "origins": [
+      "http://127.0.0.1:18080",
+      "http://localhost:18080"
+    ],
+    "originRegex": "^https?://(localhost|127\\.0\\.0\\.1)(:\\d+)?$"
+  },
+  "chat": {
+    "defaultProviderId": "live2d-channel",
+    "note": "可手动选择 OpenClaw Channel bridge，或启用 Lunaria agent。其记忆由 Mem0 管理，AGENTS.md / IDENTITY.md 从 ~/.lunaria 读取。",
+    "systemPrompt": "You are Lunaria, the speaking soul of a Live2D desktop character. Reply conversationally, warmly, and concisely in Chinese unless the user asks otherwise. You may use inline square-bracket stage directives such as [expr:Smile] and [motion:Wave:0] when they genuinely improve expression or timing.",
+    "promptInjections": [
+      {
+        "id": "live2d-tone",
+        "enabled": true,
+        "position": "append",
+        "content": "你是桌面 Live2D 伙伴，请保持友好、轻量、不过度夸张的语气；当用户情绪明显时再使用表情/动作指令。"
+      },
+      {
+        "id": "live2d-constraints",
+        "enabled": true,
+        "position": "append",
+        "content": "避免长篇大论，默认不超过 3 句；能用动作/表情补充时可少量使用 [expr:*] / [motion:*]。"
+      },
+      {
+        "id": "live2d-no-parenthetical-actions",
+        "enabled": true,
+        "position": "append",
+        "content": "不要在回复里加入括号动作描写。动作只允许用 [expr:*] / [motion:*] 表达。"
+      }
+    ],
+    "tts": {
+      "enabled": true,
+      "provider": "edge-tts",
+      "pushProvider": "edge-tts",
+      "generatePushAudio": false,
+      "softBreakMaxChars": 20,
+      "minSegmentChars": 5,
+      "providers": {
+        "edge-tts": {
+          "voice": "zh-CN-XiaoxiaoNeural",
+          "rate": "+0%",
+          "pitch": "+0Hz",
+          "volume": "+0%"
+        },
+        "gpt-sovits": {
+          "baseUrl": "http://127.0.0.1:8000",
+          "model": "GSVI-v4",
+          "voice": "",
+          "responseFormat": "wav",
+          "speed": 1.0,
+          "otherParams": {
+            "textLang": "中文",
+            "promptLang": "中文",
+            "emotion": "开心"
+          }
+        }
+      }
+    },
+    "providers": [
+      {
+        "id": "live2d-channel",
+        "type": "openclaw-channel",
+        "name": "OpenClaw Channel",
+        "bridgeUrl": "ws://127.0.0.1:18081",
+        "agent": "main",
+        "session": "live2d:direct:desktop-user"
+      },
+      {
+        "id": "lunaria-main",
+        "type": "lunaria",
+        "name": "Lunaria",
+        "baseUrl": "http://127.0.0.1:8317/v1",
+        "apiKey": "",
+        "model": "gpt-5.2",
+        "embeddingBaseUrl": "http://127.0.0.1:11434/v1",
+        "embeddingApiKey": "",
+        "embeddingModel": "text-embedding-3-small",
+        "userId": "desktop-user",
+        "promptMarkdownFiles": "",
+        "agent": "main",
+        "session": "live2d:direct:desktop-user",
+        "memoryChromaPath": "data/mem0/chroma"
+      }
+    ]
+  },
+  "models": [
+    {
+      "id": "mao_pro",
+      "name": "mao",
+      "live2d": {
+        "focusCenter": {
+          "headRatio": 0.73
+        }
+      },
+      "dir": "./models/mao_pro_en/runtime",
+      "modelJson": "mao_pro.model3.json",
+      "motionAliases": {},
+      "chatDefaults": {
+        "live2d-channel": {
+          "agent": "main",
+          "session": "live2d:direct:desktop-user"
+        }
+      },
+      "lipSyncParamId": "ParamMouthOpenY",
+      "persistentToggles": {},
+      "quickActions": [
+        {
+          "type": "motion",
+          "label": "动作 mtn_02",
+          "group": "",
+          "index": 0,
+          "status": "mtn_02.motion3.json"
+        },
+        {
+          "type": "motion",
+          "label": "动作 mtn_03",
+          "group": "",
+          "index": 1,
+          "status": "mtn_03.motion3.json"
+        },
+        {
+          "type": "motion",
+          "label": "动作 mtn_04",
+          "group": "",
+          "index": 2,
+          "status": "mtn_04.motion3.json"
+        },
+        {
+          "type": "motion",
+          "label": "特殊动作 01",
+          "group": "",
+          "index": 3,
+          "status": "special_01.motion3.json"
+        },
+        {
+          "type": "motion",
+          "label": "特殊动作 02",
+          "group": "",
+          "index": 4,
+          "status": "special_02.motion3.json"
+        },
+        {
+          "type": "motion",
+          "label": "特殊动作 03",
+          "group": "",
+          "index": 5,
+          "status": "special_03.motion3.json"
+        },
+        {
+          "type": "expression",
+          "label": "表情 exp_01",
+          "name": "exp_01",
+          "secondary": true
+        },
+        {
+          "type": "expression",
+          "label": "表情 exp_02",
+          "name": "exp_02",
+          "secondary": true
+        },
+        {
+          "type": "expression",
+          "label": "表情 exp_03",
+          "name": "exp_03",
+          "secondary": true
+        },
+        {
+          "type": "expression",
+          "label": "表情 exp_04",
+          "name": "exp_04",
+          "secondary": true
+        },
+        {
+          "type": "expression",
+          "label": "表情 exp_05",
+          "name": "exp_05",
+          "secondary": true
+        },
+        {
+          "type": "expression",
+          "label": "表情 exp_06",
+          "name": "exp_06",
+          "secondary": true
+        },
+        {
+          "type": "expression",
+          "label": "表情 exp_07",
+          "name": "exp_07",
+          "secondary": true
+        },
+        {
+          "type": "expression",
+          "label": "表情 exp_08",
+          "name": "exp_08",
+          "secondary": true
+        }
+      ]
+    }
+  ]
+}

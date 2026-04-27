@@ -33,6 +33,7 @@ class ChatSessionStore extends ChangeNotifier {
   static const int initialMessageLimit = 20;
   static const int olderMessagePageSize = 5;
   static const int latestRefreshPageSize = 20;
+  static const int maxMessagesAfterReconnect = 200;
   static const Duration sendStuckTimeout = Duration(seconds: 45);
   static const Duration eventReconnectBaseDelay = Duration(seconds: 1);
   static const Duration eventReconnectMaxDelay = Duration(seconds: 8);
@@ -48,6 +49,7 @@ class ChatSessionStore extends ChangeNotifier {
   final Map<String, Timer> _sendWatchdogs = {};
   final Map<String, Timer> _eventReconnectTimers = {};
   final Map<String, DateTime> _lastDebugLogAt = {};
+  DateTime? _lastBackendLoadLogAt;
 
   Future<void> reloadConfig() async {
     final config = await OpenClawSettingsStore.load();
@@ -351,22 +353,31 @@ class ChatSessionStore extends ChangeNotifier {
     notifyListeners();
     try {
       final afterMessageId = state.newestLoadedMessageId;
-      final page = await _loadMessagesPage(
-        sessionId,
-        limit: latestRefreshPageSize,
-        afterMessageId: afterMessageId,
-      );
-      if (page.messages.isNotEmpty) {
+      MessageLoadResult page;
+      int totalFetched = 0;
+      String? currentAfterId = afterMessageId;
+      bool hasMore = true;
+
+      while (hasMore && totalFetched < maxMessagesAfterReconnect) {
+        page = await _loadMessagesPage(
+          sessionId,
+          limit: latestRefreshPageSize,
+          afterMessageId: currentAfterId,
+        );
+        if (page.messages.isEmpty) break;
         state.mergeMessages(page.messages);
+        totalFetched += page.messages.length;
+        currentAfterId = page.newestMessageId;
+        hasMore = page.hasMoreAfter && page.messages.length >= latestRefreshPageSize;
       }
-      state
-        ..oldestLoadedMessageId =
-            page.oldestMessageId ?? state.oldestLoadedMessageId
-        ..newestLoadedMessageId =
-            page.newestMessageId ?? state.newestLoadedMessageId
-        ..error = null;
+
+      if (state.messages.isNotEmpty) {
+        state.oldestLoadedMessageId ??= state.messages.first.id;
+        state.newestLoadedMessageId = state.messages.last.id;
+      }
+      state.error = null;
       unawaited(_persistStateCache(session, state));
-      return page.messages.isNotEmpty;
+      return totalFetched > 0;
     } catch (error) {
       state.error = _humanizeError(error);
       return false;
@@ -856,20 +867,29 @@ class ChatSessionStore extends ChangeNotifier {
         _eventReconnectTimers.remove(sessionId)?.cancel();
         if (state.backendSessionId != sessionId) return;
         try {
-          final page = await _loadMessagesPage(
-            sessionId,
-            limit: latestRefreshPageSize,
-            afterMessageId: state.newestLoadedMessageId,
-          );
-          if (page.messages.isNotEmpty) {
+          MessageLoadResult? page;
+          int totalFetched = 0;
+          String? currentAfterId = state.newestLoadedMessageId;
+          bool hasMore = true;
+
+          while (hasMore && totalFetched < maxMessagesAfterReconnect) {
+            page = await _loadMessagesPage(
+              sessionId,
+              limit: latestRefreshPageSize,
+              afterMessageId: currentAfterId,
+            );
+            if (page.messages.isEmpty) break;
             state.mergeMessages(page.messages);
+            totalFetched += page.messages.length;
+            currentAfterId = page.newestMessageId;
+            hasMore = page.hasMoreAfter && page.messages.length >= latestRefreshPageSize;
           }
-          state
-            ..oldestLoadedMessageId =
-                page.oldestMessageId ?? state.oldestLoadedMessageId
-            ..newestLoadedMessageId =
-                page.newestMessageId ?? state.newestLoadedMessageId
-            ..error = null;
+
+          if (state.messages.isNotEmpty) {
+            state.oldestLoadedMessageId ??= state.messages.first.id;
+            state.newestLoadedMessageId = state.messages.last.id;
+          }
+          state.error = null;
           notifyListeners();
           unawaited(_persistStateCache(session, state));
         } catch (_) {
@@ -953,6 +973,7 @@ class ChatSessionStore extends ChangeNotifier {
     return MessageLoadResult(
       messages: chatMessages,
       hasMoreBefore: paging['hasMoreBefore'] == true,
+      hasMoreAfter: paging['hasMoreAfter'] == true,
       oldestMessageId:
           (paging['oldestMessageId'] ??
                   (chatMessages.isNotEmpty ? chatMessages.first.id : null))
@@ -1016,7 +1037,12 @@ class ChatSessionStore extends ChangeNotifier {
             .toList(growable: false),
     };
     debugPrint('[alicechat.front] ${jsonEncode(payload)}');
-    unawaited(_client.sendClientDebugLog(payload));
+    final now = DateTime.now();
+    if (_lastBackendLoadLogAt == null ||
+        now.difference(_lastBackendLoadLogAt!).inSeconds >= 5) {
+      _lastBackendLoadLogAt = now;
+      unawaited(_client.sendClientDebugLog(payload));
+    }
   }
 
   String _resolveMediaUrl(String rawUrl) {
@@ -1120,12 +1146,14 @@ class MessageLoadResult {
   const MessageLoadResult({
     required this.messages,
     required this.hasMoreBefore,
+    this.hasMoreAfter = false,
     this.oldestMessageId,
     this.newestMessageId,
   });
 
   final List<core.Message> messages;
   final bool hasMoreBefore;
+  final bool hasMoreAfter;
   final String? oldestMessageId;
   final String? newestMessageId;
 }
@@ -1180,8 +1208,13 @@ class ChatViewState {
     } else {
       list.add(message);
       list.sort(
-        (a, b) => (a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
-            .compareTo(b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)),
+        (a, b) {
+          final createdAtA = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final createdAtB = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final cmp = createdAtA.compareTo(createdAtB);
+          if (cmp != 0) return cmp;
+          return a.id.compareTo(b.id);
+        },
       );
     }
     messages = List<core.Message>.unmodifiable(list);
@@ -1200,8 +1233,13 @@ class ChatViewState {
       }
     }
     merged.sort(
-      (a, b) => (a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
-          .compareTo(b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)),
+      (a, b) {
+        final createdAtA = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final createdAtB = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final cmp = createdAtA.compareTo(createdAtB);
+        if (cmp != 0) return cmp;
+        return a.id.compareTo(b.id);
+      },
     );
     messages = List<core.Message>.unmodifiable(merged);
     if (messages.isNotEmpty) {
@@ -1332,8 +1370,13 @@ class ChatViewState {
     if (index < 0) return false;
     list[index] = confirmedMessage;
     list.sort(
-      (a, b) => (a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0))
-          .compareTo(b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0)),
+      (a, b) {
+        final createdAtA = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final createdAtB = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final cmp = createdAtA.compareTo(createdAtB);
+        if (cmp != 0) return cmp;
+        return a.id.compareTo(b.id);
+      },
     );
     messages = List<core.Message>.unmodifiable(list);
     return true;

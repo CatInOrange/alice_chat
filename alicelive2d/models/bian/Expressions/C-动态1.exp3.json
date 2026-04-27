@@ -1,0 +1,35 @@
+{
+    "Type": "Live2D Expression",
+    "Parameters": [
+        {
+            "Id": "ChestX_invertToggle",
+            "Value": 0.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ChestY_invertToggle",
+            "Value": 0.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ChestZ_invertToggle",
+            "Value": 1.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "HipX_invertToggle",
+            "Value": 1.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ShoulderZ_invertToggle",
+            "Value": 1.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "HipZ_invertToggle",
+            "Value": 0.0,
+            "Blend": "Add"
+        }
+    ]
+}

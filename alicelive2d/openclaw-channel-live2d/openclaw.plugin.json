@@ -1,0 +1,28 @@
+{
+  "id": "live2d",
+  "name": "Live2D Bridge",
+  "description": "OpenClaw channel bridge for the Live2D Python/Electron backend.",
+  "version": "0.1.0",
+  "channels": ["live2d"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "启用 Live2D channel bridge"
+      },
+      "websocketHost": {
+        "type": "string",
+        "default": "127.0.0.1",
+        "description": "WebSocket 服务器绑定的主机地址"
+      },
+      "websocketPort": {
+        "type": "number",
+        "default": 18800,
+        "description": "WebSocket 服务器绑定的端口"
+      }
+    }
+  }
+}

@@ -44,3 +44,19 @@ coverage/
 
 # Project info (local)
 PROJECT_INFO.md
+
+# Live2D 项目运行时文件
+alicelive2d/config.json
+alicelive2d/debug_logs/
+alicelive2d/data/
+
+# Live2D 模型（只保留 bian）
+alicelive2d/models/mao_pro_en/
+
+# Live2D 构建产物和依赖
+alicelive2d/desktop/node_modules/
+alicelive2d/desktop/out/
+
+# Python 缓存（通用）
+**/__pycache__/
+**/*.pyc

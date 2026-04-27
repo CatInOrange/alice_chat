@@ -94,11 +94,15 @@ class MessageStore:
         with connect(self.db) as conn:
             anchor = None
             anchor_id = str(before_message_id or after_message_id or "").strip()
+            anchor_found = None  # None=not requested, True=found, False=not found
+            has_more_before = False
+            has_more_after = False
             if anchor_id:
                 anchor = conn.execute(
                     "SELECT id, created_at FROM messages WHERE session_id=? AND id=? LIMIT 1",
                     (session_id, anchor_id),
                 ).fetchone()
+                anchor_found = anchor is not None
 
             if before_message_id and anchor is not None:
                 rows = conn.execute(
@@ -139,6 +143,7 @@ class MessageStore:
                     ),
                 ).fetchall()
                 has_more_before = False
+                has_more_after = len(rows) > page_limit
                 selected = list(rows[:page_limit])
             else:
                 rows = conn.execute(
@@ -155,15 +160,18 @@ class MessageStore:
                 selected = list(reversed(rows[:page_limit]))
 
         items = [self._row_to_message(r) for r in selected]
+        paging = {
+            "limit": page_limit,
+            "hasMoreBefore": has_more_before,
+            "hasMoreAfter": has_more_after if anchor_found is not None else None,
+            "oldestMessageId": items[0]["id"] if items else None,
+            "newestMessageId": items[-1]["id"] if items else None,
+        }
+        if anchor_found is not None:
+            paging["anchorFound"] = anchor_found
         return {
             "messages": items,
-            "paging": {
-                "limit": page_limit,
-                "hasMoreBefore": has_more_before,
-                "hasMoreAfter": False,
-                "oldestMessageId": items[0]["id"] if items else None,
-                "newestMessageId": items[-1]["id"] if items else None,
-            },
+            "paging": paging,
         }
 
     def create_message(

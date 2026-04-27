@@ -1,0 +1,29 @@
+{
+  "id": "builtin.screenshot",
+  "name": "Screenshot",
+  "version": "0.1.0",
+  "description": "Capture screen and optionally send to AI/user.",
+  "capabilities": [
+    {
+      "name": "screenshot.capture",
+      "description": "Capture primary screen as an image.",
+      "argsSchema": {
+        "type": "object",
+        "properties": {
+          "sendTo": { "type": "string", "enum": ["ai", "user", "both"] },
+          "note": { "type": "string" }
+        },
+        "required": ["sendTo"]
+      },
+      "resultSchema": {
+        "type": "object",
+        "properties": {
+          "image": { "type": "object" },
+          "sent": { "type": "string" }
+        }
+      },
+      "permissions": ["desktop.captureScreen", "chat.sendToAI", "ui.sendToUser"],
+      "entry": "./index.js#capture"
+    }
+  ]
+}

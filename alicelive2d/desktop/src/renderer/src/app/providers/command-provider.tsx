@@ -1,0 +1,1632 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import i18n from "@/i18n";
+import { toaster } from "@/shared/ui/toaster";
+import { useConfig } from "@/context/character-config-context";
+import { ModelInfo, useLive2DConfig } from "@/context/live2d-config-context";
+import { useMode } from "@/context/mode-context";
+import {
+  attachmentToChatInput,
+  ComposerAttachment,
+  createComposerAttachmentId,
+  dataUrlToFile,
+  dataUrlToComposerAttachment,
+  fileToComposerAttachment,
+  getQuickActionLabel,
+  RuntimeRect,
+  useAppStore,
+} from "@/domains/renderer-store";
+import { AiStateEnum, useVoiceStore } from "@/domains/voice/store";
+import { createTempFileComposerAttachment } from "@/runtime/composer-attachment-utils.ts";
+import { shouldRunAutomationRule } from "@/runtime/automation-utils.ts";
+import { resolveAssistantDisplayName } from "@/runtime/assistant-display-utils.ts";
+import {
+  beginBackendConnectionSession,
+  shouldApplyBackendConnectionUpdate,
+  shouldPreferConfiguredBackendUrl,
+} from "@/runtime/backend-connection-utils.ts";
+import { getConnectionStateAfterChatError } from "@/runtime/chat-runtime-utils.ts";
+import {
+  dispatchChatPlaybackActions,
+} from "@/runtime/chat-playback-actions.ts";
+import { createSpeechPlaybackController } from "@/runtime/chat-speech-playback.ts";
+import { resolveFocusCenterConfig } from "@/runtime/focus-center-utils.ts";
+import { getManifestHydrationState } from "@/runtime/manifest-hydration-utils.ts";
+import { resolveProviderFieldState } from "@/runtime/provider-field-state.ts";
+import { getProviderOverridesPayload } from "@/runtime/provider-overrides.ts";
+import {
+  buildOptimisticChatSendState,
+  createOptimisticChatMessage,
+} from "@/runtime/chat-send-lifecycle.ts";
+import { reduceChatStreamEvent } from "@/runtime/chat-stream-event-handlers.ts";
+import {
+  shouldUseGlobalCursorTracking,
+  toRendererPointerFromScreenPoint,
+} from "@/runtime/global-cursor-utils.ts";
+import {
+  createRealtimeLipSyncCleanup,
+  getActiveLive2DModel,
+  getLipSyncPlaybackMode,
+} from "@/runtime/live2d-audio-utils.ts";
+import {
+  shouldFocusRealtimeSession,
+  shouldSpeakRealtimeMessage,
+} from "@/runtime/speech-runtime-utils.ts";
+import {
+  applyFocusCenter,
+  applyPersistentToggleState,
+  applyStageDirectives,
+  getModelBounds,
+  playExpression,
+  playMotion,
+  setTrackedPointerPosition,
+} from "@/runtime/live2d-bridge";
+import { audioManager } from "@/utils/audio-manager";
+import {
+  resolvePetAnchorUpdate,
+  shouldUpdatePetAnchor,
+} from "@/runtime/pet-shell-interaction-utils.ts";
+import { createPluginRuntime } from "@/runtime/plugin-runtime";
+import {
+  buildBackendUrl,
+  ChatAttachmentInput,
+  ChatStreamEvent,
+  LunariaAttachment,
+  LunariaManifest,
+  LunariaMessage,
+  createSession,
+  fetchManifest,
+  fetchMessages,
+  fetchSessions,
+  normalizeBaseUrl,
+  openEventsStream,
+  requestTts,
+  selectSession,
+  streamChat,
+} from "@/platform/backend/openclaw-api";
+
+interface RendererCommandContextValue {
+  reconnect: () => Promise<void>;
+  createNewSession: () => Promise<void>;
+  loadSession: (sessionId: string) => Promise<void>;
+  sendComposerMessage: () => Promise<void>;
+  interrupt: () => void;
+  switchModel: (modelId: string) => Promise<void>;
+  setProviderFieldValue: (providerId: string, fieldKey: string, value: string) => void;
+  addFiles: (files: FileList | File[]) => Promise<void>;
+  addClipboardItems: (items: DataTransferItemList | DataTransferItem[]) => Promise<void>;
+  capturePrimaryScreenAttachment: () => Promise<void>;
+  startScreenshotSelection: () => Promise<void>;
+  closeScreenshotSelection: () => void;
+  addCaptureDataUrl: (dataUrl: string, filename?: string) => Promise<void>;
+  createPendingCaptureAttachment: (filename?: string) => string;
+  resolvePendingCaptureAttachment: (attachmentId: string, payload: string | {
+    fileUrl: string;
+    cleanupToken: string;
+    mimeType: string;
+  }, filename?: string) => void;
+  failPendingCaptureAttachment: (attachmentId: string) => void;
+  executeQuickAction: (action: Record<string, unknown>) => Promise<void>;
+  executeMotion: (group: string, index?: number) => Promise<void>;
+  executeExpression: (name: string) => Promise<void>;
+  refreshPlugins: () => Promise<void>;
+  setBackgroundFromFile: (mode: "window" | "pet", file: File) => Promise<void>;
+  clearBackground: (mode: "window" | "pet") => void;
+  runAutomationProactive: (reason?: "manual" | "scheduled") => Promise<void>;
+  runAutomationScreenshot: (reason?: "manual" | "scheduled") => Promise<void>;
+  stopAutomationMusic: () => Promise<void>;
+}
+
+const RendererCommandContext = createContext<RendererCommandContextValue | null>(null);
+
+function mapManifestToModelInfo(
+  manifest: LunariaManifest,
+  backendUrl: string,
+): ModelInfo {
+  const expressions = manifest.model.expressions || [];
+  const defaultEmotion = expressions.find((expression) => {
+    const name = String(expression.name || "").trim().toLowerCase();
+    return ["default", "normal", "neutral", "idle", "base", "standard"].includes(name);
+  })?.name;
+
+  return {
+    name: manifest.model.name,
+    url: buildBackendUrl(backendUrl, manifest.model.modelJson),
+    kScale: 0.5,
+    initialXshift: 0,
+    initialYshift: 0,
+    idleMotionGroupName: "Idle",
+    defaultEmotion,
+    emotionMap: Object.fromEntries(
+      expressions.map((expression) => [expression.name, expression.name]),
+    ),
+    lipSyncParamId: manifest.model.lipSyncParamId || "ParamMouthOpenY",
+    pointerInteractive: true,
+    scrollToResize: true,
+  };
+}
+
+function resolveAttachmentUrl(attachment: LunariaAttachment): string {
+  const mimeType = attachment.mimeType || "application/octet-stream";
+  if (attachment.url) {
+    return attachment.url;
+  }
+  if (attachment.data) {
+    return attachment.data.startsWith("data:")
+      ? attachment.data
+      : `data:${mimeType};base64,${attachment.data}`;
+  }
+  return "";
+}
+
+function findFirstAudioAttachmentUrl(backendUrl: string, message: LunariaMessage): string {
+  for (const attachment of message.attachments || []) {
+    const mimeType = String(attachment.mimeType || "").toLowerCase();
+    const kind = String(attachment.kind || "").toLowerCase();
+    if (!mimeType.startsWith("audio/") && kind !== "audio") {
+      continue;
+    }
+
+    const url = resolveAttachmentUrl(attachment);
+    if (!url) {
+      continue;
+    }
+    return /^https?:\/\//i.test(url) || url.startsWith("data:")
+      ? url
+      : buildBackendUrl(backendUrl, url);
+  }
+  return "";
+}
+
+function buildPetAnchor(
+  bounds: RuntimeRect | null,
+  workArea: { x: number; y: number; width: number; height: number },
+  virtualBounds: { x: number; y: number; width: number; height: number },
+  expanded: boolean,
+): { x: number; y: number } {
+  const cardWidth = expanded ? 420 : 340;
+  const cardHeight = expanded ? 540 : 380;
+  const relativeWorkArea = {
+    x: workArea.x - virtualBounds.x,
+    y: workArea.y - virtualBounds.y,
+    width: workArea.width,
+    height: workArea.height,
+  };
+
+  if (!bounds) {
+    return {
+      x: Math.max(16, relativeWorkArea.x + relativeWorkArea.width - cardWidth - 24),
+      y: Math.max(16, relativeWorkArea.y + relativeWorkArea.height - cardHeight - 32),
+    };
+  }
+
+  const rightCandidate = bounds.right + 20;
+  const leftCandidate = bounds.left - cardWidth - 20;
+  const maxX = relativeWorkArea.x + relativeWorkArea.width - cardWidth - 16;
+  const minX = relativeWorkArea.x + 16;
+  let x = clamp(rightCandidate, minX, maxX);
+  if (rightCandidate > maxX && leftCandidate >= minX) {
+    x = leftCandidate;
+  }
+
+  const y = clamp(
+    bounds.bottom - cardHeight + 60,
+    relativeWorkArea.y + 16,
+    relativeWorkArea.y + relativeWorkArea.height - cardHeight - 16,
+  );
+
+  return { x, y };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function normalizePluginAttachments(
+  attachments: Array<{
+    preview?: string;
+    data?: string;
+    mediaType?: string;
+    filename?: string;
+    type?: "base64" | "url";
+  }>,
+): ComposerAttachment[] {
+  return (attachments || [])
+    .map((attachment) => {
+      if (attachment.preview) {
+        return dataUrlToComposerAttachment(
+          attachment.preview,
+          attachment.filename || "plugin-attachment",
+        );
+      }
+
+      if (attachment.data && attachment.mediaType) {
+        return dataUrlToComposerAttachment(
+          `data:${attachment.mediaType};base64,${attachment.data}`,
+          attachment.filename || "plugin-attachment",
+        );
+      }
+
+      return null;
+    })
+    .filter((item): item is ComposerAttachment => Boolean(item));
+}
+
+export function RendererCommandProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const backendUrl = useAppStore((state) => state.backendUrl);
+  const manifest = useAppStore((state) => state.manifest);
+  const focusCenterByModel = useAppStore((state) => state.focusCenterByModel);
+  const currentModelBounds = useAppStore((state) => state.currentModelBounds);
+  const petAnchor = useAppStore((state) => state.petAnchor);
+  const petAnchorLocked = useAppStore((state) => state.petAnchorLocked);
+  const petExpanded = useAppStore((state) => state.petExpanded);
+  const currentSessionId = useAppStore((state) => state.currentSessionId);
+  const { modelInfo, setModelInfo } = useLive2DConfig();
+  const { confName, setConfName, setConfUid, setConfigFiles } = useConfig();
+  const { mode } = useMode();
+  const setAiState = useVoiceStore((state) => state.setAiState);
+  const setForceIgnoreMouse = useVoiceStore((state) => state.setForceIgnoreMouse);
+
+  const normalizedBackendUrl = normalizeBaseUrl(backendUrl);
+  const currentAbortRef = useRef<AbortController | null>(null);
+  const eventsCleanupRef = useRef<(() => void) | null>(null);
+  const eventsReadyRef = useRef(false);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const backendConnectionStoreRef = useRef({ activeSessionId: 0 });
+  const musicAudioRef = useRef<HTMLAudioElement | null>(null);
+  const currentSessionRef = useRef<string | null>(null);
+  const pluginRuntimeRef = useRef<ReturnType<typeof createPluginRuntime> | null>(null);
+  const speechPlaybackContextRef = useRef({
+    normalizedBackendUrl,
+    getCurrentTtsOverrides: () => ({}),
+  });
+  const speechPlaybackRef = useRef<ReturnType<typeof createSpeechPlaybackController> | null>(null);
+  const streamingActionsRef = useRef<unknown[]>([]);
+  const sendPayloadRef = useRef<((payload: {
+    text: string;
+    attachments?: ChatAttachmentInput[];
+    clearComposer?: boolean;
+    throwOnError?: boolean;
+    messageSource?: "chat" | "tool" | "automation";
+    allowMusicActions?: boolean;
+    showUserBubble?: boolean;
+    systemNote?: string;
+    assistantMeta?: string;
+  }) => Promise<void>) | null>(null);
+  const [petOverlayBounds, setPetOverlayBounds] = useState<{
+    workArea: { x: number; y: number; width: number; height: number };
+    virtualBounds: { x: number; y: number; width: number; height: number };
+  } | null>(null);
+  const currentModelId = manifest?.selectedModelId || manifest?.model.id || "";
+  const assistantDisplayName = resolveAssistantDisplayName({
+    configName: confName,
+    manifestName: manifest?.model.name,
+  });
+  const currentFocusCenter = resolveFocusCenterConfig({
+    manifest,
+    focusCenterByModel,
+    modelId: currentModelId,
+  });
+
+  useEffect(() => {
+    currentSessionRef.current = currentSessionId;
+  }, [currentSessionId]);
+
+  useEffect(() => {
+    let disposed = false;
+
+    const hydrateConfiguredBackendUrl = async () => {
+      try {
+        const configuredBackendUrl = String(
+          await window.api?.getConfiguredBackendUrl?.() || "",
+        ).trim();
+        if (disposed) {
+          return;
+        }
+
+        const currentBackendUrl = useAppStore.getState().backendUrl;
+        if (!shouldPreferConfiguredBackendUrl({
+          currentUrl: currentBackendUrl,
+          configuredUrl: configuredBackendUrl,
+        })) {
+          return;
+        }
+
+        useAppStore.getState().setBackendUrl(configuredBackendUrl);
+      } catch (error) {
+        console.warn("Failed to hydrate configured backend URL:", error);
+      }
+    };
+
+    void hydrateConfiguredBackendUrl();
+
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  const createConnectionUpdateGuard = useCallback(
+    (sessionId: number, isDisposed: () => boolean) => () => shouldApplyBackendConnectionUpdate({
+      sessionId,
+      store: backendConnectionStoreRef.current,
+      isDisposed: isDisposed(),
+    }),
+    [],
+  );
+
+  const playMusic = useCallback(async ({ url }: { url?: string; trackId?: string }) => {
+    const automationMusic = useAppStore.getState().automation.music;
+    const targetUrl = String(url || automationMusic.defaultUrl || "").trim();
+    if (!targetUrl) {
+      useAppStore.getState().appendAutomationLog("AI 请求播放音乐，但未配置音乐 URL", "warn");
+      return;
+    }
+    if (musicAudioRef.current) {
+      musicAudioRef.current.pause();
+      musicAudioRef.current.src = "";
+    }
+    const audio = new Audio(
+      /^https?:\/\//i.test(targetUrl) || targetUrl.startsWith("data:")
+        ? targetUrl
+        : buildBackendUrl(normalizedBackendUrl, targetUrl),
+    );
+    audio.loop = !!automationMusic.loop;
+    audio.volume = Number(automationMusic.volume ?? 0.35);
+    musicAudioRef.current = audio;
+    await audio.play().catch((error) => {
+      useAppStore.getState().appendAutomationLog(`播放音乐失败：${error}`, "error");
+      toaster.create({
+        title: `音乐播放失败: ${error}`,
+        type: "error",
+        duration: 2400,
+      });
+    });
+    useAppStore.getState().appendAutomationLog(`已播放音乐：${targetUrl}`);
+  }, [normalizedBackendUrl]);
+
+  const stopMusic = useCallback(() => {
+    if (musicAudioRef.current) {
+      musicAudioRef.current.pause();
+      musicAudioRef.current.src = "";
+      musicAudioRef.current = null;
+    }
+    useAppStore.getState().appendAutomationLog("已停止自动化音乐");
+  }, []);
+
+  const getCurrentTtsOverrides = useCallback(() => {
+    const state = useAppStore.getState();
+    const ttsProviderConfig = state.manifest?.model.chat.tts.providers.find((item) => item.id === state.ttsProvider) || null;
+    return getProviderOverridesPayload(ttsProviderConfig, state.providerFieldValues, { nestKey: "ttsOverrides" });
+  }, []);
+
+  speechPlaybackContextRef.current = {
+    normalizedBackendUrl,
+    getCurrentTtsOverrides,
+  };
+
+  if (!speechPlaybackRef.current) {
+    speechPlaybackRef.current = createSpeechPlaybackController({
+      getContext: () => {
+        const state = useAppStore.getState();
+        return {
+          normalizedBackendUrl: speechPlaybackContextRef.current.normalizedBackendUrl,
+          ttsEnabled: state.ttsEnabled,
+          ttsProvider: state.ttsProvider,
+          ttsOverrides: speechPlaybackContextRef.current.getCurrentTtsOverrides(),
+        };
+      },
+      requestTts,
+      applyStageDirectives,
+      stopCurrentAudio: () => {
+        audioManager.stopCurrentAudioAndLipSync();
+      },
+      createAudio: (source) => new Audio(source),
+      getActiveLive2DModel,
+      buildBackendUrl,
+      audioManager: {
+        setCurrentAudio: (audio, model, cleanup) => {
+          audioManager.setCurrentAudio(audio as HTMLAudioElement, model, cleanup);
+        },
+        clearCurrentAudio: (audio) => {
+          audioManager.clearCurrentAudio(audio as HTMLAudioElement);
+        },
+      },
+      getLipSyncPlaybackMode,
+      createRealtimeLipSyncCleanup: (audio, model) => (
+        createRealtimeLipSyncCleanup(audio as HTMLAudioElement, model)
+      ),
+      createObjectUrl: (blob) => URL.createObjectURL(blob),
+      revokeObjectUrl: (source) => {
+        URL.revokeObjectURL(source);
+      },
+      onQueueError: (error) => {
+        console.warn("Speech queue failed:", error);
+      },
+    });
+  }
+  const speechPlayback = speechPlaybackRef.current;
+
+  const appendLocalAssistantMessage = useCallback((
+    text: string,
+    attachments: ComposerAttachment[] = [],
+  ) => {
+    const state = useAppStore.getState();
+    const sessionId = state.currentSessionId;
+    if (!sessionId) {
+      return;
+    }
+
+    const message = createOptimisticChatMessage({
+      sessionId,
+      role: "assistant",
+      text,
+      attachments: attachments.map((attachment) => ({
+        kind: attachment.kind,
+        mimeType: attachment.mimeType,
+        filename: attachment.filename,
+        data: attachment.data,
+      })),
+      source: "plugin",
+    });
+    state.appendMessageForSession(sessionId, message);
+  }, []);
+
+  const sendPayload = useCallback(async (payload: {
+    text: string;
+    attachments?: ChatAttachmentInput[];
+    clearComposer?: boolean;
+    messageSource?: string;
+    allowMusicActions?: boolean;
+    throwOnError?: boolean;
+    showUserBubble?: boolean;
+    systemNote?: string;
+    assistantMeta?: string;
+  }) => {
+    const state = useAppStore.getState();
+    const activeManifest = state.manifest;
+    if (!activeManifest) {
+      return;
+    }
+
+    let sessionId = state.currentSessionId;
+    if (!sessionId) {
+      const created = await createSession(normalizedBackendUrl);
+      sessionId = created.id;
+      state.setSessions([created, ...state.sessions]);
+      state.setCurrentSessionId(created.id);
+    }
+
+    const provider = activeManifest.model.chat.providers.find((item) => item.id === state.currentProviderId)
+      || activeManifest.model.chat.providers[0]
+      || null;
+    const providerId = provider?.id || activeManifest.model.chat.defaultProviderId;
+
+    if (payload.clearComposer !== false) {
+      state.clearComposer();
+    }
+
+    const optimisticState = buildOptimisticChatSendState({
+      sessionId,
+      text: payload.text,
+      attachments: payload.attachments || [],
+      systemNote: payload.systemNote,
+      showUserBubble: payload.showUserBubble !== false,
+    });
+    for (const optimisticMessage of optimisticState.optimisticMessages) {
+      state.appendMessageForSession(sessionId, optimisticMessage);
+    }
+    state.setStreamingMessage(optimisticState.streamingMessage);
+    state.setConnectionState("connecting");
+    state.setSubtitle("");
+    setAiState(AiStateEnum.THINKING_SPEAKING);
+    streamingActionsRef.current = [];
+
+    const abortController = new AbortController();
+    currentAbortRef.current = abortController;
+
+    try {
+      await streamChat(
+        normalizedBackendUrl,
+        {
+          sessionId,
+          modelId: activeManifest.selectedModelId,
+          providerId,
+          text: payload.text,
+          attachments: payload.attachments,
+          ttsEnabled: state.ttsEnabled,
+          ttsProvider: state.ttsProvider,
+          assistantMeta: payload.assistantMeta,
+          messageSource: payload.messageSource || "chat",
+          ...getProviderOverridesPayload(provider, state.providerFieldValues),
+          ...getCurrentTtsOverrides(),
+        },
+        {
+          signal: abortController.signal,
+          onEvent: (event: ChatStreamEvent) => {
+            if (event.event === "chunk") {
+              useAppStore.setState((current) => ({
+                ...(() => {
+                  const reduced = reduceChatStreamEvent({
+                    event,
+                    streamingMessage: current.streamingMessage,
+                    subtitle: current.subtitle,
+                    actions: streamingActionsRef.current,
+                  });
+                  return {
+                    streamingMessage: reduced.streamingMessage,
+                    subtitle: reduced.subtitle,
+                  };
+                })(),
+              }));
+              return;
+            }
+
+            const currentState = useAppStore.getState();
+            const reduced = reduceChatStreamEvent({
+              event,
+              streamingMessage: currentState.streamingMessage,
+              subtitle: currentState.subtitle,
+              actions: streamingActionsRef.current,
+            });
+            streamingActionsRef.current = reduced.actions;
+
+            if (reduced.error) {
+              throw new Error(reduced.error);
+            }
+
+            if (reduced.subtitle !== currentState.subtitle) {
+              currentState.setSubtitle(reduced.subtitle);
+            }
+
+            if (reduced.timelineUnit) {
+              const unit = reduced.timelineUnit;
+              speechPlayback.enqueue({
+                text: unit.text || "",
+                audioUrl: unit.audioUrl
+                  ? buildBackendUrl(normalizedBackendUrl, unit.audioUrl)
+                  : "",
+                audioMimeType: unit.contentType || "",
+                directives: unit.directives || [],
+                mode: "chat",
+              });
+              return;
+            }
+          },
+        },
+      );
+
+      const nextMessages = await fetchMessages(normalizedBackendUrl, sessionId);
+      useAppStore.getState().commitMessagesForSession(sessionId, nextMessages);
+      useAppStore.getState().setConnectionState("open");
+      const refreshed = await fetchSessions(normalizedBackendUrl);
+      useAppStore.getState().setSessions(refreshed.sessions || []);
+      await dispatchChatPlaybackActions({
+        pluginRuntime: pluginRuntimeRef.current,
+        actions: streamingActionsRef.current,
+        allowMusicActions: payload.allowMusicActions ?? true,
+        playMusic,
+        stopMusic,
+      });
+      streamingActionsRef.current = [];
+      await speechPlayback.waitForIdle((error) => {
+        console.warn("Speech queue failed while finishing chat:", error);
+      });
+      setAiState(AiStateEnum.IDLE);
+    } catch (error) {
+      if ((error as Error)?.name !== "AbortError") {
+        const errorName = (error as Error)?.name || "Error";
+        const errorMessage = (error as Error)?.message || String(error);
+        console.error("[chat] send failed", {
+          backendUrl: normalizedBackendUrl,
+          sessionId,
+          modelId: activeManifest.selectedModelId,
+          providerId,
+          payload: {
+            text: payload.text,
+            attachmentCount: payload.attachments?.length || 0,
+            messageSource: payload.messageSource || "chat",
+            ttsEnabled: state.ttsEnabled,
+            ttsProvider: state.ttsProvider,
+          },
+          error,
+          errorName,
+          errorMessage,
+        });
+        toaster.create({
+          title: `聊天失败: ${errorName}: ${errorMessage}`,
+          type: "error",
+          duration: 3600,
+        });
+        setAiState(AiStateEnum.IDLE);
+      }
+      useAppStore.getState().setConnectionState(
+        getConnectionStateAfterChatError(error as Error | { name?: string } | null | undefined),
+      );
+      useAppStore.getState().setStreamingMessage(null);
+      if (payload.throwOnError) {
+        throw error;
+      }
+    } finally {
+      currentAbortRef.current = null;
+    }
+  }, [normalizedBackendUrl, playMusic, setAiState, speechPlayback, stopMusic]);
+
+  useEffect(() => {
+    sendPayloadRef.current = sendPayload;
+  }, [assistantDisplayName, sendPayload]);
+
+  if (!pluginRuntimeRef.current) {
+    pluginRuntimeRef.current = createPluginRuntime({
+      listPlugins: async () => {
+        if (!window.api?.listPlugins) {
+          return { items: [] };
+        }
+        const payload = await window.api.listPlugins();
+        return { items: payload.items };
+      },
+      sendToAI: async (payload) => {
+        await sendPayloadRef.current?.({
+          text: payload.text || "",
+          attachments: payload.attachments || [],
+          clearComposer: false,
+          messageSource: "tool",
+        });
+      },
+      sendToUser: (text, attachments) => {
+        appendLocalAssistantMessage(text, normalizePluginAttachments(attachments || []));
+      },
+      capturePrimaryScreen: async () => window.api?.capturePrimaryScreen?.() || null,
+      onLog: (message) => useAppStore.getState().appendPluginLog(message),
+    });
+  }
+
+  const refreshPlugins = useCallback(async () => {
+    useAppStore.getState().setPluginLoadState("loading");
+    try {
+      const items = await pluginRuntimeRef.current?.refreshCatalog();
+      useAppStore.getState().setPlugins((items || []) as any);
+      useAppStore.getState().setPluginLoadState("ready");
+    } catch (error) {
+      useAppStore.getState().setPluginLoadState("error");
+      useAppStore.getState().appendPluginLog(`Plugin refresh failed: ${error}`);
+    }
+  }, []);
+
+  const loadSession = useCallback(async (
+    sessionId: string,
+    options?: { shouldApply?: () => boolean },
+  ) => {
+    if (!sessionId) {
+      return;
+    }
+    await selectSession(normalizedBackendUrl, sessionId);
+    if (options?.shouldApply && !options.shouldApply()) {
+      return;
+    }
+    const messages = await fetchMessages(normalizedBackendUrl, sessionId);
+    if (options?.shouldApply && !options.shouldApply()) {
+      return;
+    }
+    useAppStore.getState().setCurrentSessionId(sessionId);
+    useAppStore.getState().setMessagesForSession(sessionId, messages);
+  }, [normalizedBackendUrl]);
+
+  const reconnect = useCallback(async (
+    sessionId?: number,
+    isDisposed: () => boolean = () => false,
+  ) => {
+    const connectionSessionId = typeof sessionId === "number"
+      ? sessionId
+      : beginBackendConnectionSession(backendConnectionStoreRef.current);
+    const shouldApply = createConnectionUpdateGuard(connectionSessionId, isDisposed);
+
+    if (!shouldApply()) {
+      return;
+    }
+
+    setAiState(AiStateEnum.LOADING);
+    useAppStore.getState().setConnectionState("connecting");
+    try {
+      const nextManifest = await fetchManifest(normalizedBackendUrl);
+      if (!shouldApply()) {
+        return;
+      }
+      const nextProviderFieldState = resolveProviderFieldState({
+        manifest: nextManifest,
+        previousValues: useAppStore.getState().providerFieldValues,
+        previousManifestValues: useAppStore.getState().providerFieldManifestValues,
+      });
+      useAppStore.getState().setProviderFieldValues(nextProviderFieldState.values);
+      useAppStore.getState().setProviderFieldManifestValues(nextProviderFieldState.manifestValues);
+      useAppStore.getState().hydrateManifest(nextManifest);
+
+      let sessionsPayload = await fetchSessions(normalizedBackendUrl);
+      if (!shouldApply()) {
+        return;
+      }
+      if (!(sessionsPayload.sessions || []).length) {
+        await createSession(normalizedBackendUrl);
+        if (!shouldApply()) {
+          return;
+        }
+        sessionsPayload = await fetchSessions(normalizedBackendUrl);
+        if (!shouldApply()) {
+          return;
+        }
+      }
+
+      useAppStore.getState().setSessions(sessionsPayload.sessions || []);
+      const targetSessionId = useAppStore.getState().currentSessionId
+        && sessionsPayload.sessions.some((session) => session.id === useAppStore.getState().currentSessionId)
+        ? useAppStore.getState().currentSessionId
+        : sessionsPayload.currentId || sessionsPayload.sessions?.[0]?.id || null;
+
+      if (targetSessionId) {
+        await loadSession(targetSessionId, { shouldApply });
+      }
+
+      if (!shouldApply()) {
+        return;
+      }
+
+      await refreshPlugins();
+      if (!shouldApply()) {
+        return;
+      }
+      useAppStore.getState().setConnectionState("open");
+      setAiState(AiStateEnum.IDLE);
+    } catch (error) {
+      if (!shouldApply()) {
+        return;
+      }
+      const err = error as Error;
+      console.error('[reconnect] failed', {
+        backendUrl: normalizedBackendUrl,
+        error,
+        errorName: err?.name || 'Error',
+        errorMessage: err?.message || String(error),
+      });
+      try {
+        void fetch('/api/debug/frontend-error', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ts: Date.now(),
+            source: 'frontend-reconnect',
+            backendUrl: normalizedBackendUrl,
+            errorName: err?.name || 'Error',
+            errorMessage: err?.message || String(error),
+          }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch {
+        // noop
+      }
+      useAppStore.getState().setConnectionState("error");
+      toaster.create({
+        title: `连接后端失败: ${error}`,
+        type: "error",
+        duration: 3200,
+      });
+    }
+  }, [createConnectionUpdateGuard, loadSession, normalizedBackendUrl, refreshPlugins, setAiState]);
+
+  const startEventsStream = useCallback((
+    sessionId?: number,
+    isDisposed: () => boolean = () => false,
+  ) => {
+    const connectionSessionId = typeof sessionId === "number"
+      ? sessionId
+      : beginBackendConnectionSession(backendConnectionStoreRef.current);
+    const shouldApply = createConnectionUpdateGuard(connectionSessionId, isDisposed);
+
+    if (eventsCleanupRef.current) {
+      eventsCleanupRef.current();
+      eventsCleanupRef.current = null;
+    }
+    eventsReadyRef.current = false;
+
+    eventsCleanupRef.current = openEventsStream(normalizedBackendUrl, {
+      since: useAppStore.getState().lastEventSeq,
+      onOpen: () => {
+        if (!shouldApply()) {
+          return;
+        }
+        reconnectAttemptRef.current = 0;
+        useAppStore.getState().setConnectionState("open");
+      },
+      onError: () => {
+        if (!shouldApply()) {
+          return;
+        }
+        useAppStore.getState().setConnectionState("error");
+        if (reconnectTimerRef.current) {
+          window.clearTimeout(reconnectTimerRef.current);
+        }
+        const delay = Math.min(15000, 1000 * 2 ** reconnectAttemptRef.current);
+        reconnectAttemptRef.current += 1;
+        reconnectTimerRef.current = window.setTimeout(() => {
+          if (!shouldApply()) {
+            return;
+          }
+          startEventsStream(connectionSessionId, isDisposed);
+        }, delay);
+      },
+      onEvent: async (event) => {
+        if (!shouldApply()) {
+          return;
+        }
+        useAppStore.getState().setLastEventSeq(Number(event.seq || 0));
+        if (event.type === "stream.ready") {
+          eventsReadyRef.current = true;
+          return;
+        }
+        if (event.type !== "message.created") {
+          return;
+        }
+
+        const incoming = event.payload?.message as LunariaMessage | undefined;
+        if (!incoming?.id || !incoming.sessionId) {
+          return;
+        }
+
+        useAppStore.getState().upsertMessageForSession(incoming.sessionId, incoming);
+
+        if (shouldFocusRealtimeSession(incoming, currentSessionRef.current, eventsReadyRef.current)) {
+          try {
+            await loadSession(incoming.sessionId, { shouldApply });
+          } catch (error) {
+            console.warn("Failed to focus push session after realtime message:", error);
+          }
+        }
+
+        if (incoming.sessionId === currentSessionRef.current) {
+          const audioUrl = findFirstAudioAttachmentUrl(normalizedBackendUrl, incoming);
+          if (shouldSpeakRealtimeMessage(incoming, currentSessionRef.current, eventsReadyRef.current)) {
+            speechPlayback.enqueue({
+              text: audioUrl ? "" : incoming.text,
+              audioUrl,
+              mode: incoming.source === "push" ? "push" : "chat",
+            });
+          }
+        }
+
+        try {
+          const sessionsPayload = await fetchSessions(normalizedBackendUrl);
+          if (!shouldApply()) {
+            return;
+          }
+          useAppStore.getState().setSessions(sessionsPayload.sessions || []);
+        } catch (error) {
+          console.warn("Failed to refresh sessions after realtime message:", error);
+        }
+      },
+    });
+  }, [createConnectionUpdateGuard, loadSession, normalizedBackendUrl, speechPlayback]);
+
+  const createNewSession = useCallback(async () => {
+    const created = await createSession(normalizedBackendUrl);
+    const sessionsPayload = await fetchSessions(normalizedBackendUrl);
+    useAppStore.getState().setSessions(sessionsPayload.sessions || []);
+    await loadSession(created.id);
+  }, [loadSession, normalizedBackendUrl]);
+
+  const interrupt = useCallback(() => {
+    currentAbortRef.current?.abort();
+    currentAbortRef.current = null;
+    speechPlayback.interrupt();
+    useAppStore.getState().setStreamingMessage(null);
+    useAppStore.getState().setConnectionState("idle");
+    setAiState(AiStateEnum.INTERRUPTED);
+    stopMusic();
+  }, [setAiState, speechPlayback, stopMusic]);
+
+  const switchModel = useCallback(async (modelId: string) => {
+    setAiState(AiStateEnum.LOADING);
+    const nextManifest = await fetchManifest(normalizedBackendUrl, modelId);
+    const nextProviderFieldState = resolveProviderFieldState({
+      manifest: nextManifest,
+      previousValues: useAppStore.getState().providerFieldValues,
+      previousManifestValues: useAppStore.getState().providerFieldManifestValues,
+    });
+    useAppStore.getState().setProviderFieldValues(nextProviderFieldState.values);
+    useAppStore.getState().setProviderFieldManifestValues(nextProviderFieldState.manifestValues);
+    useAppStore.getState().hydrateManifest(nextManifest);
+    setAiState(AiStateEnum.IDLE);
+  }, [normalizedBackendUrl, setAiState]);
+
+  const setProviderFieldValue = useCallback((providerId: string, fieldKey: string, value: string) => {
+    useAppStore.getState().setProviderFieldValue(providerId, fieldKey, value);
+  }, []);
+
+  const addFiles = useCallback(async (files: FileList | File[]) => {
+    const list = Array.from(files || []);
+    const attachments = await Promise.all(list.map((file) => fileToComposerAttachment(file)));
+    for (const attachment of attachments) {
+      useAppStore.getState().addComposerAttachment(attachment);
+    }
+  }, []);
+
+  const addClipboardItems = useCallback(async (items: DataTransferItemList | DataTransferItem[]) => {
+    const nextFiles: File[] = [];
+    for (const item of Array.from(items || [])) {
+      const file = "getAsFile" in item ? item.getAsFile() : null;
+      if (file) {
+        nextFiles.push(file);
+      }
+    }
+    if (nextFiles.length) {
+      await addFiles(nextFiles);
+    }
+  }, [addFiles]);
+
+  const addCaptureDataUrl = useCallback(async (dataUrl: string, filename = "capture.png") => {
+    if (!dataUrl) {
+      return;
+    }
+    const file = await dataUrlToFile(dataUrl, filename);
+    const attachment = await fileToComposerAttachment(file);
+    useAppStore.getState().addComposerAttachment(attachment);
+  }, []);
+
+  const createPendingCaptureAttachment = useCallback((filename = "capture.png") => {
+    const attachmentId = createComposerAttachmentId();
+    useAppStore.getState().addComposerAttachment({
+      id: attachmentId,
+      kind: "image",
+      filename,
+      mimeType: "image/png",
+      previewUrl: "",
+      source: "base64",
+      data: "",
+      previewState: "pending",
+    });
+    return attachmentId;
+  }, []);
+
+  const resolvePendingCaptureAttachment = useCallback((attachmentId: string, payload: string | {
+    fileUrl: string;
+    cleanupToken: string;
+    mimeType: string;
+  }, filename = "capture.png") => {
+    if (!payload) {
+      return;
+    }
+    const nextAttachment: Partial<ComposerAttachment> = typeof payload === "string"
+      ? dataUrlToComposerAttachment(payload, filename)
+      : {
+        ...createTempFileComposerAttachment({
+          cleanupToken: payload.cleanupToken,
+          fileUrl: payload.fileUrl,
+          filename,
+          id: attachmentId,
+          kind: "image",
+          mimeType: payload.mimeType,
+        }),
+        kind: "image",
+        source: "base64",
+      };
+    useAppStore.getState().updateComposerAttachment(attachmentId, {
+      ...nextAttachment,
+      id: attachmentId,
+      previewState: "ready",
+    });
+  }, []);
+
+  const failPendingCaptureAttachment = useCallback((attachmentId: string) => {
+    const currentAttachment = useAppStore.getState().composerAttachments.find((item) => item.id === attachmentId);
+    if (currentAttachment?.cleanupToken) {
+      void window.api?.deleteTempScreenshotFile?.(currentAttachment.cleanupToken);
+    }
+    useAppStore.getState().updateComposerAttachment(attachmentId, {
+      previewState: "error",
+      cleanupToken: undefined,
+      tempFileUrl: undefined,
+      previewUrl: "",
+      data: "",
+    });
+  }, []);
+
+  // TODO: not used at all, delete it ?
+  const capturePrimaryScreenAttachment = useCallback(async () => {
+    const dataUrl = await window.api?.capturePrimaryScreen?.();
+    if (!dataUrl) {
+      toaster.create({
+        title: "截图失败",
+        type: "error",
+        duration: 2000,
+      });
+      return;
+    }
+    await addCaptureDataUrl(dataUrl, "screen-capture.jpg");
+  }, [addCaptureDataUrl]);
+
+  const startScreenshotSelection = useCallback(async () => {
+    const capture = window.api?.startScreenshotSelection
+      ? await window.api.startScreenshotSelection()
+      : null;
+    if (!capture) {
+      toaster.create({
+        title: "截图失败",
+        type: "error",
+        duration: 2000,
+      });
+      return;
+    }
+    useAppStore.getState().setScreenshotOverlay({
+      fileUrl: capture.fileUrl,
+      cleanupToken: capture.cleanupToken,
+      filename: capture.filename || "screen-capture.jpg",
+    });
+  }, []);
+
+  const closeScreenshotSelection = useCallback(() => {
+    useAppStore.getState().clearScreenshotOverlay();
+  }, []);
+
+  const executeQuickAction = useCallback(async (action: Record<string, unknown>) => {
+    const rawType = String(action.type || "").trim().toLowerCase();
+    if (rawType === "motion") {
+      playMotion(String(action.group || ""), Number(action.index || 0) || 0);
+      return;
+    }
+    if (rawType === "expression") {
+      playExpression(String(action.name || ""));
+      return;
+    }
+    await dispatchChatPlaybackActions({
+      pluginRuntime: pluginRuntimeRef.current,
+      actions: [
+        {
+          type: rawType || "call",
+          tool: action.tool || action.name || getQuickActionLabel(action as any),
+          args: action.args || {},
+        },
+      ],
+      playMusic,
+      stopMusic,
+    });
+  }, [playMusic, stopMusic]);
+
+  const executeMotion = useCallback(async (group: string, index = 0) => {
+    playMotion(group, index);
+  }, []);
+
+  const executeExpression = useCallback(async (name: string) => {
+    playExpression(name);
+  }, []);
+
+  const setBackgroundFromFile = useCallback(async (targetMode: "window" | "pet", file: File) => {
+    const attachment = await fileToComposerAttachment(file);
+    useAppStore.getState().setBackgroundForMode(targetMode, attachment.previewUrl);
+  }, []);
+
+  const clearBackground = useCallback((targetMode: "window" | "pet") => {
+    useAppStore.getState().setBackgroundForMode(targetMode, "");
+  }, []);
+
+  const sendComposerMessage = useCallback(async () => {
+    const state = useAppStore.getState();
+    const draft = state.composerDraft.trim();
+    if (state.composerAttachments.some((attachment: ComposerAttachment) => (
+      attachment.previewState === "pending" || attachment.previewState === "error"
+    ))) {
+      return;
+    }
+    const attachments = await Promise.all(state.composerAttachments.map(attachmentToChatInput));
+    if (!draft && !attachments.length) {
+      return;
+    }
+    await sendPayload({
+      text: draft,
+      attachments,
+      clearComposer: true,
+    });
+  }, [assistantDisplayName, sendPayload]);
+
+  const runAutomationProactive = useCallback(async (reason: "manual" | "scheduled" = "scheduled") => {
+    const state = useAppStore.getState();
+    if (state.automationRuleState.proactive.running || currentAbortRef.current) {
+      return;
+    }
+
+    const prompt = String(state.automation.proactive.prompt || "").trim();
+    if (!prompt) {
+      return;
+    }
+
+    state.setAutomationRuleState("proactive", { running: true });
+    state.appendAutomationLog(reason === "manual" ? "手动触发：主动搭话" : "自动触发：主动搭话");
+    try {
+      await sendPayload({
+        text: prompt,
+        clearComposer: false,
+        messageSource: "automation",
+        allowMusicActions: state.automation.music.allowAiActions,
+        throwOnError: true,
+        showUserBubble: false,
+        systemNote: i18n.t("shell.automationTriggeredProactive"),
+        assistantMeta: assistantDisplayName,
+      });
+      const finishedAt = Date.now();
+      useAppStore.getState().setAutomationRuleState("proactive", {
+        running: false,
+        lastRunAt: finishedAt,
+      });
+      useAppStore.getState().appendAutomationLog("主动搭话完成");
+    } catch (error) {
+      useAppStore.getState().setAutomationRuleState("proactive", { running: false });
+      useAppStore.getState().appendAutomationLog(`主动搭话失败：${error}`, "error");
+    }
+  }, [sendPayload]);
+
+  const runAutomationScreenshot = useCallback(async (reason: "manual" | "scheduled" = "scheduled") => {
+    const state = useAppStore.getState();
+    if (state.automationRuleState.screenshot.running || currentAbortRef.current) {
+      return;
+    }
+
+    const prompt = String(state.automation.screenshot.prompt || "").trim();
+    if (!prompt) {
+      return;
+    }
+
+    state.setAutomationRuleState("screenshot", { running: true });
+    state.appendAutomationLog(reason === "manual" ? "手动触发：截图观察" : "自动触发：截图观察");
+    try {
+      const dataUrl = await window.api?.capturePrimaryScreen?.();
+      if (!dataUrl) {
+        throw new Error("当前环境不支持自动全屏截图");
+      }
+      const attachment = dataUrlToComposerAttachment(dataUrl, "automation-screen-capture.jpg");
+      await sendPayload({
+        text: prompt,
+        attachments: [await attachmentToChatInput(attachment)],
+        clearComposer: false,
+        messageSource: "automation",
+        allowMusicActions: state.automation.music.allowAiActions,
+        throwOnError: true,
+        showUserBubble: false,
+        systemNote: i18n.t("shell.automationTriggeredScreenshot"),
+        assistantMeta: assistantDisplayName,
+      });
+      const finishedAt = Date.now();
+      useAppStore.getState().setAutomationRuleState("screenshot", {
+        running: false,
+        lastRunAt: finishedAt,
+      });
+      useAppStore.getState().appendAutomationLog("截图观察完成");
+    } catch (error) {
+      useAppStore.getState().setAutomationRuleState("screenshot", { running: false });
+      useAppStore.getState().appendAutomationLog(`截图观察失败：${error}`, "error");
+    }
+  }, [sendPayload]);
+
+  useEffect(() => {
+    let disposed = false;
+    const connectionSessionId = beginBackendConnectionSession(backendConnectionStoreRef.current);
+
+    void reconnect(connectionSessionId, () => disposed);
+    startEventsStream(connectionSessionId, () => disposed);
+    return () => {
+      disposed = true;
+      currentAbortRef.current?.abort();
+      speechPlayback.interrupt();
+      stopMusic();
+      if (eventsCleanupRef.current) {
+        eventsCleanupRef.current();
+        eventsCleanupRef.current = null;
+      }
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+    };
+  }, [reconnect, speechPlayback, startEventsStream, stopMusic]);
+
+  useEffect(() => {
+    if (!manifest) {
+      return;
+    }
+
+    setConfUid(manifest.selectedModelId);
+    setConfName(manifest.model.name);
+    setConfigFiles(
+      (manifest.models || []).map((model) => ({
+        filename: model.id,
+        name: model.name,
+      })),
+    );
+    setModelInfo(mapManifestToModelInfo(manifest, normalizedBackendUrl));
+  }, [manifest, normalizedBackendUrl, setConfName, setConfUid, setConfigFiles, setModelInfo]);
+
+  useEffect(() => {
+    const cleanups: Array<(() => void) | undefined> = [];
+
+    if (window.api?.onInterrupt) {
+      cleanups.push(window.api.onInterrupt(() => interrupt()));
+    }
+
+    if (window.api?.onSwitchCharacter) {
+      cleanups.push(window.api.onSwitchCharacter((filename) => {
+        void switchModel(filename);
+      }));
+    }
+
+    if (window.api?.onToggleScrollToResize) {
+      cleanups.push(window.api.onToggleScrollToResize(() => {
+        if (!modelInfo) {
+          return;
+        }
+        setModelInfo({
+          ...modelInfo,
+          scrollToResize: !modelInfo.scrollToResize,
+        });
+      }));
+    }
+
+    if (window.api?.onForceIgnoreMouseChanged) {
+      cleanups.push(window.api.onForceIgnoreMouseChanged((isForced) => {
+        setForceIgnoreMouse(isForced);
+      }));
+    }
+
+    return () => {
+      for (const cleanup of cleanups) {
+        cleanup?.();
+      }
+    };
+  }, [interrupt, modelInfo, setForceIgnoreMouse, setModelInfo, switchModel]);
+
+  useEffect(() => {
+    let frame = 0;
+    const tick = () => {
+      const state = useAppStore.getState();
+      applyPersistentToggleState(state.persistentToggleState, state.persistentToggles);
+      const bounds = getModelBounds();
+      state.setCurrentModelBounds(bounds);
+      const modelId = state.manifest?.selectedModelId || state.manifest?.model.id || "";
+      if (modelId) {
+        applyFocusCenter(resolveFocusCenterConfig({
+          manifest: state.manifest,
+          focusCenterByModel: state.focusCenterByModel,
+          modelId,
+        }));
+      }
+      frame = window.requestAnimationFrame(tick);
+    };
+
+    frame = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  useEffect(() => {
+    if (
+      !window.api?.getCursorScreenPoint
+      || !petOverlayBounds
+      || !shouldUseGlobalCursorTracking({
+        mode,
+        focusCenter: currentFocusCenter,
+      })
+    ) {
+      return undefined;
+    }
+
+    let disposed = false;
+    let pending = false;
+    let timer = 0;
+
+    const syncPointer = () => {
+      if (disposed || pending) {
+        return;
+      }
+
+      pending = true;
+      void window.api?.getCursorScreenPoint?.()
+        .then((screenPoint) => {
+          if (disposed) {
+            return;
+          }
+
+          const pointer = toRendererPointerFromScreenPoint({
+            screenPoint,
+            virtualBounds: petOverlayBounds.virtualBounds,
+          });
+          setTrackedPointerPosition(pointer);
+        })
+        .catch((error) => {
+          console.warn("Failed to sync global cursor position:", error);
+        })
+        .finally(() => {
+          pending = false;
+        });
+    };
+
+    syncPointer();
+    timer = window.setInterval(syncPointer, 40);
+
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [currentFocusCenter, mode, petOverlayBounds]);
+
+  useEffect(() => {
+    if (mode !== "pet" || !window.api?.getPetOverlayBounds) {
+      setPetOverlayBounds(null);
+      return;
+    }
+
+    let disposed = false;
+    const refreshOverlayBounds = () => {
+      void window.api?.getPetOverlayBounds?.().then((overlay) => {
+        if (disposed) {
+          return;
+        }
+        setPetOverlayBounds(overlay);
+      });
+    };
+
+    refreshOverlayBounds();
+    const cleanup = window.api.onPetOverlayBoundsChanged?.(() => {
+      refreshOverlayBounds();
+    });
+
+    return () => {
+      disposed = true;
+      cleanup?.();
+    };
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode !== "pet" || !petOverlayBounds) {
+      return;
+    }
+
+    const nextAnchor = resolvePetAnchorUpdate({
+      currentAnchor: petAnchor,
+      nextAnchor: buildPetAnchor(
+        currentModelBounds,
+        petOverlayBounds.workArea,
+        petOverlayBounds.virtualBounds,
+        petExpanded,
+      ),
+      isLocked: petAnchorLocked,
+    });
+
+    if (shouldUpdatePetAnchor({ currentAnchor: petAnchor, nextAnchor })) {
+      useAppStore.getState().setPetAnchor(nextAnchor);
+    }
+  }, [currentModelBounds, mode, petAnchor, petAnchorLocked, petExpanded, petOverlayBounds]);
+
+  useEffect(() => {
+    const tick = () => {
+      const state = useAppStore.getState();
+      if (shouldRunAutomationRule({
+        config: state.automation,
+        ruleKey: "proactive",
+        mode,
+        ruleState: state.automationRuleState.proactive,
+      })) {
+        void runAutomationProactive("scheduled");
+        return;
+      }
+
+      if (shouldRunAutomationRule({
+        config: state.automation,
+        ruleKey: "screenshot",
+        mode,
+        ruleState: state.automationRuleState.screenshot,
+      })) {
+        void runAutomationScreenshot("scheduled");
+      }
+    };
+
+    const timer = window.setInterval(tick, 15 * 1000);
+    // Don't arbitrarily trigger an immediate check until 15s pass, to prevent spam 
+    // const bootTimer = window.setTimeout(tick, 1200);
+
+    return () => {
+      window.clearInterval(timer);
+      // window.clearTimeout(bootTimer);
+    };
+  }, [mode, runAutomationProactive, runAutomationScreenshot]);
+
+  const value = useMemo<RendererCommandContextValue>(() => ({
+    reconnect,
+    createNewSession,
+    loadSession,
+    sendComposerMessage,
+    interrupt,
+    switchModel,
+    setProviderFieldValue,
+    addFiles,
+    addClipboardItems,
+    capturePrimaryScreenAttachment,
+    startScreenshotSelection,
+    closeScreenshotSelection,
+    addCaptureDataUrl,
+    createPendingCaptureAttachment,
+    resolvePendingCaptureAttachment,
+    failPendingCaptureAttachment,
+    executeQuickAction,
+    executeMotion,
+    executeExpression,
+    refreshPlugins,
+    setBackgroundFromFile,
+    clearBackground,
+    runAutomationProactive,
+    runAutomationScreenshot,
+    stopAutomationMusic: async () => stopMusic(),
+  }), [
+    reconnect,
+    createNewSession,
+    loadSession,
+    sendComposerMessage,
+    interrupt,
+    switchModel,
+    setProviderFieldValue,
+    addFiles,
+    addClipboardItems,
+    capturePrimaryScreenAttachment,
+    startScreenshotSelection,
+    closeScreenshotSelection,
+    addCaptureDataUrl,
+    createPendingCaptureAttachment,
+    resolvePendingCaptureAttachment,
+    failPendingCaptureAttachment,
+    executeQuickAction,
+    executeMotion,
+    executeExpression,
+    refreshPlugins,
+    setBackgroundFromFile,
+    clearBackground,
+    runAutomationProactive,
+    runAutomationScreenshot,
+    stopMusic,
+  ]);
+
+  return (
+    <RendererCommandContext.Provider value={value}>
+      {children}
+    </RendererCommandContext.Provider>
+  );
+}
+
+function useRendererCommandContext(): RendererCommandContextValue {
+  const context = useContext(RendererCommandContext);
+  if (!context) {
+    throw new Error("renderer command hooks must be used inside RendererCommandProvider");
+  }
+  return context;
+}
+
+export function useSessionCommands() {
+  const {
+    reconnect,
+    createNewSession,
+    loadSession,
+  } = useRendererCommandContext();
+
+  return {
+    reconnect,
+    createNewSession,
+    loadSession,
+  };
+}
+
+export function useChatCommands() {
+  const {
+    sendComposerMessage,
+    interrupt,
+  } = useRendererCommandContext();
+
+  return {
+    sendComposerMessage,
+    interrupt,
+  };
+}
+
+export function useComposerCommands() {
+  const {
+    addFiles,
+    addClipboardItems,
+    capturePrimaryScreenAttachment,
+    startScreenshotSelection,
+    closeScreenshotSelection,
+    addCaptureDataUrl,
+    createPendingCaptureAttachment,
+    resolvePendingCaptureAttachment,
+    failPendingCaptureAttachment,
+  } = useRendererCommandContext();
+
+  return {
+    addFiles,
+    addClipboardItems,
+    capturePrimaryScreenAttachment,
+    startScreenshotSelection,
+    closeScreenshotSelection,
+    addCaptureDataUrl,
+    createPendingCaptureAttachment,
+    resolvePendingCaptureAttachment,
+    failPendingCaptureAttachment,
+  };
+}
+
+export function useSettingsCommands() {
+  const {
+    setProviderFieldValue,
+    setBackgroundFromFile,
+    clearBackground,
+  } = useRendererCommandContext();
+
+  return {
+    setProviderFieldValue,
+    setBackgroundFromFile,
+    clearBackground,
+  };
+}
+
+export function usePetCommands() {
+  const {
+    startScreenshotSelection,
+  } = useRendererCommandContext();
+
+  return {
+    startScreenshotSelection,
+  };
+}
+
+export function useModelCommands() {
+  const {
+    switchModel,
+    executeQuickAction,
+    executeMotion,
+    executeExpression,
+  } = useRendererCommandContext();
+
+  return {
+    switchModel,
+    executeQuickAction,
+    executeMotion,
+    executeExpression,
+  };
+}
+
+export function useVoiceCommands() {
+  const { interrupt } = useRendererCommandContext();
+  return { interrupt };
+}
+
+export function useAutomationCommands() {
+  const {
+    runAutomationProactive,
+    runAutomationScreenshot,
+    stopAutomationMusic,
+  } = useRendererCommandContext();
+
+  return {
+    runAutomationProactive,
+    runAutomationScreenshot,
+    stopAutomationMusic,
+  };
+}
+
+export function usePluginCommands() {
+  const { refreshPlugins } = useRendererCommandContext();
+  return { refreshPlugins };
+}

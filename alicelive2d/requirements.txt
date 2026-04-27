@@ -1,0 +1,6 @@
+# Backend/runtime Python dependencies for Lunaria.
+fastapi
+uvicorn
+pydantic
+edge-tts
+websockets

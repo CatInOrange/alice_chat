@@ -1,0 +1,273 @@
+{
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "settings": "Settings",
+    "close": "Close",
+    "accept": "Accept",
+    "back": "Back",
+    "language": "Language",
+    "upload": "Upload",
+    "reset": "Reset",
+    "hide": "Hide",
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "reconnect": "Reconnect",
+    "camera": "Camera",
+    "screenshot": "Screenshot",
+    "send": "Send",
+    "interrupt": "Interrupt"
+  },
+  "settings": {
+    "title": "Settings",
+    "languageSelector": {
+      "label": "Language",
+      "english": "English",
+      "chinese": "Chinese"
+    },
+    "sections": {
+      "model": "Model",
+      "provider": "Provider",
+      "voice": "Voice & Focus",
+      "background": "Background & Pet",
+      "plugins": "Plugins",
+      "automation": "Automation"
+    },
+    "fields": {
+      "character": "Character",
+      "backendUrl": "Backend URL",
+      "currentProvider": "Current Provider",
+      "ttsProvider": "TTS Provider",
+      "headRatio": "Head Follow Ratio: {{value}}",
+      "backgroundStatusCustom": "Custom background is active for the current mode",
+      "backgroundStatusDefault": "Using the default stage background for the current mode",
+      "petAutoHideSeconds": "Auto-hide delay: {{value}}s",
+      "pluginCount": "{{count}} plugins loaded",
+      "proactiveInterval": "Proactive interval (minutes)",
+      "proactivePrompt": "Proactive prompt",
+      "screenshotInterval": "Screenshot interval (minutes)",
+      "screenshotPrompt": "Screenshot prompt",
+      "musicUrl": "Music URL",
+      "musicVolume": "Volume: {{value}}"
+    },
+    "actions": {
+      "refreshPlugins": "Refresh plugins",
+      "returnToWindow": "Return to window mode",
+      "runProactive": "Run now",
+      "runScreenshot": "Capture now",
+      "stopMusic": "Stop music",
+      "clearLogs": "Clear"
+    },
+    "toggles": {
+      "enableTts": "Enable speech playback",
+      "followCursor": "Enable cursor follow",
+      "enableAutomation": "Enable automation controller",
+      "automationOnlyPetMode": "Run only in pet mode",
+      "enableProactive": "Enable proactive messages",
+      "enableScreenshot": "Enable screenshot observation",
+      "allowAiMusic": "Allow AI music control",
+      "musicLoop": "Loop playback"
+    },
+    "subsections": {
+      "proactive": "Proactive Messages",
+      "screenshot": "Screenshot Observation",
+      "music": "AI Action: Music",
+      "logs": "Run Logs"
+    },
+    "emptyLogs": "No automation logs yet",
+    "tabs": {
+      "general": "General",
+      "live2d": "Live2D",
+      "asr": "ASR",
+      "tts": "TTS",
+      "agent": "Agent",
+      "about": "About"
+    },
+    "general": {
+      "language": "Language",
+      "useCameraBackground": "Use Camera Background",
+      "showSubtitle": "Show Subtitle",
+      "backgroundImage": "Background Image",
+      "customBgUrlPlaceholder": "Enter image URL",
+      "customBgUrl": "Or enter a custom background URL",
+      "characterPreset": "Character Preset",
+      "wsUrl": "WebSocket URL",
+      "baseUrl": "Backend URL",
+      "imageCompressionQuality": "Image Compression Quality",
+      "imageCompressionQualityPlaceholder": "Enter compression quality (0-100)",
+      "imageCompressionQualityHelp": "JPEG compression quality (0.1-1.0). Default is 0.8 to reduce file size when transmitting images to AI models, as we don't compress images during API transmission which could result in large file sizes.",
+      "imageMaxWidth": "Image Max Width",
+      "imageMaxWidthPlaceholder": "Enter maximum width in pixels",
+      "imageMaxWidthHelp": "Maximum width for image resizing. Images exceeding this width will be proportionally scaled down. Set to 0 for no size limit. This feature exists because some AI models may have limitations when processing very large images. However, most AI models can handle images automatically, so the default is 0 (no restriction) to preserve your original images."
+    },
+    "live2d": {
+      "pointerInteractive": "Pointer Interactive",
+      "scrollToResize": "Enable Scroll to Resize"
+    },
+    "asr": {
+      "autoStopMic": "Auto Stop Mic When AI Start Speaking",
+      "autoStopMicDesc": "Automatically stops microphone when AI begins speaking to prevent audio feedback",
+      "autoStartMicOnConvEnd": "Auto Start Mic When Conversation End",
+      "autoStartMicOnConvEndDesc": "Automatically restarts microphone when AI finishes speaking for seamless conversation",
+      "autoStartMicOn": "Auto Start Mic When AI Interrupted",
+      "autoStartMicOnDesc": "Automatically restarts microphone when you interrupt AI for continuous interaction",
+      "positiveSpeechThreshold": "Speech Prob Threshold",
+      "positiveSpeechThresholdDesc": "Minimum confidence level (1-100) required to detect speech. Higher values reduce false positives",
+      "negativeSpeechThreshold": "Negative Speech Threshold",
+      "negativeSpeechThresholdDesc": "Confidence level (0-100) below which speech detection stops. Lower values make detection less sensitive",
+      "redemptionFrames": "Redemption Frames",
+      "redemptionFramesDesc": "Number of consecutive frames (1-100) needed to confirm speech detection. Higher values reduce noise triggers"
+    },
+    "agent": {
+      "allowProactiveSpeak": "Allow AI to Speak Proactively",
+      "idleSecondsToSpeak": "Idle seconds allow AI to speak",
+      "allowButtonTrigger": "Prompt AI to Speak via Raise Hand Button"
+    },
+    "about": {
+      "title": "Lunaria",
+      "version": "Version",
+      "projectLinks": "Project Links",
+      "github": "GitHub",
+      "documentation": "Documentation",
+      "license": "License",
+      "copyright": "Copyright",
+      "viewLicense": "View License"
+    }
+  },
+  "footer": {
+    "typeYourMessage": "Type your message...",
+    "cameraControl": "Click to start camera",
+    "cameraStopping": "Click to stop camera",
+    "screenControl": "Click to start screen capture",
+    "screenStopping": "Click to stop screen capture"
+  },
+  "sidebar": {
+    "camera": "Camera",
+    "screen": "Screen",
+    "browser": "Browser",
+    "live": "Live",
+    "noMessages": "No messages yet. Start a conversation!",
+    "noBrowserSession": "No active browser session",
+    "browserSession": "Browser Session"
+  },
+  "group": {
+    "management": "Group Management",
+    "yourUuid": "Your UUID",
+    "inviteMember": "Invite Member",
+    "enterMemberUuid": "Enter member UUID",
+    "invite": "Invite",
+    "members": "Members",
+    "you": "You",
+    "leaveGroup": "Leave Group",
+    "removeMember": "Remove Member",
+    "leave": "Leave"
+  },
+  "history": {
+    "chatHistoryList": "Chat History List",
+    "noMessages": "No messages"
+  },
+  "notification": {
+    "characterLoaded": "New Character Loaded",
+    "characterSwitched": "Character switched",
+    "historyLoaded": "History loaded",
+    "newConversation": "New Conversation Started",
+    "newChatHistory": "New chat history created",
+    "historyDeleteSuccess": "History deleted successfully",
+    "historyDeleteFail": "Failed to delete history"
+  },
+  "error": {
+    "cameraApiNotSupported": "Camera API is not supported on this device",
+    "noCameraFound": "No camera found on this device",
+    "failedStartCamera": "Failed to start camera",
+    "failedStartBackgroundCamera": "Failed to start background camera",
+    "failedStartScreenCapture": "Failed to start screen capture",
+    "failedStartVAD": "Failed to start VAD",
+    "llmCantHear": "The LLM can't hear you.",
+    "audioPlayback": "Audio playback error",
+    "enterValidUuid": "Please enter a valid UUID",
+    "cannotDeleteCurrentHistory": "Cannot delete current chat history",
+    "historyDeleteUnsupported": "Deleting history is not supported by the current backend",
+    "failedCapture": "Failed to capture {{source}} frame",
+    "failedParseWebSocket": "Failed to parse WebSocket message",
+    "websocketNotOpen": "WebSocket is not open.",
+    "characterConfigNotFound": "Character configuration has not finished loading",
+    "messageSendFailed": "Failed to send message",
+    "websocketConnectionFailed": "Failed to connect to backend",
+    "vadMisfire": "Voice detected but too brief. Try speaking louder/longer, or adjust settings (lower speech threshold, lower negative threshold, reduce redemption frames)."
+  },
+  "aiState": {
+    "idle": "idle",
+    "thinking-speaking": "thinking/speaking",
+    "interrupted": "interrupted",
+    "loading": "loading",
+    "listening": "listening",
+    "waiting": "waiting"
+  },
+  "wsStatus": {
+    "connected": "Backend Connected",
+    "connecting": "Connecting Backend",
+    "clickToReconnect": "Click to Reconnect Backend"
+  },
+  "shell": {
+    "sessions": "Sessions",
+    "conversation": "Conversation",
+    "emptyConversationTitle": "Conversation",
+    "emptyConversationHint": "Send a message from the composer to begin.",
+    "downloadAttachment": "Download file",
+    "speakerSystem": "System",
+    "speakerAssistant": "OpenClaw",
+    "speakerYou": "You",
+    "automationTriggeredProactive": "Automation triggered: proactive message",
+    "automationTriggeredScreenshot": "Automation triggered: screenshot observation",
+    "streaming": "streaming",
+    "toggleSessions": "Toggle sessions",
+    "toggleSettings": "Toggle settings",
+    "petMode": "Pet mode",
+    "enableTts": "Enable TTS",
+    "disableTts": "Disable TTS",
+    "newSession": "New session",
+    "upload": "Upload",
+    "camera": "Camera",
+    "screenshot": "Screenshot",
+    "actions": "Actions & Expressions"
+  },
+  "composer": {
+    "placeholder": "Say something to her",
+    "screenshot": "Screenshot",
+    "openActions": "Open actions",
+    "uploadAttachment": "Upload attachment",
+    "cameraSnapshot": "Camera snapshot",
+    "removeAttachment": "Remove attachment"
+  },
+  "screenshotOverlay": {
+    "title": "Capture",
+    "description": "Drag on the screen to select an area, or add the full screenshot.",
+    "addFullScreen": "Add full screen",
+    "addSelection": "Add selection",
+    "imageAlt": "screen capture"
+  },
+  "stageActions": {
+    "title": "Actions & Expressions",
+    "quickActions": "Quick Actions",
+    "persistent": "Persistent",
+    "motions": "Motions",
+    "expressions": "Expressions"
+  },
+  "chat": {
+    "empty": "No messages yet",
+    "toolRunning": "{{name}} is calling {{tool}}",
+    "toolCompleted": "{{name}} called {{tool}}",
+    "attachment": "attachment"
+  },
+  "mode": {
+    "petUnavailableTitle": "Pet mode unavailable",
+    "petUnavailableDescription": "Pet mode is only available in the desktop app"
+  },
+  "boot": {
+    "rendererErrorFallback": "The renderer process hit an uncaught error.",
+    "rendererPromiseFallback": "The renderer process hit an unhandled promise rejection.",
+    "rendererCrashed": "The renderer process crashed after startup.\n\n{{detail}}",
+    "loading": "Loading Live2D Core and the desktop runtime...",
+    "live2dLoadFailed": "Live2D Core failed to load, so the frontend could not finish booting.\nPlease check the console logs and resource paths."
+  }
+}

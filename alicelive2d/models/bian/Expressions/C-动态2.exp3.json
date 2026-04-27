@@ -1,0 +1,15 @@
+{
+    "Type": "Live2D Expression",
+    "Parameters": [
+        {
+            "Id": "ChestX_invertToggle",
+            "Value": 1.0,
+            "Blend": "Add"
+        },
+        {
+            "Id": "ChestZ_invertToggle",
+            "Value": 1.0,
+            "Blend": "Add"
+        }
+    ]
+}

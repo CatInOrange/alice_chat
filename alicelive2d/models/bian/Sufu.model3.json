@@ -1,0 +1,35 @@
+{
+	"Version": 3,
+	"FileReferences": {
+		"Moc": "Sufu_苏芙_03_Debug改.moc3",
+		"Textures": [
+			"Sufu.8192/texture_00.png",
+			"Sufu.8192/texture_01.png",
+			"Sufu.8192/texture_02.png"
+		],
+		"Physics": "Sufu.physics3.json",
+		"DisplayInfo": "Sufu.cdi3.json",
+		"Expressions": [
+			{
+				"Name": "expression1",
+				"File": "Expressions/shuiyin.exp3.json"
+			}
+		]
+	},
+	"Groups": [
+		{
+			"Target": "Parameter",
+			"Name": "LipSync",
+			"Ids": []
+		},
+		{
+			"Target": "Parameter",
+			"Name": "EyeBlink",
+			"Ids": [
+				"ParamEyeLOpen",
+				"ParamEyeROpen"
+			]
+		}
+	],
+	"HitAreas": []
+}
