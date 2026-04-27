@@ -1481,6 +1481,8 @@ class _ChatImageBubbleState extends State<_ChatImageBubble> {
     return '${widget.messageId}|${widget.imageUrl}|$password';
   }
 
+  String get _heroTag => 'chat-image-preview:${widget.messageId}:${widget.imageUrl}';
+
   bool _mapEquals(Map<String, String> a, Map<String, String> b) {
     if (identical(a, b)) return true;
     if (a.length != b.length) return false;
@@ -1514,21 +1516,27 @@ class _ChatImageBubbleState extends State<_ChatImageBubble> {
                 );
                 return _buildError();
               }
-              return Image.file(
-                snapshot.data!,
-                fit: BoxFit.cover,
-                gaplessPlayback: true,
-                filterQuality: FilterQuality.medium,
-                errorBuilder: (_, error, stackTrace) {
-                  unawaited(
-                    NativeDebugBridge.instance.log(
-                      'chat-image',
-                      'file decode error messageId=${widget.messageId} source=${widget.imageUrl} error=$error',
-                      level: 'ERROR',
-                    ),
-                  );
-                  return _buildError();
-                },
+              return GestureDetector(
+                onTap: () => _openPreview(context, snapshot.data!),
+                child: Hero(
+                  tag: _heroTag,
+                  child: Image.file(
+                    snapshot.data!,
+                    fit: BoxFit.cover,
+                    gaplessPlayback: true,
+                    filterQuality: FilterQuality.medium,
+                    errorBuilder: (_, error, stackTrace) {
+                      unawaited(
+                        NativeDebugBridge.instance.log(
+                          'chat-image',
+                          'file decode error messageId=${widget.messageId} source=${widget.imageUrl} error=$error',
+                          level: 'ERROR',
+                        ),
+                      );
+                      return _buildError();
+                    },
+                  ),
+                ),
               );
             },
           ),
@@ -1555,8 +1563,77 @@ class _ChatImageBubbleState extends State<_ChatImageBubble> {
       child: const Text('图片加载失败'),
     );
   }
+
+  Future<void> _openPreview(BuildContext context, File file) async {
+    await Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        opaque: false,
+        barrierDismissible: true,
+        pageBuilder: (context, animation, secondaryAnimation) {
+          return _ImagePreviewPage(
+            file: file,
+            heroTag: _heroTag,
+          );
+        },
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(
+            opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+            child: child,
+          );
+        },
+      ),
+    );
+  }
 }
 
+class _ImagePreviewPage extends StatelessWidget {
+  const _ImagePreviewPage({required this.file, required this.heroTag});
+
+  final File file;
+  final String heroTag;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black.withValues(alpha: 0.96),
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => Navigator.of(context).maybePop(),
+                child: Center(
+                  child: InteractiveViewer(
+                    minScale: 0.8,
+                    maxScale: 4.0,
+                    child: Hero(
+                      tag: heroTag,
+                      child: Image.file(
+                        file,
+                        fit: BoxFit.contain,
+                        filterQuality: FilterQuality.high,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton(
+                onPressed: () => Navigator.of(context).maybePop(),
+                icon: const Icon(Icons.close_rounded, color: Colors.white),
+                tooltip: '关闭',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _InlineCodeBuilder extends MarkdownElementBuilder {
   _InlineCodeBuilder(this.styleSheet);
