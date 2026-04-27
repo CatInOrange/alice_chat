@@ -260,11 +260,36 @@ class _MainScaffoldState extends State<_MainScaffold>
     unawaited(_syncActiveSessionFromStore(activeSession));
   }
 
+  Future<void> _clearActiveSessionBindings({
+    required String reason,
+  }) async {
+    await NativeDebugBridge.instance.log('app', 'clearActiveSessionBindings reason=$reason');
+    await NotificationService.instance.clearActiveSession();
+    await BackgroundConnectionService.instance.updateActiveSession('');
+  }
+
+  Future<void> _prepareForBackgroundTransition({
+    required String reason,
+    bool clearActiveSession = false,
+  }) async {
+    await NativeDebugBridge.instance.log(
+      'app',
+      'prepareForBackgroundTransition reason=$reason clearActiveSession=$clearActiveSession current=${_activeChatSession?.backendSessionId ?? _activeChatSession?.id ?? ''}',
+    );
+    await NotificationService.instance.setAppForeground(false);
+    await BackgroundConnectionService.instance.updateAppForeground(false);
+    if (clearActiveSession) {
+      await _clearActiveSessionBindings(reason: reason);
+    }
+  }
+
   void _closeChat() {
+    final currentSessionId =
+        _activeChatSession?.backendSessionId ?? _activeChatSession?.id ?? '';
     unawaited(
       NativeDebugBridge.instance.log(
         'app',
-        'closeChat current=${_activeChatSession?.backendSessionId ?? _activeChatSession?.id ?? ''}',
+        'closeChat current=$currentSessionId',
       ),
     );
     setState(() {
@@ -276,8 +301,7 @@ class _MainScaffoldState extends State<_MainScaffold>
         'closeChat committed current_cleared=true',
       ),
     );
-    unawaited(NotificationService.instance.clearActiveSession());
-    unawaited(BackgroundConnectionService.instance.updateActiveSession(''));
+    unawaited(_clearActiveSessionBindings(reason: 'closeChat'));
   }
 
   Future<void> _handleRootBack() async {
@@ -288,6 +312,10 @@ class _MainScaffoldState extends State<_MainScaffold>
     if (!defaultTargetPlatform.name.toLowerCase().contains('android')) {
       return;
     }
+    await _prepareForBackgroundTransition(
+      reason: 'rootBack',
+      clearActiveSession: true,
+    );
     unawaited(
       NativeDebugBridge.instance.log(
         'app',

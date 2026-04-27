@@ -36,6 +36,8 @@ class AliceChatForegroundService : Service() {
     @Volatile
     private var appForeground: Boolean = true
     @Volatile
+    private var lastBackgroundedAtMs: Long = 0L
+    @Volatile
     private var lastSeq: Long? = null
     private var workerThread: Thread? = null
 
@@ -194,9 +196,16 @@ class AliceChatForegroundService : Service() {
             DebugLogBuffer.append("fg-service", "decision=skip_empty_text session=$sessionId role=$role")
             return
         }
-        if (appForeground && sessionId.isNotEmpty() && sessionId == activeSessionId) {
-            DebugLogBuffer.append("fg-service", "decision=suppress_active_session session=$sessionId active=$activeSessionId appForeground=$appForeground")
+        val recentlyBackgrounded =
+            !appForeground &&
+                lastBackgroundedAtMs > 0L &&
+                System.currentTimeMillis() - lastBackgroundedAtMs <= 5_000L
+        if (appForeground && sessionId.isNotEmpty() && sessionId == activeSessionId && !recentlyBackgrounded) {
+            DebugLogBuffer.append("fg-service", "decision=suppress_active_session session=$sessionId active=$activeSessionId appForeground=$appForeground recentlyBackgrounded=$recentlyBackgrounded")
             return
+        }
+        if (recentlyBackgrounded) {
+            DebugLogBuffer.append("fg-service", "decision=allow_recent_background session=$sessionId active=$activeSessionId appForeground=$appForeground backgroundedAt=$lastBackgroundedAtMs")
         }
         val title = payload.optString("senderName").ifBlank { resolveTitleForSession(sessionId) }
         val messageId = message.optString("id")
@@ -404,7 +413,10 @@ class AliceChatForegroundService : Service() {
 
         fun updateAppForeground(isForeground: Boolean) {
             instance?.appForeground = isForeground
-            DebugLogBuffer.append("fg-service", "appForegroundUpdated foreground=$isForeground viaMethodChannel=${instance != null} active=${instance?.activeSessionId.orEmpty()}")
+            if (!isForeground) {
+                instance?.lastBackgroundedAtMs = System.currentTimeMillis()
+            }
+            DebugLogBuffer.append("fg-service", "appForegroundUpdated foreground=$isForeground viaMethodChannel=${instance != null} active=${instance?.activeSessionId.orEmpty()} backgroundedAt=${instance?.lastBackgroundedAtMs ?: 0L}")
         }
 
         fun updateSessionMetadata(sessionId: String, title: String, avatarAssetPath: String) {
