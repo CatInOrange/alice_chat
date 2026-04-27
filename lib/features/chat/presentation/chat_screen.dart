@@ -80,7 +80,6 @@ class _ChatScreenState extends State<ChatScreen> {
     composerBuilder: _buildComposer,
     chatAnimatedListBuilder:
         (context, itemBuilder) => ChatAnimatedList(
-          key: PageStorageKey('chat-list-${widget.session.id}'),
           itemBuilder: itemBuilder,
           scrollController: _chatListController,
           reversed: true,
