@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart' as core;
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart'
@@ -1423,7 +1425,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 }
 
-class _ChatImageBubble extends StatelessWidget {
+class _ChatImageBubble extends StatefulWidget {
   const _ChatImageBubble({
     required this.messageId,
     required this.imageUrl,
@@ -1437,43 +1439,96 @@ class _ChatImageBubble extends StatelessWidget {
   final double maxWidth;
 
   @override
+  State<_ChatImageBubble> createState() => _ChatImageBubbleState();
+}
+
+class _ChatImageBubbleState extends State<_ChatImageBubble> {
+  static final _cacheManager = CacheManager(
+    Config(
+      'alicechat_chat_images',
+      stalePeriod: const Duration(days: 14),
+      maxNrOfCacheObjects: 400,
+    ),
+  );
+
+  late Future<File> _fileFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _fileFuture = _loadFile();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ChatImageBubble oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final headersChanged = !_mapEquals(oldWidget.headers, widget.headers);
+    if (oldWidget.imageUrl != widget.imageUrl || headersChanged) {
+      _fileFuture = _loadFile();
+    }
+  }
+
+  Future<File> _loadFile() {
+    return _cacheManager.getSingleFile(
+      widget.imageUrl,
+      key: _cacheKey,
+      headers: widget.headers,
+    );
+  }
+
+  String get _cacheKey {
+    final password = widget.headers['X-AliceChat-Password'] ?? '';
+    return '${widget.messageId}|${widget.imageUrl}|$password';
+  }
+
+  bool _mapEquals(Map<String, String> a, Map<String, String> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (final entry in a.entries) {
+      if (b[entry.key] != entry.value) return false;
+    }
+    return true;
+  }
+
+  @override
   Widget build(BuildContext context) {
     return RepaintBoundary(
       child: ClipRRect(
         borderRadius: BorderRadius.circular(18),
         child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: maxWidth, maxHeight: 320),
-          child: Image.network(
-            imageUrl,
-            headers: headers.isEmpty ? null : headers,
-            fit: BoxFit.cover,
-            gaplessPlayback: true,
-            filterQuality: FilterQuality.medium,
-            frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-              if (wasSynchronouslyLoaded || frame != null) {
-                return child;
+          constraints: BoxConstraints(maxWidth: widget.maxWidth, maxHeight: 320),
+          child: FutureBuilder<File>(
+            future: _fileFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting &&
+                  !snapshot.hasData) {
+                return _buildLoading();
               }
-              return Container(
-                width: maxWidth,
-                height: 180,
-                color: Colors.white,
-                alignment: Alignment.center,
-                child: const CircularProgressIndicator(strokeWidth: 2),
-              );
-            },
-            errorBuilder: (_, error, stackTrace) {
-              unawaited(
-                NativeDebugBridge.instance.log(
-                  'chat-image',
-                  'network/decode error messageId=$messageId source=$imageUrl error=$error',
-                  level: 'ERROR',
-                ),
-              );
-              return Container(
-                width: maxWidth,
-                color: Colors.white,
-                padding: const EdgeInsets.all(18),
-                child: const Text('图片加载失败'),
+              if (snapshot.hasError || !snapshot.hasData) {
+                unawaited(
+                  NativeDebugBridge.instance.log(
+                    'chat-image',
+                    'cache/network error messageId=${widget.messageId} source=${widget.imageUrl} error=${snapshot.error}',
+                    level: 'ERROR',
+                  ),
+                );
+                return _buildError();
+              }
+              return Image.file(
+                snapshot.data!,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                filterQuality: FilterQuality.medium,
+                errorBuilder: (_, error, stackTrace) {
+                  unawaited(
+                    NativeDebugBridge.instance.log(
+                      'chat-image',
+                      'file decode error messageId=${widget.messageId} source=${widget.imageUrl} error=$error',
+                      level: 'ERROR',
+                    ),
+                  );
+                  return _buildError();
+                },
               );
             },
           ),
@@ -1481,7 +1536,27 @@ class _ChatImageBubble extends StatelessWidget {
       ),
     );
   }
+
+  Widget _buildLoading() {
+    return Container(
+      width: widget.maxWidth,
+      height: 180,
+      color: Colors.white,
+      alignment: Alignment.center,
+      child: const CircularProgressIndicator(strokeWidth: 2),
+    );
+  }
+
+  Widget _buildError() {
+    return Container(
+      width: widget.maxWidth,
+      color: Colors.white,
+      padding: const EdgeInsets.all(18),
+      child: const Text('图片加载失败'),
+    );
+  }
 }
+
 
 class _InlineCodeBuilder extends MarkdownElementBuilder {
   _InlineCodeBuilder(this.styleSheet);
