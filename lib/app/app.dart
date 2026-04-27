@@ -312,9 +312,11 @@ class _MainScaffoldState extends State<_MainScaffold>
     if (!defaultTargetPlatform.name.toLowerCase().contains('android')) {
       return;
     }
-    await _prepareForBackgroundTransition(
-      reason: 'rootBack',
-      clearActiveSession: true,
+    unawaited(
+      _prepareForBackgroundTransition(
+        reason: 'rootBack',
+        clearActiveSession: true,
+      ),
     );
     unawaited(
       NativeDebugBridge.instance.log(

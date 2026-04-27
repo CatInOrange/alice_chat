@@ -762,6 +762,57 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Future<void> _showAttachmentMenu(ChatViewState state) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.image_outlined),
+                  title: Text(
+                    '图片',
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  subtitle: const Text('从相册选择一张图片发送'),
+                  onTap: () => Navigator.of(sheetContext).pop('image'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.insert_drive_file_outlined),
+                  title: Text(
+                    '文件',
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  subtitle: const Text('暂未支持，后端目前只能上传图片'),
+                  enabled: false,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'image':
+        await _handlePickImage();
+        break;
+    }
+  }
+
   Future<core.User> _resolveUser(String id) async {
     switch (id) {
       case 'assistant':
@@ -1204,13 +1255,16 @@ class _ChatScreenState extends State<ChatScreen> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: IconButton(
-                      onPressed: state.isSubmitting ? null : _handlePickImage,
-                      icon: const Icon(Icons.image_outlined),
+                      onPressed:
+                          state.isSubmitting
+                              ? null
+                              : () => _showAttachmentMenu(state),
+                      icon: const Icon(Icons.add_rounded),
                       color:
                           state.isSubmitting
                               ? const Color(0xFF98A1B3)
                               : theme.colorScheme.primary,
-                      tooltip: '发送图片',
+                      tooltip: '附件',
                     ),
                   ),
                   const SizedBox(width: 10),
