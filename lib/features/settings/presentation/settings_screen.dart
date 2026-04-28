@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/debug/native_debug_bridge.dart';
+import '../../../core/openclaw/openclaw_http_client.dart';
 import '../../../core/openclaw/openclaw_settings.dart';
 import '../../chat/application/chat_session_store.dart';
 import '../../notifications/application/notification_service.dart';
@@ -20,6 +21,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _obscurePassword = true;
   bool _backgroundServiceEnabled = true;
   bool _isSaving = false;
+  bool _isRestartingBackend = false;
+  bool _isRestartingGateway = false;
+  String? _adminActionMessage;
   bool _didLoad = false;
 
   @override
@@ -81,6 +85,116 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<bool> _confirmAdminAction({
+    required String title,
+    required String message,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(title),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('确认执行'),
+            ),
+          ],
+        );
+      },
+    );
+    return confirmed == true;
+  }
+
+  Future<void> _runAdminAction({
+    required String actionLabel,
+    required Future<Map<String, dynamic>> Function() submit,
+    required bool isBackend,
+  }) async {
+    final confirmed = await _confirmAdminAction(
+      title: actionLabel,
+      message: isBackend
+          ? '这会重启 AliceChat 后端。若后端当前没在运行，会直接尝试拉起。执行中连接可能短暂中断。'
+          : '这会重启 OpenClaw Gateway。执行中桥接与消息链路可能短暂中断。',
+    );
+    if (!confirmed || !mounted) return;
+
+    setState(() {
+      if (isBackend) {
+        _isRestartingBackend = true;
+      } else {
+        _isRestartingGateway = true;
+      }
+      _adminActionMessage = '$actionLabel 已提交，正在等待结果…';
+    });
+
+    final store = context.read<ChatSessionStore>();
+    try {
+      final submitResult = await submit();
+      final task = (submitResult['task'] as Map?)?.cast<String, dynamic>() ?? const {};
+      final taskId = (task['id'] ?? '').toString();
+      if (taskId.isEmpty) {
+        throw Exception('未拿到任务 ID');
+      }
+
+      Map<String, dynamic> latestTask = task;
+      final deadline = DateTime.now().add(Duration(seconds: isBackend ? 90 : 120));
+      while (DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(seconds: 2));
+        try {
+          final client = OpenClawHttpClient(store.currentConfig);
+          final taskResult = await client.getAdminTask(taskId);
+          latestTask = (taskResult['task'] as Map?)?.cast<String, dynamic>() ?? latestTask;
+        } catch (_) {
+          if (!isBackend) rethrow;
+          continue;
+        }
+        final state = (latestTask['state'] ?? '').toString();
+        final message = (latestTask['message'] ?? '').toString();
+        if (mounted) {
+          setState(() {
+            _adminActionMessage = message.isNotEmpty ? '$actionLabel：$message' : '$actionLabel 执行中…';
+          });
+        }
+        if (state == 'succeeded') {
+          if (isBackend) {
+            await store.reloadConfig();
+            await NotificationService.instance.refreshConfig();
+          }
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(message.isNotEmpty ? message : '$actionLabel 完成')),
+          );
+          return;
+        }
+        if (state == 'failed') {
+          throw Exception(message.isNotEmpty ? message : '$actionLabel 失败');
+        }
+      }
+      throw Exception('$actionLabel 超时，请稍后查看服务状态');
+    } catch (exc) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$actionLabel 失败：$exc')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          if (isBackend) {
+            _isRestartingBackend = false;
+          } else {
+            _isRestartingGateway = false;
+          }
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -139,6 +253,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: ElevatedButton(
                 onPressed: _isSaving ? null : _saveSettings,
                 child: Text(_isSaving ? 'Saving...' : 'Save'),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Card(
+              color: Colors.orange.shade50,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '敏感操作',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('下面的操作会重启服务，可能造成短暂断连。请确认后再执行。'),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: (_isRestartingBackend || _isRestartingGateway)
+                            ? null
+                            : () => _runAdminAction(
+                                  actionLabel: '重启 Backend',
+                                  submit: () => OpenClawHttpClient(
+                                    context.read<ChatSessionStore>().currentConfig,
+                                  ).restartBackend(),
+                                  isBackend: true,
+                                ),
+                        icon: _isRestartingBackend
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.restart_alt),
+                        label: Text(_isRestartingBackend ? 'Backend 重启中…' : '重启 Backend'),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: (_isRestartingBackend || _isRestartingGateway)
+                            ? null
+                            : () => _runAdminAction(
+                                  actionLabel: '重启 Gateway',
+                                  submit: () => OpenClawHttpClient(
+                                    context.read<ChatSessionStore>().currentConfig,
+                                  ).restartGateway(),
+                                  isBackend: false,
+                                ),
+                        icon: _isRestartingGateway
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.settings_ethernet),
+                        label: Text(_isRestartingGateway ? 'Gateway 重启中…' : '重启 Gateway'),
+                      ),
+                    ),
+                    if ((_adminActionMessage ?? '').trim().isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        _adminActionMessage!,
+                        style: TextStyle(color: Colors.orange.shade900),
+                      ),
+                    ],
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 24),

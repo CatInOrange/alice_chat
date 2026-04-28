@@ -216,6 +216,38 @@ class OpenClawHttpClient implements OpenClawClient {
   }
 
   @override
+  Future<Map<String, dynamic>> restartBackend() =>
+      _postAdminControl('/api/admin-control/restart/backend');
+
+  @override
+  Future<Map<String, dynamic>> restartGateway() =>
+      _postAdminControl('/api/admin-control/restart/gateway');
+
+  @override
+  Future<Map<String, dynamic>> getAdminTask(String taskId) async {
+    final response = await _httpClient.get(
+      _uri('/api/admin-control/tasks/$taskId'),
+      headers: _headers,
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('加载任务状态失败', response);
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> _postAdminControl(String path) async {
+    final response = await _httpClient.post(
+      _uri(path),
+      headers: _headers,
+      body: jsonEncode(const {}),
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('提交管理任务失败', response);
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  @override
   Stream<Map<String, dynamic>> subscribeEvents({
     String? sessionId,
     int? since,

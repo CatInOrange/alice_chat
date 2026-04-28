@@ -40,4 +40,10 @@ abstract class OpenClawClient {
   Future<Map<String, dynamic>> sendClientDebugLog(Map<String, dynamic> payload);
 
   Future<Map<String, dynamic>> loadLatestClientDebugLogs({int limit = 5});
+
+  Future<Map<String, dynamic>> restartBackend();
+
+  Future<Map<String, dynamic>> restartGateway();
+
+  Future<Map<String, dynamic>> getAdminTask(String taskId);
 }
