@@ -110,6 +110,17 @@ async function playSpeechPayload(
       mode: payload.mode || "chat",
       ...(context.ttsOverrides || {}),
     });
+    try {
+      console.info("[Live2D TTS] requestTts ok", {
+        provider: context.ttsProvider,
+        mode: payload.mode || "chat",
+        mimeType: blob.type,
+        size: blob.size,
+        textLength: String(payload.text || "").length,
+      });
+    } catch {
+      // noop
+    }
     if (!isPlaybackVersionCurrent(playbackVersion, playbackState.getVersion())) {
       return;
     }
@@ -166,7 +177,19 @@ async function playSpeechPayload(
     });
 
     audio.addEventListener("ended", finish, { once: true });
-    audio.addEventListener("error", finish, { once: true });
+    audio.addEventListener("error", () => {
+      try {
+        console.error("[Live2D TTS] audio element error", {
+          provider: context.ttsProvider,
+          mimeType: targetMimeType,
+          source: targetUrl,
+          ttsEnabled: context.ttsEnabled,
+        });
+      } catch {
+        // noop
+      }
+      finish();
+    }, { once: true });
     void audio.play()
       .then(() => {
         if (!isPlaybackVersionCurrent(playbackVersion, playbackState.getVersion())) {
@@ -184,7 +207,22 @@ async function playSpeechPayload(
           lipSyncCleanup = options.createRealtimeLipSyncCleanup(audio, model);
         }
       })
-      .catch(() => finish());
+      .catch((error) => {
+        try {
+          const err = error as { name?: string; message?: string } | undefined;
+          console.error("[Live2D TTS] audio.play failed", {
+            errorName: err?.name || "Error",
+            errorMessage: err?.message || String(error),
+            provider: context.ttsProvider,
+            mimeType: targetMimeType,
+            source: targetUrl,
+            ttsEnabled: context.ttsEnabled,
+          });
+        } catch {
+          // noop
+        }
+        finish();
+      });
   });
 }
 

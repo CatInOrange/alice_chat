@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../../../core/openclaw/openclaw_settings.dart';
 
@@ -25,6 +26,11 @@ class _WebviewScreenState extends State<WebviewScreen>
   void initState() {
     super.initState();
     _controller = WebViewController();
+    final platformController = _controller.platform;
+    if (platformController is AndroidWebViewController) {
+      platformController.setMediaPlaybackRequiresUserGesture(false);
+      debugPrint('WebView Android mediaPlaybackRequiresUserGesture=false');
+    }
     _init();
   }
 
