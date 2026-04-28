@@ -127,6 +127,39 @@ interface RendererCommandContextValue {
 
 const RendererCommandContext = createContext<RendererCommandContextValue | null>(null);
 
+function resolvePreferredModelUrl(
+  manifest: LunariaManifest,
+  backendUrl: string,
+): string {
+  const params = new URLSearchParams(window.location.search);
+  const localModelUrl = String(params.get("local_model_url") || "").trim();
+  const manifestModelPath = String(manifest.model.modelJson || "").trim();
+  if (localModelUrl) {
+    try {
+      const localUrl = new URL(localModelUrl);
+      const manifestFileName = manifestModelPath.split('/').pop() || '';
+      const localFileName = localUrl.pathname.split('/').pop() || '';
+      if (!manifestFileName || localFileName === manifestFileName) {
+        console.info('[Live2D cache] using local model url', {
+          localModelUrl,
+          manifestModelPath,
+        });
+        return localModelUrl;
+      }
+      console.warn('[Live2D cache] local model filename mismatch, fallback to remote', {
+        localModelUrl,
+        manifestModelPath,
+      });
+    } catch (error) {
+      console.warn('[Live2D cache] invalid local model url, fallback to remote', {
+        localModelUrl,
+        error,
+      });
+    }
+  }
+  return buildBackendUrl(backendUrl, manifestModelPath);
+}
+
 function mapManifestToModelInfo(
   manifest: LunariaManifest,
   backendUrl: string,
@@ -139,7 +172,7 @@ function mapManifestToModelInfo(
 
   return {
     name: manifest.model.name,
-    url: buildBackendUrl(backendUrl, manifest.model.modelJson),
+    url: resolvePreferredModelUrl(manifest, backendUrl),
     kScale: 0.5,
     initialXshift: 0,
     initialYshift: 0,

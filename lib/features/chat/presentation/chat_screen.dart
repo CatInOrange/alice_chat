@@ -880,41 +880,45 @@ class _ChatScreenState extends State<ChatScreen> {
                         : CrossAxisAlignment.start,
                 children: [
                   sentByMe
-                      ? SimpleTextMessage(
-                        message: message,
-                        index: index,
-                        showStatus: false,
-                        timeAndStatusPosition: TimeAndStatusPosition.end,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 11,
+                      ? GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onLongPress: () => _showMessageActionSheet(context, message.text),
+                        child: SimpleTextMessage(
+                          message: message,
+                          index: index,
+                          showStatus: false,
+                          timeAndStatusPosition: TimeAndStatusPosition.end,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 11,
+                          ),
+                          constraints: BoxConstraints(maxWidth: maxWidth),
+                          borderRadius: bubbleRadius,
+                          sentBackgroundColor: const Color(0xFF7C4DFF),
+                          receivedBackgroundColor: Colors.white,
+                          sentTextStyle: Theme.of(
+                            context,
+                          ).textTheme.bodyLarge?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          receivedTextStyle: Theme.of(
+                            context,
+                          ).textTheme.bodyLarge?.copyWith(
+                            color: const Color(0xFF1F2430),
+                            fontWeight: FontWeight.w500,
+                          ),
+                          timeStyle: Theme.of(
+                            context,
+                          ).textTheme.bodySmall?.copyWith(
+                            color:
+                                sentByMe
+                                    ? Colors.white.withValues(alpha: 0.72)
+                                    : const Color(0xFF98A1B3),
+                            fontSize: 11,
+                          ),
+                          topWidget: null,
                         ),
-                        constraints: BoxConstraints(maxWidth: maxWidth),
-                        borderRadius: bubbleRadius,
-                        sentBackgroundColor: const Color(0xFF7C4DFF),
-                        receivedBackgroundColor: Colors.white,
-                        sentTextStyle: Theme.of(
-                          context,
-                        ).textTheme.bodyLarge?.copyWith(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        receivedTextStyle: Theme.of(
-                          context,
-                        ).textTheme.bodyLarge?.copyWith(
-                          color: const Color(0xFF1F2430),
-                          fontWeight: FontWeight.w500,
-                        ),
-                        timeStyle: Theme.of(
-                          context,
-                        ).textTheme.bodySmall?.copyWith(
-                          color:
-                              sentByMe
-                                  ? Colors.white.withValues(alpha: 0.72)
-                                  : const Color(0xFF98A1B3),
-                          fontSize: 11,
-                        ),
-                        topWidget: null,
                       )
                       : _buildAssistantMarkdownBubble(
                         context,
