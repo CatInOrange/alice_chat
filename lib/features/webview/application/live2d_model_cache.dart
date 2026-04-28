@@ -6,14 +6,33 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+/// Represents the result of a prepare() call.
 class Live2dModelCacheProbe {
   const Live2dModelCacheProbe({
-    required this.localModelUrl,
+    /// Local URL to the model JSON, if immediately available (cache hit).
+    /// Null if cache miss (download needed or in progress).
+    this.localModelUrl,
+    /// True if a download was started (cache miss, background download happening).
     required this.downloadStarted,
   });
 
   final String? localModelUrl;
   final bool downloadStarted;
+}
+
+/// Represents the state of an in-progress or completed download.
+class _DownloadState {
+  _DownloadState({
+    required this.future,
+    required this.completer,
+    required this.status,
+  });
+
+  final Future<String?> future;
+  final Completer<String?> completer;
+  
+  /// 'pending' = downloading, 'success' = completed with URL, 'failed' = completed with null
+  String status; // pending | success | failed
 }
 
 class _Live2dModelReadyMeta {
@@ -61,51 +80,25 @@ class Live2dModelCache {
 
   HttpServer? _server;
   Directory? _cacheRoot;
-  final Map<String, Future<String?>> _downloadFutures = <String, Future<String?>>{};
+  
+  /// Tracks in-progress downloads: modelId -> _DownloadState
+  final Map<String, _DownloadState> _downloadStates = <String, _DownloadState>{};
 
-  Future<Live2dModelCacheProbe> prepare({
-    required String basePageUrl,
-    required String appPassword,
-    required String modelId,
-  }) async {
-    await _ensureServer();
-    final readyMeta = await _readReadyMeta(modelId);
-    if (readyMeta != null && await _isReadyMetaUsable(readyMeta)) {
-      return Live2dModelCacheProbe(
-        localModelUrl: _buildLocalModelUrl(readyMeta.modelJsonPath),
-        downloadStarted: false,
-      );
-    }
+  /// Maximum retries per file before giving up on that file.
+  static const int _maxFileRetries = 5;
+  
+  /// Initial delay between retries (exponential backoff).
+  static const Duration _initialRetryDelay = Duration(milliseconds: 1000);
+  
+  /// Maximum retries for the manifest itself.
+  static const int _maxManifestRetries = 3;
 
-    _downloadFutures[modelId] ??= _downloadModel(
-      basePageUrl: basePageUrl,
-      appPassword: appPassword,
-      modelId: modelId,
-    ).whenComplete(() {
-      _downloadFutures.remove(modelId);
-    });
-
-    return const Live2dModelCacheProbe(
-      localModelUrl: null,
-      downloadStarted: true,
-    );
-  }
-
-  Future<String?> waitForLocalModelUrl(String modelId) async {
-    final readyMeta = await _readReadyMeta(modelId);
-    if (readyMeta != null && await _isReadyMetaUsable(readyMeta)) {
-      return _buildLocalModelUrl(readyMeta.modelJsonPath);
-    }
-    final future = _downloadFutures[modelId];
-    if (future == null) return null;
-    return future;
-  }
-
+  /// Ensures the local HTTP server is running.
   Future<void> _ensureServer() async {
     if (_server != null) return;
     final root = await _getCacheRoot();
-    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    server.listen((request) async {
+    _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    _server!.listen((request) async {
       try {
         await _handleRequest(root, request);
       } catch (error, stackTrace) {
@@ -116,7 +109,7 @@ class Live2dModelCache {
         await request.response.close();
       }
     });
-    _server = server;
+    debugPrint('Live2dModelCache server started on port ${_server!.port}');
   }
 
   Future<Directory> _getCacheRoot() async {
@@ -173,26 +166,126 @@ class Live2dModelCache {
     return 'http://127.0.0.1:${server.port}/$normalized';
   }
 
-  Future<String?> _downloadModel({
+  /// Main entry point: prepares the model for loading.
+  /// 
+  /// Returns immediately with:
+  /// - localModelUrl: if model is cached and ready
+  /// - downloadStarted: true if background download is in progress
+  /// 
+  /// If download is already in progress when called, waits for it to complete
+  /// and returns the result (either URL or null if failed).
+  Future<Live2dModelCacheProbe> prepare({
     required String basePageUrl,
     required String appPassword,
     required String modelId,
+  }) async {
+    await _ensureServer();
+    
+    // Step 1: Check if we have a valid cached model
+    final readyMeta = await _readReadyMeta(modelId);
+    if (readyMeta != null && await _isReadyMetaUsable(readyMeta)) {
+      final url = _buildLocalModelUrl(readyMeta.modelJsonPath);
+      debugPrint('Live2dModelCache cache hit modelId=$modelId url=$url');
+      return Live2dModelCacheProbe(
+        localModelUrl: url,
+        downloadStarted: false,
+      );
+    }
+
+    // Step 2: Check if download is already in progress
+    final existingState = _downloadStates[modelId];
+    if (existingState != null && existingState.status == 'pending') {
+      debugPrint('Live2dModelCache download already in progress for modelId=$modelId, waiting...');
+      // Wait for the in-progress download to complete
+      final result = await existingState.future;
+      if (result != null) {
+        return Live2dModelCacheProbe(
+          localModelUrl: result,
+          downloadStarted: true,
+        );
+      }
+      // Download failed, fall through to start a new one
+      debugPrint('Live2dModelCache previous download failed for modelId=$modelId, retrying...');
+    }
+
+    // Step 3: Start a new download
+    debugPrint('Live2dModelCache starting download for modelId=$modelId');
+    return _startDownload(
+      basePageUrl: basePageUrl,
+      appPassword: appPassword,
+      modelId: modelId,
+    );
+  }
+
+  /// Starts a new download and returns immediately with downloadStarted: true.
+  Live2dModelCacheProbe _startDownload({
+    required String basePageUrl,
+    required String appPassword,
+    required String modelId,
+  }) {
+    final completer = Completer<String?>();
+    final state = _DownloadState(
+      future: completer.future,
+      completer: completer,
+      status: 'pending',
+    );
+    _downloadStates[modelId] = state;
+    
+    // Start download in background
+    _runDownload(
+      basePageUrl: basePageUrl,
+      appPassword: appPassword,
+      modelId: modelId,
+      state: state,
+    ).then((url) {
+      if (url != null) {
+        state.status = 'success';
+        completer.complete(url);
+      } else {
+        state.status = 'failed';
+        completer.complete(null);
+      }
+    }).whenComplete(() {
+      // Clean up after a delay to allow new downloads to reuse the slot
+      Future.delayed(const Duration(seconds: 30), () {
+        _downloadStates.remove(modelId);
+      });
+    });
+
+    return Live2dModelCacheProbe(
+      localModelUrl: null,
+      downloadStarted: true,
+    );
+  }
+
+  /// Runs the actual download, retrying individual files until success.
+  Future<String?> _runDownload({
+    required String basePageUrl,
+    required String appPassword,
+    required String modelId,
+    required _DownloadState state,
   }) async {
     try {
       final baseUri = Uri.parse(basePageUrl);
       final manifestUri = baseUri.resolve('/api/model?model=${Uri.encodeQueryComponent(modelId)}');
       final headers = _buildAuthHeaders(appPassword);
 
-      // Download manifest with retry
-      final manifestResponse = await _downloadWithRetry(manifestUri, headers);
+      // Step 1: Download manifest with retry
+      final manifestResponse = await _downloadWithRetry(
+        manifestUri, 
+        headers,
+        retries: _maxManifestRetries,
+        description: 'manifest',
+      );
       if (manifestResponse == null) {
         stderr.writeln('Live2dModelCache manifest download failed after retries');
         return null;
       }
       if (manifestResponse.statusCode < 200 || manifestResponse.statusCode >= 300) {
-        stderr.writeln('Live2dModelCache manifest download failed: ${manifestResponse.statusCode} ${manifestResponse.body}');
+        stderr.writeln('Live2dModelCache manifest download failed: ${manifestResponse.statusCode}');
         return null;
       }
+
       final manifestJson = jsonDecode(utf8.decode(manifestResponse.bodyBytes));
       if (manifestJson is! Map<String, dynamic>) {
         stderr.writeln('Live2dModelCache manifest is not a JSON object');
@@ -212,12 +305,19 @@ class Live2dModelCache {
       final modelJsonPath = _normalizeRelativePath(modelJsonPathRaw);
       final modelJsonUri = baseUri.resolve(modelJsonPathRaw);
 
-      // Download modelJson with retry
-      final modelJsonBytes = await _downloadBytesWithRetry(modelJsonUri, headers);
-      if (modelJsonBytes == null) {
+      // Step 2: Download modelJson with retry
+      final modelJsonResponse = await _downloadWithRetry(
+        modelJsonUri,
+        headers,
+        description: 'modelJson',
+      );
+      if (modelJsonResponse == null) {
         stderr.writeln('Live2dModelCache modelJson download failed after retries');
         return null;
       }
+      final modelJsonBytes = modelJsonResponse.bodyBytes;
+
+      // Parse to find all referenced files
       final modelJson = jsonDecode(utf8.decode(modelJsonBytes));
       if (modelJson is! Map<String, dynamic>) {
         stderr.writeln('Live2dModelCache modelJson is not a JSON object');
@@ -232,42 +332,45 @@ class Live2dModelCache {
         }
       }
 
+      // Step 3: Download each referenced file, retrying individually until success
       final publicRoot = await _publicRoot();
-      final finalRootDir = Directory(p.join(publicRoot.path, 'models', modelId));
-      await finalRootDir.create(recursive: true);
       final normalizedModelDir = p.posix.dirname(modelJsonPath);
 
-      // Process each file: skip if already exists in final directory, otherwise download
       for (final ref in fileRefs) {
         final normalizedRef = _normalizeRelativePath(
-          ref == modelJsonPath ? ref : p.posix.normalize(p.posix.join(normalizedModelDir, ref)),
+          ref == modelJsonPath 
+            ? ref 
+            : p.posix.normalize(p.posix.join(normalizedModelDir, ref)),
         );
         final finalFile = File(p.join(publicRoot.path, normalizedRef));
 
-        // Skip download if file already exists
+        // Delete existing file first to ensure clean download (handles incomplete/corrupted files)
         if (await finalFile.exists()) {
-          stderr.writeln('Live2dModelCache skipping existing file: $normalizedRef');
-          continue;
+          await finalFile.delete();
         }
 
-        final remoteUri = ref == modelJsonPath
-            ? modelJsonUri
-            : modelJsonUri.resolve(ref);
-        final bytes = ref == modelJsonPath
-            ? modelJsonBytes
-            : await _downloadBytesWithRetry(remoteUri, headers);
+        // Try to download this file, retrying until success
+        final bytes = await _downloadFileWithInfiniteRetry(
+          ref == modelJsonPath ? modelJsonUri : modelJsonUri.resolve(ref),
+          ref == modelJsonPath ? modelJsonBytes : null,
+          headers,
+          finalFile,
+          description: ref,
+        );
+        
         if (bytes == null) {
-          stderr.writeln('Live2dModelCache file download failed: $remoteUri');
+          // This file failed even after all retries - give up
+          stderr.writeln('Live2dModelCache file failed after all retries: $ref');
           return null;
         }
-        await finalFile.parent.create(recursive: true);
-        await finalFile.writeAsBytes(bytes, flush: true);
       }
 
-      // Verify all required files exist before marking as ready
+      // Step 4: Verify all files exist
       for (final ref in fileRefs) {
         final normalizedRef = _normalizeRelativePath(
-          ref == modelJsonPath ? ref : p.posix.normalize(p.posix.join(normalizedModelDir, ref)),
+          ref == modelJsonPath 
+            ? ref 
+            : p.posix.normalize(p.posix.join(normalizedModelDir, ref)),
         );
         final finalFile = File(p.join(publicRoot.path, normalizedRef));
         if (!await finalFile.exists()) {
@@ -276,7 +379,7 @@ class Live2dModelCache {
         }
       }
 
-      // Only write ready meta when cache is complete
+      // Step 5: Write meta file to mark download complete
       final meta = _Live2dModelReadyMeta(
         modelId: modelId,
         modelJsonPath: modelJsonPath,
@@ -285,43 +388,55 @@ class Live2dModelCache {
       );
       final metaFile = await _metaFile(modelId);
       await metaFile.writeAsString(jsonEncode(meta.toJson()), flush: true);
-      return _buildLocalModelUrl(modelJsonPath);
+      
+      final resultUrl = _buildLocalModelUrl(modelJsonPath);
+      debugPrint('Live2dModelCache download complete for modelId=$modelId url=$resultUrl');
+      return resultUrl;
     } catch (error, stackTrace) {
       stderr.writeln('Live2dModelCache download error: $error\n$stackTrace');
       return null;
     }
   }
 
-  static const int _maxRetries = 3;
-  static const Duration _initialRetryDelay = Duration(milliseconds: 500);
-
-  Future<http.Response?> _downloadWithRetry(
+  /// Downloads a file, retrying indefinitely until success.
+  /// Returns null only if cancelled.
+  Future<List<int>?> _downloadFileWithInfiniteRetry(
     Uri uri,
-    Map<String, String> headers, {
-    int retries = _maxRetries,
+    List<int>? cachedBytes,
+    Map<String, String> headers,
+    File targetFile, {
+    String description = 'file',
   }) async {
-    for (int attempt = 1; attempt <= retries; attempt++) {
+    int attempt = 0;
+    while (true) {
+      attempt++;
       try {
-        final response = await http.get(uri, headers: headers);
-        if (response.statusCode >= 200 && response.statusCode < 300) {
-          return response;
+        // If we have cached bytes and this is the modelJson, use them directly
+        final bytes = cachedBytes ?? await _downloadBytesWithRetry(uri, headers);
+        if (bytes != null) {
+          // Write the file
+          await targetFile.parent.create(recursive: true);
+          await targetFile.writeAsBytes(bytes, flush: true);
+          debugPrint('Live2dModelCache $description downloaded successfully on attempt $attempt');
+          return bytes;
         }
-        stderr.writeln('Live2dModelCache download attempt $attempt/$retries failed: ${response.statusCode}');
+        stderr.writeln('Live2dModelCache $description attempt $attempt failed (null)');
       } catch (e) {
-        stderr.writeln('Live2dModelCache download attempt $attempt/$retries error: $e');
+        stderr.writeln('Live2dModelCache $description attempt $attempt error: $e');
       }
-      if (attempt < retries) {
-        final delay = Duration(milliseconds: _initialRetryDelay.inMilliseconds * attempt);
-        await Future.delayed(delay);
-      }
+      
+      // Exponential backoff, max 30 seconds
+      final delayMs = (_initialRetryDelay.inMilliseconds * attempt).clamp(500, 30000);
+      debugPrint('Live2dModelCache $description retrying in ${delayMs ~/ 1000}s (attempt $attempt)...');
+      await Future.delayed(Duration(milliseconds: delayMs));
     }
-    return null;
   }
 
+  /// Downloads bytes with retry, returns null after all retries exhausted.
   Future<List<int>?> _downloadBytesWithRetry(
     Uri uri,
     Map<String, String> headers, {
-    int retries = _maxRetries,
+    int retries = _maxFileRetries,
   }) async {
     for (int attempt = 1; attempt <= retries; attempt++) {
       try {
@@ -332,6 +447,30 @@ class Live2dModelCache {
         stderr.writeln('Live2dModelCache bytes attempt $attempt/$retries failed: ${response.statusCode}');
       } catch (e) {
         stderr.writeln('Live2dModelCache bytes attempt $attempt/$retries error: $e');
+      }
+      if (attempt < retries) {
+        final delay = Duration(milliseconds: _initialRetryDelay.inMilliseconds * attempt);
+        await Future.delayed(delay);
+      }
+    }
+    return null;
+  }
+
+  Future<http.Response?> _downloadWithRetry(
+    Uri uri,
+    Map<String, String> headers, {
+    int retries = _maxManifestRetries,
+    String description = 'download',
+  }) async {
+    for (int attempt = 1; attempt <= retries; attempt++) {
+      try {
+        final response = await http.get(uri, headers: headers);
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          return response;
+        }
+        stderr.writeln('Live2dModelCache $description attempt $attempt/$retries failed: ${response.statusCode}');
+      } catch (e) {
+        stderr.writeln('Live2dModelCache $description attempt $attempt/$retries error: $e');
       }
       if (attempt < retries) {
         final delay = Duration(milliseconds: _initialRetryDelay.inMilliseconds * attempt);
@@ -424,5 +563,10 @@ class Live2dModelCache {
     final trimmed = pathValue.trim();
     if (trimmed.isEmpty) return '';
     return p.posix.normalize(trimmed.replaceFirst(RegExp(r'^/+'), ''));
+  }
+  
+  void debugPrint(String message) {
+    // ignore: avoid_print
+    print('[Live2dModelCache] $message');
   }
 }
