@@ -1,4 +1,5 @@
 interface Window {
+  triggerLive2DTeaseMessage?: (message: string) => boolean;
   api?: {
     setIgnoreMouseEvents: (ignore: boolean) => void
     showContextMenu?: () => void
