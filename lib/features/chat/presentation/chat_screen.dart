@@ -72,7 +72,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   String _assistantSubtitle(ChatViewState state) {
     if (!state.isAssistantStreaming) return widget.session.subtitle;
-    return '正在输入…';
+    return _buildStreamingHint(state);
   }
 
   Builders get _chatBuilders => Builders(
@@ -338,11 +338,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       _buildHeaderAvatar(radius: 12),
                       const SizedBox(width: 8),
                       Text(
-                        state.assistantProgressSequence == null
-                            ? '正在输入…'
-                            : _buildProgressLabel(
-                              state.assistantProgressSequence!,
-                            ),
+                        _buildStreamingHint(state),
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: const Color(0xFF667085),
                           fontWeight: FontWeight.w600,
@@ -1203,25 +1199,48 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  String _buildStreamingHint(ChatViewState state) {
+    final mode = (state.assistantProgressMode ?? '').trim();
+    final progressText = (state.assistantProgressText ?? '').trim();
+    final previewText = (state.assistantPreviewText ?? '').trim();
+
+    if (mode == 'preview') {
+      final preview = _oneLinePreview(previewText.isNotEmpty ? previewText : progressText);
+      if (preview.isNotEmpty) return preview;
+    }
+
+    if (progressText.isNotEmpty) {
+      return _oneLinePreview(progressText);
+    }
+
+    final sequence = state.assistantProgressSequence;
+    if (sequence != null) {
+      return _buildProgressLabel(sequence);
+    }
+    return '我在想你这句呢…';
+  }
+
   String _buildProgressLabel(int sequence) {
-    final n = sequence.toString().padLeft(2, '0');
     const texts = [
-      '我先捋一捋哦...',
-      '脑袋转起来啦',
-      '唔，有点灵感了',
-      '我在认真组织语句',
-      '别急别急，快顺出来了',
-      '这一段马上就好',
-      '我再润一下会更顺',
-      '已经差不多啦',
-      '正在给你收个尾',
-      '马上发到你手里',
+      '我在想你这句呢…',
+      '翻一下文件，别催我嘛',
+      '我去查点东西～',
+      '敲两下命令给你看',
+      '唔，思路顺起来了',
+      '马上给你一个漂亮答案',
+      '再抛个光就发你',
     ];
-    final text =
-        sequence >= 1 && sequence <= texts.length
-            ? texts[sequence - 1]
-            : '再等我一下下，马上就贴过来';
-    return '$n $text';
+    if (sequence >= 1 && sequence <= texts.length) {
+      return texts[sequence - 1];
+    }
+    return '再等我一下下，马上贴过来';
+  }
+
+  String _oneLinePreview(String text, {int maxChars = 22}) {
+    final collapsed = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (collapsed.isEmpty) return '';
+    if (collapsed.characters.length <= maxChars) return collapsed;
+    return '${collapsed.characters.take(maxChars).toString()}…';
   }
 
   Widget _buildComposer(BuildContext context) {

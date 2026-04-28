@@ -528,7 +528,15 @@ class ChatSessionStore extends ChangeNotifier {
         final sequenceValue = event['sequence'];
         final sequence = sequenceValue is num ? sequenceValue.toInt() : 0;
         if (messageId.isNotEmpty && sequence > 0) {
-          state.setAssistantProgress(messageId: messageId, sequence: sequence);
+          state.setAssistantProgress(
+            messageId: messageId,
+            sequence: sequence,
+            text: (event['text'] ?? '').toString(),
+            mode: (event['mode'] ?? '').toString(),
+            stage: (event['stage'] ?? '').toString(),
+            kind: (event['kind'] ?? '').toString(),
+            preview: (event['reply'] ?? '').toString(),
+          );
           state.streamingMessageIds
             ..clear()
             ..add(messageId);
@@ -1182,6 +1190,11 @@ class ChatViewState {
   bool hasMoreHistory = true;
   int? assistantProgressSequence;
   String? assistantProgressMessageId;
+  String? assistantProgressText;
+  String? assistantProgressMode;
+  String? assistantProgressStage;
+  String? assistantProgressKind;
+  String? assistantPreviewText;
   String? oldestLoadedMessageId;
   String? newestLoadedMessageId;
   List<core.Message> messages = const [];
@@ -1344,14 +1357,29 @@ class ChatViewState {
   void setAssistantProgress({
     required String messageId,
     required int sequence,
+    String? text,
+    String? mode,
+    String? stage,
+    String? kind,
+    String? preview,
   }) {
     assistantProgressMessageId = messageId;
     assistantProgressSequence = sequence;
+    assistantProgressText = text;
+    assistantProgressMode = mode;
+    assistantProgressStage = stage;
+    assistantProgressKind = kind;
+    assistantPreviewText = preview;
   }
 
   void clearAssistantProgress() {
     assistantProgressMessageId = null;
     assistantProgressSequence = null;
+    assistantProgressText = null;
+    assistantProgressMode = null;
+    assistantProgressStage = null;
+    assistantProgressKind = null;
+    assistantPreviewText = null;
   }
 
   void trackMessageWindow(String? messageId) {

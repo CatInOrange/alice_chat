@@ -189,11 +189,38 @@ def create_chat_router(context: AppContext) -> APIRouter:
 
                 def emit(payload: dict) -> None:
                     nonlocal delta_seq
-                    delta_text = str(payload.get('delta') or payload.get('text') or '')
+                    payload_type = str(payload.get('type') or 'delta').strip().lower()
+                    delta_text = str(payload.get('delta') or '')
+                    progress_text = str(payload.get('text') or '')
+
+                    if payload_type == 'progress':
+                        if not progress_text:
+                            return
+                        delta_seq += 1
+                        events_bus.publish_threadsafe(
+                            'assistant.progress',
+                            {
+                                'sessionId': session_id,
+                                'clientMessageId': client_message_id,
+                                'requestId': request_id,
+                                'messageId': assistant_message_id,
+                                'sequence': delta_seq,
+                                'mode': 'progress',
+                                'text': progress_text,
+                                'stage': str(payload.get('stage') or 'working'),
+                                'kind': str(payload.get('kind') or 'progress'),
+                            },
+                        )
+                        return
+
+                    if not delta_text:
+                        delta_text = progress_text
                     if not delta_text:
                         return
+
                     delta_seq += 1
                     assistant_raw_parts.append(delta_text)
+                    preview_text = str(payload.get('reply') or ''.join(assistant_raw_parts))
                     events_bus.publish_threadsafe(
                         'assistant.progress',
                         {
@@ -202,6 +229,9 @@ def create_chat_router(context: AppContext) -> APIRouter:
                             'requestId': request_id,
                             'messageId': assistant_message_id,
                             'sequence': delta_seq,
+                            'mode': 'preview',
+                            'text': delta_text,
+                            'reply': preview_text,
                         },
                     )
 
