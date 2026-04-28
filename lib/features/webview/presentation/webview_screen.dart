@@ -4,7 +4,9 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../../../core/openclaw/openclaw_settings.dart';
 
 class WebviewScreen extends StatefulWidget {
-  const WebviewScreen({super.key});
+  const WebviewScreen({super.key, required this.active});
+
+  final bool active;
 
   @override
   State<WebviewScreen> createState() => _WebviewScreenState();
@@ -14,6 +16,7 @@ class _WebviewScreenState extends State<WebviewScreen>
     with AutomaticKeepAliveClientMixin {
   late final WebViewController _controller;
   bool _loading = true;
+  bool _pageReady = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -34,6 +37,9 @@ class _WebviewScreenState extends State<WebviewScreen>
           if (mounted) setState(() => _loading = true);
         },
         onPageFinished: (url) {
+          debugPrint('WebView page finished: $url');
+          _pageReady = true;
+          _syncActiveState();
           if (mounted) setState(() => _loading = false);
         },
         onWebResourceError: (error) {
@@ -58,6 +64,33 @@ class _WebviewScreenState extends State<WebviewScreen>
         if (password.isNotEmpty) 'X-AliceChat-Password': password,
       },
     );
+  }
+
+  @override
+  void didUpdateWidget(covariant WebviewScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.active != widget.active) {
+      debugPrint(
+        'WebView active changed: ${oldWidget.active} -> ${widget.active}',
+      );
+      _syncActiveState();
+    }
+  }
+
+  Future<void> _syncActiveState() async {
+    if (!_pageReady) {
+      debugPrint('WebView active sync skipped: page not ready');
+      return;
+    }
+    final activeValue = widget.active ? 'true' : 'false';
+    debugPrint('WebView syncing active state to page: $activeValue');
+    try {
+      await _controller.runJavaScript(
+        'window.aliceLive2dSetActive?.($activeValue);',
+      );
+    } catch (error) {
+      debugPrint('WebView active sync failed: $error');
+    }
   }
 
   @override

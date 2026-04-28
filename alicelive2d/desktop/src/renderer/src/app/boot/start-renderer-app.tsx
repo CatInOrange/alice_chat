@@ -3,6 +3,7 @@ import RootApp from "@/app/root-app";
 import { LAppAdapter } from "../../../WebSDK/src/lappadapter";
 import { ensureBootOverlay, hideBootOverlay } from "@/boot-overlay-utils";
 import i18n from "@/i18n";
+import "@/runtime/live2d-visibility-runtime";
 
 function formatFatalError(error: unknown, fallback: string) {
   if (error instanceof Error) {

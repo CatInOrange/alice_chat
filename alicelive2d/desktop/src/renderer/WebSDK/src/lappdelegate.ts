@@ -16,6 +16,7 @@ import { canvas, gl } from './lappglmanager';
 import { releaseIfPresent } from '../../src/runtime/live2d-disposal-utils.ts';
 import { canInitializeLive2DDelegate } from '../../src/runtime/live2d-gl-context-utils.ts';
 import { shouldRenderLive2DFrame } from '../../src/runtime/live2d-render-loop-utils.ts';
+import { isLive2DActive, subscribeLive2DActive } from '../../src/runtime/live2d-visibility-runtime.ts';
 
 export let s_instance: LAppDelegate | null = null;
 export let frameBuffer: WebGLFramebuffer | null = null;
@@ -39,6 +40,14 @@ export class LAppDelegate {
   private _dragTimestamps: number[] = [];
   private _lastTeaseTime: number = 0;
   private _teaseMessageShown: boolean = false;
+  private _active: boolean = isLive2DActive();
+  private _wasActiveLastFrame: boolean = this._active;
+  private _unsubscribeVisibility: (() => void) | null = subscribeLive2DActive((active) => {
+    if (this._active !== active) {
+      console.log(`[LAppDelegate] visibility active ${this._active} -> ${active}`);
+    }
+    this._active = active;
+  });
 
   /**
    * クラスのインスタンス（シングルトン）を返す。
@@ -193,6 +202,9 @@ export class LAppDelegate {
     // リソースを解放
     LAppLive2DManager.releaseInstance();
 
+    this._unsubscribeVisibility?.();
+    this._unsubscribeVisibility = null;
+
     // Cubism SDKの解放
     CubismFramework.dispose();
   }
@@ -270,6 +282,20 @@ export class LAppDelegate {
           requestAnimationFrame(loop);
           return;
         }
+      }
+
+      if (!this._active) {
+        if (this._wasActiveLastFrame) {
+          console.log("[LAppDelegate] render loop paused");
+          this._wasActiveLastFrame = false;
+        }
+        requestAnimationFrame(loop);
+        return;
+      }
+
+      if (!this._wasActiveLastFrame) {
+        console.log("[LAppDelegate] render loop resumed");
+        this._wasActiveLastFrame = true;
       }
 
       LAppPal.updateTime(true);

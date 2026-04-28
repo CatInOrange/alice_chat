@@ -68,6 +68,7 @@ import {
   playMotion,
   setTrackedPointerPosition,
 } from "@/runtime/live2d-bridge";
+import { isLive2DActive } from "@/runtime/live2d-visibility-runtime.ts";
 import { audioManager } from "@/utils/audio-manager";
 import {
   resolvePetAnchorUpdate,
@@ -1294,7 +1295,22 @@ export function RendererCommandProvider({
 
   useEffect(() => {
     let frame = 0;
+    let pausedLogged = false;
     const tick = () => {
+      if (!isLive2DActive()) {
+        if (!pausedLogged) {
+          console.log("[RendererCommandProvider] stage inactive, skipping focus/bounds tick");
+          pausedLogged = true;
+        }
+        frame = window.requestAnimationFrame(tick);
+        return;
+      }
+
+      if (pausedLogged) {
+        console.log("[RendererCommandProvider] stage active, resuming focus/bounds tick");
+        pausedLogged = false;
+      }
+
       const state = useAppStore.getState();
       applyPersistentToggleState(state.persistentToggleState, state.persistentToggles);
       const bounds = getModelBounds();

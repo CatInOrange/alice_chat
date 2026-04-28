@@ -361,7 +361,10 @@ class _MainScaffoldState extends State<_MainScaffold>
                   contacts: _contacts,
                   onContactTap: _navigateToChat,
                 ),
-                const WebviewScreen(key: ValueKey('webview')),
+                WebviewScreen(
+                  key: const ValueKey('webview'),
+                  active: _currentIndex == 1 && _activeChatSession == null,
+                ),
                 const SettingsScreen(),
               ],
             ),
