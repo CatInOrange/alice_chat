@@ -31,12 +31,27 @@ class ChatScreen extends StatefulWidget {
 
 enum _PullEdgeState { idle, pulling, armed, loading }
 
+class _StreamingHintResolution {
+  const _StreamingHintResolution({
+    required this.rawText,
+    required this.displayText,
+    required this.decorative,
+    required this.signature,
+  });
+
+  final String rawText;
+  final String displayText;
+  final bool decorative;
+  final String signature;
+}
+
 class _ChatScreenState extends State<ChatScreen> {
   final _currentUserId = 'user';
   final _composerController = TextEditingController();
   final _imagePicker = ImagePicker();
   final _chatListController = ScrollController();
   final _chatController = core.InMemoryChatController();
+  Timer? _streamingHintPulseTimer;
 
   static const double _pullTriggerDistance = 72;
   static const double _pullMaxVisualDistance = 108;
@@ -52,6 +67,9 @@ class _ChatScreenState extends State<ChatScreen> {
   _PullEdgeState _bottomPullState = _PullEdgeState.idle;
   final List<String> _appliedMessageIds = [];
   DateTime? _lastBuildLogAt;
+  String _lastMeaningfulStreamingHint = '';
+  String _lastStreamingHintSignature = '';
+  bool _streamingHintPulseActive = false;
 
   // Composer height tracking for relative positioning of floating elements
   static const double _composerPaddingVertical = 20.0; // 8 + 12
@@ -332,24 +350,53 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                     ],
                   ),
-                  child: Builder(
-                    builder: (context) {
-                      final hint = _buildStreamingHint(state);
-                      return Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _buildHeaderAvatar(radius: 12),
-                          const SizedBox(width: 8),
-                          Text(
-                            hint.isEmpty ? '⋯' : hint,
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: const Color(0xFF667085),
-                              fontWeight: FontWeight.w600,
-                            ),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 420),
+                    curve: Curves.easeOutCubic,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: _streamingHintPulseActive ? 2 : 0,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _streamingHintPulseActive
+                          ? const Color(0xFFF4E9FF)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: _streamingHintPulseActive
+                          ? const [
+                              BoxShadow(
+                                color: Color(0x1A8B5CF6),
+                                blurRadius: 14,
+                                spreadRadius: 0.5,
+                              ),
+                            ]
+                          : const [],
+                    ),
+                    child: Builder(
+                      builder: (context) {
+                        final hint = _displayStreamingHint(state);
+                        return AnimatedScale(
+                          scale: _streamingHintPulseActive ? 1.015 : 1,
+                          duration: const Duration(milliseconds: 420),
+                          curve: Curves.easeOutCubic,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildHeaderAvatar(radius: 12),
+                              const SizedBox(width: 8),
+                              Text(
+                                hint,
+                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: _streamingHintPulseActive
+                                      ? const Color(0xFF7C3AED)
+                                      : const Color(0xFF667085),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
                 ),
               ),
@@ -379,6 +426,7 @@ class _ChatScreenState extends State<ChatScreen> {
       '[alicechat.screen] ${jsonEncode({'tag': 'handleStoreChanged', 'sessionId': state.backendSessionId, 'sessionLocalId': widget.session.id, 'isSubmitting': state.isSubmitting, 'isAssistantStreaming': state.isAssistantStreaming, 'pendingCount': state.pendingClientMessageIds.length, 'streamingCount': state.streamingMessageIds.length, 'messageCount': state.messages.length, 'lastEventSeq': state.lastEventSeq, 'assistantProgressSequence': state.assistantProgressSequence})}',
     );
     _applyMessagesIncrementally(state.messages);
+    _syncStreamingHintState(state);
     setState(() {});
   }
 
@@ -1206,7 +1254,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  String _buildStreamingHint(ChatViewState state) {
+  _StreamingHintResolution _resolveStreamingHint(ChatViewState state) {
     final mode = (state.assistantProgressMode ?? '').trim();
     final progressText = (state.assistantProgressText ?? '').trim();
     final previewText = (state.assistantPreviewText ?? '').trim();
@@ -1260,7 +1308,67 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     }
 
-    return _isDecorativeStreamingHint(resolved) ? '' : resolved;
+    final decorative = _isDecorativeStreamingHint(resolved);
+    final signature = [
+      mode,
+      progressKind,
+      progressStage,
+      progressToolName,
+      progressToolCallId,
+      progressPhase,
+      progressStatus,
+      progressTitle,
+      progressCommand,
+      progressText,
+      previewText,
+      state.assistantProgressSequence?.toString() ?? '',
+    ].join('|');
+    return _StreamingHintResolution(
+      rawText: resolved,
+      displayText: decorative ? '' : resolved,
+      decorative: decorative,
+      signature: signature,
+    );
+  }
+
+  String _displayStreamingHint(ChatViewState state) {
+    final resolved = _resolveStreamingHint(state);
+    if (resolved.displayText.isNotEmpty) return resolved.displayText;
+    if (_lastMeaningfulStreamingHint.isNotEmpty) return _lastMeaningfulStreamingHint;
+    return '⋯';
+  }
+
+  void _syncStreamingHintState(ChatViewState state) {
+    if (!state.isAssistantStreaming) {
+      _lastMeaningfulStreamingHint = '';
+      _lastStreamingHintSignature = '';
+      _streamingHintPulseActive = false;
+      _streamingHintPulseTimer?.cancel();
+      return;
+    }
+
+    final resolved = _resolveStreamingHint(state);
+    if (resolved.displayText.isNotEmpty) {
+      _lastMeaningfulStreamingHint = resolved.displayText;
+      _lastStreamingHintSignature = resolved.signature;
+      return;
+    }
+
+    if (resolved.decorative && resolved.signature != _lastStreamingHintSignature) {
+      _lastStreamingHintSignature = resolved.signature;
+      _triggerStreamingHintPulse();
+    }
+  }
+
+  void _triggerStreamingHintPulse() {
+    _streamingHintPulseTimer?.cancel();
+    _streamingHintPulseActive = true;
+    _streamingHintPulseTimer = Timer(const Duration(milliseconds: 520), () {
+      if (!mounted) return;
+      setState(() {
+        _streamingHintPulseActive = false;
+      });
+    });
   }
 
   bool _isDecorativeStreamingHint(String text) {
@@ -1679,6 +1787,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     final store = context.read<ChatSessionStore>();
     store.removeListener(_handleStoreChanged);
+    _streamingHintPulseTimer?.cancel();
     _chatListController.removeListener(_handleScroll);
     _chatListController.dispose();
     _composerController.dispose();
