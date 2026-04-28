@@ -15,13 +15,14 @@ import androidx.core.app.NotificationCompat
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.util.concurrent.TimeUnit
+import java.util.ArrayDeque
 import kotlin.concurrent.thread
-import kotlin.random.Random
 
 class AliceChatForegroundService : Service() {
     private val client: OkHttpClient = OkHttpClient.Builder()
@@ -45,6 +46,7 @@ class AliceChatForegroundService : Service() {
         super.onCreate()
         DebugLogBuffer.append("fg-service", "onCreate")
         createChannels()
+        loadDeliveredDedupeKeys()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -169,48 +171,81 @@ class AliceChatForegroundService : Service() {
             lastSeq = json.optLong("seq")
         }
         val effectiveEvent = eventName ?: json.optString("type")
-        DebugLogBuffer.append("fg-service", "effectiveEvent=$effectiveEvent")
-        if (effectiveEvent != "assistant.message.completed" && effectiveEvent != "message.created") {
-            return
-        }
         val payload = json.optJSONObject("payload") ?: json
+        val deliveryPhase = payload.optString("deliveryPhase").ifBlank { json.optString("deliveryPhase") }
+        DebugLogBuffer.append("fg-service", "effectiveEvent=$effectiveEvent deliveryPhase=${deliveryPhase.ifBlank { "unknown" }}")
+        when (effectiveEvent) {
+            "notification.candidate" -> handleNotificationCandidate(payload, deliveryPhase)
+            "assistant.message.completed", "message.created" -> {
+                DebugLogBuffer.append("fg-service", "decision=ignore_legacy_event event=$effectiveEvent")
+                return
+            }
+            else -> return
+        }
+    }
+
+    private fun handleNotificationCandidate(payload: JSONObject, deliveryPhase: String) {
         val sessionId = payload.optString("sessionId").trim()
-        DebugLogBuffer.append("fg-service", "parsed sessionId=$sessionId active=$activeSessionId appForeground=$appForeground")
+        val messageId = payload.optString("messageId").trim()
+        val dedupeKey = payload.optString("dedupeKey").trim()
+        val title = payload.optString("title").ifBlank {
+            payload.optString("senderName").ifBlank { resolveTitleForSession(sessionId) }
+        }
+        val preview = payload.optString("bodyPreview").trim().ifBlank { "[新消息]" }
+        DebugLogBuffer.append(
+            "fg-service",
+            "candidate_received session=$sessionId messageId=$messageId dedupeKey=$dedupeKey deliveryPhase=${deliveryPhase.ifBlank { "unknown" }} active=$activeSessionId appForeground=$appForeground"
+        )
         if (sessionId.isEmpty()) {
-            DebugLogBuffer.append("fg-service", "decision=skip_empty_session")
+            DebugLogBuffer.append("fg-service", "decision=drop_invalid_candidate reason=empty_session messageId=$messageId")
             return
         }
-        val message = payload.optJSONObject("message") ?: run {
-            DebugLogBuffer.append("fg-service", "decision=skip_missing_message session=$sessionId")
+        if (deliveryPhase == "replay") {
+            DebugLogBuffer.append("fg-service", "decision=suppress_replay session=$sessionId messageId=$messageId dedupeKey=$dedupeKey")
             return
         }
-        val role = message.optString("role").trim()
-        if (role != "assistant") {
-            DebugLogBuffer.append("fg-service", "decision=skip_role session=$sessionId role=$role")
+        val stableDedupeKey = dedupeKey.ifBlank {
+            if (sessionId.isNotBlank() && messageId.isNotBlank()) "$sessionId:$messageId" else ""
+        }
+        if (stableDedupeKey.isNotEmpty() && hasSeenDedupeKey(stableDedupeKey)) {
+            DebugLogBuffer.append("fg-service", "decision=suppress_duplicate session=$sessionId messageId=$messageId dedupeKey=$stableDedupeKey")
             return
         }
-        val text = message.optString("text").trim()
-        val attachments = message.optJSONArray("attachments")
-        val hasAttachments = attachments != null && attachments.length() > 0
-        if (text.isEmpty() && !hasAttachments) {
-            DebugLogBuffer.append("fg-service", "decision=skip_empty_text session=$sessionId role=$role")
-            return
-        }
+        maybeNotify(
+            sessionId = sessionId,
+            title = title,
+            messageId = messageId,
+            preview = preview,
+            hasAttachments = preview == "[图片]",
+            source = "candidate",
+            dedupeKey = stableDedupeKey,
+        )
+    }
+
+    private fun maybeNotify(
+        sessionId: String,
+        title: String,
+        messageId: String,
+        preview: String,
+        hasAttachments: Boolean,
+        source: String,
+        dedupeKey: String,
+    ) {
         val recentlyBackgrounded =
             !appForeground &&
                 lastBackgroundedAtMs > 0L &&
                 System.currentTimeMillis() - lastBackgroundedAtMs <= 5_000L
         if (appForeground && sessionId.isNotEmpty() && sessionId == activeSessionId && !recentlyBackgrounded) {
-            DebugLogBuffer.append("fg-service", "decision=suppress_active_session session=$sessionId active=$activeSessionId appForeground=$appForeground recentlyBackgrounded=$recentlyBackgrounded")
+            DebugLogBuffer.append("fg-service", "decision=suppress_active_session source=$source session=$sessionId active=$activeSessionId appForeground=$appForeground recentlyBackgrounded=$recentlyBackgrounded")
             return
         }
         if (recentlyBackgrounded) {
-            DebugLogBuffer.append("fg-service", "decision=allow_recent_background session=$sessionId active=$activeSessionId appForeground=$appForeground backgroundedAt=$lastBackgroundedAtMs")
+            DebugLogBuffer.append("fg-service", "decision=allow_recent_background source=$source session=$sessionId active=$activeSessionId appForeground=$appForeground backgroundedAt=$lastBackgroundedAtMs")
         }
-        val title = payload.optString("senderName").ifBlank { resolveTitleForSession(sessionId) }
-        val messageId = message.optString("id")
-        val preview = if (text.isNotEmpty()) text else "[图片]"
-        DebugLogBuffer.append("fg-service", "decision=notify_attempt session=$sessionId title=$title messageId=$messageId textLen=${preview.length} active=$activeSessionId appForeground=$appForeground hasAttachments=$hasAttachments")
+        DebugLogBuffer.append("fg-service", "decision=notify_attempt source=$source session=$sessionId title=$title messageId=$messageId textLen=${preview.length} active=$activeSessionId appForeground=$appForeground hasAttachments=$hasAttachments dedupeKey=$dedupeKey")
+        if (dedupeKey.isNotEmpty()) {
+            rememberDedupeKey(dedupeKey)
+        }
         showMessageNotification(sessionId, title, messageId, preview)
     }
 
@@ -238,11 +273,10 @@ class AliceChatForegroundService : Service() {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val teaser = pickTeaser(title)
         val notification = NotificationCompat.Builder(this, MESSAGE_CHANNEL_ID)
             .setContentTitle(title)
-            .setContentText(teaser)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(teaser))
+            .setContentText(preview)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(preview))
             .setSmallIcon(R.mipmap.ic_launcher)
             .setLargeIcon(loadAvatarBitmap(eventSessionId))
             .setContentIntent(pendingIntent)
@@ -251,17 +285,67 @@ class AliceChatForegroundService : Service() {
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .build()
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val notificationId = (eventSessionId + messageId + teaser).hashCode()
+        val notificationId = (eventSessionId + ":" + messageId).hashCode()
         val notificationsEnabled = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             manager.areNotificationsEnabled()
         } else {
             true
         }
         val activeNotifications = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) manager.activeNotifications.size else -1
-        DebugLogBuffer.append("fg-service", "decision=post notificationId=$notificationId eventSession=$eventSessionId channel=$MESSAGE_CHANNEL_ID enabled=$notificationsEnabled activeCount=$activeNotifications title=$title teaser=$teaser preview=${preview.take(80)}")
+        DebugLogBuffer.append("fg-service", "decision=post notificationId=$notificationId eventSession=$eventSessionId channel=$MESSAGE_CHANNEL_ID enabled=$notificationsEnabled activeCount=$activeNotifications title=$title preview=${preview.take(80)}")
         manager.notify(notificationId, notification)
         val activeNotificationsAfter = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) manager.activeNotifications.size else -1
-        DebugLogBuffer.append("fg-service", "decision=posted notificationId=$notificationId eventSession=$eventSessionId activeCountAfter=$activeNotificationsAfter teaser=$teaser preview=${preview.take(80)}")
+        DebugLogBuffer.append("fg-service", "decision=posted notificationId=$notificationId eventSession=$eventSessionId activeCountAfter=$activeNotificationsAfter preview=${preview.take(80)}")
+    }
+
+    private fun loadDeliveredDedupeKeys() {
+        val prefs = getSharedPreferences(DEDUPE_PREFS_NAME, Context.MODE_PRIVATE)
+        val raw = prefs.getString(DEDUPE_KEYS_PREF_KEY, null).orEmpty().trim()
+        deliveredDedupeKeys.clear()
+        if (raw.isNotEmpty()) {
+            try {
+                val arr = JSONArray(raw)
+                for (i in 0 until arr.length()) {
+                    val key = arr.optString(i).trim()
+                    if (key.isNotEmpty()) {
+                        deliveredDedupeKeys.addLast(key)
+                    }
+                }
+            } catch (error: Exception) {
+                DebugLogBuffer.append("fg-service", "dedupe_load_failed error=${error.message}")
+            }
+        }
+        trimDeliveredDedupeKeys()
+        DebugLogBuffer.append("fg-service", "dedupe_loaded size=${deliveredDedupeKeys.size}")
+    }
+
+    private fun hasSeenDedupeKey(key: String): Boolean {
+        return synchronized(deliveredDedupeKeys) {
+            deliveredDedupeKeys.contains(key)
+        }
+    }
+
+    private fun rememberDedupeKey(key: String) {
+        synchronized(deliveredDedupeKeys) {
+            deliveredDedupeKeys.remove(key)
+            deliveredDedupeKeys.addLast(key)
+            trimDeliveredDedupeKeys()
+            persistDeliveredDedupeKeysLocked()
+        }
+        DebugLogBuffer.append("fg-service", "dedupe_remembered key=$key size=${deliveredDedupeKeys.size}")
+    }
+
+    private fun trimDeliveredDedupeKeys() {
+        while (deliveredDedupeKeys.size > MAX_DEDUPE_KEYS) {
+            deliveredDedupeKeys.removeFirst()
+        }
+    }
+
+    private fun persistDeliveredDedupeKeysLocked() {
+        val arr = JSONArray()
+        deliveredDedupeKeys.forEach { arr.put(it) }
+        val prefs = getSharedPreferences(DEDUPE_PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString(DEDUPE_KEYS_PREF_KEY, arr.toString()).apply()
     }
 
     private fun createChannels() {
@@ -316,32 +400,6 @@ class AliceChatForegroundService : Service() {
             "lisuxin:main", "lisuxin" -> "素心"
             else -> "AliceChat"
         }
-    }
-
-    private fun pickTeaser(title: String): String {
-        val pool = when (title) {
-            "alice" -> listOf(
-                "Alice 又来找你玩啦。",
-                "Alice 带着新消息冒泡了。",
-                "快看，Alice 正在等你回应。"
-            )
-            "玲珑" -> listOf(
-                "玲珑又来敲你了。",
-                "玲珑留了一句话，不看会后悔。",
-                "玲珑那边有新动静。"
-            )
-            "素心" -> listOf(
-                "素心抱着新消息跑来了。",
-                "素心又勤勤恳恳地来汇报了。",
-                "素心那边有更新，瞧一眼吧。"
-            )
-            else -> listOf(
-                "有条新消息在等你翻牌。",
-                "有人轻轻敲了敲你的聊天窗。",
-                "新动静来了，快去看看。"
-            )
-        }
-        return pool[Random.nextInt(pool.size)]
     }
 
     private fun loadAvatarBitmap(sessionId: String): Bitmap? {
@@ -401,10 +459,14 @@ class AliceChatForegroundService : Service() {
         const val EXTRA_SESSION_ID = "sessionId"
         const val EXTRA_MESSAGE_ID = "messageId"
         private const val RECONNECT_DELAY_MS = 3000L
+        private const val DEDUPE_PREFS_NAME = "alicechat_notification_dedupe"
+        private const val DEDUPE_KEYS_PREF_KEY = "delivered_keys"
+        private const val MAX_DEDUPE_KEYS = 256
 
         @Volatile
         private var instance: AliceChatForegroundService? = null
         private val sessionMetadata = mutableMapOf<String, MutableMap<String, String>>()
+        private val deliveredDedupeKeys = ArrayDeque<String>()
 
         fun updateActiveSession(sessionId: String) {
             instance?.activeSessionId = sessionId.trim()

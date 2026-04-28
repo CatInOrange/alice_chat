@@ -11,6 +11,16 @@ from ..web.sse import format_sse
 from ..utils.frame_audit import audit_frame
 
 
+def _build_sse_payload(*, seq: int, event_type: str, ts: float, payload: dict, delivery_phase: str) -> dict:
+    return {
+        'seq': seq,
+        'ts': ts,
+        'type': event_type,
+        'deliveryPhase': delivery_phase,
+        **dict(payload or {}),
+    }
+
+
 def create_events_router(context: AppContext) -> APIRouter:
     router = APIRouter(dependencies=[Depends(verify_app_password)])
 
@@ -22,15 +32,36 @@ def create_events_router(context: AppContext) -> APIRouter:
                     payload = event.get('payload') or {}
                     if sessionId and str(payload.get('sessionId') or '') != str(sessionId):
                         continue
+                    sse_payload = _build_sse_payload(
+                        seq=int(event.get('seq') or 0),
+                        event_type=str(event.get('type') or 'message'),
+                        ts=float(event.get('ts') or 0),
+                        payload=payload,
+                        delivery_phase='replay',
+                    )
                     audit_frame(
                         'backend_frontend_sse',
                         'backend->frontend',
-                        event,
+                        {
+                            'seq': int(event.get('seq') or 0),
+                            'type': str(event.get('type') or 'message'),
+                            'ts': float(event.get('ts') or 0),
+                            'payload': sse_payload,
+                        },
                         phase='events_route_replay',
                         sessionId=sessionId or '',
                         eventName=event.get('type') or 'message',
                     )
-                    yield format_sse(event, event_name=event.get('type') or 'message', include_id=True)
+                    yield format_sse(
+                        {
+                            'seq': int(event.get('seq') or 0),
+                            'type': str(event.get('type') or 'message'),
+                            'ts': float(event.get('ts') or 0),
+                            'payload': sse_payload,
+                        },
+                        event_name=event.get('type') or 'message',
+                        include_id=True,
+                    )
 
             queue = await context.events_bus.subscribe()
             try:
@@ -43,6 +74,13 @@ def create_events_router(context: AppContext) -> APIRouter:
                     payload = event.payload or {}
                     if sessionId and str(payload.get('sessionId') or '') != str(sessionId):
                         continue
+                    sse_payload = _build_sse_payload(
+                        seq=int(event.seq),
+                        event_type=str(event.type or 'message'),
+                        ts=float(event.ts),
+                        payload=payload,
+                        delivery_phase='live',
+                    )
                     audit_frame(
                         'backend_frontend_sse',
                         'backend->frontend',
@@ -50,7 +88,7 @@ def create_events_router(context: AppContext) -> APIRouter:
                             'seq': event.seq,
                             'type': event.type,
                             'ts': event.ts,
-                            'payload': payload,
+                            'payload': sse_payload,
                         },
                         phase='events_route_live',
                         sessionId=sessionId or '',
@@ -61,7 +99,7 @@ def create_events_router(context: AppContext) -> APIRouter:
                             'seq': event.seq,
                             'type': event.type,
                             'ts': event.ts,
-                            'payload': payload,
+                            'payload': sse_payload,
                         },
                         event_name=event.type or 'message',
                         include_id=True,

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -49,31 +48,15 @@ class NotificationService extends ChangeNotifier {
   static const _androidChannelDescription = 'AliceChat 聊天消息通知';
   static const _defaultTitle = 'AliceChat';
 
-  static const List<String> _defaultQuips = [
-    '有条新消息在等你翻牌。',
-    '有人轻轻敲了敲你的聊天窗。',
-    '新动静来了，快去看看。',
-    '对方递来了一句悄悄话。',
-    '消息已送达，就等你回眸。',
-  ];
-
-  static const Map<String, List<String>> _characterQuips = {
-    'alice': ['Alice 又来找你玩啦。', 'Alice 带着新消息冒泡了。', '快看，Alice 正在等你回应。'],
-    '玲珑': ['玲珑又来敲你了。', '玲珑留了一句话，不看会后悔。', '玲珑那边有新动静。'],
-    '素心': ['素心抱着新消息跑来了。', '素心又勤勤恳恳地来汇报了。', '素心那边有更新，瞧一眼吧。'],
-  };
-
   final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
   final StreamController<NotificationOpenData> _openController =
       StreamController<NotificationOpenData>.broadcast();
-  final Random _random = Random();
   final Map<String, Contact> _contactsBySessionId = {};
   final Map<String, Contact> _contactsByContactId = {};
   final Map<String, Uint8List> _avatarCache = {};
 
   bool _initialized = false;
-  bool _isAppForeground = true;
   String _activeSessionId = '';
   String? _deviceId;
 
@@ -139,7 +122,6 @@ class NotificationService extends ChangeNotifier {
   }
 
   Future<void> setAppForeground(bool isForeground) async {
-    _isAppForeground = isForeground;
     await NativeDebugBridge.instance.log(
       'notifications',
       'setAppForeground foreground=$isForeground active=$_activeSessionId',
@@ -147,6 +129,7 @@ class NotificationService extends ChangeNotifier {
     await _reportPresence(isForeground: isForeground);
   }
 
+  @Deprecated('Android chat notifications are now owned by native foreground service.')
   Future<void> showChatNotification({
     required String sessionId,
     required String title,
@@ -159,34 +142,21 @@ class NotificationService extends ChangeNotifier {
     String source = 'flutter',
   }) async {
     final normalizedSessionId = sessionId.trim();
+    const platform = TargetPlatform.android;
     await NativeDebugBridge.instance.log(
       'notifications',
-      'decision=received source=$source session=$normalizedSessionId title=$title force=$force foregroundOnly=$foregroundOnly appForeground=$_isAppForeground active=$_activeSessionId messageId=$messageId bodyLen=${body.length}',
+      'decision=delegate_to_native source=$source session=$normalizedSessionId title=$title platform=$platform messageId=$messageId bodyLen=${body.length}',
     );
-    if (foregroundOnly && !_isAppForeground) {
-      await NativeDebugBridge.instance.log(
-        'notifications',
-        'decision=suppressed_background source=$source session=$normalizedSessionId messageId=$messageId',
-      );
+    if (platform == TargetPlatform.android) {
       return;
     }
-    if (suppressForActiveSession &&
-        !force &&
-        normalizedSessionId.isNotEmpty &&
-        normalizedSessionId == _activeSessionId) {
-      await NativeDebugBridge.instance.log(
-        'notifications',
-        'decision=suppressed_active_session session=$normalizedSessionId messageId=$messageId',
-      );
-      return;
-    }
+
     final contact = contactForSessionId(normalizedSessionId);
     final resolvedTitle = _resolveTitle(
       title: title,
       senderName: senderName,
       contact: contact,
     );
-    final teaser = _pickTeaser(resolvedTitle);
     final payload = {
       'sessionId': normalizedSessionId,
       'senderName': senderName,
@@ -194,8 +164,7 @@ class NotificationService extends ChangeNotifier {
       'preview': body,
     };
     final largeIcon = await _loadLargeIcon(contact?.avatarAssetPath);
-    final notificationId =
-        normalizedSessionId.hashCode ^ messageId.hashCode ^ teaser.hashCode;
+    final notificationId = normalizedSessionId.hashCode ^ messageId.hashCode;
     final androidDetails = AndroidNotificationDetails(
       _androidChannelId,
       _androidChannelName,
@@ -210,18 +179,18 @@ class NotificationService extends ChangeNotifier {
       await _localNotifications.show(
         notificationId,
         resolvedTitle,
-        teaser,
+        body,
         NotificationDetails(android: androidDetails),
         payload: jsonEncode(payload),
       );
       await NativeDebugBridge.instance.log(
         'notifications',
-        'decision=shown source=$source session=$normalizedSessionId messageId=$messageId notificationId=$notificationId resolvedTitle=$resolvedTitle teaser=$teaser icon=${largeIcon != null}',
+        'decision=shown_non_android source=$source session=$normalizedSessionId messageId=$messageId notificationId=$notificationId resolvedTitle=$resolvedTitle icon=${largeIcon != null}',
       );
     } catch (error) {
       await NativeDebugBridge.instance.log(
         'notifications',
-        'decision=show_failed source=$source session=$normalizedSessionId messageId=$messageId notificationId=$notificationId error=$error',
+        'decision=show_failed_non_android source=$source session=$normalizedSessionId messageId=$messageId notificationId=$notificationId error=$error',
         level: 'ERROR',
       );
       rethrow;
@@ -239,11 +208,6 @@ class NotificationService extends ChangeNotifier {
       if (value.isNotEmpty) return value;
     }
     return _defaultTitle;
-  }
-
-  String _pickTeaser(String title) {
-    final themed = _characterQuips[title] ?? _defaultQuips;
-    return themed[_random.nextInt(themed.length)];
   }
 
   Future<ByteArrayAndroidBitmap?> _loadLargeIcon(String? assetPath) async {

@@ -18,6 +18,48 @@ from ..web.helpers import build_route_key, require_existing_session
 _LOG = logging.getLogger(__name__)
 
 
+def _pick_notification_preview(*, visible_text: str, has_images: bool) -> str:
+    preview = str(visible_text or '').strip()
+    if preview:
+        return preview
+    if has_images:
+        return '[图片]'
+    return ''
+
+
+def _build_notification_candidate_payload(
+    *,
+    session_id: str,
+    request_id: str,
+    client_message_id: str,
+    message: dict,
+    title: str,
+    sender_id: str,
+    sender_name: str,
+    body_preview: str,
+) -> dict:
+    message_id = str(message.get('id') or '').strip()
+    created_at = message.get('createdAt')
+    return {
+        'kind': 'notification.candidate',
+        'eventId': f'notifcand_{uuid.uuid4().hex[:16]}',
+        'sessionId': session_id,
+        'requestId': request_id,
+        'clientMessageId': client_message_id,
+        'messageId': message_id,
+        'messageKind': 'assistant_reply',
+        'senderId': sender_id,
+        'senderName': sender_name,
+        'title': title,
+        'bodyPreview': body_preview,
+        'dedupeKey': f'{session_id}:{message_id}' if session_id and message_id else '',
+        'createdAt': created_at,
+        'routing': {
+            'conversationType': 'direct',
+        },
+    }
+
+
 def create_chat_router(context: AppContext) -> APIRouter:
     router = APIRouter(dependencies=[Depends(verify_app_password)])
     service = ChatStreamingService(context)
@@ -307,10 +349,29 @@ def create_chat_router(context: AppContext) -> APIRouter:
                             'message': item,
                         },
                     )
+                if persisted:
+                    notification_body = _pick_notification_preview(
+                        visible_text=assistant_visible,
+                        has_images=bool(result.get('images') or []),
+                    )
+                    await events_bus.publish(
+                        'notification.candidate',
+                        _build_notification_candidate_payload(
+                            session_id=session_id,
+                            request_id=request_id,
+                            client_message_id=client_message_id,
+                            message=persisted,
+                            title=resolved.contact_id or resolved.session_name or 'AliceChat',
+                            sender_id=resolved.contact_id or resolved.agent or 'assistant',
+                            sender_name=resolved.contact_id or resolved.session_name or 'AliceChat',
+                            body_preview=notification_body,
+                        ),
+                    )
                 terminal_event_sent = True
-                notification_body = assistant_visible
-                if not notification_body.strip() and (result.get('images') or []):
-                    notification_body = '[图片]'
+                notification_body = _pick_notification_preview(
+                    visible_text=assistant_visible,
+                    has_images=bool(result.get('images') or []),
+                )
                 try:
                     context.push_service.notify_new_message(
                         user_id=resolved.user_id or 'alicechat-user',
