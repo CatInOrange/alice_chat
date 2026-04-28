@@ -31,9 +31,11 @@ AliceChat Python Backend
 | `bridge.registered` | 注册确认 |
 | `chat.accepted` | 请求已接受 |
 | `chat.typing` | AI 正在输入 |
-| `chat.delta` | 增量文本回复 |
+| `chat.progress` | 过程性状态/工具进度 |
+| `chat.delta` | 文本增量帧，带 `delta`，可附带当前 `reply` 快照 |
+| `chat.block` | 旧版正文块帧（兼容保留） |
 | `chat.media` | 媒体消息 |
-| `chat.final` | 回复结束标记 |
+| `chat.final` | 回复结束标记，携带最终 `reply` / `media` 汇总 |
 | `push.message` | 服务器推送消息 |
 | `pong` | 心跳响应 |
 

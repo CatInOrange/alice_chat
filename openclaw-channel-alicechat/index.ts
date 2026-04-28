@@ -72,6 +72,102 @@ function classifyMedia(url, audioAsVoice) {
   return 'image';
 }
 
+function classifyToolKind(text = '', hint = '') {
+  const haystack = `${hint} ${text}`.trim().toLowerCase();
+  if (!haystack) return 'tool';
+  if (/(web_search|web search|web_fetch|web fetch|search|搜索|查一下|查一查|lookup|google|bing)/i.test(haystack)) return 'search';
+  if (/(read\(|\bread\b|\bcat\b|\bsed\b|\btail\b|\bhead\b|\bgrep\b|查看文件|读取|读一下|翻文件|inspect|open file)/i.test(haystack)) return 'read';
+  if (/(exec\(|\bexec\b|bash|shell|command|命令|运行|python3|\bgit\b|\bnpm\b|\bpnpm\b|\bflutter\b|\bpytest\b|\bmake\b)/i.test(haystack)) return 'exec';
+  if (/(think|reason|推理|思考|思路)/i.test(haystack)) return 'thinking';
+  if (/(plan|步骤|计划|方案)/i.test(haystack)) return 'plan';
+  return 'tool';
+}
+
+function normalizeAgentEventProgress(evt) {
+  const stream = String(evt?.stream || '').trim();
+  const data = evt && typeof evt.data === 'object' && evt.data ? evt.data : {};
+  const phase = String(data.phase || '').trim();
+  const title = String(data.title || '').trim();
+  const summary = String(data.summary || '').trim();
+  const progressText = String(data.progressText || '').trim();
+  const meta = String(data.meta || '').trim();
+  const output = String(data.output || '').trim();
+  const explanation = String(data.explanation || '').trim();
+  const name = String(data.name || '').trim();
+  const kindHint = String(data.kind || '').trim();
+  const status = String(data.status || '').trim();
+  const message = String(data.message || '').trim();
+  const reason = String(data.reason || '').trim();
+  const command = String(data.command || '').trim();
+  const itemId = String(data.itemId || '').trim();
+  const toolCallId = String(data.toolCallId || '').trim();
+  const approvalId = String(data.approvalId || '').trim();
+  const approvalSlug = String(data.approvalSlug || '').trim();
+  const source = String(data.source || '').trim();
+  const args = data.args;
+  const steps = Array.isArray(data.steps)
+    ? data.steps.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+
+  const base = {
+    eventStream: stream || 'agent',
+    phase,
+    status,
+    title,
+    itemId,
+    toolCallId,
+    toolName: name,
+    approvalId,
+    approvalSlug,
+    command,
+    output,
+    source,
+    ...(args !== undefined ? { args } : {}),
+  };
+
+  if (stream === 'plan') {
+    const text = [title, explanation, steps.length ? `步骤：${steps.join('；')}` : '', source].filter(Boolean).join(' · ');
+    return { stage: 'plan', kind: 'plan', text: text || '计划已更新', ...base };
+  }
+
+  if (stream === 'thinking') {
+    const thinkingText = String(data.text || '').trim();
+    const delta = String(data.delta || '').trim();
+    const text = [thinkingText, delta, progressText, summary, title, meta].filter(Boolean).join(' · ');
+    return text ? { stage: 'thinking', kind: 'thinking', text, ...base } : null;
+  }
+
+  if (stream === 'command_output') {
+    const text = [title, name, output, status, phase].filter(Boolean).join(' · ');
+    return { stage: 'tool', kind: 'exec', text: text || '命令执行中', ...base };
+  }
+
+  if (stream === 'tool' || stream === 'item' || stream === 'approval' || stream === 'patch' || stream === 'compaction') {
+    const text = [
+      progressText,
+      summary,
+      title,
+      meta,
+      name,
+      message,
+      reason,
+      command,
+      status,
+      phase,
+      toolCallId,
+      itemId,
+    ].filter(Boolean).join(' · ');
+    return {
+      stage: stream === 'item' ? (phase || 'tool') : stream,
+      kind: kindHint || classifyToolKind(text || `${stream} ${name} ${command}`, name || stream),
+      text: text || `${stream}${name ? ` · ${name}` : ''}${phase ? ` · ${phase}` : ''}`,
+      ...base,
+    };
+  }
+
+  return null;
+}
+
 function registerClient(activeClients, client) {
   const cfg = client.cfg;
   const backendPrefix = cfg.backendPrefix || 'alicechat:backend:';
@@ -205,6 +301,8 @@ function createBridgeServer(ctx) {
     let terminalSent = false;
     let accumulatedReply = '';
     const finalMedia = [];
+    let sawPartialReply = false;
+    let lastProgressSignature = '';
     const sendBridgeFrame = (outFrame, phase) => {
       if (terminalSent) {
         throw new Error(`attempted to send frame after terminal state: ${outFrame?.type || 'unknown'}`);
@@ -224,6 +322,26 @@ function createBridgeServer(ctx) {
         agent: agentId,
       });
       ws.send(JSON.stringify(frameWithSeq));
+    };
+
+    const sendProgressFrame = ({ stage = 'working', kind = 'tool', text = '', reply = '', ...meta }, phase) => {
+      const trimmedText = String(text || '').trim();
+      const replyText = String(reply || '').trim();
+      const toolCallId = String(meta.toolCallId || '').trim();
+      const itemId = String(meta.itemId || '').trim();
+      const signature = `${stage}::${kind}::${trimmedText}::${replyText}::${toolCallId}::${itemId}::${String(meta.status || '')}::${String(meta.phase || '')}`;
+      if (!trimmedText && !replyText && !toolCallId && !itemId) return;
+      if (signature === lastProgressSignature) return;
+      lastProgressSignature = signature;
+      sendBridgeFrame({
+        type: 'chat.progress',
+        requestId,
+        stage,
+        kind,
+        text: trimmedText,
+        ...(replyText ? { reply: replyText } : {}),
+        ...Object.fromEntries(Object.entries(meta).filter(([, value]) => value !== undefined && value !== null && value !== '')),
+      }, phase);
     };
 
     sendBridgeFrame({ type: 'chat.accepted', requestId, sessionKey, agent: agentId }, 'gateway_send_chat_accepted');
@@ -247,23 +365,15 @@ function createBridgeServer(ctx) {
           const text = String(payload?.text ?? payload?.body ?? '').trim();
           const payloadKind = String(info?.kind || payload?.kind || 'block');
           const lower = text.toLowerCase();
-          const classifyToolKind = () => {
-            if (/(web_search|web search|web_fetch|web fetch|search|搜索|查一下|查一查|lookup|google|bing)/i.test(text)) return 'search';
-            if (/(read\(|\bread\b|\bcat\b|\bsed\b|\btail\b|\bhead\b|\bgrep\b|查看文件|读取|读一下|翻文件|inspect|open file)/i.test(text)) return 'read';
-            if (/(exec\(|\bexec\b|bash|shell|command|命令|运行|python3|\bgit\b|\bnpm\b|\bpnpm\b|\bflutter\b|\bpytest\b|\bmake\b)/i.test(text)) return 'exec';
-            return 'tool';
-          };
 
           if (text) {
             if (payloadKind === 'tool') {
-              sendBridgeFrame({
-                type: 'chat.progress',
-                requestId,
+              sendProgressFrame({
                 stage: 'tool',
-                kind: classifyToolKind(),
+                kind: classifyToolKind(text),
                 text,
               }, 'gateway_send_chat_progress');
-            } else if (payloadKind === 'block' || payloadKind === 'final') {
+            } else if (!sawPartialReply && (payloadKind === 'block' || payloadKind === 'final')) {
               const delta = text.startsWith(accumulatedReply) ? text.slice(accumulatedReply.length) : text;
               accumulatedReply = text;
               sendBridgeFrame({
@@ -274,11 +384,9 @@ function createBridgeServer(ctx) {
                 reply: accumulatedReply,
               }, 'gateway_send_chat_delta');
             } else if (lower) {
-              sendBridgeFrame({
-                type: 'chat.progress',
-                requestId,
+              sendProgressFrame({
                 stage: payloadKind,
-                kind: classifyToolKind(),
+                kind: classifyToolKind(text, payloadKind),
                 text,
               }, 'gateway_send_chat_progress');
             }
@@ -304,6 +412,39 @@ function createBridgeServer(ctx) {
       replyOptions: {
         images,
         onModelSelected,
+        onPartialReply: async (payload) => {
+          const nextText = String(payload?.text ?? '').trim();
+          if (!nextText) return;
+          sawPartialReply = true;
+          const delta = nextText.startsWith(accumulatedReply) ? nextText.slice(accumulatedReply.length) : nextText;
+          accumulatedReply = nextText;
+          if (!delta && !accumulatedReply) return;
+          sendBridgeFrame({
+            type: 'chat.delta',
+            requestId,
+            kind: 'assistant',
+            delta: delta || nextText,
+            reply: accumulatedReply,
+          }, 'gateway_send_chat_partial_delta');
+        },
+        onReasoningStream: async (payload) => {
+          const text = String(payload?.text ?? '').trim();
+          if (!text) return;
+          sendProgressFrame({
+            stage: 'thinking',
+            kind: 'thinking',
+            text,
+            reply: accumulatedReply,
+          }, 'gateway_send_chat_thinking');
+        },
+        onAgentEvent: async (evt) => {
+          const normalized = normalizeAgentEventProgress(evt);
+          if (!normalized) return;
+          sendProgressFrame({
+            ...normalized,
+            reply: accumulatedReply,
+          }, 'gateway_send_chat_agent_event');
+        },
       },
     });
 

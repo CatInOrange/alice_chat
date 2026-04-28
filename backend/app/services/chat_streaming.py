@@ -12,6 +12,7 @@ from ..services.routing import resolve_routing
 from ..utils import strip_stage_directives
 from ..web.helpers import build_route_key, require_existing_session
 from ..web.sse import format_sse
+from ..utils.frame_audit import audit_frame
 
 
 class ChatStreamingService:
@@ -59,22 +60,27 @@ class ChatStreamingService:
         session_store.bind_route(session_id, requested_route_key)
         session_store.set_current_session_id(session_id)
 
-        yield format_sse(
-            {
-                'seq': 0,
-                'type': 'start',
-                'ts': 0,
-                'payload': {
-                    'ok': True,
-                    'provider': resolved.provider.get('id'),
-                    'providerLabel': resolved.provider.get('name'),
-                    'agent': resolved.agent,
-                    'session': resolved.session_name,
-                },
+        start_event = {
+            'seq': 0,
+            'type': 'start',
+            'ts': 0,
+            'payload': {
+                'ok': True,
+                'provider': resolved.provider.get('id'),
+                'providerLabel': resolved.provider.get('name'),
+                'agent': resolved.agent,
+                'session': resolved.session_name,
             },
-            event_name='start',
-            include_id=False,
+        }
+        audit_frame(
+            'backend_frontend_sse',
+            'backend->frontend',
+            start_event,
+            phase='chat_stream_yield',
+            sessionId=session_id,
+            eventName='start',
         )
+        yield format_sse(start_event, event_name='start', include_id=False)
 
         loop = asyncio.get_running_loop()
         delta_q: asyncio.Queue[dict] = asyncio.Queue(maxsize=200)
@@ -130,28 +136,38 @@ class ChatStreamingService:
                 if not delta_text:
                     continue
                 assistant_raw += delta_text
-                yield format_sse(
-                    {
-                        'seq': 0,
-                        'type': 'chunk',
-                        'ts': 0,
-                        'payload': {
-                            'kind': 'text',
-                            'visibleText': strip_stage_directives(assistant_raw),
-                            'rawText': assistant_raw,
-                        },
+                chunk_event = {
+                    'seq': 0,
+                    'type': 'chunk',
+                    'ts': 0,
+                    'payload': {
+                        'kind': 'text',
+                        'visibleText': strip_stage_directives(assistant_raw),
+                        'rawText': assistant_raw,
                     },
-                    event_name='chunk',
-                    include_id=False,
+                }
+                audit_frame(
+                    'backend_frontend_sse',
+                    'backend->frontend',
+                    chunk_event,
+                    phase='chat_stream_yield',
+                    sessionId=session_id,
+                    eventName='chunk',
                 )
+                yield format_sse(chunk_event, event_name='chunk', include_id=False)
 
             result = await result_fut
         except Exception as exc:  # noqa: BLE001
-            yield format_sse(
-                {'seq': 0, 'type': 'error', 'ts': 0, 'payload': {'error': str(exc)}},
-                event_name='error',
-                include_id=False,
+            error_event = {'seq': 0, 'type': 'error', 'ts': 0, 'payload': {'error': str(exc)}}
+            audit_frame(
+                'backend_frontend_sse',
+                'backend->frontend',
+                error_event,
+                phase='chat_stream_yield',
+                sessionId=session_id,
+                eventName='error',
             )
+            yield format_sse(error_event, event_name='error', include_id=False)
             return
 
         assistant_raw = str(result.get('rawReply') or result.get('reply') or assistant_raw)
@@ -175,22 +191,27 @@ class ChatStreamingService:
         for item in persisted_messages:
             await events_bus.publish('message.created', {'message': item})
 
-        yield format_sse(
-            {
-                'seq': 0,
-                'type': 'final',
-                'ts': 0,
-                'payload': {
-                    'ok': True,
-                    'messageId': (persisted_messages[-1].get('id', '') if persisted_messages else ''),
-                    'userText': resolved.history_text,
-                    'reply': assistant_visible,
-                    'rawReply': assistant_raw,
-                    'provider': resolved.provider.get('id') or '',
-                    'providerLabel': resolved.provider.get('name') or resolved.provider.get('id') or '',
-                    'images': result.get('images') or [],
-                },
+        final_event = {
+            'seq': 0,
+            'type': 'final',
+            'ts': 0,
+            'payload': {
+                'ok': True,
+                'messageId': (persisted_messages[-1].get('id', '') if persisted_messages else ''),
+                'userText': resolved.history_text,
+                'reply': assistant_visible,
+                'rawReply': assistant_raw,
+                'provider': resolved.provider.get('id') or '',
+                'providerLabel': resolved.provider.get('name') or resolved.provider.get('id') or '',
+                'images': result.get('images') or [],
             },
-            event_name='final',
-            include_id=False,
+        }
+        audit_frame(
+            'backend_frontend_sse',
+            'backend->frontend',
+            final_event,
+            phase='chat_stream_yield',
+            sessionId=session_id,
+            eventName='final',
         )
+        yield format_sse(final_event, event_name='final', include_id=False)

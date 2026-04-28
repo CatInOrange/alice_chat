@@ -192,11 +192,33 @@ def create_chat_router(context: AppContext) -> APIRouter:
                     payload_type = str(payload.get('type') or 'delta').strip().lower()
                     delta_text = str(payload.get('delta') or '')
                     progress_text = str(payload.get('text') or '')
+                    progress_stage = str(payload.get('stage') or 'working')
+                    progress_kind = str(payload.get('kind') or progress_stage or 'progress')
+                    progress_reply = str(payload.get('reply') or '').strip()
+                    progress_meta = {
+                        'eventStream': str(payload.get('eventStream') or '').strip(),
+                        'toolCallId': str(payload.get('toolCallId') or '').strip(),
+                        'toolName': str(payload.get('toolName') or '').strip(),
+                        'phase': str(payload.get('phase') or '').strip(),
+                        'status': str(payload.get('status') or '').strip(),
+                        'itemId': str(payload.get('itemId') or '').strip(),
+                        'approvalId': str(payload.get('approvalId') or '').strip(),
+                        'approvalSlug': str(payload.get('approvalSlug') or '').strip(),
+                        'command': str(payload.get('command') or '').strip(),
+                        'output': str(payload.get('output') or '').strip(),
+                        'title': str(payload.get('title') or '').strip(),
+                        'source': str(payload.get('source') or '').strip(),
+                    }
 
                     if payload_type == 'progress':
-                        if not progress_text:
+                        if not progress_text and not progress_reply and not any(progress_meta.values()):
                             return
                         delta_seq += 1
+                        mode = 'progress'
+                        if progress_kind == 'thinking' or progress_stage == 'thinking':
+                            mode = 'thinking'
+                        elif progress_kind == 'plan' or progress_stage == 'plan':
+                            mode = 'plan'
                         events_bus.publish_threadsafe(
                             'assistant.progress',
                             {
@@ -205,10 +227,12 @@ def create_chat_router(context: AppContext) -> APIRouter:
                                 'requestId': request_id,
                                 'messageId': assistant_message_id,
                                 'sequence': delta_seq,
-                                'mode': 'progress',
+                                'mode': mode,
                                 'text': progress_text,
-                                'stage': str(payload.get('stage') or 'working'),
-                                'kind': str(payload.get('kind') or 'progress'),
+                                'stage': progress_stage,
+                                'kind': progress_kind,
+                                **({'reply': progress_reply} if progress_reply else {}),
+                                **{key: value for key, value in progress_meta.items() if value},
                             },
                         )
                         return
@@ -231,6 +255,8 @@ def create_chat_router(context: AppContext) -> APIRouter:
                             'sequence': delta_seq,
                             'mode': 'preview',
                             'text': delta_text,
+                            'stage': 'assistant',
+                            'kind': 'assistant',
                             'reply': preview_text,
                         },
                     )

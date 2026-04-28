@@ -4,12 +4,14 @@ from ..config import get_tts_provider_config
 from .base import TtsBackend
 from .edge import EdgeTtsBackend
 from .gpt_sovits import GptSoVitsBackend
+from .minimax import MiniMaxTtsBackend
 from .openai_compatible import OpenAICompatibleTtsBackend
 
 TTS_BACKEND_REGISTRY: dict[str, type[TtsBackend]] = {
     'edge-tts': EdgeTtsBackend,
     'openai-compatible': OpenAICompatibleTtsBackend,
     'gpt-sovits': GptSoVitsBackend,
+    'minimax-tts': MiniMaxTtsBackend,
 }
 
 

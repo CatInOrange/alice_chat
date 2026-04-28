@@ -18,6 +18,8 @@ _PUSH_LISTENER_RECV_IDLE_SECONDS = 90
 _REQUEST_PING_INTERVAL_SECONDS = 60
 _REQUEST_PING_TIMEOUT_SECONDS = 60
 _EMPTY_FINAL_GRACE_SECONDS = 8.0
+_TYPING_IDLE_TIMEOUT_SECONDS = 90.0
+_MAX_TYPING_ONLY_WINDOW_SECONDS = 600.0
 _LOG = logging.getLogger(__name__)
 
 
@@ -104,6 +106,14 @@ def _classify_progress_kind(text: str, hint: str = "") -> str:
         "exec(", " exec ", "bash", "shell", "command", "命令", "运行", "python3", "git ", "npm ", "pnpm ", "flutter ", "pytest", "make ",
     )):
         return "exec"
+    if any(marker in haystack for marker in (
+        "think", "reason", "推理", "思考", "思路",
+    )):
+        return "thinking"
+    if any(marker in haystack for marker in (
+        "plan", "步骤", "计划", "方案",
+    )):
+        return "plan"
     return "tool"
 
 
@@ -336,6 +346,8 @@ class OpenClawChannelAgentBackend(AgentBackend):
             pending_empty_final_deadline: float | None = None
             last_frame_type = ""
             last_seq = 0
+            request_started_at = time.monotonic()
+            last_typing_at: float | None = None
 
             def current_reply() -> str:
                 return str(accumulated_reply or "").strip()
@@ -347,11 +359,29 @@ class OpenClawChannelAgentBackend(AgentBackend):
                     if remaining <= 0:
                         break
                     recv_timeout = max(0.1, min(timeout_seconds, remaining))
+                elif last_typing_at is not None and not accumulated_reply and not final_media:
+                    typing_remaining = _TYPING_IDLE_TIMEOUT_SECONDS - (time.monotonic() - last_typing_at)
+                    total_remaining = _MAX_TYPING_ONLY_WINDOW_SECONDS - (time.monotonic() - request_started_at)
+                    if total_remaining <= 0:
+                        raise RuntimeError(
+                            "Timeout waiting for OpenClaw bridge final frame "
+                            f"(requestId={request_id}, last_frame_type={last_frame_type or 'none'}, "
+                            f"saw_relevant_frame={saw_relevant_frame}, reason=max_typing_window_exceeded)"
+                        )
+                    recv_timeout = max(0.1, min(timeout_seconds, _TYPING_IDLE_TIMEOUT_SECONDS, max(typing_remaining, 0.1), total_remaining))
                 try:
                     raw = await asyncio.wait_for(ws.recv(), timeout=recv_timeout)
                 except TimeoutError as exc:
                     if pending_empty_final_deadline is not None:
                         break
+                    if last_typing_at is not None and not accumulated_reply and not final_media:
+                        idle_for = time.monotonic() - last_typing_at
+                        total_elapsed = time.monotonic() - request_started_at
+                        raise RuntimeError(
+                            "Timeout waiting for OpenClaw bridge final frame "
+                            f"(requestId={request_id}, last_frame_type={last_frame_type or 'none'}, "
+                            f"saw_relevant_frame={saw_relevant_frame}, typing_idle_for={idle_for:.1f}s, total_elapsed={total_elapsed:.1f}s)"
+                        ) from exc
                     raise RuntimeError(
                         "Timeout waiting for OpenClaw bridge final frame "
                         f"(requestId={request_id}, last_frame_type={last_frame_type or 'none'}, "
@@ -398,6 +428,7 @@ class OpenClawChannelAgentBackend(AgentBackend):
                         accumulated_reply = f"{accumulated_reply}{delta_text}"
                     if pending_empty_final_deadline is not None and (delta_text or accumulated_reply):
                         pending_empty_final_deadline = time.monotonic() + _EMPTY_FINAL_GRACE_SECONDS
+                    last_typing_at = None
                     if emit and delta_text:
                         emit({
                             "type": "delta",
@@ -411,10 +442,22 @@ class OpenClawChannelAgentBackend(AgentBackend):
                         accumulated_reply = f"{accumulated_reply}\n{block_text}".strip() if accumulated_reply else block_text
                     if pending_empty_final_deadline is not None and (block_text or accumulated_reply):
                         pending_empty_final_deadline = time.monotonic() + _EMPTY_FINAL_GRACE_SECONDS
+                    last_typing_at = None
                     if emit and block_text:
                         emit({
                             "type": "delta",
                             "delta": block_text,
+                            "reply": current_reply(),
+                            "state": "streaming",
+                        })
+                elif ftype == "chat.typing":
+                    last_typing_at = time.monotonic()
+                    if emit:
+                        emit({
+                            "type": "progress",
+                            "text": "",
+                            "stage": "typing",
+                            "kind": "thinking",
                             "reply": current_reply(),
                             "state": "streaming",
                         })
@@ -423,16 +466,36 @@ class OpenClawChannelAgentBackend(AgentBackend):
                     progress_stage = str(frame.get("stage") or "working")
                     progress_hint = str(frame.get("kind") or progress_stage)
                     progress_kind = _classify_progress_kind(progress_text, progress_hint)
-                    if emit and progress_text:
+                    progress_reply = str(frame.get("reply") or current_reply()).strip()
+                    progress_meta = {
+                        "eventStream": str(frame.get("eventStream") or "").strip(),
+                        "toolCallId": str(frame.get("toolCallId") or "").strip(),
+                        "toolName": str(frame.get("toolName") or "").strip(),
+                        "phase": str(frame.get("phase") or "").strip(),
+                        "status": str(frame.get("status") or "").strip(),
+                        "itemId": str(frame.get("itemId") or "").strip(),
+                        "approvalId": str(frame.get("approvalId") or "").strip(),
+                        "approvalSlug": str(frame.get("approvalSlug") or "").strip(),
+                        "command": str(frame.get("command") or "").strip(),
+                        "output": str(frame.get("output") or "").strip(),
+                        "title": str(frame.get("title") or "").strip(),
+                        "source": str(frame.get("source") or "").strip(),
+                    }
+                    has_structured_meta = any(progress_meta.values())
+                    last_typing_at = None
+                    if emit and (progress_text or progress_reply or has_structured_meta):
                         emit({
                             "type": "progress",
                             "text": progress_text,
                             "stage": progress_stage,
                             "kind": progress_kind,
+                            "reply": progress_reply,
                             "state": "streaming",
+                            **{key: value for key, value in progress_meta.items() if value},
                         })
                 elif ftype == "chat.media":
                     media = frame.get("media") or {}
+                    last_typing_at = None
                     if isinstance(media, dict):
                         final_media.append(media)
                         if pending_empty_final_deadline is not None:
@@ -446,6 +509,7 @@ class OpenClawChannelAgentBackend(AgentBackend):
                             if isinstance(item, dict):
                                 final_media.append(item)
                                 media_added = True
+                    last_typing_at = None
                     if final_reply:
                         accumulated_reply = final_reply
                         saw_final_frame = True

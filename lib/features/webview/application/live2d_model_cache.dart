@@ -182,7 +182,13 @@ class Live2dModelCache {
       final baseUri = Uri.parse(basePageUrl);
       final manifestUri = baseUri.resolve('/api/model?model=${Uri.encodeQueryComponent(modelId)}');
       final headers = _buildAuthHeaders(appPassword);
-      final manifestResponse = await http.get(manifestUri, headers: headers);
+
+      // Download manifest with retry
+      final manifestResponse = await _downloadWithRetry(manifestUri, headers);
+      if (manifestResponse == null) {
+        stderr.writeln('Live2dModelCache manifest download failed after retries');
+        return null;
+      }
       if (manifestResponse.statusCode < 200 || manifestResponse.statusCode >= 300) {
         stderr.writeln('Live2dModelCache manifest download failed: ${manifestResponse.statusCode} ${manifestResponse.body}');
         return null;
@@ -205,12 +211,13 @@ class Live2dModelCache {
 
       final modelJsonPath = _normalizeRelativePath(modelJsonPathRaw);
       final modelJsonUri = baseUri.resolve(modelJsonPathRaw);
-      final modelJsonResponse = await http.get(modelJsonUri, headers: headers);
-      if (modelJsonResponse.statusCode < 200 || modelJsonResponse.statusCode >= 300) {
-        stderr.writeln('Live2dModelCache modelJson download failed: ${modelJsonResponse.statusCode} ${modelJsonResponse.body}');
+
+      // Download modelJson with retry
+      final modelJsonBytes = await _downloadBytesWithRetry(modelJsonUri, headers);
+      if (modelJsonBytes == null) {
+        stderr.writeln('Live2dModelCache modelJson download failed after retries');
         return null;
       }
-      final modelJsonBytes = modelJsonResponse.bodyBytes;
       final modelJson = jsonDecode(utf8.decode(modelJsonBytes));
       if (modelJson is! Map<String, dynamic>) {
         stderr.writeln('Live2dModelCache modelJson is not a JSON object');
@@ -226,44 +233,49 @@ class Live2dModelCache {
       }
 
       final publicRoot = await _publicRoot();
-      final tempRoot = Directory(p.join(publicRoot.path, '.tmp_$modelId'));
-      if (await tempRoot.exists()) {
-        await tempRoot.delete(recursive: true);
-      }
-      await tempRoot.create(recursive: true);
-
+      final finalRootDir = Directory(p.join(publicRoot.path, 'models', modelId));
       final normalizedModelDir = p.posix.dirname(modelJsonPath);
+
+      // Process each file: skip if already exists in final directory, otherwise download
       for (final ref in fileRefs) {
         final normalizedRef = _normalizeRelativePath(
           ref == modelJsonPath ? ref : p.posix.normalize(p.posix.join(normalizedModelDir, ref)),
         );
+        final finalFile = File(p.join(finalRootDir.path, normalizedRef));
+
+        // Skip download if file already exists
+        if (await finalFile.exists()) {
+          stderr.writeln('Live2dModelCache skipping existing file: $normalizedRef');
+          continue;
+        }
+
         final remoteUri = ref == modelJsonPath
             ? modelJsonUri
             : modelJsonUri.resolve(ref);
         final bytes = ref == modelJsonPath
             ? modelJsonBytes
-            : await _downloadBytes(remoteUri, headers);
+            : await _downloadBytesWithRetry(remoteUri, headers);
         if (bytes == null) {
           stderr.writeln('Live2dModelCache file download failed: $remoteUri');
           return null;
         }
-        final targetFile = File(p.join(tempRoot.path, normalizedRef));
-        await targetFile.parent.create(recursive: true);
-        await targetFile.writeAsBytes(bytes, flush: true);
+        await finalFile.parent.create(recursive: true);
+        await finalFile.writeAsBytes(bytes, flush: true);
       }
 
-      final finalRootDir = Directory(p.join(publicRoot.path, 'models', modelId));
-      if (await finalRootDir.exists()) {
-        await finalRootDir.delete(recursive: true);
+      // Verify all required files exist in final directory before marking as ready
+      for (final ref in fileRefs) {
+        final normalizedRef = _normalizeRelativePath(
+          ref == modelJsonPath ? ref : p.posix.normalize(p.posix.join(normalizedModelDir, ref)),
+        );
+        final finalFile = File(p.join(finalRootDir.path, normalizedRef));
+        if (!await finalFile.exists()) {
+          stderr.writeln('Live2dModelCache file missing after download: $normalizedRef');
+          return null;
+        }
       }
-      final sourceModelDir = Directory(p.join(tempRoot.path, 'models', modelId));
-      if (!await sourceModelDir.exists()) {
-        stderr.writeln('Live2dModelCache temp model dir missing: ${sourceModelDir.path}');
-        return null;
-      }
-      await sourceModelDir.rename(finalRootDir.path);
-      await tempRoot.delete(recursive: true);
 
+      // Only write ready meta when cache is complete
       final meta = _Live2dModelReadyMeta(
         modelId: modelId,
         modelJsonPath: modelJsonPath,
@@ -279,12 +291,53 @@ class Live2dModelCache {
     }
   }
 
-  Future<List<int>?> _downloadBytes(Uri uri, Map<String, String> headers) async {
-    final response = await http.get(uri, headers: headers);
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      return null;
+  static const int _maxRetries = 3;
+  static const Duration _initialRetryDelay = Duration(milliseconds: 500);
+
+  Future<http.Response?> _downloadWithRetry(
+    Uri uri,
+    Map<String, String> headers, {
+    int retries = _maxRetries,
+  }) async {
+    for (int attempt = 1; attempt <= retries; attempt++) {
+      try {
+        final response = await http.get(uri, headers: headers);
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          return response;
+        }
+        stderr.writeln('Live2dModelCache download attempt $attempt/$retries failed: ${response.statusCode}');
+      } catch (e) {
+        stderr.writeln('Live2dModelCache download attempt $attempt/$retries error: $e');
+      }
+      if (attempt < retries) {
+        final delay = Duration(milliseconds: _initialRetryDelay.inMilliseconds * attempt);
+        await Future.delayed(delay);
+      }
     }
-    return response.bodyBytes;
+    return null;
+  }
+
+  Future<List<int>?> _downloadBytesWithRetry(
+    Uri uri,
+    Map<String, String> headers, {
+    int retries = _maxRetries,
+  }) async {
+    for (int attempt = 1; attempt <= retries; attempt++) {
+      try {
+        final response = await http.get(uri, headers: headers);
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          return response.bodyBytes;
+        }
+        stderr.writeln('Live2dModelCache bytes attempt $attempt/$retries failed: ${response.statusCode}');
+      } catch (e) {
+        stderr.writeln('Live2dModelCache bytes attempt $attempt/$retries error: $e');
+      }
+      if (attempt < retries) {
+        final delay = Duration(milliseconds: _initialRetryDelay.inMilliseconds * attempt);
+        await Future.delayed(delay);
+      }
+    }
+    return null;
   }
 
   void _collectRelativeRefs(dynamic value, Set<String> refs) {

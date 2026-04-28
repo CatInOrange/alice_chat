@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..store import EventStore
+from ..utils.frame_audit import audit_frame
 
 
 @dataclass(slots=True)
@@ -51,6 +52,15 @@ class EventsBus:
         return asyncio.run_coroutine_threadsafe(self.publish(event_type, payload), self._loop)
 
     async def publish(self, event_type: str, payload: dict) -> EventEnvelope:
+        audit_frame(
+            "backend_frontend_events",
+            "backend->frontend",
+            {
+                "type": event_type,
+                "payload": dict(payload or {}),
+            },
+            phase="events_bus_publish",
+        )
         record = self.store.append(event_type, payload)
         env = EventEnvelope(seq=int(record["seq"]), type=record["type"], ts=float(record["ts"]), payload=dict(record["payload"]))
 

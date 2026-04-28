@@ -72,7 +72,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   String _assistantSubtitle(ChatViewState state) {
     if (!state.isAssistantStreaming) return widget.session.subtitle;
-    return _buildStreamingHint(state);
+    return '正在输入中…';
   }
 
   Builders get _chatBuilders => Builders(
@@ -1159,9 +1159,11 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   String _formatMessageTime(DateTime dateTime) {
+    final month = dateTime.month.toString().padLeft(2, '0');
+    final day = dateTime.day.toString().padLeft(2, '0');
     final hour = dateTime.hour.toString().padLeft(2, '0');
     final minute = dateTime.minute.toString().padLeft(2, '0');
-    return '$hour:$minute';
+    return '$month-$day $hour:$minute';
   }
 
   String _stripModelNamePrefix(String text) {
@@ -1205,10 +1207,24 @@ class _ChatScreenState extends State<ChatScreen> {
     final previewText = (state.assistantPreviewText ?? '').trim();
     final progressKind = (state.assistantProgressKind ?? '').trim();
     final progressStage = (state.assistantProgressStage ?? '').trim();
+    final progressToolName = (state.assistantProgressToolName ?? '').trim();
+    final progressToolCallId = (state.assistantProgressToolCallId ?? '').trim();
+    final progressPhase = (state.assistantProgressPhase ?? '').trim();
+    final progressStatus = (state.assistantProgressStatus ?? '').trim();
+    final progressTitle = (state.assistantProgressTitle ?? '').trim();
+    final progressCommand = (state.assistantProgressCommand ?? '').trim();
 
     if (mode == 'preview') {
       final preview = _oneLinePreview(previewText.isNotEmpty ? previewText : progressText);
       if (preview.isNotEmpty) return preview;
+    }
+
+    if (mode == 'thinking' && progressText.isNotEmpty) {
+      return _oneLinePreview('我在想：$progressText');
+    }
+
+    if (mode == 'plan' && progressText.isNotEmpty) {
+      return _oneLinePreview('我在列步骤：$progressText');
     }
 
     if (progressText.isNotEmpty) {
@@ -1216,6 +1232,27 @@ class _ChatScreenState extends State<ChatScreen> {
         text: progressText,
         kind: progressKind,
         stage: progressStage,
+        toolName: progressToolName,
+        toolCallId: progressToolCallId,
+        phase: progressPhase,
+        status: progressStatus,
+        title: progressTitle,
+        command: progressCommand,
+      );
+      return _oneLinePreview(normalized);
+    }
+
+    if (progressToolName.isNotEmpty || progressToolCallId.isNotEmpty) {
+      final normalized = _humanizeProgressText(
+        text: '',
+        kind: progressKind,
+        stage: progressStage,
+        toolName: progressToolName,
+        toolCallId: progressToolCallId,
+        phase: progressPhase,
+        status: progressStatus,
+        title: progressTitle,
+        command: progressCommand,
       );
       return _oneLinePreview(normalized);
     }
@@ -1247,6 +1284,18 @@ class _ChatScreenState extends State<ChatScreen> {
           '先跑一下，别急嘛',
           '结果快出来了，我盯着呢',
         ][(sequence - 1).clamp(0, 2)];
+      case 'thinking':
+        return const [
+          '我先替你想一想',
+          '思路在收束了',
+          '快想明白了，别催',
+        ][(sequence - 1).clamp(0, 2)];
+      case 'plan':
+        return const [
+          '我先给你排个步骤',
+          '方案顺序我在理',
+          '差不多能开工了',
+        ][(sequence - 1).clamp(0, 2)];
       default:
         const texts = [
           '我在想你这句呢…',
@@ -1269,31 +1318,99 @@ class _ChatScreenState extends State<ChatScreen> {
     required String text,
     String kind = '',
     String stage = '',
+    String toolName = '',
+    String toolCallId = '',
+    String phase = '',
+    String status = '',
+    String title = '',
+    String command = '',
   }) {
     final cleaned = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final phaseLabel = phase.isNotEmpty
+        ? '（$phase${status.isNotEmpty ? ' / $status' : ''}）'
+        : (status.isNotEmpty ? '（$status）' : '');
+    final toolLabel = toolName.isNotEmpty ? toolName : (title.isNotEmpty ? title : 'tool');
+    final callSuffix = toolCallId.isNotEmpty
+        ? ' #${toolCallId.length > 8 ? toolCallId.substring(0, 8) : toolCallId}'
+        : '';
+    final commandLabel = command.isNotEmpty ? ' $command' : '';
+
     if (cleaned.isEmpty) {
+      if (toolName.isNotEmpty || toolCallId.isNotEmpty) {
+        return '我在跑 $toolLabel$callSuffix$phaseLabel$commandLabel';
+      }
       return _buildProgressLabel(1, kind: kind, stage: stage);
     }
 
     switch (kind) {
       case 'search':
-        return '我在替你找资料：$cleaned';
+        return toolLabel != 'tool'
+            ? '我在用 $toolLabel$callSuffix 帮你找：$cleaned$phaseLabel'
+            : '我在替你找资料：$cleaned';
       case 'read':
-        return '我在替你翻内容：$cleaned';
+        return toolLabel != 'tool'
+            ? '我在用 $toolLabel$callSuffix 翻内容：$cleaned$phaseLabel'
+            : '我在替你翻内容：$cleaned';
       case 'exec':
-        return '我在替你跑一跑：$cleaned';
+        return toolLabel != 'tool'
+            ? '我在跑 $toolLabel$callSuffix：$cleaned$phaseLabel'
+            : '我在替你跑一跑：$cleaned';
       case 'tool':
-        return '我在替你忙这个：$cleaned';
+        return '我在用 $toolLabel$callSuffix 忙这个：$cleaned$phaseLabel';
+      case 'thinking':
+        return '我在想这个怎么最稳：$cleaned';
+      case 'plan':
+        return '我在排执行步骤：$cleaned';
       default:
         return cleaned;
     }
   }
 
-  String _oneLinePreview(String text, {int maxChars = 22}) {
+  String _oneLinePreview(String text, {int maxWidth = 22}) {
     final collapsed = text.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (collapsed.isEmpty) return '';
-    if (collapsed.characters.length <= maxChars) return collapsed;
-    return '${collapsed.characters.take(maxChars).toString()}…';
+    int totalWidth = 0;
+    int lastFitIndex = 0;
+    for (int i = 0; i < collapsed.length; i++) {
+      final char = collapsed[i];
+      final codeUnit = char.codeUnitAt(0);
+      // Full-width (Chinese, Japanese, Korean, full-width punctuation) or emoji
+      final charWidth = (codeUnit >= 0x1100 &&
+          (codeUnit <= 0x115F || // Hangul Jamo
+              codeUnit >= 0x2329 || // Left-pointing angle bracket
+              codeUnit >= 0x2E80 || // CJK radicals
+              (codeUnit >= 0x3000 && codeUnit <= 0x303F) || // CJK punctuation
+              (codeUnit >= 0x3040 && codeUnit <= 0x309F) || // Hiragana
+              (codeUnit >= 0x30A0 && codeUnit <= 0x30FF) || // Katakana
+              (codeUnit >= 0x3100 && codeUnit <= 0x312F) || // Bopomofo
+              (codeUnit >= 0x3130 && codeUnit <= 0x318F) || // Hangul compat
+              (codeUnit >= 0x3190 && codeUnit <= 0x319F) || // Kanbun
+              (codeUnit >= 0x31A0 && codeUnit <= 0x31BF) || // Bopomofo ext
+              (codeUnit >= 0x31C0 && codeUnit <= 0x31EF) || // CJK strokes
+              (codeUnit >= 0x31F0 && codeUnit <= 0x31FF) || // Katakana ext
+              (codeUnit >= 0x3200 && codeUnit <= 0x32FF) || // Enclosed CJK
+              (codeUnit >= 0x3300 && codeUnit <= 0x33FF) || // CJK compat
+              (codeUnit >= 0x3400 && codeUnit <= 0x4DBF) || // CJK ext A
+              (codeUnit >= 0x4E00 && codeUnit <= 0x9FFF) || // CJK Unified Ideographs
+              (codeUnit >= 0xA000 && codeUnit <= 0xA48F) || // Yi
+              (codeUnit >= 0xAC00 && codeUnit <= 0xD7AF) || // Hangul syllables
+              (codeUnit >= 0xF900 && codeUnit <= 0xFAFF) || // CJK compat ideographs
+              (codeUnit >= 0xFE10 && codeUnit <= 0xFE1F) || // Vertical forms
+              (codeUnit >= 0xFE30 && codeUnit <= 0xFE4F) || // CJK compat forms
+              (codeUnit >= 0xFF00 && codeUnit <= 0xFF60) || // Full-width ASCII
+              (codeUnit >= 0xFFE0 && codeUnit <= 0xFFE6) || // Full-width symbols
+              (codeUnit >= 0x20000 && codeUnit <= 0x2FFFD) || // CJK ext B+
+              (codeUnit >= 0x30000 && codeUnit <= 0x3FFFD))) // CJK ext C+
+          ? 2
+          : 1;
+      if (totalWidth + charWidth > maxWidth) {
+        break;
+      }
+      totalWidth += charWidth;
+      lastFitIndex = i + 1;
+    }
+    if (lastFitIndex >= collapsed.length) return collapsed;
+    return '${collapsed.substring(0, lastFitIndex)}…';
   }
 
   Widget _buildComposer(BuildContext context) {

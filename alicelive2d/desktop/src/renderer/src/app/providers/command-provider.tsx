@@ -127,6 +127,27 @@ interface RendererCommandContextValue {
 
 const RendererCommandContext = createContext<RendererCommandContextValue | null>(null);
 
+// TEMP DEBUG: expose debug info globally
+(window as any).__live2dLocalModelDebug = {
+  manifestModelPath: '',
+  localModelUrl: '',
+  manifestFileName: '',
+  localFileName: '',
+  filenameMatch: false,
+  localFileExists: null as boolean | null,
+  finalUrl: '',
+  checkPending: false,
+};
+
+async function checkLocalFileExists(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(url, { method: 'HEAD' });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 function resolvePreferredModelUrl(
   manifest: LunariaManifest,
   backendUrl: string,
@@ -134,22 +155,54 @@ function resolvePreferredModelUrl(
   const params = new URLSearchParams(window.location.search);
   const localModelUrl = String(params.get("local_model_url") || "").trim();
   const manifestModelPath = String(manifest.model.modelJson || "").trim();
+  const manifestFileName = manifestModelPath.split('/').pop() || '';
+  let localFileName = '';
   if (localModelUrl) {
     try {
-      const localUrl = new URL(localModelUrl);
-      const manifestFileName = manifestModelPath.split('/').pop() || '';
-      const localFileName = localUrl.pathname.split('/').pop() || '';
+      localFileName = new URL(localModelUrl).pathname.split('/').pop() || '';
+    } catch {}
+  }
+
+  // Update global debug info
+  const debug = (window as any).__live2dLocalModelDebug;
+  debug.manifestModelPath = manifestModelPath;
+  debug.localModelUrl = localModelUrl;
+  debug.manifestFileName = manifestFileName;
+  debug.localFileName = localFileName;
+  debug.filenameMatch = !manifestFileName || localFileName === manifestFileName;
+
+  if (localModelUrl) {
+    try {
+      new URL(localModelUrl); // validate URL format
       if (!manifestFileName || localFileName === manifestFileName) {
-        console.info('[Live2D cache] using local model url', {
+        console.info('[Live2D cache] local filename matched, will check existence async', {
           localModelUrl,
           manifestModelPath,
         });
+        // Async check file existence and update debug
+        debug.checkPending = true;
+        checkLocalFileExists(localModelUrl).then((exists) => {
+          debug.checkPending = false;
+          debug.localFileExists = exists;
+          if (!exists) {
+            console.warn('[Live2D cache] local file does NOT exist!', {
+              localModelUrl,
+            });
+          } else {
+            console.info('[Live2D cache] local file EXISTS!', { localModelUrl });
+          }
+        });
+        // Still return local URL if filename matches (even before existence check)
+        debug.finalUrl = localModelUrl;
         return localModelUrl;
+      } else {
+        console.warn('[Live2D cache] local model filename mismatch, fallback to remote', {
+          localModelUrl,
+          manifestModelPath,
+          manifestFileName,
+          localFileName,
+        });
       }
-      console.warn('[Live2D cache] local model filename mismatch, fallback to remote', {
-        localModelUrl,
-        manifestModelPath,
-      });
     } catch (error) {
       console.warn('[Live2D cache] invalid local model url, fallback to remote', {
         localModelUrl,
@@ -157,7 +210,10 @@ function resolvePreferredModelUrl(
       });
     }
   }
-  return buildBackendUrl(backendUrl, manifestModelPath);
+  const remoteUrl = buildBackendUrl(backendUrl, manifestModelPath);
+  debug.finalUrl = remoteUrl;
+  debug.localFileExists = false;
+  return remoteUrl;
 }
 
 function mapManifestToModelInfo(
@@ -1549,9 +1605,50 @@ export function RendererCommandProvider({
     stopMusic,
   ]);
 
+  // TEMP DEBUG: state for debug info display
+  const [debugInfo, setDebugInfo] = useState<Record<string, any>>({});
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const debug = (window as any).__live2dLocalModelDebug;
+      if (debug) {
+        setDebugInfo({ ...debug });
+      }
+    }, 500);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <RendererCommandContext.Provider value={value}>
       {children}
+      {/* TEMP DEBUG OVERLAY */}
+      <div style={{
+        position: 'fixed',
+        bottom: 10,
+        left: 10,
+        zIndex: 99999,
+        background: 'rgba(0,0,0,0.85)',
+        color: '#0f0',
+        padding: '10px 15px',
+        borderRadius: 8,
+        fontSize: 12,
+        fontFamily: 'monospace',
+        maxWidth: 500,
+        maxHeight: 300,
+        overflow: 'auto',
+        border: '2px solid #0f0',
+      }}>
+        <div style={{ marginBottom: 8, fontWeight: 'bold' }}>🔧 Live2D Local Model Debug</div>
+        <div>localModelUrl: <span style={{ color: '#ff0' }}>{debugInfo.localModelUrl || '(empty)'}</span></div>
+        <div>manifestFileName: <span style={{ color: '#ff0' }}>{debugInfo.manifestFileName || '(empty)'}</span></div>
+        <div>localFileName: <span style={{ color: '#ff0' }}>{debugInfo.localFileName || '(empty)'}</span></div>
+        <div>filenameMatch: <span style={{ color: debugInfo.filenameMatch ? '#0f0' : '#f00' }}>{String(debugInfo.filenameMatch)}</span></div>
+        <div>localFileExists: <span style={{ color: debugInfo.localFileExists === true ? '#0f0' : debugInfo.localFileExists === false ? '#f00' : '#ff0' }}>
+          {debugInfo.checkPending ? '⏳ checking...' : debugInfo.localFileExists === null ? '❓ not checked' : debugInfo.localFileExists ? '✅ YES' : '❌ NO'}
+        </span></div>
+        <div>finalUrl: <span style={{ color: '#0ff' }}>{debugInfo.finalUrl || '(empty)'}</span></div>
+        <div style={{ marginTop: 8, fontSize: 10, color: '#888' }}>Refreshes every 500ms</div>
+      </div>
     </RendererCommandContext.Provider>
   );
 }

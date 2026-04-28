@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from ..app_context import AppContext
 from ..auth import verify_app_password
 from ..web.sse import format_sse
+from ..utils.frame_audit import audit_frame
 
 
 def create_events_router(context: AppContext) -> APIRouter:
@@ -21,6 +22,14 @@ def create_events_router(context: AppContext) -> APIRouter:
                     payload = event.get('payload') or {}
                     if sessionId and str(payload.get('sessionId') or '') != str(sessionId):
                         continue
+                    audit_frame(
+                        'backend_frontend_sse',
+                        'backend->frontend',
+                        event,
+                        phase='events_route_replay',
+                        sessionId=sessionId or '',
+                        eventName=event.get('type') or 'message',
+                    )
                     yield format_sse(event, event_name=event.get('type') or 'message', include_id=True)
 
             queue = await context.events_bus.subscribe()
@@ -34,6 +43,19 @@ def create_events_router(context: AppContext) -> APIRouter:
                     payload = event.payload or {}
                     if sessionId and str(payload.get('sessionId') or '') != str(sessionId):
                         continue
+                    audit_frame(
+                        'backend_frontend_sse',
+                        'backend->frontend',
+                        {
+                            'seq': event.seq,
+                            'type': event.type,
+                            'ts': event.ts,
+                            'payload': payload,
+                        },
+                        phase='events_route_live',
+                        sessionId=sessionId or '',
+                        eventName=event.type or 'message',
+                    )
                     yield format_sse(
                         {
                             'seq': event.seq,

@@ -3,7 +3,9 @@
   "name": "AliceChat Bridge",
   "description": "OpenClaw channel bridge for the AliceChat Python backend.",
   "version": "0.1.0",
-  "channels": ["alicechat"],
+  "channels": [
+    "alicechat"
+  ],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -42,6 +44,89 @@
         "type": "string",
         "default": "alicechat:user:",
         "description": "用户 client key 前缀"
+      }
+    }
+  },
+  "channelConfigs": {
+    "alicechat": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": false
+          },
+          "websocketHost": {
+            "type": "string",
+            "default": "127.0.0.1"
+          },
+          "websocketPort": {
+            "type": "number",
+            "default": 18791
+          },
+          "channelLabel": {
+            "type": "string",
+            "default": "AliceChat"
+          },
+          "providerId": {
+            "type": "string",
+            "default": "alicechat"
+          },
+          "backendPrefix": {
+            "type": "string",
+            "default": "alicechat:backend:"
+          },
+          "userPrefix": {
+            "type": "string",
+            "default": "alicechat:user:"
+          },
+          "responsePrefix": {
+            "type": "string",
+            "default": "[{model}]"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "uiHints": {
+        "enabled": {
+          "label": "启用 AliceChat channel bridge"
+        },
+        "websocketHost": {
+          "label": "WebSocket 主机",
+          "placeholder": "127.0.0.1"
+        },
+        "websocketPort": {
+          "label": "WebSocket 端口",
+          "placeholder": "18791"
+        },
+        "channelLabel": {
+          "label": "Channel 标签"
+        },
+        "providerId": {
+          "label": "Provider ID"
+        },
+        "backendPrefix": {
+          "label": "后端 key 前缀"
+        },
+        "userPrefix": {
+          "label": "用户 key 前缀"
+        },
+        "responsePrefix": {
+          "label": "响应前缀"
+        },
+        "token": {
+          "label": "Bridge Token",
+          "sensitive": true
+        }
+      },
+      "label": "AliceChat",
+      "description": "AliceChat Python backend bridge",
+      "commands": {
+        "nativeCommandsAutoEnabled": true,
+        "nativeSkillsAutoEnabled": true
       }
     }
   }

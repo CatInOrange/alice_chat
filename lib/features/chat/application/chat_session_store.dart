@@ -536,6 +536,16 @@ class ChatSessionStore extends ChangeNotifier {
             stage: (event['stage'] ?? '').toString(),
             kind: (event['kind'] ?? '').toString(),
             preview: (event['reply'] ?? '').toString(),
+            eventStream: (event['eventStream'] ?? '').toString(),
+            toolCallId: (event['toolCallId'] ?? '').toString(),
+            toolName: (event['toolName'] ?? '').toString(),
+            phase: (event['phase'] ?? '').toString(),
+            status: (event['status'] ?? '').toString(),
+            itemId: (event['itemId'] ?? '').toString(),
+            approvalId: (event['approvalId'] ?? '').toString(),
+            command: (event['command'] ?? '').toString(),
+            output: (event['output'] ?? '').toString(),
+            title: (event['title'] ?? '').toString(),
           );
           state.streamingMessageIds
             ..clear()
@@ -1195,6 +1205,16 @@ class ChatViewState {
   String? assistantProgressStage;
   String? assistantProgressKind;
   String? assistantPreviewText;
+  String? assistantProgressEventStream;
+  String? assistantProgressToolCallId;
+  String? assistantProgressToolName;
+  String? assistantProgressPhase;
+  String? assistantProgressStatus;
+  String? assistantProgressItemId;
+  String? assistantProgressApprovalId;
+  String? assistantProgressCommand;
+  String? assistantProgressOutput;
+  String? assistantProgressTitle;
   String? oldestLoadedMessageId;
   String? newestLoadedMessageId;
   List<core.Message> messages = const [];
@@ -1362,6 +1382,16 @@ class ChatViewState {
     String? stage,
     String? kind,
     String? preview,
+    String? eventStream,
+    String? toolCallId,
+    String? toolName,
+    String? phase,
+    String? status,
+    String? itemId,
+    String? approvalId,
+    String? command,
+    String? output,
+    String? title,
   }) {
     assistantProgressMessageId = messageId;
     assistantProgressSequence = sequence;
@@ -1370,6 +1400,16 @@ class ChatViewState {
     assistantProgressStage = stage;
     assistantProgressKind = kind;
     assistantPreviewText = preview;
+    assistantProgressEventStream = eventStream;
+    assistantProgressToolCallId = toolCallId;
+    assistantProgressToolName = toolName;
+    assistantProgressPhase = phase;
+    assistantProgressStatus = status;
+    assistantProgressItemId = itemId;
+    assistantProgressApprovalId = approvalId;
+    assistantProgressCommand = command;
+    assistantProgressOutput = output;
+    assistantProgressTitle = title;
   }
 
   void clearAssistantProgress() {
@@ -1380,6 +1420,16 @@ class ChatViewState {
     assistantProgressStage = null;
     assistantProgressKind = null;
     assistantPreviewText = null;
+    assistantProgressEventStream = null;
+    assistantProgressToolCallId = null;
+    assistantProgressToolName = null;
+    assistantProgressPhase = null;
+    assistantProgressStatus = null;
+    assistantProgressItemId = null;
+    assistantProgressApprovalId = null;
+    assistantProgressCommand = null;
+    assistantProgressOutput = null;
+    assistantProgressTitle = null;
   }
 
   void trackMessageWindow(String? messageId) {
