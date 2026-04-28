@@ -1203,6 +1203,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final mode = (state.assistantProgressMode ?? '').trim();
     final progressText = (state.assistantProgressText ?? '').trim();
     final previewText = (state.assistantPreviewText ?? '').trim();
+    final progressKind = (state.assistantProgressKind ?? '').trim();
+    final progressStage = (state.assistantProgressStage ?? '').trim();
 
     if (mode == 'preview') {
       final preview = _oneLinePreview(previewText.isNotEmpty ? previewText : progressText);
@@ -1210,30 +1212,81 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     if (progressText.isNotEmpty) {
-      return _oneLinePreview(progressText);
+      final normalized = _humanizeProgressText(
+        text: progressText,
+        kind: progressKind,
+        stage: progressStage,
+      );
+      return _oneLinePreview(normalized);
     }
 
     final sequence = state.assistantProgressSequence;
     if (sequence != null) {
-      return _buildProgressLabel(sequence);
+      return _buildProgressLabel(sequence, kind: progressKind, stage: progressStage);
     }
     return '我在想你这句呢…';
   }
 
-  String _buildProgressLabel(int sequence) {
-    const texts = [
-      '我在想你这句呢…',
-      '翻一下文件，别催我嘛',
-      '我去查点东西～',
-      '敲两下命令给你看',
-      '唔，思路顺起来了',
-      '马上给你一个漂亮答案',
-      '再抛个光就发你',
-    ];
-    if (sequence >= 1 && sequence <= texts.length) {
-      return texts[sequence - 1];
+  String _buildProgressLabel(int sequence, {String kind = '', String stage = ''}) {
+    switch (kind) {
+      case 'search':
+        return const [
+          '我去替你翻翻外面的消息',
+          '在外头替你找线索呢',
+          '搜到点边角料了，再拢一下',
+        ][(sequence - 1).clamp(0, 2)];
+      case 'read':
+        return const [
+          '我在翻文件呢…',
+          '先把上下文给你捋顺',
+          '这一页我快看完了',
+        ][(sequence - 1).clamp(0, 2)];
+      case 'exec':
+        return const [
+          '我敲两下命令给你看',
+          '先跑一下，别急嘛',
+          '结果快出来了，我盯着呢',
+        ][(sequence - 1).clamp(0, 2)];
+      default:
+        const texts = [
+          '我在想你这句呢…',
+          '翻一下文件，别催我嘛',
+          '我去查点东西～',
+          '敲两下命令给你看',
+          '唔，思路顺起来了',
+          '马上给你一个漂亮答案',
+          '再抛个光就发你',
+        ];
+        if (sequence >= 1 && sequence <= texts.length) {
+          return texts[sequence - 1];
+        }
+        if (stage == 'tool') return '我还在替你忙活呢';
+        return '再等我一下下，马上贴过来';
     }
-    return '再等我一下下，马上贴过来';
+  }
+
+  String _humanizeProgressText({
+    required String text,
+    String kind = '',
+    String stage = '',
+  }) {
+    final cleaned = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (cleaned.isEmpty) {
+      return _buildProgressLabel(1, kind: kind, stage: stage);
+    }
+
+    switch (kind) {
+      case 'search':
+        return '我在替你找资料：$cleaned';
+      case 'read':
+        return '我在替你翻内容：$cleaned';
+      case 'exec':
+        return '我在替你跑一跑：$cleaned';
+      case 'tool':
+        return '我在替你忙这个：$cleaned';
+      default:
+        return cleaned;
+    }
   }
 
   String _oneLinePreview(String text, {int maxChars = 22}) {

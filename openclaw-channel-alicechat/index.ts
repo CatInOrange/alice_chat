@@ -1,8 +1,38 @@
 import { WebSocketServer } from 'ws';
+import fsSync from 'node:fs';
+import path from 'node:path';
 import fs from 'node:fs/promises';
 import { createChannelReplyPipeline } from 'openclaw/plugin-sdk/channel-reply-pipeline';
 
 const CHANNEL_ID = 'alicechat';
+const FRAME_AUDIT_ENABLED = !['', '0', 'false', 'no', 'off'].includes(String(process.env.ALICECHAT_FRAME_AUDIT || '1').toLowerCase());
+const FRAME_AUDIT_DIR = process.env.ALICECHAT_FRAME_AUDIT_DIR || '/root/.openclaw/AliceChat/data/frame-audit';
+
+function auditFrame(stream, direction, frame, meta = {}) {
+  if (!FRAME_AUDIT_ENABLED) return;
+  try {
+    fsSync.mkdirSync(FRAME_AUDIT_DIR, { recursive: true });
+    const now = new Date();
+    const day = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const record = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
+      ts: Date.now() / 1000,
+      iso: now.toISOString(),
+      stream,
+      direction,
+      frameType: String(frame?.type || meta.frameType || ''),
+      meta,
+      frame,
+    };
+    fsSync.appendFileSync(
+      path.join(FRAME_AUDIT_DIR, `${day}.jsonl`),
+      `${JSON.stringify(record)}\n`,
+      'utf8',
+    );
+  } catch (error) {
+    console.error('[AliceChat][frame-audit] write failed', error);
+  }
+}
 const activeServers = new Map();
 const activeClients = new Map();
 
@@ -101,7 +131,6 @@ function createBridgeServer(ctx) {
   const channelRuntime = ctx.channelRuntime;
   if (!channelRuntime) throw new Error('channelRuntime unavailable; OpenClaw version too old');
 
-  // 从配置读取参数
   const channelLabel = String(ctx.account.channelLabel || 'AliceChat');
   const providerId = String(ctx.account.providerId || 'alicechat');
   const backendPrefix = String(ctx.account.backendPrefix || 'alicechat:backend:');
@@ -110,6 +139,10 @@ function createBridgeServer(ctx) {
   const wss = new WebSocketServer({ host, port });
 
   async function processChatRequest(ws, frame, cfg) {
+    auditFrame('gateway_backend_ws', 'backend->gateway', frame, {
+      phase: 'gateway_recv_chat_request',
+      accountId: String(ctx.accountId || 'default'),
+    });
     const requestId = String(frame.requestId || '');
     const text = String(frame.text || '');
     const requestedAgent = String(frame.agent || 'main').trim() || 'main';
@@ -168,9 +201,32 @@ function createBridgeServer(ctx) {
       onRecordError: (err) => ctx.log?.warn?.(`Failed updating session meta: ${String(err)}`),
     });
 
-    let accumulated = '';
-    const media = [];
-    ws.send(JSON.stringify({ type: 'chat.accepted', requestId, sessionKey, agent: agentId }));
+    let frameSeq = 0;
+    let terminalSent = false;
+    let accumulatedReply = '';
+    const finalMedia = [];
+    const sendBridgeFrame = (outFrame, phase) => {
+      if (terminalSent) {
+        throw new Error(`attempted to send frame after terminal state: ${outFrame?.type || 'unknown'}`);
+      }
+      const frameWithSeq = {
+        ...outFrame,
+        seq: ++frameSeq,
+      };
+      if (outFrame?.type === 'chat.final' || outFrame?.type === 'chat.error') {
+        terminalSent = true;
+      }
+      auditFrame('gateway_backend_ws', 'gateway->backend', frameWithSeq, {
+        phase,
+        accountId,
+        requestId,
+        sessionKey,
+        agent: agentId,
+      });
+      ws.send(JSON.stringify(frameWithSeq));
+    };
+
+    sendBridgeFrame({ type: 'chat.accepted', requestId, sessionKey, agent: agentId }, 'gateway_send_chat_accepted');
 
     const { onModelSelected, ...replyPipeline } = createChannelReplyPipeline({
       cfg: currentCfg,
@@ -185,17 +241,49 @@ function createBridgeServer(ctx) {
       dispatcherOptions: {
         ...replyPipeline,
         onReplyStart: () => {
-          ws.send(JSON.stringify({ type: 'chat.typing', requestId }));
+          sendBridgeFrame({ type: 'chat.typing', requestId }, 'gateway_send_chat_typing');
         },
-        deliver: async (payload) => {
-          const nextText = String(payload?.text ?? payload?.body ?? '');
-          if (nextText) {
-            const delta = nextText.startsWith(accumulated) ? nextText.slice(accumulated.length) : nextText;
-            accumulated = nextText;
-            if (delta) {
-              ws.send(JSON.stringify({ type: 'chat.delta', requestId, delta, reply: accumulated }));
+        deliver: async (payload, info) => {
+          const text = String(payload?.text ?? payload?.body ?? '').trim();
+          const payloadKind = String(info?.kind || payload?.kind || 'block');
+          const lower = text.toLowerCase();
+          const classifyToolKind = () => {
+            if (/(web_search|web search|web_fetch|web fetch|search|搜索|查一下|查一查|lookup|google|bing)/i.test(text)) return 'search';
+            if (/(read\(|\bread\b|\bcat\b|\bsed\b|\btail\b|\bhead\b|\bgrep\b|查看文件|读取|读一下|翻文件|inspect|open file)/i.test(text)) return 'read';
+            if (/(exec\(|\bexec\b|bash|shell|command|命令|运行|python3|\bgit\b|\bnpm\b|\bpnpm\b|\bflutter\b|\bpytest\b|\bmake\b)/i.test(text)) return 'exec';
+            return 'tool';
+          };
+
+          if (text) {
+            if (payloadKind === 'tool') {
+              sendBridgeFrame({
+                type: 'chat.progress',
+                requestId,
+                stage: 'tool',
+                kind: classifyToolKind(),
+                text,
+              }, 'gateway_send_chat_progress');
+            } else if (payloadKind === 'block' || payloadKind === 'final') {
+              const delta = text.startsWith(accumulatedReply) ? text.slice(accumulatedReply.length) : text;
+              accumulatedReply = text;
+              sendBridgeFrame({
+                type: 'chat.delta',
+                requestId,
+                kind: payloadKind,
+                delta,
+                reply: accumulatedReply,
+              }, 'gateway_send_chat_delta');
+            } else if (lower) {
+              sendBridgeFrame({
+                type: 'chat.progress',
+                requestId,
+                stage: payloadKind,
+                kind: classifyToolKind(),
+                text,
+              }, 'gateway_send_chat_progress');
             }
           }
+
           const mediaUrls = Array.isArray(payload?.mediaUrls)
             ? payload.mediaUrls
             : payload?.mediaUrl
@@ -208,8 +296,8 @@ function createBridgeServer(ctx) {
               type: classifyMedia(mediaUrl, payload.audioAsVoice),
               audioAsVoice: !!payload.audioAsVoice,
             };
-            media.push(item);
-            ws.send(JSON.stringify({ type: 'chat.media', requestId, media: item }));
+            finalMedia.push(item);
+            sendBridgeFrame({ type: 'chat.media', requestId, media: item }, 'gateway_send_chat_media');
           }
         },
       },
@@ -219,15 +307,16 @@ function createBridgeServer(ctx) {
       },
     });
 
-    ws.send(JSON.stringify({
+    sendBridgeFrame({
       type: 'chat.final',
       requestId,
-      reply: accumulated,
-      media,
+      reply: accumulatedReply,
+      media: finalMedia,
       state: 'final',
+      finishReason: 'completed',
       sessionKey,
       agent: agentId,
-    }));
+    }, 'gateway_send_chat_final');
   }
 
   wss.on('connection', (ws, req) => {
@@ -236,7 +325,6 @@ function createBridgeServer(ctx) {
       const url = new URL(`http://${req.headers.host || 'localhost'}${req.url || ''}`);
       const token = url.searchParams.get('token');
 
-      // Token 验证：优先使用 channel config token，再回退到环境变量
       const expectedToken = String(process.env.ALICECHAT_SECRET || 'alicechat-secret-token');
       if (!token || token.length < 16 || token !== expectedToken) {
         console.error(`[AliceChat] Unauthorized connection attempt from ${req.socket.remoteAddress}`);
@@ -251,7 +339,7 @@ function createBridgeServer(ctx) {
       return;
     }
 
-    let client: any = null;
+    let client = null;
     const clientCfg = {
       channelLabel,
       providerId,
@@ -266,10 +354,15 @@ function createBridgeServer(ctx) {
     });
 
     ws.on('message', async (raw) => {
-      let frame: any;
+      let frame;
 
       try {
         frame = JSON.parse(String(raw));
+        auditFrame('gateway_backend_ws', 'backend->gateway', frame, {
+          phase: 'gateway_ws_message',
+          accountId: String(ctx.accountId || 'default'),
+          remoteAddress,
+        });
       } catch (err) {
         console.warn(`[AliceChat] 收到无效 JSON 来自 ${remoteAddress}`);
         ws.send(JSON.stringify({ type: 'chat.error', error: 'invalid_json' }));
@@ -315,7 +408,7 @@ function createBridgeServer(ctx) {
               error: 'unsupported_frame_type',
             }));
         }
-      } catch (error: any) {
+      } catch (error) {
         console.error(`[AliceChat] 处理消息时发生错误 来自 ${remoteAddress}：`, error);
 
         ws.send(JSON.stringify({
@@ -407,10 +500,10 @@ const alicechatPlugin = {
       enabled: { label: '启用 AliceChat channel bridge' },
       websocketHost: { label: 'WebSocket 主机', placeholder: '127.0.0.1' },
       websocketPort: { label: 'WebSocket 端口', placeholder: '18791' },
-      channelLabel: { label: 'Channel 标签', placeholder: 'AliceChat' },
-      providerId: { label: 'Provider ID', placeholder: 'alicechat' },
-      backendPrefix: { label: '后端前缀', placeholder: 'alicechat:backend:' },
-      userPrefix: { label: '用户前缀', placeholder: 'alicechat:user:' },
+      channelLabel: { label: 'Channel 标签' },
+      providerId: { label: 'Provider ID' },
+      backendPrefix: { label: '后端 key 前缀' },
+      userPrefix: { label: '用户 key 前缀' },
     },
   },
   messaging: {
@@ -434,26 +527,37 @@ const alicechatPlugin = {
       if (!client?.ws) throw new Error(`AliceChat target not connected: ${ctx.to}`);
       client.ws.send(JSON.stringify({
         type: 'push.message',
-        role: 'assistant',
         text: String(ctx.text || ''),
-        meta: ctx.identity?.name || 'OpenClaw Agent',
         attachments: [],
+        from: 'assistant',
+        ts: Date.now(),
       }));
       return { ok: true, channel: CHANNEL_ID };
     },
     sendMedia: async (ctx) => {
       const client = activeClients.get(ctx.to) || activeClients.get(`alicechat:backend:${ctx.accountId || 'default'}`);
       if (!client?.ws) throw new Error(`AliceChat target not connected: ${ctx.to}`);
-      const attachment = await mediaUrlToDataPayload(ctx.mediaUrl);
-      const payload = {
+      const mediaCandidates = [];
+      if (ctx.mediaUrl) mediaCandidates.push(ctx.mediaUrl);
+      if (Array.isArray(ctx.mediaUrls)) mediaCandidates.push(...ctx.mediaUrls);
+      const attachments = [];
+      for (const mediaUrl of mediaCandidates) {
+        const payload = await mediaUrlToDataPayload(mediaUrl);
+        if (!payload) continue;
+        attachments.push({
+          type: classifyMedia(mediaUrl, ctx.audioAsVoice),
+          mimeType: payload.mimeType,
+          content: payload.data,
+          audioAsVoice: !!ctx.audioAsVoice,
+        });
+      }
+      client.ws.send(JSON.stringify({
         type: 'push.message',
-        role: 'assistant',
         text: String(ctx.text || ''),
-        meta: ctx.identity?.name || 'OpenClaw Agent',
-        attachments: attachment ? [{ kind: classifyMedia(ctx.mediaUrl, false), mimeType: attachment.mimeType, data: attachment.data }] : [],
-      };
-      ctx.deps?.log?.info?.(`AliceChat push media: to=${ctx.to} mediaUrl=${String(ctx.mediaUrl || '')} hasAttachment=${Boolean(attachment)} textLen=${payload.text.length}`);
-      client.ws.send(JSON.stringify(payload));
+        attachments,
+        from: 'assistant',
+        ts: Date.now(),
+      }));
       return { ok: true, channel: CHANNEL_ID };
     },
   },
@@ -487,6 +591,10 @@ const alicechatPlugin = {
     },
   },
 };
+
+export function register(api) {
+  api.registerChannel({ plugin: alicechatPlugin });
+}
 
 const plugin = {
   id: CHANNEL_ID,

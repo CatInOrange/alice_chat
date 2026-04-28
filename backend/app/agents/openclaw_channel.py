@@ -9,6 +9,7 @@ import uuid
 from collections.abc import Callable
 
 from .base import AgentBackend, ChatAttachment, ChatRequest, StreamEmitter
+from ..utils.frame_audit import audit_frame
 
 _BRIDGE_CONNECT_RETRY_DELAYS = (0.25, 0.5, 1.0)
 _PUSH_LISTENER_PING_INTERVAL_SECONDS = 60
@@ -16,6 +17,7 @@ _PUSH_LISTENER_PING_TIMEOUT_SECONDS = 60
 _PUSH_LISTENER_RECV_IDLE_SECONDS = 90
 _REQUEST_PING_INTERVAL_SECONDS = 60
 _REQUEST_PING_TIMEOUT_SECONDS = 60
+_EMPTY_FINAL_GRACE_SECONDS = 8.0
 _LOG = logging.getLogger(__name__)
 
 
@@ -83,6 +85,26 @@ def _normalize_base64_payload(data: str) -> str:
         value = value.split(",", 1)[1]
     value = re.sub(r"\s+", "", value)
     return value
+
+
+def _classify_progress_kind(text: str, hint: str = "") -> str:
+    haystack = f"{hint} {text}".strip().lower()
+    if not haystack:
+        return "tool"
+
+    if any(marker in haystack for marker in (
+        "web_search", "web search", "web_fetch", "web fetch", "search", "搜索", "查一下", "查一查", "lookup", "google", "bing",
+    )):
+        return "search"
+    if any(marker in haystack for marker in (
+        "read(", " read ", "cat ", "sed ", "tail ", "head ", "grep ", "查看文件", "读取", "读一下", "翻文件", "inspect", "open file",
+    )):
+        return "read"
+    if any(marker in haystack for marker in (
+        "exec(", " exec ", "bash", "shell", "command", "命令", "运行", "python3", "git ", "npm ", "pnpm ", "flutter ", "pytest", "make ",
+    )):
+        return "exec"
+    return "tool"
 
 
 def _prepare_bridge_attachments(attachments: list[ChatAttachment]) -> list[dict]:
@@ -189,14 +211,23 @@ async def _bridge_listener_loop(provider_config: dict, stop_event: threading.Eve
         f"recv_idle={_PUSH_LISTENER_RECV_IDLE_SECONDS}s)"
     )
     try:
-        await ws.send(json.dumps({
+        register_frame = {
             "type": "bridge.register",
             "target": sender_id,
             "senderId": sender_id,
             "senderName": sender_name,
             "providerId": str(provider_config.get("id") or "").strip(),
             "ts": time.time(),
-        }))
+        }
+        audit_frame(
+            "gateway_backend_ws",
+            "backend->gateway",
+            register_frame,
+            phase="push_listener_register",
+            providerId=str(provider_config.get("id") or "").strip(),
+            bridgeUrl=bridge_url,
+        )
+        await ws.send(json.dumps(register_frame))
         while not stop_event.is_set():
             try:
                 raw = await asyncio.wait_for(ws.recv(), timeout=_PUSH_LISTENER_RECV_IDLE_SECONDS)
@@ -204,6 +235,14 @@ async def _bridge_listener_loop(provider_config: dict, stop_event: threading.Eve
                 await ws.send(json.dumps({"type": "ping", "ts": time.time()}))
                 continue
             frame = json.loads(raw)
+            audit_frame(
+                "gateway_backend_ws",
+                "gateway->backend",
+                frame,
+                phase="push_listener_recv",
+                providerId=str(provider_config.get("id") or frame.get("providerId") or "openclaw-channel").strip(),
+                bridgeUrl=bridge_url,
+            )
             ftype = str(frame.get("type") or "")
             if ftype == "push.message":
                 frame["providerId"] = str(provider_config.get("id") or frame.get("providerId") or "openclaw-channel").strip()
@@ -275,18 +314,44 @@ class OpenClawChannelAgentBackend(AgentBackend):
             _LOG.warning(conn_msg)
             print(f"[OPENCLAW_CHANNEL OUTBOUND] {outbound_text}", flush=True)
             _LOG.warning("[OPENCLAW_CHANNEL OUTBOUND] %s", outbound_text)
+            audit_frame(
+                "gateway_backend_ws",
+                "backend->gateway",
+                outbound,
+                phase="chat_request_send",
+                providerId=str(self.provider_config.get("id") or "openclaw-channel"),
+                bridgeUrl=bridge_url,
+                requestId=request_id,
+                sessionKey=session_key,
+                agent=agent,
+                session=session_name,
+            )
             await ws.send(json.dumps(outbound, ensure_ascii=False))
 
-            accumulated_text = ""
+            accumulated_reply = ""
             final_media: list[dict] = []
             saw_relevant_frame = False
             saw_final_frame = False
+            saw_empty_final_frame = False
+            pending_empty_final_deadline: float | None = None
             last_frame_type = ""
+            last_seq = 0
+
+            def current_reply() -> str:
+                return str(accumulated_reply or "").strip()
 
             while True:
+                recv_timeout = timeout_seconds
+                if pending_empty_final_deadline is not None:
+                    remaining = pending_empty_final_deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    recv_timeout = max(0.1, min(timeout_seconds, remaining))
                 try:
-                    raw = await asyncio.wait_for(ws.recv(), timeout=timeout_seconds)
+                    raw = await asyncio.wait_for(ws.recv(), timeout=recv_timeout)
                 except TimeoutError as exc:
+                    if pending_empty_final_deadline is not None:
+                        break
                     raise RuntimeError(
                         "Timeout waiting for OpenClaw bridge final frame "
                         f"(requestId={request_id}, last_frame_type={last_frame_type or 'none'}, "
@@ -295,6 +360,18 @@ class OpenClawChannelAgentBackend(AgentBackend):
                 print(f"[OPENCLAW_CHANNEL RAW] {raw}", flush=True)
                 _LOG.warning("[OPENCLAW_CHANNEL RAW] %s", raw)
                 frame = json.loads(raw)
+                audit_frame(
+                    "gateway_backend_ws",
+                    "gateway->backend",
+                    frame,
+                    phase="chat_request_recv",
+                    providerId=str(self.provider_config.get("id") or frame.get("providerId") or "openclaw-channel"),
+                    bridgeUrl=bridge_url,
+                    requestId=request_id,
+                    sessionKey=session_key,
+                    agent=agent,
+                    session=session_name,
+                )
                 if frame.get("requestId") not in {None, request_id}:
                     skip_msg = (
                         f"[OPENCLAW_CHANNEL SKIP] requestId={frame.get('requestId')} "
@@ -307,32 +384,84 @@ class OpenClawChannelAgentBackend(AgentBackend):
                 saw_relevant_frame = True
                 ftype = str(frame.get("type") or "")
                 last_frame_type = ftype
+                seq = frame.get("seq")
+                if isinstance(seq, int):
+                    if seq <= last_seq:
+                        _LOG.warning("[OPENCLAW_CHANNEL ORDER] non-increasing seq=%s last_seq=%s type=%s", seq, last_seq, ftype)
+                    last_seq = seq
                 if ftype == "chat.delta":
-                    delta = str(frame.get("delta") or "")
-                    accumulated_text = _extract_text_candidates(frame, accumulated_text + delta)
-                    if emit and delta:
+                    delta_text = str(frame.get("delta") or "")
+                    reply_snapshot = _extract_text_candidates(frame, current_reply()).strip()
+                    if reply_snapshot:
+                        accumulated_reply = reply_snapshot
+                    elif delta_text:
+                        accumulated_reply = f"{accumulated_reply}{delta_text}"
+                    if pending_empty_final_deadline is not None and (delta_text or accumulated_reply):
+                        pending_empty_final_deadline = time.monotonic() + _EMPTY_FINAL_GRACE_SECONDS
+                    if emit and delta_text:
                         emit({
                             "type": "delta",
-                            "delta": delta,
-                            "reply": accumulated_text,
+                            "delta": delta_text,
+                            "reply": current_reply(),
+                            "state": "streaming",
+                        })
+                elif ftype == "chat.block":
+                    block_text = str(frame.get("text") or "").strip()
+                    if block_text:
+                        accumulated_reply = f"{accumulated_reply}\n{block_text}".strip() if accumulated_reply else block_text
+                    if pending_empty_final_deadline is not None and (block_text or accumulated_reply):
+                        pending_empty_final_deadline = time.monotonic() + _EMPTY_FINAL_GRACE_SECONDS
+                    if emit and block_text:
+                        emit({
+                            "type": "delta",
+                            "delta": block_text,
+                            "reply": current_reply(),
+                            "state": "streaming",
+                        })
+                elif ftype == "chat.progress":
+                    progress_text = str(frame.get("text") or "").strip()
+                    progress_stage = str(frame.get("stage") or "working")
+                    progress_hint = str(frame.get("kind") or progress_stage)
+                    progress_kind = _classify_progress_kind(progress_text, progress_hint)
+                    if emit and progress_text:
+                        emit({
+                            "type": "progress",
+                            "text": progress_text,
+                            "stage": progress_stage,
+                            "kind": progress_kind,
                             "state": "streaming",
                         })
                 elif ftype == "chat.media":
                     media = frame.get("media") or {}
                     if isinstance(media, dict):
                         final_media.append(media)
+                        if pending_empty_final_deadline is not None:
+                            pending_empty_final_deadline = time.monotonic() + _EMPTY_FINAL_GRACE_SECONDS
                 elif ftype == "chat.final":
-                    saw_final_frame = True
-                    accumulated_text = _extract_text_candidates(frame, accumulated_text)
-                    more_media = frame.get("media") or []
-                    if isinstance(more_media, list):
-                        final_media = more_media
-                    break
+                    final_reply = _extract_text_candidates(frame, current_reply()).strip()
+                    media = frame.get("media") or []
+                    media_added = False
+                    if isinstance(media, list):
+                        for item in media:
+                            if isinstance(item, dict):
+                                final_media.append(item)
+                                media_added = True
+                    if final_reply:
+                        accumulated_reply = final_reply
+                        saw_final_frame = True
+                        break
+                    if media_added or final_media:
+                        saw_final_frame = True
+                        break
+                    saw_empty_final_frame = True
+                    pending_empty_final_deadline = time.monotonic() + _EMPTY_FINAL_GRACE_SECONDS
+                    continue
                 elif ftype == "chat.error":
                     raise RuntimeError(str(frame.get("error") or "openclaw channel bridge error"))
                 else:
-                    accumulated_text = _extract_text_candidates(frame, accumulated_text)
-                    if accumulated_text.strip() and ftype in {"message", "assistant", "reply"}:
+                    fallback_text = _extract_text_candidates(frame, "").strip()
+                    if fallback_text and ftype in {"message", "assistant", "reply"}:
+                        accumulated_reply = fallback_text
                         break
                     continue
         except Exception as exc:
@@ -343,8 +472,8 @@ class OpenClawChannelAgentBackend(AgentBackend):
         finally:
             await ws.close()
 
-        reply = accumulated_text.strip()
-        if not saw_final_frame and not reply and not final_media:
+        reply = current_reply()
+        if not saw_final_frame and not saw_empty_final_frame and not reply and not final_media:
             raise RuntimeError(
                 "OpenClaw bridge request ended without final frame or visible content "
                 f"(requestId={request_id}, sessionKey={session_key}, last_frame_type={last_frame_type or 'none'})"
