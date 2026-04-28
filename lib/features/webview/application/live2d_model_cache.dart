@@ -234,6 +234,7 @@ class Live2dModelCache {
 
       final publicRoot = await _publicRoot();
       final finalRootDir = Directory(p.join(publicRoot.path, 'models', modelId));
+      await finalRootDir.create(recursive: true);
       final normalizedModelDir = p.posix.dirname(modelJsonPath);
 
       // Process each file: skip if already exists in final directory, otherwise download
@@ -241,7 +242,7 @@ class Live2dModelCache {
         final normalizedRef = _normalizeRelativePath(
           ref == modelJsonPath ? ref : p.posix.normalize(p.posix.join(normalizedModelDir, ref)),
         );
-        final finalFile = File(p.join(finalRootDir.path, normalizedRef));
+        final finalFile = File(p.join(publicRoot.path, normalizedRef));
 
         // Skip download if file already exists
         if (await finalFile.exists()) {
@@ -263,12 +264,12 @@ class Live2dModelCache {
         await finalFile.writeAsBytes(bytes, flush: true);
       }
 
-      // Verify all required files exist in final directory before marking as ready
+      // Verify all required files exist before marking as ready
       for (final ref in fileRefs) {
         final normalizedRef = _normalizeRelativePath(
           ref == modelJsonPath ? ref : p.posix.normalize(p.posix.join(normalizedModelDir, ref)),
         );
-        final finalFile = File(p.join(finalRootDir.path, normalizedRef));
+        final finalFile = File(p.join(publicRoot.path, normalizedRef));
         if (!await finalFile.exists()) {
           stderr.writeln('Live2dModelCache file missing after download: $normalizedRef');
           return null;

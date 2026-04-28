@@ -332,19 +332,24 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                     ],
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _buildHeaderAvatar(radius: 12),
-                      const SizedBox(width: 8),
-                      Text(
-                        _buildStreamingHint(state),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF667085),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
+                  child: Builder(
+                    builder: (context) {
+                      final hint = _buildStreamingHint(state);
+                      return Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _buildHeaderAvatar(radius: 12),
+                          const SizedBox(width: 8),
+                          Text(
+                            hint.isEmpty ? '⋯' : hint,
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF667085),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ),
               ),
@@ -1214,20 +1219,15 @@ class _ChatScreenState extends State<ChatScreen> {
     final progressTitle = (state.assistantProgressTitle ?? '').trim();
     final progressCommand = (state.assistantProgressCommand ?? '').trim();
 
+    String resolved = '';
+
     if (mode == 'preview') {
-      final preview = _oneLinePreview(previewText.isNotEmpty ? previewText : progressText);
-      if (preview.isNotEmpty) return preview;
-    }
-
-    if (mode == 'thinking' && progressText.isNotEmpty) {
-      return _oneLinePreview('我在想：$progressText');
-    }
-
-    if (mode == 'plan' && progressText.isNotEmpty) {
-      return _oneLinePreview('我在列步骤：$progressText');
-    }
-
-    if (progressText.isNotEmpty) {
+      resolved = _oneLinePreview(previewText.isNotEmpty ? previewText : progressText);
+    } else if (mode == 'thinking' && progressText.isNotEmpty) {
+      resolved = _oneLinePreview('我在想：$progressText');
+    } else if (mode == 'plan' && progressText.isNotEmpty) {
+      resolved = _oneLinePreview('我在列步骤：$progressText');
+    } else if (progressText.isNotEmpty) {
       final normalized = _humanizeProgressText(
         text: progressText,
         kind: progressKind,
@@ -1239,10 +1239,8 @@ class _ChatScreenState extends State<ChatScreen> {
         title: progressTitle,
         command: progressCommand,
       );
-      return _oneLinePreview(normalized);
-    }
-
-    if (progressToolName.isNotEmpty || progressToolCallId.isNotEmpty) {
+      resolved = _oneLinePreview(normalized);
+    } else if (progressToolName.isNotEmpty || progressToolCallId.isNotEmpty) {
       final normalized = _humanizeProgressText(
         text: '',
         kind: progressKind,
@@ -1254,14 +1252,38 @@ class _ChatScreenState extends State<ChatScreen> {
         title: progressTitle,
         command: progressCommand,
       );
-      return _oneLinePreview(normalized);
+      resolved = _oneLinePreview(normalized);
+    } else {
+      final sequence = state.assistantProgressSequence;
+      if (sequence != null) {
+        resolved = _buildProgressLabel(sequence, kind: progressKind, stage: progressStage);
+      }
     }
 
-    final sequence = state.assistantProgressSequence;
-    if (sequence != null) {
-      return _buildProgressLabel(sequence, kind: progressKind, stage: progressStage);
-    }
-    return '我在想你这句呢…';
+    return _isDecorativeStreamingHint(resolved) ? '' : resolved;
+  }
+
+  bool _isDecorativeStreamingHint(String text) {
+    final normalized = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normalized.isEmpty) return true;
+    const decorativeHints = <String>{
+      '我在想你这句呢…',
+      '翻一下文件，别催我嘛',
+      '我去查点东西～',
+      '敲两下命令给你看',
+      '唔，思路顺起来了',
+      '马上给你一个漂亮答案',
+      '再抛个光就发你',
+      '我还在替你忙活呢',
+      '再等我一下下，马上贴过来',
+      '我先替你想一想',
+      '思路在收束了',
+      '快想明白了，别催',
+      '我先给你排个步骤',
+      '方案顺序我在理',
+      '差不多能开工了',
+    };
+    return decorativeHints.contains(normalized);
   }
 
   String _buildProgressLabel(int sequence, {String kind = '', String stage = ''}) {
