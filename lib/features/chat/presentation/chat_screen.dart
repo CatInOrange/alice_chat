@@ -45,6 +45,15 @@ class _StreamingHintResolution {
   final String signature;
 }
 
+const _fallbackStreamingHints = <String>[
+  '我正偷偷替你整理答案呢',
+  '别急，我在给你拣重点',
+  '让我抖一抖袖子，结果马上来',
+  '我在替你把话说漂亮一点',
+  '先酝酿一下，马上给你端上来',
+  '我已经按住思路了，别让它跑了',
+];
+
 class _ChatScreenState extends State<ChatScreen> {
   final _currentUserId = 'user';
   final _composerController = TextEditingController();
@@ -52,6 +61,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final _chatListController = ScrollController();
   final _chatController = core.InMemoryChatController();
   Timer? _streamingHintPulseTimer;
+  int _fallbackStreamingHintIndex = 0;
 
   static const double _pullTriggerDistance = 72;
   static const double _pullMaxVisualDistance = 108;
@@ -1044,6 +1054,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         fontSize: 11,
                       ),
                     ),
+                    _buildModelNameText(message.text),
                     Text(
                       _formatMessageTime(message.createdAt ?? DateTime.now()),
                       style: theme.textTheme.bodySmall?.copyWith(
@@ -1051,7 +1062,6 @@ class _ChatScreenState extends State<ChatScreen> {
                         fontSize: 11,
                       ),
                     ),
-                    _buildModelNameText(message.text),
                   ],
                 ),
               ],
@@ -1212,11 +1222,11 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   String _formatMessageTime(DateTime dateTime) {
-    final month = dateTime.month.toString().padLeft(2, '0');
-    final day = dateTime.day.toString().padLeft(2, '0');
+    final month = dateTime.month;
+    final day = dateTime.day;
     final hour = dateTime.hour.toString().padLeft(2, '0');
     final minute = dateTime.minute.toString().padLeft(2, '0');
-    return '$month-$day $hour:$minute';
+    return '$month月$day日 $hour:$minute';
   }
 
   String _stripModelNamePrefix(String text) {
@@ -1335,7 +1345,20 @@ class _ChatScreenState extends State<ChatScreen> {
     final resolved = _resolveStreamingHint(state);
     if (resolved.displayText.isNotEmpty) return resolved.displayText;
     if (_lastMeaningfulStreamingHint.isNotEmpty) return _lastMeaningfulStreamingHint;
-    return '⋯';
+    return _fallbackStreamingHintFor(state);
+  }
+
+  String _fallbackStreamingHintFor(ChatViewState state) {
+    final seedSource = [
+      widget.session.id,
+      state.assistantProgressToolCallId ?? '',
+      state.assistantProgressMessageId ?? '',
+      state.assistantProgressSequence?.toString() ?? '',
+    ].join('|');
+    final seed = seedSource.hashCode;
+    final rawIndex = (seed + _fallbackStreamingHintIndex) % _fallbackStreamingHints.length;
+    final index = rawIndex < 0 ? rawIndex + _fallbackStreamingHints.length : rawIndex;
+    return _fallbackStreamingHints[index];
   }
 
   void _syncStreamingHintState(ChatViewState state) {
@@ -1344,6 +1367,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _lastStreamingHintSignature = '';
       _streamingHintPulseActive = false;
       _streamingHintPulseTimer?.cancel();
+      _fallbackStreamingHintIndex = (_fallbackStreamingHintIndex + 1) % _fallbackStreamingHints.length;
       return;
     }
 
@@ -1496,7 +1520,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  String _oneLinePreview(String text, {int maxWidth = 22}) {
+  String _oneLinePreview(String text, {int maxWidth = 33}) {
     final collapsed = text.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (collapsed.isEmpty) return '';
     int totalWidth = 0;
