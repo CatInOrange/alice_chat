@@ -339,6 +339,7 @@ class OpenClawChannelAgentBackend(AgentBackend):
             await ws.send(json.dumps(outbound, ensure_ascii=False))
 
             accumulated_reply = ""
+            final_reply = ""
             final_media: list[dict] = []
             saw_relevant_frame = False
             saw_reply_final_frame = False
@@ -352,6 +353,9 @@ class OpenClawChannelAgentBackend(AgentBackend):
 
             def current_reply() -> str:
                 return str(accumulated_reply or "").strip()
+
+            def current_final_reply() -> str:
+                return str(final_reply or "").strip()
 
             while True:
                 recv_timeout = timeout_seconds
@@ -502,7 +506,7 @@ class OpenClawChannelAgentBackend(AgentBackend):
                         if pending_empty_final_deadline is not None:
                             pending_empty_final_deadline = time.monotonic() + _EMPTY_FINAL_GRACE_SECONDS
                 elif ftype in {"chat.reply_final", "chat.final"}:
-                    final_reply = _extract_text_candidates(frame, current_reply()).strip()
+                    final_reply_text = _extract_text_candidates(frame, "").strip()
                     media = frame.get("media") or []
                     media_added = False
                     if isinstance(media, list):
@@ -511,8 +515,9 @@ class OpenClawChannelAgentBackend(AgentBackend):
                                 final_media.append(item)
                                 media_added = True
                     last_typing_at = None
-                    if final_reply:
-                        accumulated_reply = final_reply
+                    if final_reply_text:
+                        final_reply = final_reply_text
+                        accumulated_reply = final_reply_text
                         saw_reply_final_frame = True
                         break
                     if media_added or final_media:
@@ -546,15 +551,19 @@ class OpenClawChannelAgentBackend(AgentBackend):
         finally:
             await ws.close()
 
-        reply = current_reply()
-        if not saw_reply_final_frame and not saw_empty_final_frame and not reply and not final_media:
+        reply = current_final_reply()
+        if not saw_reply_final_frame and not saw_empty_final_frame:
             raise RuntimeError(
-                "OpenClaw bridge request ended without reply_final frame or visible content "
-                f"(requestId={request_id}, sessionKey={session_key}, last_frame_type={last_frame_type or 'none'}, saw_run_final_frame={saw_run_final_frame})"
+                "OpenClaw bridge request ended without reply_final frame "
+                f"(requestId={request_id}, sessionKey={session_key}, last_frame_type={last_frame_type or 'none'}, "
+                f"saw_run_final_frame={saw_run_final_frame}, preview_reply={current_reply()[:120]!r})"
             )
         if not reply and not final_media:
             reply = "……我刚刚没有拿到可显示的回复。"
-        final_msg = f"[OPENCLAW_CHANNEL FINAL] reply={reply!r} media_count={len(final_media)}"
+        final_msg = (
+            f"[OPENCLAW_CHANNEL FINAL] reply={reply!r} preview={current_reply()!r} "
+            f"media_count={len(final_media)} saw_reply_final_frame={saw_reply_final_frame}"
+        )
         print(final_msg, flush=True)
         _LOG.warning(final_msg)
         images = [m for m in final_media if isinstance(m, dict) and m.get("type") == "image" and m.get("url")]

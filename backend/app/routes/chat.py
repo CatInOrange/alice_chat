@@ -18,8 +18,18 @@ from ..web.helpers import build_route_key, require_existing_session
 _LOG = logging.getLogger(__name__)
 
 
+def _strip_model_prefix(text: str) -> str:
+    value = str(text or '').lstrip()
+    if not value.startswith('['):
+        return str(text or '').strip()
+    bracket_end = value.find(']')
+    if bracket_end <= 1:
+        return str(text or '').strip()
+    return value[bracket_end + 1 :].lstrip()
+
+
 def _pick_notification_preview(*, visible_text: str, has_images: bool) -> str:
-    preview = str(visible_text or '').strip()
+    preview = _strip_model_prefix(str(visible_text or '').strip())
     if preview:
         return preview
     if has_images:

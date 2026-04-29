@@ -157,11 +157,12 @@ class NotificationService extends ChangeNotifier {
       senderName: senderName,
       contact: contact,
     );
+    final resolvedBody = _stripModelPrefix(body);
     final payload = {
       'sessionId': normalizedSessionId,
       'senderName': senderName,
       'messageId': messageId,
-      'preview': body,
+      'preview': resolvedBody,
     };
     final largeIcon = await _loadLargeIcon(contact?.avatarAssetPath);
     final notificationId = normalizedSessionId.hashCode ^ messageId.hashCode;
@@ -179,7 +180,7 @@ class NotificationService extends ChangeNotifier {
       await _localNotifications.show(
         notificationId,
         resolvedTitle,
-        body,
+        resolvedBody,
         NotificationDetails(android: androidDetails),
         payload: jsonEncode(payload),
       );
@@ -197,12 +198,21 @@ class NotificationService extends ChangeNotifier {
     }
   }
 
+  String _stripModelPrefix(String text) {
+    final value = text.trimLeft();
+    if (!value.startsWith('[')) return text.trim();
+    final bracketEnd = value.indexOf(']');
+    if (bracketEnd <= 1) return text.trim();
+    return value.substring(bracketEnd + 1).trimLeft();
+  }
+
   String _resolveTitle({
     required String title,
     required String senderName,
     Contact? contact,
   }) {
-    final candidates = [contact?.name, senderName, title];
+    final senderContact = contactForContactId(senderName) ?? contactForContactId(title);
+    final candidates = [contact?.name, senderContact?.name, senderName, title];
     for (final item in candidates) {
       final value = item?.trim() ?? '';
       if (value.isNotEmpty) return value;

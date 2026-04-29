@@ -1047,14 +1047,23 @@ class _ChatScreenState extends State<ChatScreen> {
                         fontSize: 11,
                       ),
                     ),
+                    if (_extractModelName(message.text) != null) ...[
+                      Text(
+                        " · ",
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: const Color(0xFF98A1B3),
+                          fontSize: 11,
+                        ),
+                      ),
+                      _buildModelNameText(message.text),
+                    ],
                     Text(
-                      " · ",
+                      " | ",
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF98A1B3),
                         fontSize: 11,
                       ),
                     ),
-                    _buildModelNameText(message.text),
                     Text(
                       _formatMessageTime(message.createdAt ?? DateTime.now()),
                       style: theme.textTheme.bodySmall?.copyWith(
@@ -1246,21 +1255,24 @@ class _ChatScreenState extends State<ChatScreen> {
     return modelName.isEmpty ? null : modelName;
   }
 
+  String _formatModelNameForDisplay(String modelName) {
+    const maxLength = 18;
+    if (modelName.length <= maxLength) return modelName;
+    final lastDash = modelName.lastIndexOf('-');
+    if (lastDash > 0) {
+      final shortened = modelName.substring(0, lastDash).trim();
+      if (shortened.isNotEmpty) return shortened;
+    }
+    return modelName;
+  }
+
   Widget _buildModelNameText(String text) {
     final modelName = _extractModelName(text);
     if (modelName == null) return const SizedBox.shrink();
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          " | ",
-          style: const TextStyle(color: Color(0xFF98A1B3), fontSize: 11),
-        ),
-        Text(
-          modelName,
-          style: const TextStyle(color: Color(0xFF98A1B3), fontSize: 11),
-        ),
-      ],
+    final displayModelName = _formatModelNameForDisplay(modelName);
+    return Text(
+      displayModelName,
+      style: const TextStyle(color: Color(0xFF98A1B3), fontSize: 11),
     );
   }
 
