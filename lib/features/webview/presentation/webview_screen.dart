@@ -122,6 +122,7 @@ class _WebviewScreenState extends State<WebviewScreen>
         password: password,
         modelId: modelId,
       );
+      debugPrint('WebView localModelUrl resolved: $localModelUrl');
       if (localModelUrl == null || localModelUrl.trim().isEmpty) {
         throw StateError('本地模型未准备完成');
       }

@@ -192,9 +192,13 @@ class AliceChatForegroundService : Service() {
             payload.optString("senderName").ifBlank { resolveTitleForSession(sessionId) }
         }
         val preview = payload.optString("bodyPreview").trim().ifBlank { "[新消息]" }
+        val senderName = payload.optString("senderName").trim()
+        val stableDedupeKey = dedupeKey.ifBlank {
+            if (sessionId.isNotBlank() && messageId.isNotBlank()) "$sessionId:$messageId" else ""
+        }
         DebugLogBuffer.append(
             "fg-service",
-            "candidate_received session=$sessionId messageId=$messageId dedupeKey=$dedupeKey deliveryPhase=${deliveryPhase.ifBlank { "unknown" }} active=$activeSessionId appForeground=$appForeground"
+            "candidate_received session=$sessionId messageId=$messageId dedupeKey=$dedupeKey stableDedupeKey=$stableDedupeKey deliveryPhase=${deliveryPhase.ifBlank { "unknown" }} active=$activeSessionId appForeground=$appForeground sender=$senderName title=$title previewLen=${preview.length}"
         )
         if (sessionId.isEmpty()) {
             DebugLogBuffer.append("fg-service", "decision=drop_invalid_candidate reason=empty_session messageId=$messageId")
@@ -204,11 +208,8 @@ class AliceChatForegroundService : Service() {
             DebugLogBuffer.append("fg-service", "decision=suppress_replay session=$sessionId messageId=$messageId dedupeKey=$dedupeKey")
             return
         }
-        val stableDedupeKey = dedupeKey.ifBlank {
-            if (sessionId.isNotBlank() && messageId.isNotBlank()) "$sessionId:$messageId" else ""
-        }
         if (stableDedupeKey.isNotEmpty() && hasSeenDedupeKey(stableDedupeKey)) {
-            DebugLogBuffer.append("fg-service", "decision=suppress_duplicate session=$sessionId messageId=$messageId dedupeKey=$stableDedupeKey")
+            DebugLogBuffer.append("fg-service", "decision=suppress_duplicate session=$sessionId messageId=$messageId dedupeKey=$stableDedupeKey active=$activeSessionId appForeground=$appForeground")
             return
         }
         maybeNotify(
@@ -242,7 +243,7 @@ class AliceChatForegroundService : Service() {
         if (recentlyBackgrounded) {
             DebugLogBuffer.append("fg-service", "decision=allow_recent_background source=$source session=$sessionId active=$activeSessionId appForeground=$appForeground backgroundedAt=$lastBackgroundedAtMs")
         }
-        DebugLogBuffer.append("fg-service", "decision=notify_attempt source=$source session=$sessionId title=$title messageId=$messageId textLen=${preview.length} active=$activeSessionId appForeground=$appForeground hasAttachments=$hasAttachments dedupeKey=$dedupeKey")
+        DebugLogBuffer.append("fg-service", "decision=notify_attempt source=$source session=$sessionId title=$title messageId=$messageId textLen=${preview.length} active=$activeSessionId appForeground=$appForeground hasAttachments=$hasAttachments dedupeKey=$dedupeKey recentlyBackgrounded=$recentlyBackgrounded backgroundedAt=$lastBackgroundedAtMs")
         if (dedupeKey.isNotEmpty()) {
             rememberDedupeKey(dedupeKey)
         }
@@ -291,11 +292,20 @@ class AliceChatForegroundService : Service() {
         } else {
             true
         }
+        val channelImportance = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager.getNotificationChannel(MESSAGE_CHANNEL_ID)?.importance ?: -1
+        } else {
+            -1
+        }
         val activeNotifications = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) manager.activeNotifications.size else -1
-        DebugLogBuffer.append("fg-service", "decision=post notificationId=$notificationId eventSession=$eventSessionId channel=$MESSAGE_CHANNEL_ID enabled=$notificationsEnabled activeCount=$activeNotifications title=$title preview=${preview.take(80)}")
-        manager.notify(notificationId, notification)
-        val activeNotificationsAfter = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) manager.activeNotifications.size else -1
-        DebugLogBuffer.append("fg-service", "decision=posted notificationId=$notificationId eventSession=$eventSessionId activeCountAfter=$activeNotificationsAfter preview=${preview.take(80)}")
+        DebugLogBuffer.append("fg-service", "decision=post notificationId=$notificationId eventSession=$eventSessionId channel=$MESSAGE_CHANNEL_ID enabled=$notificationsEnabled channelImportance=$channelImportance activeCount=$activeNotifications title=$title preview=${preview.take(80)}")
+        try {
+            manager.notify(notificationId, notification)
+            val activeNotificationsAfter = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) manager.activeNotifications.size else -1
+            DebugLogBuffer.append("fg-service", "decision=posted notificationId=$notificationId eventSession=$eventSessionId activeCountAfter=$activeNotificationsAfter preview=${preview.take(80)}")
+        } catch (error: Exception) {
+            DebugLogBuffer.append("fg-service", "decision=post_failed notificationId=$notificationId eventSession=$eventSessionId error=${error.message}")
+        }
     }
 
     private fun loadDeliveredDedupeKeys() {

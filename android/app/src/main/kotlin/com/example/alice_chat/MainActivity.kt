@@ -141,7 +141,7 @@ class MainActivity : FlutterActivity() {
 }
 
 object DebugLogBuffer {
-    private const val MAX_SIZE = 300
+    private const val MAX_SIZE = 1200
     private val lines = ArrayDeque<String>()
     private val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault())
 
