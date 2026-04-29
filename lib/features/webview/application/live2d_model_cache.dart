@@ -507,6 +507,13 @@ class Live2dModelCache {
       return;
     }
     if (value is Map) {
+      // Check if this is a structured object with "File" field (e.g., expression or motion entry).
+      // In that case, only use the "File" field value and skip "Name" and other metadata.
+      if (value.containsKey('File')) {
+        _collectRelativeRefs(value['File'], refs);
+        return;
+      }
+      // Otherwise, process all values recursively.
       for (final entryValue in value.values) {
         _collectRelativeRefs(entryValue, refs);
       }
