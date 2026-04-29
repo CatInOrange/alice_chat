@@ -180,7 +180,7 @@ def _restart_backend_impl() -> dict[str, Any]:
 def _restart_gateway_impl() -> dict[str, Any]:
     env = _build_root_user_service_env()
     completed = subprocess.run(  # noqa: S603
-        ['bash', '-lic', GATEWAY_RESTART_SCRIPT],
+        ['bash', '-lc', GATEWAY_RESTART_SCRIPT],
         capture_output=True,
         text=True,
         timeout=240,
@@ -192,7 +192,7 @@ def _restart_gateway_impl() -> dict[str, Any]:
         'stderr': (completed.stderr or '').strip(),
         'returncode': completed.returncode,
         'script': GATEWAY_RESTART_SCRIPT,
-        'execMode': 'bash -lic script',
+        'execMode': 'bash -lc script',
         'userServiceEnv': {
             'HOME': env.get('HOME', ''),
             'USER': env.get('USER', ''),
