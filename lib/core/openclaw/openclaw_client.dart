@@ -12,7 +12,10 @@ class UploadMediaResult {
 }
 
 abstract class OpenClawClient {
-  Future<String> ensureSession({required String preferredName});
+  Future<String> ensureSession({
+    required String sessionId,
+    required String preferredName,
+  });
 
   Future<MessagePageResult> loadMessages(
     String sessionId, {

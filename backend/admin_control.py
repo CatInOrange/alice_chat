@@ -28,9 +28,14 @@ ROOT = Path('/root/.openclaw/AliceChat').resolve()
 DATA_DIR = ROOT / 'data' / 'admin_control'
 LOCK_DIR = DATA_DIR / 'locks'
 BACKEND_PORT = 18081
+LIVE2D_PORT = 18080
+GATEWAY_BRIDGE_PORT = 18791
 CONTROL_PORT = 18082
 BACKEND_HEALTH_URL = f'http://127.0.0.1:{BACKEND_PORT}/api/health'
+LIVE2D_HEALTH_URL = f'http://127.0.0.1:{LIVE2D_PORT}/api/health'
 BACKEND_LOG = '/tmp/alicechat-backend.log'
+LIVE2D_LOG = '/tmp/aliceclaw-backend.log'
+LIVE2D_ROOT = ROOT / 'alicelive2d'
 GATEWAY_RESTART_SCRIPT = str(ROOT / 'scripts' / 'restart_gateway_via_shell.sh')
 BACKEND_START_CMD = (
     f'cd {shlex.quote(str(ROOT))} && '
@@ -38,6 +43,15 @@ BACKEND_START_CMD = (
     f'nohup python3 -m backend.run --port {BACKEND_PORT} '
     f'> {shlex.quote(BACKEND_LOG)} 2>&1 &'
 )
+LIVE2D_START_CMD = (
+    f'cd {shlex.quote(str(LIVE2D_ROOT))} && '
+    f'PYTHONPATH={shlex.quote(str(LIVE2D_ROOT))} '
+    f'nohup python3 run.py '
+    f'> {shlex.quote(LIVE2D_LOG)} 2>&1 &'
+)
+_CONFIG = load_config() or {}
+_AUTH_CONFIG = _CONFIG.get('auth') or {}
+APP_PASSWORD = str(_AUTH_CONFIG.get('appAccessPassword') or '').strip()
 
 
 def _ensure_dirs() -> None:
@@ -92,17 +106,20 @@ ACTION_LOCKS = {
 }
 
 
-def _is_port_open(port: int) -> bool:
+def _is_port_open(port: int, host: str = '127.0.0.1') -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.5)
-        return sock.connect_ex(('127.0.0.1', port)) == 0
+        return sock.connect_ex((host, port)) == 0
 
 
-def _wait_for_backend(timeout_seconds: float = 30.0) -> None:
+def _wait_for_health(url: str, *, service_name: str, timeout_seconds: float = 30.0) -> None:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         try:
-            request = Request(BACKEND_HEALTH_URL, headers={'Accept': 'application/json'})
+            headers = {'Accept': 'application/json'}
+            if APP_PASSWORD:
+                headers['X-AliceChat-Password'] = APP_PASSWORD
+            request = Request(url, headers=headers)
             with urlopen(request, timeout=2.0) as response:  # noqa: S310
                 if response.status == 200:
                     payload = json.loads(response.read().decode('utf-8') or '{}')
@@ -111,7 +128,15 @@ def _wait_for_backend(timeout_seconds: float = 30.0) -> None:
         except (OSError, URLError, TimeoutError, json.JSONDecodeError):
             pass
         time.sleep(1.0)
-    raise RuntimeError('backend did not become healthy in time')
+    raise RuntimeError(f'{service_name} did not become healthy in time ({url})')
+
+
+def _wait_for_backend(timeout_seconds: float = 30.0) -> None:
+    _wait_for_health(BACKEND_HEALTH_URL, service_name='chat backend', timeout_seconds=timeout_seconds)
+
+
+def _wait_for_live2d(timeout_seconds: float = 30.0) -> None:
+    _wait_for_health(LIVE2D_HEALTH_URL, service_name='live2d backend', timeout_seconds=timeout_seconds)
 
 
 def _run_shell(command: str) -> None:
@@ -153,8 +178,9 @@ def _run_root_login_shell(command: str, *, timeout: int) -> subprocess.Completed
 
 
 def _restart_backend_impl() -> dict[str, Any]:
+    ports = (BACKEND_PORT, LIVE2D_PORT)
     pids_output = subprocess.run(  # noqa: S603,S607
-        ['bash', '-lc', f'lsof -t -i:{BACKEND_PORT} || true'],
+        ['bash', '-lc', f'lsof -t -i:{BACKEND_PORT} -i:{LIVE2D_PORT} || true'],
         capture_output=True,
         text=True,
         check=True,
@@ -166,15 +192,50 @@ def _restart_backend_impl() -> dict[str, Any]:
         killed.append(pid)
     if killed:
         deadline = time.time() + 10.0
-        while time.time() < deadline and _is_port_open(BACKEND_PORT):
+        while time.time() < deadline and any(_is_port_open(port) for port in ports):
             time.sleep(0.5)
-    _run_shell(BACKEND_START_CMD)
-    _wait_for_backend()
+    _run_shell(f'{BACKEND_START_CMD} {LIVE2D_START_CMD}')
+    _wait_for_backend(timeout_seconds=45.0)
+    _wait_for_live2d(timeout_seconds=45.0)
     return {
         'killedPids': killed,
-        'logFile': BACKEND_LOG,
-        'healthUrl': BACKEND_HEALTH_URL,
+        'services': {
+            'chatBackend': {
+                'port': BACKEND_PORT,
+                'logFile': BACKEND_LOG,
+                'healthUrl': BACKEND_HEALTH_URL,
+            },
+            'live2dBackend': {
+                'port': LIVE2D_PORT,
+                'logFile': LIVE2D_LOG,
+                'healthUrl': LIVE2D_HEALTH_URL,
+            },
+        },
     }
+
+
+def _wait_for_gateway_ready(timeout_seconds: float = 45.0) -> dict[str, Any]:
+    env = _build_root_user_service_env()
+    deadline = time.time() + timeout_seconds
+    last_status = ''
+    while time.time() < deadline:
+        status_cmd = subprocess.run(  # noqa: S603
+            ['systemctl', '--user', 'is-active', 'openclaw-gateway'],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+        )
+        last_status = (status_cmd.stdout or status_cmd.stderr or '').strip()
+        if status_cmd.returncode == 0 and _is_port_open(GATEWAY_BRIDGE_PORT, host='127.0.0.1'):
+            return {
+                'serviceState': last_status or 'active',
+                'bridgePort': GATEWAY_BRIDGE_PORT,
+            }
+        time.sleep(1.0)
+    raise RuntimeError(
+        f'gateway did not become ready in time (serviceState={last_status or "unknown"}, bridgePort={GATEWAY_BRIDGE_PORT})'
+    )
 
 
 def _restart_gateway_impl() -> dict[str, Any]:
@@ -203,6 +264,7 @@ def _restart_gateway_impl() -> dict[str, Any]:
     }
     if completed.returncode != 0:
         raise RuntimeError(json.dumps(detail, ensure_ascii=False))
+    detail['readiness'] = _wait_for_gateway_ready()
     return detail
 
 
@@ -215,7 +277,7 @@ def _run_task(task_id: str, action: str) -> None:
         TASKS.update(task_id, state='running', message='任务执行中', started_at=time.time())
         if action == 'restart-backend':
             detail = _restart_backend_impl()
-            TASKS.update(task_id, state='succeeded', message='Backend 已重启', finished_at=time.time(), detail=detail)
+            TASKS.update(task_id, state='succeeded', message='Chat backend 与 Live2D backend 已重启', finished_at=time.time(), detail=detail)
             return
         if action == 'restart-gateway':
             detail = _restart_gateway_impl()

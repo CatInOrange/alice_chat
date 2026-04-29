@@ -7,11 +7,12 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from .base import AgentBackend, ChatAttachment, ChatRequest, StreamEmitter
 from ..utils.frame_audit import audit_frame
 
-_BRIDGE_CONNECT_RETRY_DELAYS = (0.25, 0.5, 1.0)
+_BRIDGE_CONNECT_RETRY_DELAYS = (0.5, 1.0, 2.0, 4.0, 8.0)
 _PUSH_LISTENER_PING_INTERVAL_SECONDS = 60
 _PUSH_LISTENER_PING_TIMEOUT_SECONDS = 60
 _PUSH_LISTENER_RECV_IDLE_SECONDS = 90
@@ -21,6 +22,33 @@ _EMPTY_FINAL_GRACE_SECONDS = 8.0
 _TYPING_IDLE_TIMEOUT_SECONDS = 90.0
 _MAX_TYPING_ONLY_WINDOW_SECONDS = 600.0
 _LOG = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _BridgeRetryDecision:
+    should_retry: bool
+    reason: str = ""
+    max_attempts: int = 1
+
+
+class _BridgeRequestError(RuntimeError):
+    def __init__(self, message: str, *, code: str, retry_decision: _BridgeRetryDecision | None = None):
+        super().__init__(message)
+        self.code = code
+        self.retry_decision = retry_decision or _BridgeRetryDecision(False)
+
+
+_RETRY_ON_COMPLETED_WITHOUT_REPLY_FINAL = _BridgeRetryDecision(
+    should_retry=True,
+    reason="completed_without_reply_final",
+    max_attempts=2,
+)
+
+_RETRY_ON_CONNECT_HANDSHAKE_TIMEOUT = _BridgeRetryDecision(
+    should_retry=True,
+    reason="connect_handshake_timeout",
+    max_attempts=2,
+)
 
 
 def _extract_text_candidates(frame: dict, current_text: str = "") -> str:
@@ -56,8 +84,14 @@ def _is_retryable_bridge_connect_error(exc: BaseException) -> bool:
         if exc.errno in {61, 111, 10061}:
             return True
         message = str(exc).lower()
-        return "connect call failed" in message or "cannot connect" in message or "connection refused" in message
-    return False
+        return (
+            "connect call failed" in message
+            or "cannot connect" in message
+            or "connection refused" in message
+            or "timed out during opening handshake" in message
+        )
+    message = str(exc).lower()
+    return "timed out during opening handshake" in message
 
 
 async def _open_bridge_connection(bridge_url: str, **connect_kwargs):
@@ -74,12 +108,22 @@ async def _open_bridge_connection(bridge_url: str, **connect_kwargs):
         try:
             return await websockets.connect(bridge_url, **connect_options)
         except Exception as exc:  # noqa: BLE001
-            if not _is_retryable_bridge_connect_error(exc) or attempt_index >= attempts - 1:
-                if _is_retryable_bridge_connect_error(exc):
+            retryable = _is_retryable_bridge_connect_error(exc)
+            if not retryable or attempt_index >= attempts - 1:
+                if retryable:
                     raise RuntimeError(f"Unable to connect to OpenClaw bridge at {bridge_url} after {attempts} attempts: {exc}") from exc
                 raise
             last_exc = exc
-            await asyncio.sleep(_BRIDGE_CONNECT_RETRY_DELAYS[attempt_index])
+            delay = _BRIDGE_CONNECT_RETRY_DELAYS[attempt_index]
+            _LOG.warning(
+                "[OPENCLAW_CHANNEL CONNECT_RETRY] bridge_url=%s attempt=%s/%s delay=%.2fs error=%s",
+                bridge_url,
+                attempt_index + 1,
+                attempts,
+                delay,
+                exc,
+            )
+            await asyncio.sleep(delay)
     if last_exc is not None:
         raise RuntimeError(f"Unable to connect to OpenClaw bridge at {bridge_url}: {last_exc}") from last_exc
     raise RuntimeError(f"Unable to connect to OpenClaw bridge at {bridge_url}")
@@ -275,6 +319,52 @@ class OpenClawChannelAgentBackend(AgentBackend):
         emit: StreamEmitter | None = None,
         timeout_seconds: float = 120.0,
     ) -> dict:
+        session_key_hint = str(request.context.get("sessionKey") or "").strip() or "unknown"
+        max_attempts = _RETRY_ON_COMPLETED_WITHOUT_REPLY_FINAL.max_attempts
+        last_error: BaseException | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return await self._run_channel_chat_once(
+                    request,
+                    emit=emit,
+                    timeout_seconds=timeout_seconds,
+                    attempt=attempt,
+                )
+            except _BridgeRequestError as exc:
+                last_error = exc
+                decision = exc.retry_decision
+                if not decision.should_retry or attempt >= decision.max_attempts:
+                    raise RuntimeError(
+                        "OpenClaw bridge request failed "
+                        f"(sessionKey={session_key_hint}, cause={exc})"
+                    ) from exc
+                _LOG.warning(
+                    "[OPENCLAW_CHANNEL RETRY] reason=%s attempt=%s/%s sessionKey=%s user_text=%r",
+                    decision.reason or exc.code,
+                    attempt,
+                    decision.max_attempts,
+                    session_key_hint,
+                    request.user_text[:120],
+                )
+                continue
+            except Exception as exc:
+                last_error = exc
+                raise RuntimeError(
+                    "OpenClaw bridge request failed "
+                    f"(sessionKey={session_key_hint}, cause={exc})"
+                ) from exc
+        if last_error is not None:
+            raise RuntimeError(str(last_error)) from last_error
+        raise RuntimeError("OpenClaw bridge request failed (cause=unknown)")
+
+    async def _run_channel_chat_once(
+        self,
+        request: ChatRequest,
+        emit: StreamEmitter | None = None,
+        timeout_seconds: float = 120.0,
+        *,
+        attempt: int = 1,
+    ) -> dict:
         agent = request.agent or str(self.provider_config.get("agent") or "main")
         session_name = request.session_name or str(self.provider_config.get("session") or "main")
         bridge_url = str(self.provider_config.get("bridgeUrl") or "ws://127.0.0.1:18800").strip()
@@ -304,7 +394,7 @@ class OpenClawChannelAgentBackend(AgentBackend):
                     local = None
             debug_msg = (
                 f"[OPENCLAW_CHANNEL DEBUG] request.agent={request.agent} final_agent={agent} "
-                f"provider_agent={self.provider_config.get('agent')} session={session_name} sessionKey={session_key}"
+                f"provider_agent={self.provider_config.get('agent')} session={session_name} sessionKey={session_key} attempt={attempt}"
             )
             print(debug_msg, flush=True)
             _LOG.warning(debug_msg)
@@ -531,7 +621,16 @@ class OpenClawChannelAgentBackend(AgentBackend):
                 elif ftype == "chat.run_final":
                     saw_run_final_frame = True
                     last_typing_at = None
-                    if not accumulated_reply and not final_media and str(frame.get("runState") or "") in {"failed", "aborted", "timeout"}:
+                    run_state = str(frame.get("runState") or "").strip().lower()
+                    had_reply_final = bool(frame.get("hadReplyFinal"))
+                    if run_state == "completed" and not had_reply_final and not saw_reply_final_frame:
+                        raise _BridgeRequestError(
+                            "Invalid bridge completion: received chat.run_final(completed) without chat.reply_final "
+                            f"(requestId={request_id}, attempt={attempt}, last_frame_type={last_frame_type or 'none'})",
+                            code="completed_without_reply_final",
+                            retry_decision=_RETRY_ON_COMPLETED_WITHOUT_REPLY_FINAL,
+                        )
+                    if not accumulated_reply and not final_media and run_state in {"failed", "aborted", "timeout", "incomplete"}:
                         raise RuntimeError(str(frame.get("reason") or frame.get("runState") or "openclaw channel run failed"))
                     continue
                 elif ftype == "chat.error":
@@ -545,10 +644,12 @@ class OpenClawChannelAgentBackend(AgentBackend):
                         accumulated_reply = fallback_text
                         break
                     continue
+        except _BridgeRequestError:
+            raise
         except Exception as exc:
             raise RuntimeError(
                 "OpenClaw bridge request failed "
-                f"(requestId={request_id}, sessionKey={session_key}, cause={exc})"
+                f"(requestId={request_id}, sessionKey={session_key}, attempt={attempt}, cause={exc})"
             ) from exc
         finally:
             await ws.close()

@@ -119,7 +119,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final confirmed = await _confirmAdminAction(
       title: actionLabel,
       message: isBackend
-          ? '这会重启 AliceChat 后端。若后端当前没在运行，会直接尝试拉起。执行中连接可能短暂中断。'
+          ? '这会同时重启 AliceChat chat backend 和 Live2D backend。若其中任一当前没在运行，会直接尝试拉起。执行中连接可能短暂中断。'
           : '这会重启 OpenClaw Gateway。执行中桥接与消息链路可能短暂中断。',
     );
     if (!confirmed || !mounted) return;
@@ -289,7 +289,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               )
                             : const Icon(Icons.restart_alt),
-                        label: Text(_isRestartingBackend ? 'Backend 重启中…' : '重启 Backend'),
+                        label: Text(_isRestartingBackend ? '后端重启中…' : '重启后端（Chat + Live2D）'),
                       ),
                     ),
                     const SizedBox(height: 12),

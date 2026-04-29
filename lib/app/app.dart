@@ -59,6 +59,7 @@ class _MainScaffoldState extends State<_MainScaffold>
       name: '晚秋',
       subtitle: '知心姐姐永远都在^^',
       avatarAssetPath: 'assets/avatars/alice.jpg',
+      backendSessionId: 'alice',
       isGatewayBacked: true,
     ),
     const Contact(
@@ -66,6 +67,7 @@ class _MainScaffoldState extends State<_MainScaffold>
       name: '玲珑',
       subtitle: '聪明的大脑不休息～',
       avatarAssetPath: 'assets/avatars/linglong.jpg',
+      backendSessionId: 'yulinglong',
       isGatewayBacked: true,
     ),
     const Contact(
@@ -73,6 +75,7 @@ class _MainScaffoldState extends State<_MainScaffold>
       name: '素心',
       subtitle: '搬砖永不停歇！',
       avatarAssetPath: 'assets/avatars/lisuxin.jpg',
+      backendSessionId: 'lisuxin',
       isGatewayBacked: true,
     ),
   ];
@@ -158,7 +161,9 @@ class _MainScaffoldState extends State<_MainScaffold>
       title: contact.name,
       subtitle: contact.subtitle ?? '',
       avatarAssetPath: contact.avatarAssetPath,
-      backendSessionId: contact.backendSessionId,
+      backendSessionId: (contact.backendSessionId ?? '').trim().isNotEmpty
+          ? contact.backendSessionId
+          : contact.id,
       contactId: contact.id,
       isGatewayBacked: contact.isGatewayBacked,
     );

@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 
 from ..app_context import AppContext
 from ..auth import verify_app_password
+from ..config import load_config
 from ..services.chat_streaming import ChatStreamingService
 from ..services.routing import resolve_routing
 from ..web.helpers import build_route_key, require_existing_session
@@ -35,6 +36,26 @@ def _pick_notification_preview(*, visible_text: str, has_images: bool) -> str:
     if has_images:
         return '[图片]'
     return ''
+
+
+def _resolve_contact_display_name(contact_id: str, fallback: str = 'AliceChat') -> str:
+    normalized = str(contact_id or '').strip().lower()
+    if not normalized:
+        return fallback
+    config = load_config() or {}
+    routing = config.get('routing') or {}
+    contacts = routing.get('contacts') or {}
+    entry = contacts.get(normalized)
+    if isinstance(entry, dict):
+        display_name = str(entry.get('displayName') or entry.get('name') or '').strip()
+        if display_name:
+            return display_name
+    defaults = {
+        'alice': '晚秋',
+        'yulinglong': '玲珑',
+        'lisuxin': '素心',
+    }
+    return defaults.get(normalized) or fallback
 
 
 def _build_notification_candidate_payload(
@@ -362,6 +383,10 @@ def create_chat_router(context: AppContext) -> APIRouter:
                             'message': item,
                         },
                     )
+                display_name = _resolve_contact_display_name(
+                    resolved.contact_id,
+                    fallback=resolved.session_name or 'AliceChat',
+                )
                 if persisted:
                     notification_body = _pick_notification_preview(
                         visible_text=assistant_visible,
@@ -374,9 +399,9 @@ def create_chat_router(context: AppContext) -> APIRouter:
                             request_id=request_id,
                             client_message_id=client_message_id,
                             message=persisted,
-                            title=resolved.contact_id or resolved.session_name or 'AliceChat',
+                            title=display_name,
                             sender_id=resolved.contact_id or resolved.agent or 'assistant',
-                            sender_name=resolved.contact_id or resolved.session_name or 'AliceChat',
+                            sender_name=display_name,
                             body_preview=notification_body,
                         ),
                     )
@@ -389,11 +414,11 @@ def create_chat_router(context: AppContext) -> APIRouter:
                     context.push_service.notify_new_message(
                         user_id=resolved.user_id or 'alicechat-user',
                         session_id=session_id,
-                        title=resolved.contact_id or resolved.session_name or 'AliceChat',
+                        title=display_name,
                         body=notification_body,
                         message_id=str(persisted.get('id') or assistant_message_id),
                         sender_id=resolved.contact_id or resolved.agent or 'assistant',
-                        sender_name=resolved.contact_id or resolved.session_name or 'AliceChat',
+                        sender_name=display_name,
                     )
                 except Exception:
                     _LOG.exception(

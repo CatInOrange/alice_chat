@@ -390,19 +390,26 @@ class ChatSessionStore extends ChangeNotifier {
   String _keyFor(ChatSession session) => session.id;
 
   Future<String> _ensureBackendSession(ChatSession session) async {
+    final desiredSessionId =
+        (session.backendSessionId ?? '').trim().isNotEmpty
+            ? (session.backendSessionId ?? '').trim()
+            : session.id;
     final state = stateFor(session);
     final existing = state.backendSessionId;
-    if (existing != null && existing.isNotEmpty) return existing;
+    if (existing != null && existing.trim() == desiredSessionId) {
+      return existing.trim();
+    }
 
     final cacheKey = _keyFor(session);
     final cachedSessionId = _sessionIdBySessionKey[cacheKey];
-    if (cachedSessionId != null && cachedSessionId.isNotEmpty) {
+    if (cachedSessionId != null && cachedSessionId.trim() == desiredSessionId) {
       state.backendSessionId = cachedSessionId;
       return cachedSessionId;
     }
 
     final sessionId = await _client.ensureSession(
-      preferredName: session.backendSessionId ?? session.title,
+      sessionId: desiredSessionId,
+      preferredName: session.title,
     );
     state.backendSessionId = sessionId;
     _sessionIdBySessionKey[cacheKey] = sessionId;

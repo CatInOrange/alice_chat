@@ -1605,50 +1605,9 @@ export function RendererCommandProvider({
     stopMusic,
   ]);
 
-  // TEMP DEBUG: state for debug info display
-  const [debugInfo, setDebugInfo] = useState<Record<string, any>>({});
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const debug = (window as any).__live2dLocalModelDebug;
-      if (debug) {
-        setDebugInfo({ ...debug });
-      }
-    }, 500);
-    return () => clearInterval(interval);
-  }, []);
-
   return (
     <RendererCommandContext.Provider value={value}>
       {children}
-      {/* TEMP DEBUG OVERLAY */}
-      <div style={{
-        position: 'fixed',
-        bottom: 10,
-        left: 10,
-        zIndex: 99999,
-        background: 'rgba(0,0,0,0.85)',
-        color: '#0f0',
-        padding: '10px 15px',
-        borderRadius: 8,
-        fontSize: 12,
-        fontFamily: 'monospace',
-        maxWidth: 500,
-        maxHeight: 300,
-        overflow: 'auto',
-        border: '2px solid #0f0',
-      }}>
-        <div style={{ marginBottom: 8, fontWeight: 'bold' }}>🔧 Live2D Local Model Debug</div>
-        <div>localModelUrl: <span style={{ color: '#ff0' }}>{debugInfo.localModelUrl || '(empty)'}</span></div>
-        <div>manifestFileName: <span style={{ color: '#ff0' }}>{debugInfo.manifestFileName || '(empty)'}</span></div>
-        <div>localFileName: <span style={{ color: '#ff0' }}>{debugInfo.localFileName || '(empty)'}</span></div>
-        <div>filenameMatch: <span style={{ color: debugInfo.filenameMatch ? '#0f0' : '#f00' }}>{String(debugInfo.filenameMatch)}</span></div>
-        <div>localFileExists: <span style={{ color: debugInfo.localFileExists === true ? '#0f0' : debugInfo.localFileExists === false ? '#f00' : '#ff0' }}>
-          {debugInfo.checkPending ? '⏳ checking...' : debugInfo.localFileExists === null ? '❓ not checked' : debugInfo.localFileExists ? '✅ YES' : '❌ NO'}
-        </span></div>
-        <div>finalUrl: <span style={{ color: '#0ff' }}>{debugInfo.finalUrl || '(empty)'}</span></div>
-        <div style={{ marginTop: 8, fontSize: 10, color: '#888' }}>Refreshes every 500ms</div>
-      </div>
     </RendererCommandContext.Provider>
   );
 }

@@ -37,7 +37,12 @@ def resolve_routing(*, contact_id: str, user_id: str = 'local', session_id: str 
     resolved_contact = _sanitize_segment(contact_id, fallback='assistant')
     resolved_user = _sanitize_segment(user_id, fallback='local')
     resolved_session_id = _sanitize_segment(session_id, fallback='default')
-    resolved_agent = _sanitize_segment(str(contacts.get(resolved_contact) or default_agent), fallback=default_agent)
+    contact_entry = contacts.get(resolved_contact)
+    if isinstance(contact_entry, dict):
+        agent_value = contact_entry.get('agent') or contact_entry.get('agentId') or default_agent
+    else:
+        agent_value = contact_entry or default_agent
+    resolved_agent = _sanitize_segment(str(agent_value), fallback=default_agent)
 
     session_name = f"{namespace}:user_{resolved_user}:contact_{resolved_contact}:session_{resolved_session_id}"
     session_key = f"agent:{resolved_agent}:{session_name}"

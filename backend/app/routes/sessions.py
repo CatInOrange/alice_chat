@@ -19,7 +19,15 @@ def create_sessions_router(context: AppContext) -> APIRouter:
 
     @router.post('/api/sessions')
     async def sessions_create(body: CreateSessionBody) -> dict:
-        sess = context.session_store.create_session(body.name)
+        requested_id = str(body.id or '').strip()
+        if requested_id:
+            sess = context.session_store.ensure_session(
+                requested_id,
+                name=body.name,
+                select=True,
+            )
+        else:
+            sess = context.session_store.create_session(body.name)
         return {'ok': True, 'session': session_to_api(sess)}
 
     @router.post('/api/sessions/{session_id}/select')

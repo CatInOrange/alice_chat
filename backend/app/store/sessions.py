@@ -15,6 +15,10 @@ def _new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
 
+def _normalize_session_id(value: str) -> str:
+    return str(value or '').strip()
+
+
 CURRENT_SESSION_KEY = "current_session_id"
 
 
@@ -70,9 +74,25 @@ class SessionStore:
             return sess
 
     def create_session(self, name: str | None = None, *, route_key: str = "", select: bool = True) -> Session:
+        return self.create_session_with_id(
+            session_id='',
+            name=name,
+            route_key=route_key,
+            select=select,
+        )
+
+    def create_session_with_id(
+        self,
+        *,
+        session_id: str,
+        name: str | None = None,
+        route_key: str = "",
+        select: bool = True,
+    ) -> Session:
         self.ensure_schema()
         now = _now()
-        sess = Session(id=_new_id("sess"), name=(name or "").strip() or f"会话 {int(now)}", route_key=str(route_key or "").strip(), created_at=now, updated_at=now)
+        resolved_id = _normalize_session_id(session_id) or _new_id("sess")
+        sess = Session(id=resolved_id, name=(name or "").strip() or resolved_id or f"会话 {int(now)}", route_key=str(route_key or "").strip(), created_at=now, updated_at=now)
         with connect(self.db) as conn:
             conn.execute(
                 "INSERT INTO sessions(id, name, route_key, created_at, updated_at) VALUES(?,?,?,?,?)",
@@ -82,6 +102,100 @@ class SessionStore:
         if select:
             self.set_current_session_id(sess.id)
         return sess
+
+    def ensure_session(
+        self,
+        session_id: str,
+        *,
+        name: str | None = None,
+        route_key: str = "",
+        select: bool = False,
+    ) -> Session:
+        self.ensure_schema()
+        resolved_id = _normalize_session_id(session_id)
+        if not resolved_id:
+            return self.create_session_with_id(
+                session_id='',
+                name=name,
+                route_key=route_key,
+                select=select,
+            )
+
+        desired_name = (name or '').strip() or resolved_id
+        desired_route_key = str(route_key or '').strip()
+        now = _now()
+
+        with connect(self.db) as conn:
+            row = conn.execute("SELECT * FROM sessions WHERE id=?", (resolved_id,)).fetchone()
+            if row:
+                current_name = str(row['name'] or '').strip()
+                current_route_key = str(row['route_key'] or '').strip()
+                next_name = desired_name or current_name or resolved_id
+                next_route_key = desired_route_key or current_route_key
+                conn.execute(
+                    "UPDATE sessions SET name=?, route_key=?, updated_at=? WHERE id=?",
+                    (next_name, next_route_key, now, resolved_id),
+                )
+                conn.commit()
+                session = Session(
+                    id=resolved_id,
+                    name=next_name,
+                    route_key=next_route_key,
+                    created_at=row['created_at'],
+                    updated_at=now,
+                )
+                if select:
+                    self.set_current_session_id(resolved_id)
+                return session
+
+            legacy = conn.execute(
+                "SELECT * FROM sessions WHERE name=? ORDER BY updated_at DESC LIMIT 1",
+                (desired_name,),
+            ).fetchone()
+            if legacy and str(legacy['id'] or '').strip() != resolved_id:
+                legacy_id = str(legacy['id'] or '').strip()
+                legacy_route_key = str(legacy['route_key'] or '').strip()
+                created_at = float(legacy['created_at'])
+                next_route_key = desired_route_key or legacy_route_key
+
+                conn.execute(
+                    "INSERT INTO sessions(id, name, route_key, created_at, updated_at) VALUES(?,?,?,?,?)",
+                    (resolved_id, desired_name, '', created_at, now),
+                )
+                conn.execute(
+                    "UPDATE messages SET session_id=? WHERE session_id=?",
+                    (resolved_id, legacy_id),
+                )
+                conn.execute(
+                    "UPDATE push_devices SET active_session_id=? WHERE active_session_id=?",
+                    (resolved_id, legacy_id),
+                )
+                conn.execute(
+                    "UPDATE app_state SET value=? WHERE key=? AND value=?",
+                    (resolved_id, CURRENT_SESSION_KEY, legacy_id),
+                )
+                conn.execute("DELETE FROM sessions WHERE id=?", (legacy_id,))
+                conn.execute(
+                    "UPDATE sessions SET route_key=?, updated_at=? WHERE id=?",
+                    (next_route_key, now, resolved_id),
+                )
+                conn.commit()
+                if select:
+                    self.set_current_session_id(resolved_id)
+                return Session(
+                    id=resolved_id,
+                    name=desired_name,
+                    route_key=next_route_key,
+                    created_at=created_at,
+                    updated_at=now,
+                )
+
+        return self.create_session_with_id(
+            session_id=resolved_id,
+            name=desired_name,
+            route_key=desired_route_key,
+            select=select,
+        )
 
     def touch(self, session_id: str) -> None:
         self.ensure_schema()

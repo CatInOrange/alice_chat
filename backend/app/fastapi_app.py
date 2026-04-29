@@ -16,6 +16,7 @@ from .routes.debug import create_debug_router
 from .routes.events import create_events_router
 from .routes.push import create_push_router
 from .routes.media import create_media_router
+from .routes.runtime import create_runtime_router
 from .routes.sessions import create_sessions_router
 from .web.helpers import build_allowed_origins
 
@@ -61,6 +62,7 @@ def create_app() -> FastAPI:
         max_age=86400,
     )
 
+    app.include_router(create_runtime_router(context))
     app.include_router(create_sessions_router(context))
     app.include_router(create_events_router(context))
     app.include_router(create_chat_router(context))

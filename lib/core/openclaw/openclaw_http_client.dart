@@ -35,31 +35,14 @@ class OpenClawHttpClient implements OpenClawClient {
   }
 
   @override
-  Future<String> ensureSession({required String preferredName}) async {
-    final sessionsResponse = await _httpClient.get(
-      _uri('/api/sessions'),
-      headers: _headers,
-    );
-    if (sessionsResponse.statusCode >= 400) {
-      throw _buildRequestException('加载会话失败', sessionsResponse);
-    }
-
-    final sessionsJson =
-        jsonDecode(sessionsResponse.body) as Map<String, dynamic>;
-    final sessions =
-        (sessionsJson['sessions'] as List<dynamic>? ?? const [])
-            .cast<Map<String, dynamic>>();
-
-    for (final session in sessions) {
-      if ((session['name'] ?? '').toString() == preferredName) {
-        return (session['id'] ?? '').toString();
-      }
-    }
-
+  Future<String> ensureSession({
+    required String sessionId,
+    required String preferredName,
+  }) async {
     final createResponse = await _httpClient.post(
       _uri('/api/sessions'),
       headers: _headers,
-      body: jsonEncode({'name': preferredName}),
+      body: jsonEncode({'id': sessionId, 'name': preferredName}),
     );
     if (createResponse.statusCode >= 400) {
       throw _buildRequestException('创建会话失败', createResponse);
