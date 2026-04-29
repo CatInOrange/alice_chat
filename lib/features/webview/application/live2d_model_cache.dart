@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../../core/debug/debug_log_store.dart';
+
 /// Represents the result of a prepare() call.
 class Live2dModelCacheProbe {
   const Live2dModelCacheProbe({
@@ -102,14 +104,14 @@ class Live2dModelCache {
       try {
         await _handleRequest(root, request);
       } catch (error, stackTrace) {
-        stderr.writeln('Live2dModelCache server error: $error\n$stackTrace');
+        await _log('server error: $error\n$stackTrace', level: 'ERROR');
         request.response
           ..statusCode = HttpStatus.internalServerError
           ..write('server error');
         await request.response.close();
       }
     });
-    debugPrint('Live2dModelCache server started on port ${_server!.port}');
+    await _log('server started on port ${_server!.port}');
   }
 
   Future<Directory> _getCacheRoot() async {
@@ -182,10 +184,13 @@ class Live2dModelCache {
     await _ensureServer();
     
     // Step 1: Check if we have a valid cached model
+    await _log('prepare modelId=$modelId');
+
+    // Step 1: Check if we have a valid cached model
     final readyMeta = await _readReadyMeta(modelId);
     if (readyMeta != null && await _isReadyMetaUsable(readyMeta)) {
       final url = _buildLocalModelUrl(readyMeta.modelJsonPath);
-      debugPrint('Live2dModelCache cache hit modelId=$modelId url=$url');
+      await _log('cache hit modelId=$modelId url=$url');
       return Live2dModelCacheProbe(
         localModelUrl: url,
         downloadStarted: false,
@@ -193,9 +198,10 @@ class Live2dModelCache {
     }
 
     // Step 2: Check if download is already in progress
+    // Step 2: Check if download is already in progress
     final existingState = _downloadStates[modelId];
     if (existingState != null && existingState.status == 'pending') {
-      debugPrint('Live2dModelCache download already in progress for modelId=$modelId, waiting...');
+      await _log('download already in progress for modelId=$modelId, waiting...');
       // Wait for the in-progress download to complete
       final result = await existingState.future;
       if (result != null) {
@@ -205,11 +211,11 @@ class Live2dModelCache {
         );
       }
       // Download failed, fall through to start a new one
-      debugPrint('Live2dModelCache previous download failed for modelId=$modelId, retrying...');
+      await _log('previous download failed for modelId=$modelId, retrying...', level: 'WARN');
     }
 
     // Step 3: Start a new download
-    debugPrint('Live2dModelCache starting download for modelId=$modelId');
+    await _log('starting download for modelId=$modelId');
     return _startDownload(
       basePageUrl: basePageUrl,
       appPassword: appPassword,
@@ -278,27 +284,29 @@ class Live2dModelCache {
         description: 'manifest',
       );
       if (manifestResponse == null) {
-        stderr.writeln('Live2dModelCache manifest download failed after retries');
+        await _log('manifest download failed after $_maxManifestRetries retries', level: 'ERROR');
         return null;
       }
       if (manifestResponse.statusCode < 200 || manifestResponse.statusCode >= 300) {
-        stderr.writeln('Live2dModelCache manifest download failed: ${manifestResponse.statusCode}');
+        await _log('manifest download failed status=${manifestResponse.statusCode}', level: 'ERROR');
         return null;
       }
 
+      await _log('manifest downloaded, parsing...');
+
       final manifestJson = jsonDecode(utf8.decode(manifestResponse.bodyBytes));
       if (manifestJson is! Map<String, dynamic>) {
-        stderr.writeln('Live2dModelCache manifest is not a JSON object');
+        await _log('manifest is not a JSON object', level: 'ERROR');
         return null;
       }
       final model = manifestJson['model'];
       if (model is! Map<String, dynamic>) {
-        stderr.writeln('Live2dModelCache manifest missing model field');
+        await _log('manifest missing model field', level: 'ERROR');
         return null;
       }
       final modelJsonPathRaw = (model['modelJson'] as String? ?? '').trim();
       if (modelJsonPathRaw.isEmpty) {
-        stderr.writeln('Live2dModelCache manifest missing modelJson');
+        await _log('manifest missing modelJson', level: 'ERROR');
         return null;
       }
 
@@ -306,21 +314,23 @@ class Live2dModelCache {
       final modelJsonUri = baseUri.resolve(modelJsonPathRaw);
 
       // Step 2: Download modelJson with retry
+      await _log('downloading modelJson path=$modelJsonPathRaw');
       final modelJsonResponse = await _downloadWithRetry(
         modelJsonUri,
         headers,
         description: 'modelJson',
       );
       if (modelJsonResponse == null) {
-        stderr.writeln('Live2dModelCache modelJson download failed after retries');
+        await _log('modelJson download failed after retries', level: 'ERROR');
         return null;
       }
       final modelJsonBytes = modelJsonResponse.bodyBytes;
+      await _log('modelJson downloaded bytes=${modelJsonBytes.length}');
 
       // Parse to find all referenced files
       final modelJson = jsonDecode(utf8.decode(modelJsonBytes));
       if (modelJson is! Map<String, dynamic>) {
-        stderr.writeln('Live2dModelCache modelJson is not a JSON object');
+        await _log('modelJson is not a JSON object', level: 'ERROR');
         return null;
       }
 
@@ -331,6 +341,7 @@ class Live2dModelCache {
           _collectRelativeRefs(value, fileRefs);
         }
       }
+      await _log('parsed fileRefs count=${fileRefs.length} files=[${fileRefs.join(", ")}]');
 
       // Step 3: Download each referenced file, retrying individually until success
       final publicRoot = await _publicRoot();
@@ -360,9 +371,10 @@ class Live2dModelCache {
         
         if (bytes == null) {
           // This file failed even after all retries - give up
-          stderr.writeln('Live2dModelCache file failed after all retries: $ref');
+          await _log('file failed after all retries: $ref', level: 'ERROR');
           return null;
         }
+        await _log('file downloaded ref=$ref size=${bytes.length} bytes');
       }
 
       // Step 4: Verify all files exist
@@ -374,7 +386,7 @@ class Live2dModelCache {
         );
         final finalFile = File(p.join(publicRoot.path, normalizedRef));
         if (!await finalFile.exists()) {
-          stderr.writeln('Live2dModelCache file missing after download: $normalizedRef');
+          await _log('file missing after download: $normalizedRef', level: 'ERROR');
           return null;
         }
       }
@@ -390,10 +402,10 @@ class Live2dModelCache {
       await metaFile.writeAsString(jsonEncode(meta.toJson()), flush: true);
       
       final resultUrl = _buildLocalModelUrl(modelJsonPath);
-      debugPrint('Live2dModelCache download complete for modelId=$modelId url=$resultUrl');
+      await _log('download complete modelId=$modelId url=$resultUrl files=${fileRefs.length}');
       return resultUrl;
     } catch (error, stackTrace) {
-      stderr.writeln('Live2dModelCache download error: $error\n$stackTrace');
+      await _log('download error: $error\n$stackTrace', level: 'ERROR');
       return null;
     }
   }
@@ -417,17 +429,17 @@ class Live2dModelCache {
           // Write the file
           await targetFile.parent.create(recursive: true);
           await targetFile.writeAsBytes(bytes, flush: true);
-          debugPrint('Live2dModelCache $description downloaded successfully on attempt $attempt');
+          // Success logged at higher level in _runDownload
           return bytes;
         }
-        stderr.writeln('Live2dModelCache $description attempt $attempt failed (null)');
+        await _log('$description attempt $attempt failed (null)', level: 'DEBUG');
       } catch (e) {
-        stderr.writeln('Live2dModelCache $description attempt $attempt error: $e');
+        await _log('$description attempt $attempt error: $e', level: 'DEBUG');
       }
       
       // Exponential backoff, max 30 seconds
       final delayMs = (_initialRetryDelay.inMilliseconds * attempt).clamp(500, 30000);
-      debugPrint('Live2dModelCache $description retrying in ${delayMs ~/ 1000}s (attempt $attempt)...');
+      await _log('retrying $description in ${delayMs ~/ 1000}s (attempt $attempt)', level: 'DEBUG');
       await Future.delayed(Duration(milliseconds: delayMs));
     }
   }
@@ -444,9 +456,9 @@ class Live2dModelCache {
         if (response.statusCode >= 200 && response.statusCode < 300) {
           return response.bodyBytes;
         }
-        stderr.writeln('Live2dModelCache bytes attempt $attempt/$retries failed: ${response.statusCode}');
+        await _log('bytes download failed attempt $attempt/$retries status=${response.statusCode}', level: 'DEBUG');
       } catch (e) {
-        stderr.writeln('Live2dModelCache bytes attempt $attempt/$retries error: $e');
+        await _log('bytes download error attempt $attempt/$retries: $e', level: 'DEBUG');
       }
       if (attempt < retries) {
         final delay = Duration(milliseconds: _initialRetryDelay.inMilliseconds * attempt);
@@ -468,9 +480,9 @@ class Live2dModelCache {
         if (response.statusCode >= 200 && response.statusCode < 300) {
           return response;
         }
-        stderr.writeln('Live2dModelCache $description attempt $attempt/$retries failed: ${response.statusCode}');
+        await _log('$description download failed attempt $attempt/$retries status=${response.statusCode}', level: 'DEBUG');
       } catch (e) {
-        stderr.writeln('Live2dModelCache $description attempt $attempt/$retries error: $e');
+        await _log('$description download error attempt $attempt/$retries: $e', level: 'DEBUG');
       }
       if (attempt < retries) {
         final delay = Duration(milliseconds: _initialRetryDelay.inMilliseconds * attempt);
@@ -564,7 +576,17 @@ class Live2dModelCache {
     if (trimmed.isEmpty) return '';
     return p.posix.normalize(trimmed.replaceFirst(RegExp(r'^/+'), ''));
   }
-  
+
+  Future<void> _log(String message, {String level = 'INFO'}) async {
+    // Silently ignore logging errors to prevent logging failures from affecting the download flow
+    try {
+      await DebugLogStore.instance.log('live2d', message, level: level);
+    } catch (_) {
+      // Fallback to debugPrint if logging fails
+      debugPrint('[live2d] [$level] $message');
+    }
+  }
+
   void debugPrint(String message) {
     // ignore: avoid_print
     print('[Live2dModelCache] $message');
