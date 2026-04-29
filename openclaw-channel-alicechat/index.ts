@@ -298,22 +298,23 @@ function createBridgeServer(ctx) {
     });
 
     let frameSeq = 0;
-    let terminalSent = false;
+    let replyFinalSent = false;
+    let runFinalSent = false;
     let accumulatedReply = '';
     const finalMedia = [];
     let sawPartialReply = false;
     let lastProgressSignature = '';
     const sendBridgeFrame = (outFrame, phase) => {
-      if (terminalSent) {
-        throw new Error(`attempted to send frame after terminal state: ${outFrame?.type || 'unknown'}`);
+      const frameType = String(outFrame?.type || '');
+      if (runFinalSent) {
+        console.warn(`[AliceChat] frame emitted after run_final requestId=${requestId} type=${frameType}`);
       }
       const frameWithSeq = {
         ...outFrame,
         seq: ++frameSeq,
       };
-      if (outFrame?.type === 'chat.final' || outFrame?.type === 'chat.error') {
-        terminalSent = true;
-      }
+      if (frameType === 'chat.reply_final') replyFinalSent = true;
+      if (frameType === 'chat.run_final') runFinalSent = true;
       auditFrame('gateway_backend_ws', 'gateway->backend', frameWithSeq, {
         phase,
         accountId,
@@ -322,6 +323,20 @@ function createBridgeServer(ctx) {
         agent: agentId,
       });
       ws.send(JSON.stringify(frameWithSeq));
+    };
+
+    const emitReplyFinalIfNeeded = (finishReason = 'completed') => {
+      if (replyFinalSent) return;
+      sendBridgeFrame({
+        type: 'chat.reply_final',
+        requestId,
+        reply: accumulatedReply,
+        media: finalMedia,
+        state: 'final',
+        finishReason,
+        sessionKey,
+        agent: agentId,
+      }, 'gateway_send_chat_reply_final');
     };
 
     const sendProgressFrame = ({ stage = 'working', kind = 'tool', text = '', reply = '', ...meta }, phase) => {
@@ -353,111 +368,135 @@ function createBridgeServer(ctx) {
       accountId,
     });
 
-    await channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher({
-      ctx: inboundCtx,
-      cfg: currentCfg,
-      dispatcherOptions: {
-        ...replyPipeline,
-        onReplyStart: () => {
-          sendBridgeFrame({ type: 'chat.typing', requestId }, 'gateway_send_chat_typing');
-        },
-        deliver: async (payload, info) => {
-          const text = String(payload?.text ?? payload?.body ?? '').trim();
-          const payloadKind = String(info?.kind || payload?.kind || 'block');
-          const lower = text.toLowerCase();
+    try {
+      const dispatchResult = await channelRuntime.reply.dispatchReplyWithBufferedBlockDispatcher({
+        ctx: inboundCtx,
+        cfg: currentCfg,
+        dispatcherOptions: {
+          ...replyPipeline,
+          onReplyStart: () => {
+            sendBridgeFrame({ type: 'chat.typing', requestId }, 'gateway_send_chat_typing');
+          },
+          deliver: async (payload, info) => {
+            const text = String(payload?.text ?? payload?.body ?? '').trim();
+            const payloadKind = String(info?.kind || payload?.kind || 'block');
+            const lower = text.toLowerCase();
 
-          if (text) {
-            if (payloadKind === 'tool') {
-              sendProgressFrame({
-                stage: 'tool',
-                kind: classifyToolKind(text),
-                text,
-              }, 'gateway_send_chat_progress');
-            } else if (!sawPartialReply && (payloadKind === 'block' || payloadKind === 'final')) {
-              const delta = text.startsWith(accumulatedReply) ? text.slice(accumulatedReply.length) : text;
-              accumulatedReply = text;
-              sendBridgeFrame({
-                type: 'chat.delta',
-                requestId,
-                kind: payloadKind,
-                delta,
-                reply: accumulatedReply,
-              }, 'gateway_send_chat_delta');
-            } else if (lower) {
-              sendProgressFrame({
-                stage: payloadKind,
-                kind: classifyToolKind(text, payloadKind),
-                text,
-              }, 'gateway_send_chat_progress');
+            if (text) {
+              if (payloadKind === 'tool') {
+                sendProgressFrame({
+                  stage: 'tool',
+                  kind: classifyToolKind(text),
+                  text,
+                }, 'gateway_send_chat_progress');
+              } else if (!sawPartialReply && (payloadKind === 'block' || payloadKind === 'final')) {
+                const delta = text.startsWith(accumulatedReply) ? text.slice(accumulatedReply.length) : text;
+                accumulatedReply = text;
+                sendBridgeFrame({
+                  type: 'chat.delta',
+                  requestId,
+                  kind: payloadKind,
+                  delta,
+                  reply: accumulatedReply,
+                }, 'gateway_send_chat_delta');
+              } else if (lower) {
+                sendProgressFrame({
+                  stage: payloadKind,
+                  kind: classifyToolKind(text, payloadKind),
+                  text,
+                }, 'gateway_send_chat_progress');
+              }
             }
-          }
 
-          const mediaUrls = Array.isArray(payload?.mediaUrls)
-            ? payload.mediaUrls
-            : payload?.mediaUrl
-              ? [payload.mediaUrl]
-              : [];
-          for (const mediaUrl of mediaUrls) {
-            if (!mediaUrl) continue;
-            const item = {
-              url: mediaUrl,
-              type: classifyMedia(mediaUrl, payload.audioAsVoice),
-              audioAsVoice: !!payload.audioAsVoice,
-            };
-            finalMedia.push(item);
-            sendBridgeFrame({ type: 'chat.media', requestId, media: item }, 'gateway_send_chat_media');
-          }
-        },
-      },
-      replyOptions: {
-        images,
-        onModelSelected,
-        onPartialReply: async (payload) => {
-          const nextText = String(payload?.text ?? '').trim();
-          if (!nextText) return;
-          sawPartialReply = true;
-          const delta = nextText.startsWith(accumulatedReply) ? nextText.slice(accumulatedReply.length) : nextText;
-          accumulatedReply = nextText;
-          if (!delta && !accumulatedReply) return;
-          sendBridgeFrame({
-            type: 'chat.delta',
-            requestId,
-            kind: 'assistant',
-            delta: delta || nextText,
-            reply: accumulatedReply,
-          }, 'gateway_send_chat_partial_delta');
-        },
-        onReasoningStream: async (payload) => {
-          const text = String(payload?.text ?? '').trim();
-          if (!text) return;
-          sendProgressFrame({
-            stage: 'thinking',
-            kind: 'thinking',
-            text,
-            reply: accumulatedReply,
-          }, 'gateway_send_chat_thinking');
-        },
-        onAgentEvent: async (evt) => {
-          const normalized = normalizeAgentEventProgress(evt);
-          if (!normalized) return;
-          sendProgressFrame({
-            ...normalized,
-            reply: accumulatedReply,
-          }, 'gateway_send_chat_agent_event');
-        },
-      },
-    });
+            const mediaUrls = Array.isArray(payload?.mediaUrls)
+              ? payload.mediaUrls
+              : payload?.mediaUrl
+                ? [payload.mediaUrl]
+                : [];
+            for (const mediaUrl of mediaUrls) {
+              if (!mediaUrl) continue;
+              const item = {
+                url: mediaUrl,
+                type: classifyMedia(mediaUrl, payload.audioAsVoice),
+                audioAsVoice: !!payload.audioAsVoice,
+              };
+              finalMedia.push(item);
+              sendBridgeFrame({ type: 'chat.media', requestId, media: item }, 'gateway_send_chat_media');
+            }
 
-    sendBridgeFrame({
-      type: 'chat.final',
-      requestId,
-      reply: accumulatedReply,
-      media: finalMedia,
-      state: 'final',
-      finishReason: 'completed',
-      sessionKey,
-      agent: agentId,
-    }, 'gateway_send_chat_final');
+            if (payloadKind === 'final') {
+              emitReplyFinalIfNeeded('completed');
+            }
+          },
+        },
+        replyOptions: {
+          images,
+          onModelSelected,
+          onPartialReply: async (payload) => {
+            const nextText = String(payload?.text ?? '').trim();
+            if (!nextText) return;
+            sawPartialReply = true;
+            const delta = nextText.startsWith(accumulatedReply) ? nextText.slice(accumulatedReply.length) : nextText;
+            accumulatedReply = nextText;
+            if (!delta && !accumulatedReply) return;
+            sendBridgeFrame({
+              type: 'chat.delta',
+              requestId,
+              kind: 'assistant',
+              delta: delta || nextText,
+              reply: accumulatedReply,
+            }, 'gateway_send_chat_partial_delta');
+          },
+          onReasoningStream: async (payload) => {
+            const text = String(payload?.text ?? '').trim();
+            if (!text) return;
+            sendProgressFrame({
+              stage: 'thinking',
+              kind: 'thinking',
+              text,
+              reply: accumulatedReply,
+            }, 'gateway_send_chat_thinking');
+          },
+          onAgentEvent: async (evt) => {
+            const normalized = normalizeAgentEventProgress(evt);
+            if (!normalized) return;
+            sendProgressFrame({
+              ...normalized,
+              reply: accumulatedReply,
+            }, 'gateway_send_chat_agent_event');
+          },
+        },
+      });
+
+      if ((dispatchResult?.queuedFinal || (dispatchResult?.counts?.final || 0) > 0 || accumulatedReply || finalMedia.length) && !replyFinalSent) {
+        emitReplyFinalIfNeeded('completed');
+      }
+
+      sendBridgeFrame({
+        type: 'chat.run_final',
+        requestId,
+        runState: 'completed',
+        hadReplyFinal: replyFinalSent,
+        reason: '',
+        sessionKey,
+        agent: agentId,
+        stats: dispatchResult?.counts || {},
+      }, 'gateway_send_chat_run_final');
+    } catch (error) {
+      if (replyFinalSent) {
+        sendBridgeFrame({
+          type: 'chat.run_final',
+          requestId,
+          runState: 'failed',
+          hadReplyFinal: true,
+          reason: error?.message || 'bridge_error',
+          sessionKey,
+          agent: agentId,
+        }, 'gateway_send_chat_run_final_failed');
+        return;
+      }
+      throw error;
+    }
   }
 
   wss.on('connection', (ws, req) => {

@@ -275,6 +275,9 @@ class Live2dModelCache {
       final baseUri = Uri.parse(basePageUrl);
       final manifestUri = baseUri.resolve('/api/model?model=${Uri.encodeQueryComponent(modelId)}');
       final headers = _buildAuthHeaders(appPassword);
+      await _log(
+        'download start modelId=$modelId basePageUrl=$basePageUrl baseUri=$baseUri manifestUri=$manifestUri hasAuth=${headers.isNotEmpty}',
+      );
 
       // Step 1: Download manifest with retry
       final manifestResponse = await _downloadWithRetry(
@@ -314,7 +317,9 @@ class Live2dModelCache {
       final modelJsonUri = baseUri.resolve(modelJsonPathRaw);
 
       // Step 2: Download modelJson with retry
-      await _log('downloading modelJson path=$modelJsonPathRaw');
+      await _log(
+        'downloading modelJson modelId=$modelId pathRaw=$modelJsonPathRaw normalized=$modelJsonPath resolvedUri=$modelJsonUri',
+      );
       final modelJsonResponse = await _downloadWithRetry(
         modelJsonUri,
         headers,
@@ -337,8 +342,20 @@ class Live2dModelCache {
       final fileRefs = <String>{modelJsonPath};
       final fileReferences = modelJson['FileReferences'];
       if (fileReferences is Map<String, dynamic>) {
-        for (final value in fileReferences.values) {
-          _collectRelativeRefs(value, fileRefs);
+        final expressions = fileReferences['Expressions'];
+        if (expressions is List) {
+          for (final item in expressions) {
+            if (item is Map) {
+              await _log(
+                'expression entry name=${item['Name']} file=${item['File']}',
+                level: 'DEBUG',
+              );
+            }
+          }
+        }
+        for (final entry in fileReferences.entries) {
+          await _log('collect refs from key=${entry.key} valueType=${entry.value.runtimeType}', level: 'DEBUG');
+          _collectRelativeRefs(entry.value, fileRefs);
         }
       }
       await _log('parsed fileRefs count=${fileRefs.length} files=[${fileRefs.join(", ")}]');
@@ -353,7 +370,12 @@ class Live2dModelCache {
             ? ref 
             : p.posix.normalize(p.posix.join(normalizedModelDir, ref)),
         );
+        final resolvedUri = ref == modelJsonPath ? modelJsonUri : modelJsonUri.resolve(ref);
         final finalFile = File(p.join(publicRoot.path, normalizedRef));
+        await _log(
+          'queue file download ref=$ref normalizedRef=$normalizedRef resolvedUri=$resolvedUri targetFile=${finalFile.path}',
+          level: 'DEBUG',
+        );
 
         // Delete existing file first to ensure clean download (handles incomplete/corrupted files)
         if (await finalFile.exists()) {
@@ -362,7 +384,7 @@ class Live2dModelCache {
 
         // Try to download this file, retrying until success
         final bytes = await _downloadFileWithInfiniteRetry(
-          ref == modelJsonPath ? modelJsonUri : modelJsonUri.resolve(ref),
+          resolvedUri,
           ref == modelJsonPath ? modelJsonBytes : null,
           headers,
           finalFile,
@@ -423,6 +445,10 @@ class Live2dModelCache {
     while (true) {
       attempt++;
       try {
+        await _log(
+          'download file attempt=$attempt description=$description uri=$uri cachedBytes=${cachedBytes != null} targetFile=${targetFile.path}',
+          level: 'DEBUG',
+        );
         // If we have cached bytes and this is the modelJson, use them directly
         final bytes = cachedBytes ?? await _downloadBytesWithRetry(uri, headers);
         if (bytes != null) {
@@ -452,11 +478,19 @@ class Live2dModelCache {
   }) async {
     for (int attempt = 1; attempt <= retries; attempt++) {
       try {
+        await _log(
+          'bytes download request attempt $attempt/$retries uri=$uri hasAuth=${headers.isNotEmpty}',
+          level: 'DEBUG',
+        );
         final response = await http.get(uri, headers: headers);
         if (response.statusCode >= 200 && response.statusCode < 300) {
+          await _log(
+            'bytes download success attempt $attempt/$retries uri=$uri bytes=${response.bodyBytes.length}',
+            level: 'DEBUG',
+          );
           return response.bodyBytes;
         }
-        await _log('bytes download failed attempt $attempt/$retries status=${response.statusCode}', level: 'DEBUG');
+        await _log('bytes download failed attempt $attempt/$retries uri=$uri status=${response.statusCode}', level: 'DEBUG');
       } catch (e) {
         await _log('bytes download error attempt $attempt/$retries: $e', level: 'DEBUG');
       }
@@ -476,11 +510,19 @@ class Live2dModelCache {
   }) async {
     for (int attempt = 1; attempt <= retries; attempt++) {
       try {
+        await _log(
+          '$description download request attempt $attempt/$retries uri=$uri hasAuth=${headers.isNotEmpty}',
+          level: 'DEBUG',
+        );
         final response = await http.get(uri, headers: headers);
         if (response.statusCode >= 200 && response.statusCode < 300) {
+          await _log(
+            '$description download success attempt $attempt/$retries uri=$uri bytes=${response.bodyBytes.length}',
+            level: 'DEBUG',
+          );
           return response;
         }
-        await _log('$description download failed attempt $attempt/$retries status=${response.statusCode}', level: 'DEBUG');
+        await _log('$description download failed attempt $attempt/$retries uri=$uri status=${response.statusCode}', level: 'DEBUG');
       } catch (e) {
         await _log('$description download error attempt $attempt/$retries: $e', level: 'DEBUG');
       }

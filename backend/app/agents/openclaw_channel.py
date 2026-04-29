@@ -341,7 +341,8 @@ class OpenClawChannelAgentBackend(AgentBackend):
             accumulated_reply = ""
             final_media: list[dict] = []
             saw_relevant_frame = False
-            saw_final_frame = False
+            saw_reply_final_frame = False
+            saw_run_final_frame = False
             saw_empty_final_frame = False
             pending_empty_final_deadline: float | None = None
             last_frame_type = ""
@@ -364,7 +365,7 @@ class OpenClawChannelAgentBackend(AgentBackend):
                     total_remaining = _MAX_TYPING_ONLY_WINDOW_SECONDS - (time.monotonic() - request_started_at)
                     if total_remaining <= 0:
                         raise RuntimeError(
-                            "Timeout waiting for OpenClaw bridge final frame "
+                            "Timeout waiting for OpenClaw bridge reply_final frame "
                             f"(requestId={request_id}, last_frame_type={last_frame_type or 'none'}, "
                             f"saw_relevant_frame={saw_relevant_frame}, reason=max_typing_window_exceeded)"
                         )
@@ -378,12 +379,12 @@ class OpenClawChannelAgentBackend(AgentBackend):
                         idle_for = time.monotonic() - last_typing_at
                         total_elapsed = time.monotonic() - request_started_at
                         raise RuntimeError(
-                            "Timeout waiting for OpenClaw bridge final frame "
+                            "Timeout waiting for OpenClaw bridge reply_final frame "
                             f"(requestId={request_id}, last_frame_type={last_frame_type or 'none'}, "
                             f"saw_relevant_frame={saw_relevant_frame}, typing_idle_for={idle_for:.1f}s, total_elapsed={total_elapsed:.1f}s)"
                         ) from exc
                     raise RuntimeError(
-                        "Timeout waiting for OpenClaw bridge final frame "
+                        "Timeout waiting for OpenClaw bridge reply_final frame "
                         f"(requestId={request_id}, last_frame_type={last_frame_type or 'none'}, "
                         f"saw_relevant_frame={saw_relevant_frame})"
                     ) from exc
@@ -500,7 +501,7 @@ class OpenClawChannelAgentBackend(AgentBackend):
                         final_media.append(media)
                         if pending_empty_final_deadline is not None:
                             pending_empty_final_deadline = time.monotonic() + _EMPTY_FINAL_GRACE_SECONDS
-                elif ftype == "chat.final":
+                elif ftype in {"chat.reply_final", "chat.final"}:
                     final_reply = _extract_text_candidates(frame, current_reply()).strip()
                     media = frame.get("media") or []
                     media_added = False
@@ -512,15 +513,24 @@ class OpenClawChannelAgentBackend(AgentBackend):
                     last_typing_at = None
                     if final_reply:
                         accumulated_reply = final_reply
-                        saw_final_frame = True
+                        saw_reply_final_frame = True
                         break
                     if media_added or final_media:
-                        saw_final_frame = True
+                        saw_reply_final_frame = True
                         break
                     saw_empty_final_frame = True
                     pending_empty_final_deadline = time.monotonic() + _EMPTY_FINAL_GRACE_SECONDS
                     continue
+                elif ftype == "chat.run_final":
+                    saw_run_final_frame = True
+                    last_typing_at = None
+                    if not accumulated_reply and not final_media and str(frame.get("runState") or "") in {"failed", "aborted", "timeout"}:
+                        raise RuntimeError(str(frame.get("reason") or frame.get("runState") or "openclaw channel run failed"))
+                    continue
                 elif ftype == "chat.error":
+                    if saw_reply_final_frame:
+                        _LOG.warning("[OPENCLAW_CHANNEL] tail error after reply_final requestId=%s error=%s", request_id, str(frame.get("error") or ""))
+                        continue
                     raise RuntimeError(str(frame.get("error") or "openclaw channel bridge error"))
                 else:
                     fallback_text = _extract_text_candidates(frame, "").strip()
@@ -537,10 +547,10 @@ class OpenClawChannelAgentBackend(AgentBackend):
             await ws.close()
 
         reply = current_reply()
-        if not saw_final_frame and not saw_empty_final_frame and not reply and not final_media:
+        if not saw_reply_final_frame and not saw_empty_final_frame and not reply and not final_media:
             raise RuntimeError(
-                "OpenClaw bridge request ended without final frame or visible content "
-                f"(requestId={request_id}, sessionKey={session_key}, last_frame_type={last_frame_type or 'none'})"
+                "OpenClaw bridge request ended without reply_final frame or visible content "
+                f"(requestId={request_id}, sessionKey={session_key}, last_frame_type={last_frame_type or 'none'}, saw_run_final_frame={saw_run_final_frame})"
             )
         if not reply and not final_media:
             reply = "……我刚刚没有拿到可显示的回复。"

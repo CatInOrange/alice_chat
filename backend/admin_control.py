@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import os
+import pwd
 import shlex
 import socket
 import subprocess
@@ -30,7 +31,7 @@ BACKEND_PORT = 18081
 CONTROL_PORT = 18082
 BACKEND_HEALTH_URL = f'http://127.0.0.1:{BACKEND_PORT}/api/health'
 BACKEND_LOG = '/tmp/alicechat-backend.log'
-GATEWAY_RESTART_CMD = ['openclaw', 'gateway', 'restart']
+GATEWAY_RESTART_SCRIPT = str(ROOT / 'scripts' / 'restart_gateway_via_shell.sh')
 BACKEND_START_CMD = (
     f'cd {shlex.quote(str(ROOT))} && '
     f'PYTHONPATH={shlex.quote(str(ROOT))} '
@@ -117,6 +118,40 @@ def _run_shell(command: str) -> None:
     subprocess.run(['bash', '-lc', command], check=True)  # noqa: S603,S607
 
 
+def _build_root_user_service_env() -> dict[str, str]:
+    env = os.environ.copy()
+    root_info = pwd.getpwnam('root')
+    runtime_dir = env.get('XDG_RUNTIME_DIR') or f'/run/user/{root_info.pw_uid}'
+    path_parts = [
+        '/root/.nvm/versions/node/v22.22.1/bin',
+        '/root/.local/share/pnpm',
+        env.get('PATH', ''),
+    ]
+    merged_path = ':'.join(part for part in path_parts if part)
+    env.update({
+        'HOME': root_info.pw_dir,
+        'USER': root_info.pw_name,
+        'LOGNAME': root_info.pw_name,
+        'PATH': merged_path,
+        'XDG_RUNTIME_DIR': runtime_dir,
+        'DBUS_SESSION_BUS_ADDRESS': env.get('DBUS_SESSION_BUS_ADDRESS') or f'unix:path={runtime_dir}/bus',
+        'SYSTEMD_PAGER': '',
+    })
+    return env
+
+
+def _run_root_login_shell(command: str, *, timeout: int) -> subprocess.CompletedProcess[str]:
+    env = _build_root_user_service_env()
+    return subprocess.run(  # noqa: S603
+        ['su', '-', 'root', '-c', command],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+        env=env,
+    )
+
+
 def _restart_backend_impl() -> dict[str, Any]:
     pids_output = subprocess.run(  # noqa: S603,S607
         ['bash', '-lc', f'lsof -t -i:{BACKEND_PORT} || true'],
@@ -143,19 +178,32 @@ def _restart_backend_impl() -> dict[str, Any]:
 
 
 def _restart_gateway_impl() -> dict[str, Any]:
+    env = _build_root_user_service_env()
     completed = subprocess.run(  # noqa: S603
-        GATEWAY_RESTART_CMD,
+        ['bash', '-lic', GATEWAY_RESTART_SCRIPT],
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=240,
         check=False,
+        env=env,
     )
-    if completed.returncode != 0:
-        raise RuntimeError((completed.stderr or completed.stdout or 'gateway restart failed').strip())
-    return {
+    detail = {
         'stdout': (completed.stdout or '').strip(),
         'stderr': (completed.stderr or '').strip(),
+        'returncode': completed.returncode,
+        'script': GATEWAY_RESTART_SCRIPT,
+        'execMode': 'bash -lic script',
+        'userServiceEnv': {
+            'HOME': env.get('HOME', ''),
+            'USER': env.get('USER', ''),
+            'PATH': env.get('PATH', ''),
+            'XDG_RUNTIME_DIR': env.get('XDG_RUNTIME_DIR', ''),
+            'DBUS_SESSION_BUS_ADDRESS': env.get('DBUS_SESSION_BUS_ADDRESS', ''),
+        },
     }
+    if completed.returncode != 0:
+        raise RuntimeError(json.dumps(detail, ensure_ascii=False))
+    return detail
 
 
 def _run_task(task_id: str, action: str) -> None:
