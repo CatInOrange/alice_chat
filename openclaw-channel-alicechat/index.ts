@@ -300,10 +300,8 @@ function createBridgeServer(ctx) {
     let frameSeq = 0;
     let replyFinalSent = false;
     let runFinalSent = false;
-    let accumulatedReply = '';
-    let normalizedReply = '';
-    const finalMedia = [];
-    let sawPartialReply = false;
+    let officialPreviewText = '';
+    let officialFinalPayload = null;
     let lastProgressSignature = '';
     const sendBridgeFrame = (outFrame, phase) => {
       const frameType = String(outFrame?.type || '');
@@ -326,19 +324,45 @@ function createBridgeServer(ctx) {
       ws.send(JSON.stringify(frameWithSeq));
     };
 
-    const getVisibleReplySnapshot = () => {
-      const normalized = String(normalizedReply || '').trim();
-      if (normalized) return normalized;
-      return String(accumulatedReply || '').trim();
+    const getReplyPreview = () => String(officialPreviewText || '').trim();
+
+    const emitDeltaFromSnapshot = (nextSnapshot, phase, kind = 'assistant') => {
+      const nextText = String(nextSnapshot || '');
+      const previous = officialPreviewText;
+      officialPreviewText = nextText;
+      if (!nextText) return;
+      const delta = nextText.startsWith(previous) ? nextText.slice(previous.length) : nextText;
+      if (!delta) return;
+      sendBridgeFrame({
+        type: 'chat.delta',
+        requestId,
+        kind,
+        delta,
+      }, phase);
+    };
+
+    const appendDeltaChunk = (chunk, phase, kind = 'assistant') => {
+      const delta = String(chunk || '');
+      if (!delta) return;
+      officialPreviewText = `${officialPreviewText}${delta}`;
+      sendBridgeFrame({
+        type: 'chat.delta',
+        requestId,
+        kind,
+        delta,
+      }, phase);
     };
 
     const emitReplyFinalIfNeeded = (finishReason = 'completed') => {
       if (replyFinalSent) return;
+      if (!officialFinalPayload) {
+        throw new Error(`missing_official_final_payload requestId=${requestId}`);
+      }
       sendBridgeFrame({
         type: 'chat.reply_final',
         requestId,
-        reply: getVisibleReplySnapshot(),
-        media: finalMedia,
+        reply: String(officialFinalPayload.text || '').trim(),
+        media: Array.isArray(officialFinalPayload.media) ? officialFinalPayload.media : [],
         state: 'final',
         finishReason,
         sessionKey,
@@ -346,13 +370,13 @@ function createBridgeServer(ctx) {
       }, 'gateway_send_chat_reply_final');
     };
 
-    const sendProgressFrame = ({ stage = 'working', kind = 'tool', text = '', reply = '', ...meta }, phase) => {
+    const sendProgressFrame = ({ stage = 'working', kind = 'tool', text = '', replyPreview = '', ...meta }, phase) => {
       const trimmedText = String(text || '').trim();
-      const replyText = String(reply || '').trim();
+      const previewText = String(replyPreview || '').trim();
       const toolCallId = String(meta.toolCallId || '').trim();
       const itemId = String(meta.itemId || '').trim();
-      const signature = `${stage}::${kind}::${trimmedText}::${replyText}::${toolCallId}::${itemId}::${String(meta.status || '')}::${String(meta.phase || '')}`;
-      if (!trimmedText && !replyText && !toolCallId && !itemId) return;
+      const signature = `${stage}::${kind}::${trimmedText}::${previewText}::${toolCallId}::${itemId}::${String(meta.status || '')}::${String(meta.phase || '')}`;
+      if (!trimmedText && !previewText && !toolCallId && !itemId) return;
       if (signature === lastProgressSignature) return;
       lastProgressSignature = signature;
       sendBridgeFrame({
@@ -361,7 +385,7 @@ function createBridgeServer(ctx) {
         stage,
         kind,
         text: trimmedText,
-        ...(replyText ? { reply: replyText } : {}),
+        ...(previewText ? { replyPreview: previewText } : {}),
         ...Object.fromEntries(Object.entries(meta).filter(([, value]) => value !== undefined && value !== null && value !== '')),
       }, phase);
     };
@@ -395,31 +419,18 @@ function createBridgeServer(ctx) {
                   stage: 'tool',
                   kind: classifyToolKind(text),
                   text,
-                  reply: getVisibleReplySnapshot(),
+                  replyPreview: getReplyPreview(),
                 }, 'gateway_send_chat_progress');
-              } else if (payloadKind === 'block' || payloadKind === 'final') {
-                const previousVisible = getVisibleReplySnapshot();
-                normalizedReply = text;
-                if (!sawPartialReply) {
-                  accumulatedReply = text;
-                }
-                const visibleReply = getVisibleReplySnapshot();
-                const delta = visibleReply.startsWith(previousVisible) ? visibleReply.slice(previousVisible.length) : visibleReply;
-                if (delta || visibleReply) {
-                  sendBridgeFrame({
-                    type: 'chat.delta',
-                    requestId,
-                    kind: payloadKind,
-                    delta: delta || visibleReply,
-                    reply: visibleReply,
-                  }, 'gateway_send_chat_delta');
-                }
+              } else if (payloadKind === 'block') {
+                appendDeltaChunk(text, 'gateway_send_chat_delta', 'assistant');
+              } else if (payloadKind === 'final') {
+                emitDeltaFromSnapshot(text, 'gateway_send_chat_final_snapshot_delta', 'assistant');
               } else if (lower) {
                 sendProgressFrame({
                   stage: payloadKind,
                   kind: classifyToolKind(text, payloadKind),
                   text,
-                  reply: getVisibleReplySnapshot(),
+                  replyPreview: getReplyPreview(),
                 }, 'gateway_send_chat_progress');
               }
             }
@@ -436,12 +447,18 @@ function createBridgeServer(ctx) {
                 type: classifyMedia(mediaUrl, payload.audioAsVoice),
                 audioAsVoice: !!payload.audioAsVoice,
               };
-              finalMedia.push(item);
               sendBridgeFrame({ type: 'chat.media', requestId, media: item }, 'gateway_send_chat_media');
             }
 
             if (payloadKind === 'final') {
-              emitReplyFinalIfNeeded('completed');
+              officialFinalPayload = {
+                text,
+                media: mediaUrls.filter(Boolean).map((mediaUrl) => ({
+                  url: mediaUrl,
+                  type: classifyMedia(mediaUrl, payload.audioAsVoice),
+                  audioAsVoice: !!payload.audioAsVoice,
+                })),
+              };
             }
           },
         },
@@ -451,19 +468,7 @@ function createBridgeServer(ctx) {
           onPartialReply: async (payload) => {
             const nextText = String(payload?.text ?? '').trim();
             if (!nextText) return;
-            sawPartialReply = true;
-            const previousVisible = getVisibleReplySnapshot();
-            accumulatedReply = nextText;
-            const visibleReply = getVisibleReplySnapshot();
-            const delta = visibleReply.startsWith(previousVisible) ? visibleReply.slice(previousVisible.length) : visibleReply;
-            if (!delta && !visibleReply) return;
-            sendBridgeFrame({
-              type: 'chat.delta',
-              requestId,
-              kind: 'assistant',
-              delta: delta || visibleReply,
-              reply: visibleReply,
-            }, 'gateway_send_chat_partial_delta');
+            emitDeltaFromSnapshot(nextText, 'gateway_send_chat_partial_delta', 'assistant');
           },
           onReasoningStream: async (payload) => {
             const text = String(payload?.text ?? '').trim();
@@ -472,7 +477,7 @@ function createBridgeServer(ctx) {
               stage: 'thinking',
               kind: 'thinking',
               text,
-              reply: getVisibleReplySnapshot(),
+              replyPreview: getReplyPreview(),
             }, 'gateway_send_chat_thinking');
           },
           onAgentEvent: async (evt) => {
@@ -480,13 +485,13 @@ function createBridgeServer(ctx) {
             if (!normalized) return;
             sendProgressFrame({
               ...normalized,
-              reply: getVisibleReplySnapshot(),
+              replyPreview: getReplyPreview(),
             }, 'gateway_send_chat_agent_event');
           },
         },
       });
 
-      if ((dispatchResult?.queuedFinal || (dispatchResult?.counts?.final || 0) > 0 || normalizedReply || accumulatedReply || finalMedia.length) && !replyFinalSent) {
+      if (dispatchResult?.queuedFinal && (dispatchResult?.counts?.final || 0) > 0 && !replyFinalSent) {
         emitReplyFinalIfNeeded('completed');
       }
 

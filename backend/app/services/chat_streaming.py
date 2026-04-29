@@ -170,8 +170,21 @@ class ChatStreamingService:
             yield format_sse(error_event, event_name='error', include_id=False)
             return
 
-        assistant_raw = str(result.get('rawReply') or result.get('reply') or assistant_raw)
-        assistant_visible = strip_stage_directives(str(result.get('reply') or assistant_raw))
+        if not bool(result.get('replyFinalReceived')):
+            error_event = {'seq': 0, 'type': 'error', 'ts': 0, 'payload': {'error': 'missing reply_final; refusing to persist non-final preview as assistant message'}}
+            audit_frame(
+                'backend_frontend_sse',
+                'backend->frontend',
+                error_event,
+                phase='chat_stream_yield',
+                sessionId=session_id,
+                eventName='error',
+            )
+            yield format_sse(error_event, event_name='error', include_id=False)
+            return
+
+        assistant_raw = str(result.get('rawReply') or result.get('reply') or '')
+        assistant_visible = strip_stage_directives(str(result.get('reply') or ''))
 
         chat_service.persist_user_message(
             session_id=session_id,

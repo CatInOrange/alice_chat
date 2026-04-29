@@ -44,6 +44,11 @@ def _extract_text_candidates(frame: dict, current_text: str = "") -> str:
     return current_text
 
 
+def _extract_final_reply(frame: dict) -> str:
+    candidate = frame.get("reply")
+    return candidate.strip() if isinstance(candidate, str) else ""
+
+
 def _is_retryable_bridge_connect_error(exc: BaseException) -> bool:
     if isinstance(exc, (TimeoutError, ConnectionRefusedError)):
         return True
@@ -426,10 +431,7 @@ class OpenClawChannelAgentBackend(AgentBackend):
                     last_seq = seq
                 if ftype == "chat.delta":
                     delta_text = str(frame.get("delta") or "")
-                    reply_snapshot = _extract_text_candidates(frame, current_reply()).strip()
-                    if reply_snapshot:
-                        accumulated_reply = reply_snapshot
-                    elif delta_text:
+                    if delta_text:
                         accumulated_reply = f"{accumulated_reply}{delta_text}"
                     if pending_empty_final_deadline is not None and (delta_text or accumulated_reply):
                         pending_empty_final_deadline = time.monotonic() + _EMPTY_FINAL_GRACE_SECONDS
@@ -438,7 +440,7 @@ class OpenClawChannelAgentBackend(AgentBackend):
                         emit({
                             "type": "delta",
                             "delta": delta_text,
-                            "reply": current_reply(),
+                            "replyPreview": current_reply(),
                             "state": "streaming",
                         })
                 elif ftype == "chat.block":
@@ -452,7 +454,7 @@ class OpenClawChannelAgentBackend(AgentBackend):
                         emit({
                             "type": "delta",
                             "delta": block_text,
-                            "reply": current_reply(),
+                            "replyPreview": current_reply(),
                             "state": "streaming",
                         })
                 elif ftype == "chat.typing":
@@ -463,7 +465,7 @@ class OpenClawChannelAgentBackend(AgentBackend):
                             "text": "",
                             "stage": "typing",
                             "kind": "thinking",
-                            "reply": current_reply(),
+                            "replyPreview": current_reply(),
                             "state": "streaming",
                         })
                 elif ftype == "chat.progress":
@@ -471,7 +473,7 @@ class OpenClawChannelAgentBackend(AgentBackend):
                     progress_stage = str(frame.get("stage") or "working")
                     progress_hint = str(frame.get("kind") or progress_stage)
                     progress_kind = _classify_progress_kind(progress_text, progress_hint)
-                    progress_reply = str(frame.get("reply") or current_reply()).strip()
+                    progress_reply_preview = str(frame.get("replyPreview") or "").strip()
                     progress_meta = {
                         "eventStream": str(frame.get("eventStream") or "").strip(),
                         "toolCallId": str(frame.get("toolCallId") or "").strip(),
@@ -488,13 +490,13 @@ class OpenClawChannelAgentBackend(AgentBackend):
                     }
                     has_structured_meta = any(progress_meta.values())
                     last_typing_at = None
-                    if emit and (progress_text or progress_reply or has_structured_meta):
+                    if emit and (progress_text or progress_reply_preview or has_structured_meta):
                         emit({
                             "type": "progress",
                             "text": progress_text,
                             "stage": progress_stage,
                             "kind": progress_kind,
-                            "reply": progress_reply,
+                            "replyPreview": progress_reply_preview,
                             "state": "streaming",
                             **{key: value for key, value in progress_meta.items() if value},
                         })
@@ -506,7 +508,7 @@ class OpenClawChannelAgentBackend(AgentBackend):
                         if pending_empty_final_deadline is not None:
                             pending_empty_final_deadline = time.monotonic() + _EMPTY_FINAL_GRACE_SECONDS
                 elif ftype in {"chat.reply_final", "chat.final"}:
-                    final_reply_text = _extract_text_candidates(frame, "").strip()
+                    final_reply_text = _extract_final_reply(frame)
                     media = frame.get("media") or []
                     media_added = False
                     if isinstance(media, list):
@@ -570,6 +572,7 @@ class OpenClawChannelAgentBackend(AgentBackend):
         audio = [m for m in final_media if isinstance(m, dict) and m.get("type") == "audio" and m.get("url")]
         return {
             "reply": reply,
+            "rawReply": reply,
             "images": images,
             "audio": audio,
             "provider": self.provider_config.get("id") or "openclaw-channel",
@@ -580,6 +583,8 @@ class OpenClawChannelAgentBackend(AgentBackend):
             "session": session_name,
             "sessionKey": session_key,
             "state": "final",
+            "replyFinalReceived": saw_reply_final_frame,
+            "runFinalReceived": saw_run_final_frame,
         }
 
     def send_chat(self, request: ChatRequest) -> dict:

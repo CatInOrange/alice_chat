@@ -246,7 +246,7 @@ def create_chat_router(context: AppContext) -> APIRouter:
                     progress_text = str(payload.get('text') or '')
                     progress_stage = str(payload.get('stage') or 'working')
                     progress_kind = str(payload.get('kind') or progress_stage or 'progress')
-                    progress_reply = str(payload.get('reply') or '').strip()
+                    progress_reply_preview = str(payload.get('replyPreview') or '').strip()
                     progress_meta = {
                         'eventStream': str(payload.get('eventStream') or '').strip(),
                         'toolCallId': str(payload.get('toolCallId') or '').strip(),
@@ -263,7 +263,7 @@ def create_chat_router(context: AppContext) -> APIRouter:
                     }
 
                     if payload_type == 'progress':
-                        if not progress_text and not progress_reply and not any(progress_meta.values()):
+                        if not progress_text and not progress_reply_preview and not any(progress_meta.values()):
                             return
                         delta_seq += 1
                         mode = 'progress'
@@ -283,7 +283,7 @@ def create_chat_router(context: AppContext) -> APIRouter:
                                 'text': progress_text,
                                 'stage': progress_stage,
                                 'kind': progress_kind,
-                                **({'reply': progress_reply} if progress_reply else {}),
+                                **({'replyPreview': progress_reply_preview} if progress_reply_preview else {}),
                                 **{key: value for key, value in progress_meta.items() if value},
                             },
                         )
@@ -296,7 +296,7 @@ def create_chat_router(context: AppContext) -> APIRouter:
 
                     delta_seq += 1
                     assistant_raw_parts.append(delta_text)
-                    preview_text = str(payload.get('reply') or ''.join(assistant_raw_parts))
+                    preview_text = str(payload.get('replyPreview') or ''.join(assistant_raw_parts))
                     events_bus.publish_threadsafe(
                         'assistant.progress',
                         {
@@ -309,7 +309,7 @@ def create_chat_router(context: AppContext) -> APIRouter:
                             'text': delta_text,
                             'stage': 'assistant',
                             'kind': 'assistant',
-                            'reply': preview_text,
+                            'replyPreview': preview_text,
                         },
                     )
 
@@ -320,8 +320,11 @@ def create_chat_router(context: AppContext) -> APIRouter:
                     session_id=session_id,
                     route_key=requested_route_key,
                 )
-                assistant_raw = str(result.get('rawReply') or result.get('reply') or ''.join(assistant_raw_parts))
-                assistant_visible = str(result.get('reply') or assistant_raw)
+                reply_final_received = bool(result.get('replyFinalReceived'))
+                assistant_raw = str(result.get('rawReply') or result.get('reply') or '')
+                assistant_visible = str(result.get('reply') or '')
+                if not reply_final_received:
+                    raise RuntimeError('missing reply_final; refusing to persist non-final preview as assistant message')
                 persisted_messages = chat_service.persist_assistant_message(
                     session_id=session_id,
                     reply=assistant_visible,

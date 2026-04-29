@@ -535,7 +535,7 @@ class ChatSessionStore extends ChangeNotifier {
             mode: (event['mode'] ?? '').toString(),
             stage: (event['stage'] ?? '').toString(),
             kind: (event['kind'] ?? '').toString(),
-            preview: (event['reply'] ?? '').toString(),
+            preview: (event['replyPreview'] ?? event['reply'] ?? '').toString(),
             eventStream: (event['eventStream'] ?? '').toString(),
             toolCallId: (event['toolCallId'] ?? '').toString(),
             toolName: (event['toolName'] ?? '').toString(),
