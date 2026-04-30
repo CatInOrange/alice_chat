@@ -137,6 +137,12 @@ class MusicPlatformStore extends ChangeNotifier {
     notifyListeners();
     try {
       await reloadConfig();
+      final baseUrl = _client is OpenClawHttpClient
+          ? (_client as OpenClawHttpClient).config.baseUrl.trim()
+          : '';
+      if (baseUrl.isEmpty) {
+        throw Exception('请先在设置页填写后端地址');
+      }
       final response = await _client.getMusicProviders();
       final providers = ((response['providers'] as List<dynamic>?) ?? const [])
           .whereType<Map>()

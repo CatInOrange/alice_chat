@@ -9,6 +9,7 @@ import 'music_source_provider.dart';
 class NeteaseMusicSourceProvider implements MusicSourceProvider {
   static const _userAgent =
       'Mozilla/5.0 (Linux; Android 14; AliceChat) AppleWebKit/537.36';
+  static const _playlistPrefix = 'netease-playlist:';
 
   @override
   String get id => 'netease';
@@ -124,6 +125,76 @@ class NeteaseMusicSourceProvider implements MusicSourceProvider {
     );
   }
 
+  @override
+  Future<List<MusicPlaylist>> loadUserPlaylists() async {
+    final cookie = await OpenClawSettingsStore.loadMusicProviderCookie(id);
+    if ((cookie ?? '').trim().isEmpty) {
+      return const <MusicPlaylist>[];
+    }
+
+    final accountPayload = await _getJson(
+      '/api/w/nuser/account/get',
+      cookieHeader: cookie,
+    );
+    final profile = (accountPayload['profile'] as Map?)?.cast<String, dynamic>() ??
+        const <String, dynamic>{};
+    final userId = (profile['userId'] ?? '').toString().trim();
+    if (userId.isEmpty) {
+      return const <MusicPlaylist>[];
+    }
+
+    final playlistPayload = await _getJson(
+      '/api/user/playlist',
+      query: <String, String>{
+        'uid': userId,
+        'limit': '100',
+        'offset': '0',
+        'includeVideo': 'false',
+      },
+      cookieHeader: cookie,
+    );
+    final playlists = ((playlistPayload['playlist'] as List?) ?? const <dynamic>[])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item.cast<String, dynamic>()))
+        .map(_playlistFromMap)
+        .whereType<MusicPlaylist>()
+        .toList(growable: false);
+    return playlists;
+  }
+
+  @override
+  Future<MusicPlaylist?> loadLikedPlaylist() async {
+    final playlists = await loadUserPlaylists();
+    if (playlists.isEmpty) return null;
+    return playlists.first;
+  }
+
+  @override
+  Future<List<MusicTrack>> loadPlaylistTracks(String playlistId) async {
+    final normalizedId = playlistId.startsWith(_playlistPrefix)
+        ? playlistId.substring(_playlistPrefix.length)
+        : playlistId;
+    if (normalizedId.isEmpty) {
+      return const <MusicTrack>[];
+    }
+    final cookie = await OpenClawSettingsStore.loadMusicProviderCookie(id);
+    final payload = await _getJson(
+      '/api/v6/playlist/detail',
+      query: <String, String>{'id': normalizedId, 'n': '200'},
+      cookieHeader: cookie,
+    );
+    final playlist = (payload['playlist'] as Map?)?.cast<String, dynamic>() ??
+        const <String, dynamic>{};
+    final tracks = ((playlist['tracks'] as List?) ?? const <dynamic>[])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item.cast<String, dynamic>()))
+        .map(_candidateFromSong)
+        .whereType<SourceCandidate>()
+        .map((candidate) => candidate.track.toMusicTrack(isFavorite: true))
+        .toList(growable: false);
+    return tracks;
+  }
+
   SourceCandidate? _candidateFromSong(Map<String, dynamic> song) {
     final sourceTrackId = (song['id'] ?? '').toString().trim();
     final title = (song['name'] ?? '').toString().trim();
@@ -164,6 +235,32 @@ class NeteaseMusicSourceProvider implements MusicSourceProvider {
       providerId: id,
       sourceTrackId: sourceTrackId,
       track: CanonicalTrack.fromMusicTrack(track),
+    );
+  }
+
+  MusicPlaylist? _playlistFromMap(Map<String, dynamic> raw) {
+    final rawId = (raw['id'] ?? '').toString().trim();
+    final title = (raw['name'] ?? '').toString().trim();
+    if (rawId.isEmpty || title.isEmpty) {
+      return null;
+    }
+    final description = (raw['description'] ?? '').toString().trim();
+    final trackCountRaw = raw['trackCount'] ?? 0;
+    final trackCount = trackCountRaw is num
+        ? trackCountRaw.toInt()
+        : int.tryParse('$trackCountRaw') ?? 0;
+    final isLiked = raw['subscribed'] == false ||
+        title.contains('喜欢') ||
+        title.contains('收藏');
+    return MusicPlaylist(
+      id: '$_playlistPrefix$rawId',
+      title: title,
+      subtitle: description.isEmpty
+          ? (isLiked ? '网易云“我喜欢”的歌曲' : '来自网易云音乐')
+          : description,
+      tag: isLiked ? 'LIKED' : 'NETEASE',
+      trackCount: trackCount,
+      artworkTone: isLiked ? MusicArtworkTone.rose : _toneForSeed(rawId),
     );
   }
 

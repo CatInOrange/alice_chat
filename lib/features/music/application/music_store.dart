@@ -141,6 +141,14 @@ class MusicStore extends ChangeNotifier {
       if (state.recentTracks.isNotEmpty) {
         _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
       }
+      try {
+        final remotePlaylists = await _repository.loadUserPlaylists();
+        if (remotePlaylists.isNotEmpty) {
+          _playlists = List<MusicPlaylist>.unmodifiable(remotePlaylists);
+        }
+      } catch (_) {
+        // ignore and keep fallback playlists
+      }
       _isPlaying = state.isPlaying;
       _position = state.position;
       _duration = state.currentTrack?.duration ?? _currentTrack.duration;
@@ -169,7 +177,15 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> playPlaylist(MusicPlaylist playlist) async {
-    final tracks = MockMusicCatalog.tracksForPlaylist(playlist.id);
+    List<MusicTrack> tracks;
+    try {
+      tracks = await _repository.loadPlaylistTracks(playlist);
+    } catch (_) {
+      tracks = MockMusicCatalog.tracksForPlaylist(playlist.id);
+    }
+    if (tracks.isEmpty) {
+      tracks = MockMusicCatalog.tracksForPlaylist(playlist.id);
+    }
     if (tracks.isEmpty) return;
     _recentPlaylists = [
       playlist,
@@ -184,6 +200,18 @@ class MusicStore extends ChangeNotifier {
             .toList(growable: false),
       ),
     );
+  }
+
+  Future<MusicPlaylist> getLikedPlaylist() async {
+    try {
+      final liked = await _repository.loadLikedPlaylist();
+      if (liked != null) {
+        return liked;
+      }
+    } catch (_) {
+      // ignore and keep fallback playlist
+    }
+    return _playlists.isNotEmpty ? _playlists.first : MockMusicCatalog.likedPlaylist;
   }
 
   Future<void> searchTracks(String query) async {

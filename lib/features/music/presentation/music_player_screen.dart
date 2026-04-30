@@ -271,14 +271,37 @@ class MusicPlayerScreen extends StatelessWidget {
   }
 }
 
-class _DiscStage extends StatelessWidget {
+class _DiscStage extends StatefulWidget {
   const _DiscStage({required this.track});
 
   final MusicTrack track;
 
   @override
+  State<_DiscStage> createState() => _DiscStageState();
+}
+
+class _DiscStageState extends State<_DiscStage>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 12),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final palette = paletteForTone(track.artworkTone);
+    final palette = paletteForTone(widget.track.artworkTone);
     return SizedBox(
       height: 352,
       child: Stack(
@@ -297,35 +320,43 @@ class _DiscStage extends StatelessWidget {
               ),
             ),
           ),
-          Container(
-            width: 286,
-            height: 286,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  Colors.white.withValues(alpha: 0.86),
-                  Colors.white.withValues(alpha: 0.22),
-                ],
-              ),
+          RotationTransition(
+            turns: _controller,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  width: 286,
+                  height: 286,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        Colors.white.withValues(alpha: 0.86),
+                        Colors.white.withValues(alpha: 0.22),
+                      ],
+                    ),
+                  ),
+                ),
+                Container(
+                  width: 266,
+                  height: 266,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.42),
+                      width: 12,
+                    ),
+                  ),
+                ),
+                MusicArtwork(
+                  track: widget.track,
+                  size: 238,
+                  circular: true,
+                  heroTag: 'music-artwork-${widget.track.id}',
+                ),
+              ],
             ),
-          ),
-          Container(
-            width: 266,
-            height: 266,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.42),
-                width: 12,
-              ),
-            ),
-          ),
-          MusicArtwork(
-            track: track,
-            size: 238,
-            circular: true,
-            heroTag: 'music-artwork-${track.id}',
           ),
           Container(
             width: 42,

@@ -61,4 +61,16 @@ class MockMusicSourceProvider implements MusicSourceProvider {
         )
         .toList(growable: false);
   }
+
+  @override
+  Future<List<MusicPlaylist>> loadUserPlaylists() async =>
+      MockMusicCatalog.playlists;
+
+  @override
+  Future<MusicPlaylist?> loadLikedPlaylist() async =>
+      MockMusicCatalog.likedPlaylist;
+
+  @override
+  Future<List<MusicTrack>> loadPlaylistTracks(String playlistId) async =>
+      MockMusicCatalog.tracksForPlaylist(playlistId);
 }

@@ -5,6 +5,7 @@ import '../domain/music_runtime_models.dart';
 import 'mock_music_catalog.dart';
 import 'music_repository.dart';
 import 'sources/music_source_resolver.dart';
+import 'sources/music_source_resolver_impl.dart';
 
 class MusicRepositoryImpl implements MusicRepository {
   MusicRepositoryImpl({
@@ -85,6 +86,38 @@ class MusicRepositoryImpl implements MusicRepository {
               'mock://${track.id}',
           artworkUrl: track.artworkUrl,
         );
+  }
+
+  @override
+  Future<List<MusicPlaylist>> loadUserPlaylists() async {
+    final netease = (_resolver as MusicSourceResolverImpl).registry.providerById(
+      'netease',
+    );
+    return netease?.loadUserPlaylists() ?? const <MusicPlaylist>[];
+  }
+
+  @override
+  Future<MusicPlaylist?> loadLikedPlaylist() async {
+    final netease = (_resolver as MusicSourceResolverImpl).registry.providerById(
+      'netease',
+    );
+    return netease?.loadLikedPlaylist();
+  }
+
+  @override
+  Future<List<MusicTrack>> loadPlaylistTracks(MusicPlaylist playlist) async {
+    final providerId = playlist.id.startsWith('netease-playlist:')
+        ? 'netease'
+        : null;
+    if (providerId == null) {
+      return MockMusicCatalog.tracksForPlaylist(playlist.id);
+    }
+    final provider = (_resolver as MusicSourceResolverImpl)
+        .registry
+        .providerById(providerId);
+    final tracks = await provider?.loadPlaylistTracks(playlist.id) ??
+        const <MusicTrack>[];
+    return tracks;
   }
 
   @override

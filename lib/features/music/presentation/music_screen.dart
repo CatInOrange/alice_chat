@@ -19,12 +19,19 @@ class MusicScreen extends StatefulWidget {
 class _MusicScreenState extends State<MusicScreen>
     with AutomaticKeepAliveClientMixin {
   static const _catalog = MockMusicCatalog.data;
+  MusicPlaylist? _likedPlaylist;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<MusicStore>().ensureReady();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final store = context.read<MusicStore>();
+      await store.ensureReady();
+      final liked = await store.getLikedPlaylist();
+      if (!mounted) return;
+      setState(() {
+        _likedPlaylist = liked;
+      });
     });
   }
 
@@ -75,9 +82,9 @@ class _MusicScreenState extends State<MusicScreen>
         final playlists =
             store.playlists.isEmpty ? _catalog.playlists : store.playlists;
         final recentPlaylists = store.recentPlaylists;
-        final likedPlaylist = playlists.isNotEmpty
-            ? playlists.first
-            : MockMusicCatalog.likedPlaylist;
+        final likedPlaylist =
+            _likedPlaylist ??
+            (playlists.isNotEmpty ? playlists.first : MockMusicCatalog.likedPlaylist);
 
         return Scaffold(
           appBar: AppBar(
@@ -108,7 +115,9 @@ class _MusicScreenState extends State<MusicScreen>
                   const SizedBox(height: 28),
                   _SectionHeader(
                     title: '我的歌单',
-                    subtitle: '以后你可以自己创建、收藏和整理',
+                    subtitle: likedPlaylist.id.startsWith('netease-playlist:')
+                        ? '已接入网易云歌单，优先展示你的真实收藏'
+                        : '以后你可以自己创建、收藏和整理',
                     actionLabel: '新建',
                     onActionTap: () {},
                   ),

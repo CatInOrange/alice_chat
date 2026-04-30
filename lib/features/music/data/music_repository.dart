@@ -7,6 +7,12 @@ abstract class MusicRepository {
 
   Future<ResolvedPlaybackSource> resolveTrack(MusicTrack track);
 
+  Future<List<MusicPlaylist>> loadUserPlaylists();
+
+  Future<MusicPlaylist?> loadLikedPlaylist();
+
+  Future<List<MusicTrack>> loadPlaylistTracks(MusicPlaylist playlist);
+
   Future<void> savePlaybackSnapshot({
     required MusicTrack currentTrack,
     required List<PlaybackQueueItem> queue,

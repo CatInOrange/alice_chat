@@ -9,4 +9,11 @@ abstract class MusicSourceProvider {
   Future<SourceCandidate?> matchTrack(MusicTrack track);
 
   Future<ResolvedPlaybackSource?> resolvePlayback(SourceCandidate candidate);
+
+  Future<List<MusicPlaylist>> loadUserPlaylists() async => const <MusicPlaylist>[];
+
+  Future<MusicPlaylist?> loadLikedPlaylist() async => null;
+
+  Future<List<MusicTrack>> loadPlaylistTracks(String playlistId) async =>
+      const <MusicTrack>[];
 }
