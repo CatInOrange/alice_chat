@@ -20,6 +20,86 @@ from ..web.helpers import build_route_key, require_existing_session
 _LOG = logging.getLogger(__name__)
 
 
+_SUSPICIOUS_FINAL_KEYWORDS = (
+    'apply patch failed',
+    'command failed',
+    'tool failed',
+    'approval required',
+    'exit code',
+)
+
+
+def _contains_chinese(text: str) -> bool:
+    return any('\u4e00' <= ch <= '\u9fff' for ch in str(text or ''))
+
+
+def _detect_suspicious_final(text: str) -> str | None:
+    value = _strip_model_prefix(str(text or '').strip())
+    if not value:
+        return None
+    lowered = value.lower()
+    if _contains_chinese(value):
+        return None
+    for keyword in _SUSPICIOUS_FINAL_KEYWORDS:
+        if keyword in lowered:
+            return keyword
+    return None
+
+
+def _parse_message_meta(meta_value: object) -> dict:
+    if isinstance(meta_value, dict):
+        return dict(meta_value)
+    if not meta_value:
+        return {}
+    try:
+        parsed = json.loads(str(meta_value))
+    except Exception:
+        return {}
+    return dict(parsed) if isinstance(parsed, dict) else {}
+
+
+def _build_suspicious_meta(*, existing_meta: object, request_id: str, reason: str) -> str:
+    meta = _parse_message_meta(existing_meta)
+    suspicious = dict(meta.get('suspiciousFinal') or {}) if isinstance(meta.get('suspiciousFinal'), dict) else {}
+    suspicious.update({
+        'flagged': True,
+        'reason': reason,
+        'requestId': request_id,
+        'recoveryAttempted': False,
+        'recoverySucceeded': False,
+    })
+    meta['suspiciousFinal'] = suspicious
+    return json.dumps(meta, ensure_ascii=False)
+
+
+def _mark_recovery_meta(*, existing_meta: object, succeeded: bool, recovered_text: str = '') -> str:
+    meta = _parse_message_meta(existing_meta)
+    suspicious = dict(meta.get('suspiciousFinal') or {}) if isinstance(meta.get('suspiciousFinal'), dict) else {}
+    suspicious['recoveryAttempted'] = True
+    suspicious['recoverySucceeded'] = succeeded
+    if succeeded and recovered_text:
+        suspicious['recoveredText'] = recovered_text
+    meta['suspiciousFinal'] = suspicious
+    return json.dumps(meta, ensure_ascii=False)
+
+
+def _select_preview_recovery_text(*, final_text: str, preview_text: str) -> str:
+    final_value = _strip_model_prefix(str(final_text or '').strip())
+    preview_value = _strip_model_prefix(str(preview_text or '').strip())
+    if not final_value or not preview_value:
+        return ''
+    if preview_value == final_value:
+        return ''
+    if not _contains_chinese(preview_value):
+        return ''
+    if len(preview_value) <= len(final_value) + 12:
+        return ''
+    lowered_preview = preview_value.lower()
+    if any(keyword in lowered_preview for keyword in _SUSPICIOUS_FINAL_KEYWORDS):
+        return ''
+    return preview_value
+
+
 def _strip_model_prefix(text: str) -> str:
     value = str(text or '').lstrip()
     if not value.startswith('['):
@@ -244,6 +324,7 @@ def create_chat_router(context: AppContext) -> APIRouter:
         async def run_job() -> None:
             assistant_message_id = f'msg_ai_{uuid.uuid4().hex[:12]}'
             assistant_raw_parts: list[str] = []
+            latest_reply_preview = ''
             delta_seq = 0
             terminal_event_sent = False
             terminal_result_marked = False
@@ -290,13 +371,15 @@ def create_chat_router(context: AppContext) -> APIRouter:
                 )
 
                 def emit(payload: dict) -> None:
-                    nonlocal delta_seq
+                    nonlocal delta_seq, latest_reply_preview
                     payload_type = str(payload.get('type') or 'delta').strip().lower()
                     delta_text = str(payload.get('delta') or '')
                     progress_text = str(payload.get('text') or '')
                     progress_stage = str(payload.get('stage') or 'working')
                     progress_kind = str(payload.get('kind') or progress_stage or 'progress')
                     progress_reply_preview = str(payload.get('replyPreview') or '').strip()
+                    if progress_reply_preview:
+                        latest_reply_preview = progress_reply_preview
                     progress_meta = {
                         'eventStream': str(payload.get('eventStream') or '').strip(),
                         'toolCallId': str(payload.get('toolCallId') or '').strip(),
@@ -347,6 +430,8 @@ def create_chat_router(context: AppContext) -> APIRouter:
                     delta_seq += 1
                     assistant_raw_parts.append(delta_text)
                     preview_text = str(payload.get('replyPreview') or ''.join(assistant_raw_parts))
+                    if preview_text.strip():
+                        latest_reply_preview = preview_text.strip()
                     events_bus.publish_threadsafe(
                         'assistant.progress',
                         {
@@ -373,17 +458,70 @@ def create_chat_router(context: AppContext) -> APIRouter:
                 reply_final_received = bool(result.get('replyFinalReceived'))
                 assistant_raw = str(result.get('rawReply') or result.get('reply') or '')
                 assistant_visible = str(result.get('reply') or '')
+                suspicious_reason = _detect_suspicious_final(assistant_visible)
                 if not reply_final_received:
                     raise RuntimeError('missing reply_final; refusing to persist non-final preview as assistant message')
+                assistant_meta = resolved.assistant_meta
+                if suspicious_reason:
+                    assistant_meta = _build_suspicious_meta(
+                        existing_meta=assistant_meta,
+                        request_id=request_id,
+                        reason=suspicious_reason,
+                    )
                 persisted_messages = chat_service.persist_assistant_message(
                     session_id=session_id,
                     reply=assistant_visible,
                     raw_reply=assistant_raw,
                     images=result.get('images') or [],
-                    meta=resolved.assistant_meta,
+                    meta=assistant_meta,
                     source=resolved.message_source,
                 )
                 persisted = persisted_messages[-1] if persisted_messages else None
+                if suspicious_reason and persisted is not None:
+                    recovered_text = _select_preview_recovery_text(
+                        final_text=assistant_visible,
+                        preview_text=latest_reply_preview,
+                    )
+                    if recovered_text:
+                        persisted = chat_service.update_message_content(
+                            message_id=str(persisted.get('id') or ''),
+                            text=recovered_text,
+                            raw_text=recovered_text,
+                            meta=_mark_recovery_meta(
+                                existing_meta=persisted.get('meta'),
+                                succeeded=True,
+                                recovered_text=recovered_text,
+                            ),
+                        ) or persisted
+                        persisted_messages[-1] = persisted
+                        assistant_visible = recovered_text
+                        assistant_raw = recovered_text
+                        _LOG.warning(
+                            '[alicechat.chat] suspicious_final_recovered sessionId=%s clientMessageId=%s requestId=%s reason=%s final=%r recovered=%r',
+                            session_id,
+                            client_message_id,
+                            request_id,
+                            suspicious_reason,
+                            str(result.get('reply') or '')[:160],
+                            recovered_text[:160],
+                        )
+                    else:
+                        persisted = chat_service.update_message_content(
+                            message_id=str(persisted.get('id') or ''),
+                            meta=_mark_recovery_meta(
+                                existing_meta=persisted.get('meta'),
+                                succeeded=False,
+                            ),
+                        ) or persisted
+                        persisted_messages[-1] = persisted
+                        _LOG.warning(
+                            '[alicechat.chat] suspicious_final_persisted sessionId=%s clientMessageId=%s requestId=%s reason=%s text=%r',
+                            session_id,
+                            client_message_id,
+                            request_id,
+                            suspicious_reason,
+                            assistant_visible[:160],
+                        )
                 _LOG.info(
                     '[alicechat.chat] request_completed sessionId=%s clientMessageId=%s requestId=%s deltaCount=%s',
                     session_id,

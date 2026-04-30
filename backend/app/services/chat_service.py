@@ -8,6 +8,7 @@ During migration we keep message payload format identical to the legacy backend.
 """
 
 from dataclasses import dataclass, replace
+import json
 import logging
 import uuid
 
@@ -137,6 +138,24 @@ class ChatService:
             source=str(source or "chat"),
             meta=str(meta or ""),
             message_id=message_id,
+        )
+
+    def update_message_content(
+        self,
+        *,
+        message_id: str,
+        text: str | None = None,
+        raw_text: str | None = None,
+        meta: str | dict | None = None,
+    ) -> dict | None:
+        meta_value = meta
+        if isinstance(meta, dict):
+            meta_value = json.dumps(meta, ensure_ascii=False)
+        return self.messages.update_message_content(
+            message_id,
+            text=text,
+            raw_text=raw_text,
+            meta=meta_value,
         )
 
     def persist_assistant_message(

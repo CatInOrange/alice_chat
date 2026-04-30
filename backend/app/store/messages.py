@@ -216,6 +216,47 @@ class MessageStore:
             ).fetchone()
             return self._row_to_message(updated) if updated is not None else None
 
+    def update_message_content(
+        self,
+        message_id: str,
+        *,
+        text: str | None = None,
+        raw_text: str | None = None,
+        meta: str | None = None,
+    ) -> dict | None:
+        self.ensure_schema()
+        updates: list[str] = []
+        values: list[object] = []
+        if text is not None:
+            updates.append("text=?")
+            values.append(str(text))
+        if raw_text is not None:
+            updates.append("raw_text=?")
+            values.append(str(raw_text))
+        if meta is not None:
+            updates.append("meta=?")
+            values.append(str(meta))
+        if not updates:
+            return self.get_message(message_id)
+        values.append(str(message_id))
+        with connect(self.db) as conn:
+            row = conn.execute(
+                "SELECT * FROM messages WHERE id=? LIMIT 1",
+                (str(message_id),),
+            ).fetchone()
+            if row is None:
+                return None
+            conn.execute(
+                f"UPDATE messages SET {', '.join(updates)} WHERE id=?",
+                tuple(values),
+            )
+            conn.commit()
+            updated = conn.execute(
+                "SELECT * FROM messages WHERE id=? LIMIT 1",
+                (str(message_id),),
+            ).fetchone()
+            return self._row_to_message(updated) if updated is not None else None
+
     def create_message(
         self,
         *,
