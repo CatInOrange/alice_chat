@@ -10,6 +10,8 @@ class MusicSourceResolverImpl implements MusicSourceResolver {
 
   final MusicSourceRegistry _registry;
 
+  MusicSourceRegistry get registry => _registry;
+
   @override
   Future<PlaybackQueueItem> resolveTrack(MusicTrack track) async {
     final preferredProviderId = track.preferredSourceId;

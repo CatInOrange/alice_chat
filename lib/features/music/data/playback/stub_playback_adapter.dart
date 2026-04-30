@@ -1,16 +1,23 @@
+import 'dart:async';
+
 import '../../domain/music_models.dart';
 import '../../domain/music_runtime_models.dart';
 import 'playback_adapter.dart';
 
 class StubPlaybackAdapter implements PlaybackAdapter {
-  bool _initialized = false;
-  MusicTrack? currentTrack;
-  ResolvedPlaybackSource? currentSource;
-  bool isPlaying = false;
+  final StreamController<PlaybackAdapterState> _stateController =
+      StreamController<PlaybackAdapterState>.broadcast();
+  PlaybackAdapterState _state = const PlaybackAdapterState();
+
+  @override
+  PlaybackAdapterState get state => _state;
+
+  @override
+  Stream<PlaybackAdapterState> get stateStream => _stateController.stream;
 
   @override
   Future<void> initialize() async {
-    _initialized = true;
+    _setState(_state.copyWith(initialized: true, clearError: true));
   }
 
   @override
@@ -18,31 +25,48 @@ class StubPlaybackAdapter implements PlaybackAdapter {
     required MusicTrack track,
     required ResolvedPlaybackSource source,
   }) async {
-    if (!_initialized) {
+    if (!_state.initialized) {
       await initialize();
     }
-    currentTrack = track;
-    currentSource = source;
-    isPlaying = true;
+    _setState(
+      _state.copyWith(
+        currentTrack: track,
+        currentSource: source,
+        isPlaying: true,
+        completed: false,
+        position: Duration.zero,
+        duration: track.duration,
+      ),
+    );
   }
 
   @override
   Future<void> pause() async {
-    isPlaying = false;
+    _setState(_state.copyWith(isPlaying: false));
   }
 
   @override
   Future<void> resume() async {
-    if (currentTrack != null && currentSource != null) {
-      isPlaying = true;
+    if (_state.currentTrack != null && _state.currentSource != null) {
+      _setState(_state.copyWith(isPlaying: true));
     }
   }
 
   @override
+  Future<void> seek(Duration position) async {
+    _setState(_state.copyWith(position: position));
+  }
+
+  @override
   Future<void> dispose() async {
-    currentTrack = null;
-    currentSource = null;
-    isPlaying = false;
-    _initialized = false;
+    _setState(const PlaybackAdapterState());
+    await _stateController.close();
+  }
+
+  void _setState(PlaybackAdapterState next) {
+    _state = next;
+    if (!_stateController.isClosed) {
+      _stateController.add(next);
+    }
   }
 }

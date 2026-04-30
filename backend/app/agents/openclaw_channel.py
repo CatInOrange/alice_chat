@@ -8,8 +8,10 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from .base import AgentBackend, ChatAttachment, ChatRequest, StreamEmitter
+from ..config import UPLOADS_DIR
 from ..utils.frame_audit import audit_frame
 
 _BRIDGE_CONNECT_RETRY_DELAYS = (0.5, 1.0, 2.0, 4.0, 8.0)
@@ -178,15 +180,45 @@ def _classify_progress_kind(text: str, hint: str = "") -> str:
     return "tool"
 
 
+def _local_upload_url_to_path(url: str) -> Path | None:
+    value = str(url or "").strip()
+    if not value.startswith("/uploads/"):
+        return None
+    relative = value.removeprefix("/uploads/")
+    candidate = (UPLOADS_DIR / relative).resolve()
+    uploads_root = UPLOADS_DIR.resolve()
+    try:
+        candidate.relative_to(uploads_root)
+    except Exception:
+        return None
+    return candidate if candidate.is_file() else None
+
+
 def _prepare_bridge_attachments(attachments: list[ChatAttachment]) -> list[dict]:
     import base64
-    import re
     result: list[dict] = []
     for att in attachments:
         if att.type == "url":
+            local_path = _local_upload_url_to_path(att.data)
+            if local_path is not None:
+                encoded = base64.b64encode(local_path.read_bytes()).decode("ascii")
+                result.append({
+                    "kind": "image",
+                    "content": encoded,
+                    "mimeType": att.media_type or "image/png",
+                })
+            else:
+                result.append({
+                    "kind": "image",
+                    "url": att.data,
+                    "mimeType": att.media_type or "image/png",
+                })
+        elif att.type == "path":
+            path = Path(att.data).expanduser().resolve()
+            encoded = base64.b64encode(path.read_bytes()).decode("ascii")
             result.append({
                 "kind": "image",
-                "url": att.data,
+                "content": encoded,
                 "mimeType": att.media_type or "image/png",
             })
         elif att.type == "base64":

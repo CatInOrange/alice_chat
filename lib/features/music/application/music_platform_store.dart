@@ -35,6 +35,9 @@ class MusicPlatformLocalState {
     required this.detail,
     required this.detectedKeys,
     this.rawCookie,
+    this.remoteProfileName,
+    this.remoteAccountId,
+    this.remoteValidated = false,
   });
 
   final MusicProviderInfo provider;
@@ -44,6 +47,9 @@ class MusicPlatformLocalState {
   final String detail;
   final List<String> detectedKeys;
   final String? rawCookie;
+  final String? remoteProfileName;
+  final String? remoteAccountId;
+  final bool remoteValidated;
 
   bool get hasCookie => (rawCookie ?? '').trim().isNotEmpty;
   bool get likelyReady => authState == MusicPlatformAuthStateKind.imported;
@@ -142,13 +148,7 @@ class MusicPlatformStore extends ChangeNotifier {
           .toList(growable: false);
       final localStates = <String, MusicPlatformLocalState>{};
       for (final provider in providers) {
-        final cookie = await OpenClawSettingsStore.loadMusicProviderCookie(
-          provider.providerId,
-        );
-        localStates[provider.providerId] = _buildLocalState(
-          provider: provider,
-          rawCookie: cookie,
-        );
+        localStates[provider.providerId] = await _loadProviderLocalState(provider);
       }
       _providers = providers;
       _localStates = localStates;
@@ -249,12 +249,27 @@ class MusicPlatformStore extends ChangeNotifier {
   Future<void> _refreshProviderLocalState(String providerId) async {
     final provider = _providers.where((item) => item.providerId == providerId).firstOrNull;
     if (provider == null) return;
-    final cookie = await OpenClawSettingsStore.loadMusicProviderCookie(providerId);
     _localStates = {
       ..._localStates,
-      providerId: _buildLocalState(provider: provider, rawCookie: cookie),
+      providerId: await _loadProviderLocalState(provider),
     };
     notifyListeners();
+  }
+
+  Future<MusicPlatformLocalState> _loadProviderLocalState(
+    MusicProviderInfo provider,
+  ) async {
+    final cookie = await OpenClawSettingsStore.loadMusicProviderCookie(
+      provider.providerId,
+    );
+    final baseState = _buildLocalState(
+      provider: provider,
+      rawCookie: cookie,
+    );
+    if (provider.providerId != 'netease' || !baseState.hasCookie) {
+      return baseState;
+    }
+    return _validateNeteaseAccount(baseState);
   }
 
   MusicPlatformLocalState _buildLocalState({
@@ -330,7 +345,7 @@ class MusicPlatformStore extends ChangeNotifier {
         statusLabel: '已导入',
         summary: '检测到网易云登录 Cookie',
         detail:
-            '已识别 ${hints.join(' / ')}。这已经足够作为下一轮 App 端真实登录校验与直连解析的输入骨架。',
+            '已识别 ${hints.join(' / ')}。下一步会再走一次真实接口校验，确认是否真的是可用登录态。',
         detectedKeys: detectedKeys,
       );
     }
@@ -497,6 +512,7 @@ class MusicPlatformStore extends ChangeNotifier {
     String path, {
     Map<String, String> query = const <String, String>{},
     Map<String, Cookie> cookieJar = const <String, Cookie>{},
+    String? cookieHeader,
   }) async {
     final client = HttpClient();
     try {
@@ -513,6 +529,10 @@ class MusicPlatformStore extends ChangeNotifier {
       request.headers.set('origin', 'https://music.163.com');
       for (final cookie in cookieJar.values) {
         request.cookies.add(Cookie(cookie.name, cookie.value));
+      }
+      final normalizedCookieHeader = (cookieHeader ?? '').trim();
+      if (normalizedCookieHeader.isNotEmpty) {
+        request.headers.set(HttpHeaders.cookieHeader, normalizedCookieHeader);
       }
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
@@ -550,6 +570,61 @@ class MusicPlatformStore extends ChangeNotifier {
         .where((cookie) => cookie.value.trim().isNotEmpty)
         .map((cookie) => '${cookie.name}=${cookie.value}')
         .join('; ');
+  }
+
+  Future<MusicPlatformLocalState> _validateNeteaseAccount(
+    MusicPlatformLocalState baseState,
+  ) async {
+    final cookie = baseState.rawCookie?.trim();
+    if (cookie == null || cookie.isEmpty) {
+      return baseState;
+    }
+    try {
+      final response = await _neteaseGet(
+        '/api/w/nuser/account/get',
+        cookieHeader: cookie,
+      );
+      final payload = _decodeJsonMap(response.body);
+      final account = (payload['account'] as Map?)?.cast<String, dynamic>();
+      final profile = (payload['profile'] as Map?)?.cast<String, dynamic>();
+      if (account == null || profile == null) {
+        return MusicPlatformLocalState(
+          provider: baseState.provider,
+          authState: MusicPlatformAuthStateKind.suspicious,
+          statusLabel: '待校验',
+          summary: 'Cookie 已保存，但未确认登录成功',
+          detail: '真实登录态校验没有拿到账号信息，当前更像游客态、失效态，或者 Cookie 不完整。',
+          detectedKeys: baseState.detectedKeys,
+          rawCookie: baseState.rawCookie,
+        );
+      }
+      final nickname = (profile['nickname'] ?? '').toString().trim();
+      final accountId = (account['id'] ?? profile['userId'] ?? '').toString().trim();
+      return MusicPlatformLocalState(
+        provider: baseState.provider,
+        authState: MusicPlatformAuthStateKind.imported,
+        statusLabel: '已登录',
+        summary: nickname.isEmpty ? '已通过网易云真实接口校验' : '已登录：$nickname',
+        detail: accountId.isEmpty
+            ? '已经通过网易云账号接口校验，当前 Cookie 可用。'
+            : '已经通过网易云账号接口校验，账号 ID：$accountId。',
+        detectedKeys: baseState.detectedKeys,
+        rawCookie: baseState.rawCookie,
+        remoteProfileName: nickname.isEmpty ? null : nickname,
+        remoteAccountId: accountId.isEmpty ? null : accountId,
+        remoteValidated: true,
+      );
+    } catch (error) {
+      return MusicPlatformLocalState(
+        provider: baseState.provider,
+        authState: MusicPlatformAuthStateKind.suspicious,
+        statusLabel: '校验失败',
+        summary: '本地 Cookie 已保存，但真实登录态校验失败',
+        detail: '网易云账号校验接口返回异常：$error',
+        detectedKeys: baseState.detectedKeys,
+        rawCookie: baseState.rawCookie,
+      );
+    }
   }
 
   void _setQrState(MusicPlatformQrLoginState state) {

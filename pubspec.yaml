@@ -25,6 +25,7 @@ dependencies:
   path_provider: ^2.1.5
   qr_flutter: ^4.1.0
   image_picker: ^1.1.2
+  just_audio: ^0.9.46
   url_launcher: ^6.3.1
   uuid: ^4.5.1
   web_socket_channel: ^3.0.3

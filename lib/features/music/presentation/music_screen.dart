@@ -51,6 +51,20 @@ class _MusicScreenState extends State<MusicScreen>
     _openPlayer(store);
   }
 
+  Future<void> _openSearch(BuildContext context, MusicStore store) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return ChangeNotifierProvider.value(
+          value: store,
+          child: const _MusicSearchSheet(),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -70,7 +84,7 @@ class _MusicScreenState extends State<MusicScreen>
             title: const Text('音乐'),
             actions: [
               IconButton(
-                onPressed: () {},
+                onPressed: () => _openSearch(context, store),
                 icon: const Icon(Icons.search_rounded),
               ),
             ],
@@ -785,6 +799,194 @@ class _MiniPlayer extends StatelessWidget {
                 ],
               ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MusicSearchSheet extends StatefulWidget {
+  const _MusicSearchSheet();
+
+  @override
+  State<_MusicSearchSheet> createState() => _MusicSearchSheetState();
+}
+
+class _MusicSearchSheetState extends State<_MusicSearchSheet> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<MusicStore>();
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 8, 16, bottomInset + 16),
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.78,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('搜索网易云', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            Text(
+              '先接真实搜索和直连解析。输入歌名或歌手，点结果就会尝试播放。',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _controller,
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: store.searchTracks,
+                    decoration: InputDecoration(
+                      hintText: '例如：晴天 周杰伦',
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      suffixIcon: _controller.text.isEmpty
+                          ? null
+                          : IconButton(
+                              onPressed: () {
+                                _controller.clear();
+                                store.clearSearchResults();
+                                setState(() {});
+                              },
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                FilledButton(
+                  onPressed: store.isSearching
+                      ? null
+                      : () => store.searchTracks(_controller.text),
+                  child: const Text('搜索'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (store.isSearching)
+              const LinearProgressIndicator()
+            else if ((store.searchError ?? '').trim().isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  '搜索失败：${store.searchError}',
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: store.searchResults.isEmpty
+                  ? Center(
+                      child: Text(
+                        _controller.text.trim().isEmpty ? '还没开始搜索' : '没有找到结果',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: store.searchResults.length,
+                      separatorBuilder: (_, _) => const SizedBox(height: 12),
+                      itemBuilder: (context, index) {
+                        final track = store.searchResults[index];
+                        return _SearchResultTile(track: track);
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SearchResultTile extends StatelessWidget {
+  const _SearchResultTile({required this.track});
+
+  final MusicTrack track;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = paletteForTone(track.artworkTone);
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () async {
+          final store = context.read<MusicStore>();
+          await store.selectTrack(track);
+          if (!context.mounted) return;
+          Navigator.of(context).pop();
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => MusicPlayerScreen(
+                track: track,
+                queue: store.queue.map((item) => item.track).toList(growable: false),
+              ),
+            ),
+          );
+        },
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFE7EAF4)),
+          ),
+          child: Row(
+            children: [
+              MusicArtwork(
+                track: track,
+                size: 58,
+                showMeta: false,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      track.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${track.artist} · ${track.album}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      track.durationLabel,
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: palette.gradient.first,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Icon(Icons.play_circle_fill_rounded, color: palette.gradient.first),
+            ],
           ),
         ),
       ),
