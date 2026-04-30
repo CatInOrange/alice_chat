@@ -21,7 +21,9 @@ class MusicPlayerScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<MusicStore>(
       builder: (context, store, _) {
-        final currentTrack = store.currentTrack;
+        final currentTrack = store.currentTrack.copyWith(
+          isFavorite: store.isTrackLiked(store.currentTrack.id),
+        );
         final currentQueue = store.queue
             .map((item) => item.track)
             .toList(growable: false);
@@ -163,7 +165,9 @@ class MusicPlayerScreen extends StatelessWidget {
                                           ),
                                         ),
                                         IconButton(
-                                          onPressed: () {},
+                                          onPressed: () {
+                                            store.toggleTrackLiked(currentTrack);
+                                          },
                                           icon: Icon(
                                             currentTrack.isFavorite
                                                 ? Icons.favorite_rounded

@@ -27,10 +27,9 @@ class _MusicScreenState extends State<MusicScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final store = context.read<MusicStore>();
       await store.ensureReady();
-      final liked = await store.getLikedPlaylist();
       if (!mounted) return;
       setState(() {
-        _likedPlaylist = liked;
+        _likedPlaylist = store.likedPlaylist;
       });
     });
   }
@@ -77,14 +76,14 @@ class _MusicScreenState extends State<MusicScreen>
     super.build(context);
     return Consumer<MusicStore>(
       builder: (context, store, _) {
-        final currentTrack = store.currentTrack;
+        final currentTrack = store.currentTrack.copyWith(
+          isFavorite: store.isTrackLiked(store.currentTrack.id),
+        );
         final isPlaying = store.isPlaying;
         final playlists =
             store.playlists.isEmpty ? _catalog.playlists : store.playlists;
         final recentPlaylists = store.recentPlaylists;
-        final likedPlaylist =
-            _likedPlaylist ??
-            (playlists.isNotEmpty ? playlists.first : MockMusicCatalog.likedPlaylist);
+        final likedPlaylist = _likedPlaylist ?? store.likedPlaylist;
 
         return Scaffold(
           appBar: AppBar(
@@ -115,9 +114,7 @@ class _MusicScreenState extends State<MusicScreen>
                   const SizedBox(height: 28),
                   _SectionHeader(
                     title: '我的歌单',
-                    subtitle: likedPlaylist.id.startsWith('netease-playlist:')
-                        ? '已接入网易云歌单，优先展示你的真实收藏'
-                        : '以后你可以自己创建、收藏和整理',
+                    subtitle: '“我喜欢”由 AliceChat 独立维护，其他平台歌单继续并列展示',
                     actionLabel: '新建',
                     onActionTap: () {},
                   ),
@@ -445,7 +442,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
                 Text(playlist.title, style: theme.textTheme.titleLarge),
                 const SizedBox(height: 4),
                 Text(
-                  '${playlist.trackCount} 首 · 快速开始今天最常听的收藏',
+                  '${playlist.trackCount} 首 · AliceChat 跨平台统一收藏',
                   style: theme.textTheme.bodySmall,
                 ),
                 const SizedBox(height: 10),
@@ -931,7 +928,9 @@ class _SearchResultTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = paletteForTone(track.artworkTone);
+    final store = context.watch<MusicStore>();
+    final effectiveTrack = track.copyWith(isFavorite: store.isTrackLiked(track.id));
+    final palette = paletteForTone(effectiveTrack.artworkTone);
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(20),
@@ -939,13 +938,13 @@ class _SearchResultTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         onTap: () async {
           final store = context.read<MusicStore>();
-          await store.selectTrack(track);
+          await store.selectTrack(effectiveTrack);
           if (!context.mounted) return;
           Navigator.of(context).pop();
           Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) => MusicPlayerScreen(
-                track: track,
+                track: effectiveTrack,
                 queue: store.queue.map((item) => item.track).toList(growable: false),
               ),
             ),
@@ -959,10 +958,40 @@ class _SearchResultTile extends StatelessWidget {
           ),
           child: Row(
             children: [
-              MusicArtwork(
-                track: track,
-                size: 58,
-                showMeta: false,
+              Stack(
+                children: [
+                  MusicArtwork(
+                    track: effectiveTrack,
+                    size: 58,
+                    showMeta: false,
+                  ),
+                  Positioned(
+                    right: -2,
+                    top: -2,
+                    child: Material(
+                      color: Colors.white,
+                      shape: const CircleBorder(),
+                      child: InkWell(
+                        customBorder: const CircleBorder(),
+                        onTap: () {
+                          context.read<MusicStore>().toggleTrackLiked(effectiveTrack);
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(4),
+                          child: Icon(
+                            effectiveTrack.isFavorite
+                                ? Icons.favorite_rounded
+                                : Icons.favorite_border_rounded,
+                            size: 16,
+                            color: effectiveTrack.isFavorite
+                                ? const Color(0xFFE91E63)
+                                : const Color(0xFF7D879A),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -970,21 +999,21 @@ class _SearchResultTile extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      track.title,
+                      effectiveTrack.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${track.artist} · ${track.album}',
+                      '${effectiveTrack.artist} · ${effectiveTrack.album}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      track.durationLabel,
+                      effectiveTrack.durationLabel,
                       style: Theme.of(context).textTheme.labelMedium?.copyWith(
                         color: palette.gradient.first,
                         fontWeight: FontWeight.w700,

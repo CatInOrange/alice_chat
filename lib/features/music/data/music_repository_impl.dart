@@ -47,6 +47,14 @@ class MusicRepositoryImpl implements MusicRepository {
             ),
           )
           .toList(growable: false);
+      final likedTracks = ((response['likedTracks'] as List<dynamic>?) ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) => MusicTrack.fromMap(
+              Map<String, dynamic>.from(item.cast<String, dynamic>()),
+            ),
+          )
+          .toList(growable: false);
       final positionMsRaw = response['positionMs'] ?? 0;
       return MusicStateSnapshot(
         currentTrack:
@@ -54,6 +62,7 @@ class MusicRepositoryImpl implements MusicRepository {
         queue: queue,
         playlists: playlists,
         recentTracks: recentTracks,
+        likedTracks: likedTracks,
         isPlaying: response['isPlaying'] == true,
         position: Duration(
           milliseconds: positionMsRaw is num
@@ -97,11 +106,31 @@ class MusicRepositoryImpl implements MusicRepository {
   }
 
   @override
-  Future<MusicPlaylist?> loadLikedPlaylist() async {
-    final netease = (_resolver as MusicSourceResolverImpl).registry.providerById(
-      'netease',
+  Future<List<MusicTrack>> loadLikedTracks() async {
+    final response = await _client.getMusicState();
+    final likedTracks = ((response['likedTracks'] as List<dynamic>?) ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => MusicTrack.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+    return likedTracks;
+  }
+
+  @override
+  Future<void> setTrackLiked(MusicTrack track, bool liked) async {
+    final current = await loadLikedTracks();
+    final filtered = current.where((item) => item.id != track.id).toList(growable: true);
+    if (liked) {
+      filtered.insert(0, track.copyWith(isFavorite: true));
+    }
+    await _client.saveMusicState(
+      payload: {
+        'likedTracks': filtered.map((item) => item.toMap()).toList(),
+      },
     );
-    return netease?.loadLikedPlaylist();
   }
 
   @override
@@ -109,6 +138,9 @@ class MusicRepositoryImpl implements MusicRepository {
     final providerId = playlist.id.startsWith('netease-playlist:')
         ? 'netease'
         : null;
+    if (playlist.id == 'liked-local') {
+      return loadLikedTracks();
+    }
     if (providerId == null) {
       return MockMusicCatalog.tracksForPlaylist(playlist.id);
     }
@@ -126,6 +158,7 @@ class MusicRepositoryImpl implements MusicRepository {
     required List<PlaybackQueueItem> queue,
     required bool isPlaying,
     required Duration position,
+    List<MusicTrack>? likedTracks,
   }) async {
     try {
       await _client.saveMusicState(
@@ -134,6 +167,8 @@ class MusicRepositoryImpl implements MusicRepository {
           'queue': queue.map((item) => item.toMap()).toList(),
           'isPlaying': isPlaying,
           'positionMs': position.inMilliseconds,
+          if (likedTracks != null)
+            'likedTracks': likedTracks.map((item) => item.toMap()).toList(),
         },
       );
     } catch (_) {

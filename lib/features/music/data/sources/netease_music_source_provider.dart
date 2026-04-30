@@ -190,7 +190,7 @@ class NeteaseMusicSourceProvider implements MusicSourceProvider {
         .map((item) => Map<String, dynamic>.from(item.cast<String, dynamic>()))
         .map(_candidateFromSong)
         .whereType<SourceCandidate>()
-        .map((candidate) => candidate.track.toMusicTrack(isFavorite: true))
+        .map((candidate) => candidate.track.toMusicTrack())
         .toList(growable: false);
     return tracks;
   }

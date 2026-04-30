@@ -9,7 +9,9 @@ abstract class MusicRepository {
 
   Future<List<MusicPlaylist>> loadUserPlaylists();
 
-  Future<MusicPlaylist?> loadLikedPlaylist();
+  Future<List<MusicTrack>> loadLikedTracks();
+
+  Future<void> setTrackLiked(MusicTrack track, bool liked);
 
   Future<List<MusicTrack>> loadPlaylistTracks(MusicPlaylist playlist);
 
@@ -18,5 +20,6 @@ abstract class MusicRepository {
     required List<PlaybackQueueItem> queue,
     required bool isPlaying,
     required Duration position,
+    List<MusicTrack>? likedTracks,
   });
 }

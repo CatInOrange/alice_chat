@@ -74,6 +74,7 @@ class MusicStore extends ChangeNotifier {
   List<MusicPlaylist> _playlists = MockMusicCatalog.playlists;
   List<MusicTrack> _recentTracks = MockMusicCatalog.recentTracks;
   List<MusicPlaylist> _recentPlaylists = MockMusicCatalog.recentPlaylists;
+  List<MusicTrack> _likedTracks = const <MusicTrack>[];
   bool _isSearching = false;
   String? _searchError;
   List<MusicTrack> _searchResults = const [];
@@ -91,6 +92,7 @@ class MusicStore extends ChangeNotifier {
   List<MusicPlaylist> get playlists => _playlists;
   List<MusicTrack> get recentTracks => _recentTracks;
   List<MusicPlaylist> get recentPlaylists => _recentPlaylists;
+  List<MusicTrack> get likedTracks => _likedTracks;
   bool get isSearching => _isSearching;
   String? get searchError => _searchError;
   List<MusicTrack> get searchResults => _searchResults;
@@ -141,13 +143,24 @@ class MusicStore extends ChangeNotifier {
       if (state.recentTracks.isNotEmpty) {
         _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
       }
+      _likedTracks = List<MusicTrack>.unmodifiable(state.likedTracks);
+      _currentTrack = _currentTrack.copyWith(
+        isFavorite: isTrackLiked(_currentTrack.id),
+      );
       try {
         final remotePlaylists = await _repository.loadUserPlaylists();
-        if (remotePlaylists.isNotEmpty) {
-          _playlists = List<MusicPlaylist>.unmodifiable(remotePlaylists);
-        }
+        final basePlaylists = remotePlaylists.isNotEmpty
+            ? remotePlaylists
+            : _playlists;
+        _playlists = List<MusicPlaylist>.unmodifiable([
+          likedPlaylist,
+          ...basePlaylists.where((item) => item.id != likedPlaylist.id),
+        ]);
       } catch (_) {
-        // ignore and keep fallback playlists
+        _playlists = List<MusicPlaylist>.unmodifiable([
+          likedPlaylist,
+          ..._playlists.where((item) => item.id != likedPlaylist.id),
+        ]);
       }
       _isPlaying = state.isPlaying;
       _position = state.position;
@@ -162,7 +175,7 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> selectTrack(MusicTrack track, {bool autoplay = true}) async {
-    _currentTrack = track;
+    _currentTrack = track.copyWith(isFavorite: isTrackLiked(track.id));
     _duration = track.duration;
     _isPlaying = autoplay;
     notifyListeners();
@@ -202,16 +215,60 @@ class MusicStore extends ChangeNotifier {
     );
   }
 
-  Future<MusicPlaylist> getLikedPlaylist() async {
-    try {
-      final liked = await _repository.loadLikedPlaylist();
-      if (liked != null) {
-        return liked;
-      }
-    } catch (_) {
-      // ignore and keep fallback playlist
-    }
-    return _playlists.isNotEmpty ? _playlists.first : MockMusicCatalog.likedPlaylist;
+  MusicPlaylist get likedPlaylist => MusicPlaylist(
+    id: 'liked-local',
+    title: '我喜欢的',
+    subtitle: 'AliceChat 为你统一维护的跨平台收藏',
+    tag: 'LIKED',
+    trackCount: _likedTracks.length,
+    artworkTone: MusicArtworkTone.rose,
+  );
+
+  Future<MusicPlaylist> getLikedPlaylist() async => likedPlaylist;
+
+  bool isTrackLiked(String trackId) =>
+      _likedTracks.any((item) => item.id == trackId);
+
+  Future<void> toggleTrackLiked(MusicTrack track) async {
+    final liked = !isTrackLiked(track.id);
+    final nextTrack = track.copyWith(isFavorite: liked);
+    final nextLikedTracks = liked
+        ? <MusicTrack>[nextTrack, ..._likedTracks.where((item) => item.id != track.id)]
+        : _likedTracks.where((item) => item.id != track.id).toList(growable: false);
+    _likedTracks = List<MusicTrack>.unmodifiable(nextLikedTracks);
+    _currentTrack = _currentTrack.id == track.id
+        ? _currentTrack.copyWith(isFavorite: liked)
+        : _currentTrack;
+    _queue = List<PlaybackQueueItem>.unmodifiable(
+      _queue
+          .map(
+            (item) => item.track.id == track.id
+                ? PlaybackQueueItem(
+                    track: item.track.copyWith(isFavorite: liked),
+                    candidate: item.candidate,
+                    resolvedSource: item.resolvedSource,
+                    requestedBy: item.requestedBy,
+                  )
+                : item,
+          )
+          .toList(growable: false),
+    );
+    _recentTracks = List<MusicTrack>.unmodifiable(
+      _recentTracks
+          .map((item) => item.id == track.id ? item.copyWith(isFavorite: liked) : item)
+          .toList(growable: false),
+    );
+    notifyListeners();
+    await _repository.setTrackLiked(track, liked);
+    unawaited(
+      _repository.savePlaybackSnapshot(
+        currentTrack: _currentTrack,
+        queue: _queue,
+        isPlaying: _isPlaying,
+        position: _position,
+        likedTracks: _likedTracks,
+      ),
+    );
   }
 
   Future<void> searchTracks(String query) async {
@@ -270,6 +327,7 @@ class MusicStore extends ChangeNotifier {
         queue: _queue,
         isPlaying: _isPlaying,
         position: _position,
+        likedTracks: _likedTracks,
       ),
     );
   }
@@ -291,6 +349,7 @@ class MusicStore extends ChangeNotifier {
         queue: _queue,
         isPlaying: _isPlaying,
         position: _position,
+        likedTracks: _likedTracks,
       ),
     );
   }
@@ -334,6 +393,7 @@ class MusicStore extends ChangeNotifier {
         queue: _queue,
         isPlaying: _isPlaying,
         position: _position,
+        likedTracks: _likedTracks,
       ),
     );
   }
@@ -345,8 +405,21 @@ class MusicStore extends ChangeNotifier {
       case MusicCommandType.replaceQueue:
         final incomingQueue = command.queue;
         if (incomingQueue.isNotEmpty) {
-          _queue = List<PlaybackQueueItem>.unmodifiable(incomingQueue);
-          _currentTrack = incomingQueue.first.track;
+          _queue = List<PlaybackQueueItem>.unmodifiable(
+          incomingQueue
+              .map(
+                (item) => PlaybackQueueItem(
+                  track: item.track.copyWith(
+                    isFavorite: isTrackLiked(item.track.id),
+                  ),
+                  candidate: item.candidate,
+                  resolvedSource: item.resolvedSource,
+                  requestedBy: item.requestedBy,
+                ),
+              )
+              .toList(growable: false),
+        );
+          _currentTrack = _queue.first.track;
           _playbackHistory.clear();
         }
         final resolved = await _repository.resolveTrack(_currentTrack);
@@ -363,7 +436,16 @@ class MusicStore extends ChangeNotifier {
         if (command.queue.isNotEmpty) {
           _queue = List<PlaybackQueueItem>.unmodifiable([
             ..._queue,
-            ...command.queue,
+            ...command.queue.map(
+              (item) => PlaybackQueueItem(
+                track: item.track.copyWith(
+                  isFavorite: isTrackLiked(item.track.id),
+                ),
+                candidate: item.candidate,
+                resolvedSource: item.resolvedSource,
+                requestedBy: item.requestedBy,
+              ),
+            ),
           ]);
         }
         break;
@@ -385,7 +467,13 @@ class MusicStore extends ChangeNotifier {
         await seekTo(Duration(milliseconds: command.positionMs ?? 0));
         break;
       case MusicCommandType.likeTrack:
+        await toggleTrackLiked(_currentTrack.copyWith(isFavorite: false));
+        return;
       case MusicCommandType.unlikeTrack:
+        if (isTrackLiked(_currentTrack.id)) {
+          await toggleTrackLiked(_currentTrack.copyWith(isFavorite: true));
+          return;
+        }
         break;
     }
     notifyListeners();
@@ -395,6 +483,7 @@ class MusicStore extends ChangeNotifier {
         queue: _queue,
         isPlaying: _isPlaying,
         position: _position,
+        likedTracks: _likedTracks,
       ),
     );
   }
@@ -411,7 +500,7 @@ class MusicStore extends ChangeNotifier {
   void _handlePlaybackState(PlaybackAdapterState state) {
     final track = state.currentTrack;
     if (track != null) {
-      _currentTrack = track;
+      _currentTrack = track.copyWith(isFavorite: isTrackLiked(track.id));
     }
     _isPlaying = state.isPlaying;
     _isBuffering = state.isBuffering;
@@ -448,7 +537,9 @@ class MusicStore extends ChangeNotifier {
       _playbackHistory.add(_currentTrack);
       final nextQueue = _queue.sublist(1);
       _queue = List<PlaybackQueueItem>.unmodifiable(nextQueue);
-      _currentTrack = nextQueue.first.track;
+      _currentTrack = nextQueue.first.track.copyWith(
+        isFavorite: isTrackLiked(nextQueue.first.track.id),
+      );
       _duration = _currentTrack.duration;
       final resolved = await _repository.resolveTrack(_currentTrack);
       await _playbackAdapter.play(track: _currentTrack, source: resolved);
@@ -475,6 +566,7 @@ class MusicStateSnapshot {
     this.queue = const [],
     this.playlists = const [],
     this.recentTracks = const [],
+    this.likedTracks = const [],
     this.isPlaying = false,
     this.position = Duration.zero,
   });
@@ -483,6 +575,7 @@ class MusicStateSnapshot {
   final List<PlaybackQueueItem> queue;
   final List<MusicPlaylist> playlists;
   final List<MusicTrack> recentTracks;
+  final List<MusicTrack> likedTracks;
   final bool isPlaying;
   final Duration position;
 }
