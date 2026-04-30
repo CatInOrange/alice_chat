@@ -1,5 +1,12 @@
+import 'dart:async';
+import 'dart:io';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../../core/debug/native_debug_bridge.dart';
 import '../../../core/openclaw/openclaw_http_client.dart';
@@ -294,6 +301,148 @@ class _SettingsScreenState extends State<SettingsScreen> {
     controller.dispose();
   }
 
+  Future<void> _showQrLoginDialog(MusicPlatformLocalState platform) async {
+    final providerId = platform.provider.providerId;
+    final store = context.read<MusicPlatformStore>();
+    unawaited(store.startQrLogin(providerId));
+
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return Consumer<MusicPlatformStore>(
+          builder: (context, musicPlatforms, _) {
+            final qrState = musicPlatforms.qrStateFor(providerId);
+            return AlertDialog(
+              title: Text('${platform.provider.displayName} 二维码登录'),
+              content: SizedBox(
+                width: 360,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '第一版已经接上真实网易云扫码链路：生成 key、轮询状态、成功后把 Cookie 落到本地。',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 16),
+                    _QrLoginStatusCard(state: qrState),
+                    const SizedBox(height: 16),
+                    if (qrState?.canRenderQr ?? false)
+                      Center(
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: const Color(0xFFE6EAF3)),
+                          ),
+                          child: QrImageView(
+                            data: qrState!.qrData!,
+                            size: 220,
+                            backgroundColor: Colors.white,
+                          ),
+                        ),
+                      )
+                    else
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 32),
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
+                    const SizedBox(height: 16),
+                    const Text('使用方法：'),
+                    const SizedBox(height: 6),
+                    const Text('1. 打开网易云音乐 App'),
+                    const Text('2. 扫描上面的二维码'),
+                    const Text('3. 在手机上确认登录'),
+                    const SizedBox(height: 10),
+                    if ((qrState?.unikey ?? '').isNotEmpty)
+                      SelectableText(
+                        'codekey: ${qrState!.unikey!}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () async {
+                    await store.closeQrLogin(providerId, clearState: true);
+                    if (dialogContext.mounted) {
+                      Navigator.of(dialogContext).pop();
+                    }
+                  },
+                  child: const Text('关闭'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: (qrState?.canRenderQr ?? false)
+                      ? () => _saveQrImage(
+                            platform.provider.displayName,
+                            qrState!.qrData!,
+                          )
+                      : null,
+                  icon: const Icon(Icons.download_rounded),
+                  label: const Text('下载二维码'),
+                ),
+                FilledButton.icon(
+                  onPressed: qrState?.phase == MusicPlatformQrLoginPhase.preparing
+                      ? null
+                      : () => store.refreshQrLogin(providerId),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('重新生成'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _saveQrImage(String displayName, String qrData) async {
+    try {
+      final qrPainter = QrPainter(
+        data: qrData,
+        version: QrVersions.auto,
+        gapless: true,
+        eyeStyle: const QrEyeStyle(
+          eyeShape: QrEyeShape.square,
+          color: Colors.black,
+        ),
+        dataModuleStyle: const QrDataModuleStyle(
+          dataModuleShape: QrDataModuleShape.square,
+          color: Colors.black,
+        ),
+      );
+      final imageData = await qrPainter.toImageData(
+        1024,
+        format: ui.ImageByteFormat.png,
+      );
+      if (imageData == null) {
+        throw Exception('二维码渲染失败');
+      }
+      final directory = await getApplicationDocumentsDirectory();
+      final exportDir = Directory(p.join(directory.path, 'music_provider_qr'));
+      if (!await exportDir.exists()) {
+        await exportDir.create(recursive: true);
+      }
+      final filename =
+          'qr_${displayName}_${DateTime.now().millisecondsSinceEpoch}.png';
+      final file = File(p.join(exportDir.path, filename));
+      await file.writeAsBytes(imageData.buffer.asUint8List(), flush: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('二维码已保存到 ${file.path}')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('保存二维码失败：$error')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final musicPlatforms = context.watch<MusicPlatformStore>();
@@ -392,7 +541,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      '平台登录属于全局能力，统一放在设置页管理。这一轮先把客户端侧本地登录骨架和状态判断立住。',
+                      '平台登录属于全局能力，统一放在设置页管理。现在已经接入第一版网易云二维码登录，成功后会把 Cookie 保存到本地。',
                     ),
                     const SizedBox(height: 16),
                     if (musicPlatforms.isLoading)
@@ -410,7 +559,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           padding: const EdgeInsets.only(bottom: 12),
                           child: _MusicProviderCard(
                             platform: platform,
+                            qrState: musicPlatforms.qrStateFor(
+                              platform.provider.providerId,
+                            ),
                             onImportCookie: () => _showCookieImportSheet(platform),
+                            onQrLogin: platform.provider.supportedAuthMethods
+                                    .contains('qrCode')
+                                ? () => _showQrLoginDialog(platform)
+                                : null,
                             onClearCookie: platform.hasCookie
                                 ? () async {
                                     await context
@@ -530,12 +686,16 @@ class _PlatformErrorBanner extends StatelessWidget {
 class _MusicProviderCard extends StatelessWidget {
   const _MusicProviderCard({
     required this.platform,
+    required this.qrState,
     required this.onImportCookie,
+    required this.onQrLogin,
     required this.onClearCookie,
   });
 
   final MusicPlatformLocalState platform;
+  final MusicPlatformQrLoginState? qrState;
   final Future<void> Function() onImportCookie;
+  final Future<void> Function()? onQrLogin;
   final Future<void> Function()? onClearCookie;
 
   @override
@@ -618,6 +778,10 @@ class _MusicProviderCard extends StatelessWidget {
                   .toList(growable: false),
             ),
           ],
+          if (qrState != null) ...[
+            const SizedBox(height: 12),
+            _InlineQrStateBanner(state: qrState!),
+          ],
           const SizedBox(height: 14),
           Row(
             children: [
@@ -631,15 +795,7 @@ class _MusicProviderCard extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: provider.supportedAuthMethods.contains('qrCode')
-                      ? () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('二维码登录下一轮前端能力接入时再落地。'),
-                            ),
-                          );
-                        }
-                      : null,
+                  onPressed: onQrLogin,
                   icon: const Icon(Icons.qr_code_2),
                   label: const Text('二维码登录'),
                 ),
@@ -657,6 +813,69 @@ class _MusicProviderCard extends StatelessWidget {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class _QrLoginStatusCard extends StatelessWidget {
+  const _QrLoginStatusCard({required this.state});
+
+  final MusicPlatformQrLoginState? state;
+
+  @override
+  Widget build(BuildContext context) {
+    final currentState = state;
+    if (currentState == null) {
+      return const _InlineQrStateBanner(
+        state: MusicPlatformQrLoginState(
+          providerId: 'unknown',
+          phase: MusicPlatformQrLoginPhase.preparing,
+          statusLabel: '准备中',
+          detail: '正在初始化二维码登录…',
+        ),
+      );
+    }
+    return _InlineQrStateBanner(state: currentState, dense: false);
+  }
+}
+
+class _InlineQrStateBanner extends StatelessWidget {
+  const _InlineQrStateBanner({required this.state, this.dense = true});
+
+  final MusicPlatformQrLoginState state;
+  final bool dense;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (state.phase) {
+      MusicPlatformQrLoginPhase.authorized => const Color(0xFF2E7D32),
+      MusicPlatformQrLoginPhase.expired || MusicPlatformQrLoginPhase.failed =>
+        const Color(0xFFC62828),
+      MusicPlatformQrLoginPhase.waitingConfirm => const Color(0xFFB26A00),
+      MusicPlatformQrLoginPhase.idle ||
+      MusicPlatformQrLoginPhase.preparing ||
+      MusicPlatformQrLoginPhase.waitingScan => const Color(0xFF3559E0),
+    };
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(dense ? 12 : 14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.16)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            state.statusLabel,
+            style: TextStyle(color: color, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          Text(state.detail, style: Theme.of(context).textTheme.bodySmall),
         ],
       ),
     );

@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 
 import '../../../core/openclaw/music_provider_models.dart';
@@ -10,6 +14,16 @@ enum MusicPlatformAuthStateKind {
   missing,
   imported,
   suspicious,
+}
+
+enum MusicPlatformQrLoginPhase {
+  idle,
+  preparing,
+  waitingScan,
+  waitingConfirm,
+  authorized,
+  expired,
+  failed,
 }
 
 class MusicPlatformLocalState {
@@ -35,6 +49,26 @@ class MusicPlatformLocalState {
   bool get likelyReady => authState == MusicPlatformAuthStateKind.imported;
 }
 
+class MusicPlatformQrLoginState {
+  const MusicPlatformQrLoginState({
+    required this.providerId,
+    required this.phase,
+    required this.statusLabel,
+    required this.detail,
+    this.qrData,
+    this.unikey,
+  });
+
+  final String providerId;
+  final MusicPlatformQrLoginPhase phase;
+  final String statusLabel;
+  final String detail;
+  final String? qrData;
+  final String? unikey;
+
+  bool get canRenderQr => (qrData ?? '').trim().isNotEmpty;
+}
+
 class MusicPlatformStore extends ChangeNotifier {
   MusicPlatformStore({OpenClawClient? client})
     : _client =
@@ -57,6 +91,10 @@ class MusicPlatformStore extends ChangeNotifier {
   String? _error;
   List<MusicProviderInfo> _providers = const [];
   Map<String, MusicPlatformLocalState> _localStates = const {};
+  Map<String, MusicPlatformQrLoginState> _qrStates = const {};
+  final Map<String, Timer> _qrPollTimers = <String, Timer>{};
+  final Map<String, _NeteaseQrSession> _qrSessions =
+      <String, _NeteaseQrSession>{};
 
   bool get isLoading => _isLoading;
   bool get isReady => _isReady;
@@ -72,6 +110,9 @@ class MusicPlatformStore extends ChangeNotifier {
           .toList(growable: false);
 
   MusicPlatformLocalState? stateFor(String providerId) => _localStates[providerId];
+
+  MusicPlatformQrLoginState? qrStateFor(String providerId) =>
+      _qrStates[providerId];
 
   Future<void> reloadConfig() async {
     final config = await OpenClawSettingsStore.load();
@@ -139,6 +180,72 @@ class MusicPlatformStore extends ChangeNotifier {
     await _refreshProviderLocalState(providerId);
   }
 
+  Future<void> startQrLogin(String providerId) async {
+    if (providerId != 'netease') {
+      _setQrState(
+        MusicPlatformQrLoginState(
+          providerId: providerId,
+          phase: MusicPlatformQrLoginPhase.failed,
+          statusLabel: '暂不支持',
+          detail: '当前只有网易云音乐接入了二维码登录骨架。',
+        ),
+      );
+      return;
+    }
+
+    await closeQrLogin(providerId, clearState: true);
+    _setQrState(
+      MusicPlatformQrLoginState(
+        providerId: providerId,
+        phase: MusicPlatformQrLoginPhase.preparing,
+        statusLabel: '准备中',
+        detail: '正在向网易云申请二维码登录 key…',
+      ),
+    );
+
+    try {
+      final session = await _createNeteaseQrSession();
+      _qrSessions[providerId] = session;
+      final qrData = 'https://music.163.com/login?codekey=${Uri.encodeComponent(session.unikey)}';
+      _setQrState(
+        MusicPlatformQrLoginState(
+          providerId: providerId,
+          phase: MusicPlatformQrLoginPhase.waitingScan,
+          statusLabel: '待扫码',
+          detail: '请用网易云音乐 App 扫码；扫码后还需要在手机上确认登录。',
+          qrData: qrData,
+          unikey: session.unikey,
+        ),
+      );
+      _startQrPolling(providerId);
+    } catch (error) {
+      _setQrState(
+        MusicPlatformQrLoginState(
+          providerId: providerId,
+          phase: MusicPlatformQrLoginPhase.failed,
+          statusLabel: '启动失败',
+          detail: '二维码登录初始化失败：$error',
+        ),
+      );
+    }
+  }
+
+  Future<void> refreshQrLogin(String providerId) => startQrLogin(providerId);
+
+  Future<void> closeQrLogin(
+    String providerId, {
+    bool clearState = false,
+  }) async {
+    _qrPollTimers.remove(providerId)?.cancel();
+    _qrSessions.remove(providerId);
+    if (clearState) {
+      final nextStates = Map<String, MusicPlatformQrLoginState>.from(_qrStates);
+      nextStates.remove(providerId);
+      _qrStates = nextStates;
+      notifyListeners();
+    }
+  }
+
   Future<void> _refreshProviderLocalState(String providerId) async {
     final provider = _providers.where((item) => item.providerId == providerId).firstOrNull;
     if (provider == null) return;
@@ -162,7 +269,7 @@ class MusicPlatformStore extends ChangeNotifier {
         authState: MusicPlatformAuthStateKind.missing,
         statusLabel: '未配置',
         summary: '还没有导入本地登录信息',
-        detail: '建议先导入 Cookie；下一轮客户端侧会直接基于它做真实登录校验和播放源解析。',
+        detail: '你现在可以直接导入 Cookie，或者改用二维码登录。后续真实搜索和播放源解析都会基于本地登录态继续往下接。',
         detectedKeys: const [],
       );
     }
@@ -252,6 +359,207 @@ class MusicPlatformStore extends ChangeNotifier {
     );
   }
 
+  void _startQrPolling(String providerId) {
+    _qrPollTimers.remove(providerId)?.cancel();
+    _qrPollTimers[providerId] = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => unawaited(_pollQrLogin(providerId)),
+    );
+  }
+
+  Future<void> _pollQrLogin(String providerId) async {
+    final session = _qrSessions[providerId];
+    final state = _qrStates[providerId];
+    if (session == null || state == null) return;
+    if (state.phase == MusicPlatformQrLoginPhase.authorized ||
+        state.phase == MusicPlatformQrLoginPhase.expired ||
+        state.phase == MusicPlatformQrLoginPhase.failed) {
+      return;
+    }
+
+    try {
+      final response = await _neteaseGet(
+        '/api/login/qrcode/client/login',
+        query: <String, String>{
+          'key': session.unikey,
+          'type': '1',
+        },
+        cookieJar: session.cookieJar,
+      );
+      session.cookieJar
+        ..clear()
+        ..addAll(response.cookieJar);
+      final payload = _decodeJsonMap(response.body);
+      final code = int.tryParse((payload['code'] ?? '').toString()) ?? -1;
+      switch (code) {
+        case 801:
+          _setQrState(
+            MusicPlatformQrLoginState(
+              providerId: providerId,
+              phase: MusicPlatformQrLoginPhase.waitingScan,
+              statusLabel: '待扫码',
+              detail: '二维码已生成，请用网易云音乐 App 扫码。',
+              qrData: state.qrData,
+              unikey: session.unikey,
+            ),
+          );
+          break;
+        case 802:
+          _setQrState(
+            MusicPlatformQrLoginState(
+              providerId: providerId,
+              phase: MusicPlatformQrLoginPhase.waitingConfirm,
+              statusLabel: '待确认',
+              detail: '已经扫码，请在手机上确认登录。',
+              qrData: state.qrData,
+              unikey: session.unikey,
+            ),
+          );
+          break;
+        case 803:
+          final cookieHeader = _cookieJarToHeader(session.cookieJar);
+          if (cookieHeader.trim().isEmpty) {
+            throw Exception('扫码成功，但没有拿到可用 Cookie');
+          }
+          await OpenClawSettingsStore.saveMusicProviderCookie(
+            providerId: providerId,
+            cookie: cookieHeader,
+          );
+          await _refreshProviderLocalState(providerId);
+          _setQrState(
+            MusicPlatformQrLoginState(
+              providerId: providerId,
+              phase: MusicPlatformQrLoginPhase.authorized,
+              statusLabel: '已登录',
+              detail: '扫码登录成功，登录态已经保存到本地。下一步就可以继续接真实搜索与播放源解析。',
+              qrData: state.qrData,
+              unikey: session.unikey,
+            ),
+          );
+          await closeQrLogin(providerId);
+          break;
+        case 800:
+          _setQrState(
+            MusicPlatformQrLoginState(
+              providerId: providerId,
+              phase: MusicPlatformQrLoginPhase.expired,
+              statusLabel: '已过期',
+              detail: '二维码已经过期，请重新生成。',
+              qrData: state.qrData,
+              unikey: session.unikey,
+            ),
+          );
+          await closeQrLogin(providerId);
+          break;
+        default:
+          final message = (payload['message'] ?? payload['msg'] ?? '未知状态').toString();
+          _setQrState(
+            MusicPlatformQrLoginState(
+              providerId: providerId,
+              phase: MusicPlatformQrLoginPhase.failed,
+              statusLabel: '轮询失败',
+              detail: '二维码状态检查失败：$message',
+              qrData: state.qrData,
+              unikey: session.unikey,
+            ),
+          );
+          await closeQrLogin(providerId);
+      }
+    } catch (error) {
+      _setQrState(
+        MusicPlatformQrLoginState(
+          providerId: providerId,
+          phase: MusicPlatformQrLoginPhase.failed,
+          statusLabel: '轮询失败',
+          detail: '二维码状态检查失败：$error',
+          qrData: state.qrData,
+          unikey: session.unikey,
+        ),
+      );
+      await closeQrLogin(providerId);
+    }
+  }
+
+  Future<_NeteaseQrSession> _createNeteaseQrSession() async {
+    final response = await _neteaseGet(
+      '/api/login/qrcode/unikey',
+      query: const <String, String>{'type': '1'},
+    );
+    final payload = _decodeJsonMap(response.body);
+    final unikey = (payload['unikey'] ?? '').toString().trim();
+    if (unikey.isEmpty) {
+      throw Exception('没有拿到 unikey：${payload['message'] ?? payload['msg'] ?? response.body}');
+    }
+    return _NeteaseQrSession(unikey: unikey, cookieJar: response.cookieJar);
+  }
+
+  Future<_NeteaseHttpResponse> _neteaseGet(
+    String path, {
+    Map<String, String> query = const <String, String>{},
+    Map<String, Cookie> cookieJar = const <String, Cookie>{},
+  }) async {
+    final client = HttpClient();
+    try {
+      final request = await client.getUrl(Uri.https('music.163.com', path, query));
+      request.headers.set(
+        HttpHeaders.userAgentHeader,
+        'Mozilla/5.0 (Linux; Android 14; AliceChat) AppleWebKit/537.36',
+      );
+      request.headers.set(
+        HttpHeaders.acceptHeader,
+        'application/json, text/plain, */*',
+      );
+      request.headers.set(HttpHeaders.refererHeader, 'https://music.163.com/login');
+      request.headers.set('origin', 'https://music.163.com');
+      for (final cookie in cookieJar.values) {
+        request.cookies.add(Cookie(cookie.name, cookie.value));
+      }
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      final nextJar = <String, Cookie>{...cookieJar};
+      for (final cookie in response.cookies) {
+        nextJar[cookie.name] = cookie;
+      }
+      return _NeteaseHttpResponse(
+        statusCode: response.statusCode,
+        body: body,
+        cookieJar: nextJar,
+      );
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  Map<String, dynamic> _decodeJsonMap(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      if (decoded is Map) {
+        return Map<String, dynamic>.from(decoded);
+      }
+    } catch (_) {
+      // ignore
+    }
+    return <String, dynamic>{'raw': body};
+  }
+
+  String _cookieJarToHeader(Map<String, Cookie> cookieJar) {
+    return cookieJar.values
+        .where((cookie) => cookie.value.trim().isNotEmpty)
+        .map((cookie) => '${cookie.name}=${cookie.value}')
+        .join('; ');
+  }
+
+  void _setQrState(MusicPlatformQrLoginState state) {
+    _qrStates = {
+      ..._qrStates,
+      state.providerId: state,
+    };
+    notifyListeners();
+  }
+
   Map<String, String> _parseCookieMap(String rawCookie) {
     final result = <String, String>{};
     for (final segment in rawCookie.split(';')) {
@@ -266,4 +574,36 @@ class MusicPlatformStore extends ChangeNotifier {
     }
     return result;
   }
+
+  @override
+  void dispose() {
+    for (final timer in _qrPollTimers.values) {
+      timer.cancel();
+    }
+    _qrPollTimers.clear();
+    _qrSessions.clear();
+    super.dispose();
+  }
+}
+
+class _NeteaseQrSession {
+  _NeteaseQrSession({
+    required this.unikey,
+    required Map<String, Cookie> cookieJar,
+  }) : cookieJar = <String, Cookie>{...cookieJar};
+
+  final String unikey;
+  final Map<String, Cookie> cookieJar;
+}
+
+class _NeteaseHttpResponse {
+  const _NeteaseHttpResponse({
+    required this.statusCode,
+    required this.body,
+    required this.cookieJar,
+  });
+
+  final int statusCode;
+  final String body;
+  final Map<String, Cookie> cookieJar;
 }
