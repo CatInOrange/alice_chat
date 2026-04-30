@@ -14,6 +14,7 @@ import '../core/debug/native_debug_bridge.dart';
 import '../features/notifications/application/background_connection_service.dart';
 import '../features/notifications/application/notification_service.dart';
 import '../features/settings/presentation/settings_screen.dart';
+import '../features/music/application/music_store.dart';
 import '../features/music/presentation/music_screen.dart';
 import '../features/webview/presentation/webview_screen.dart';
 import 'theme.dart';
@@ -23,8 +24,11 @@ class AliceChatApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => ChatSessionStore(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ChatSessionStore()),
+        ChangeNotifierProvider(create: (_) => MusicStore()),
+      ],
       child: MaterialApp(
         title: 'Alice Chat',
         theme: buildAliceChatTheme(),

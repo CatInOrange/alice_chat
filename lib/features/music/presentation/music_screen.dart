@@ -1,7 +1,9 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../application/music_store.dart';
 import '../data/mock_music_catalog.dart';
 import '../domain/music_models.dart';
 import 'music_player_screen.dart';
@@ -18,126 +20,123 @@ class _MusicScreenState extends State<MusicScreen>
     with AutomaticKeepAliveClientMixin {
   static const _catalog = MockMusicCatalog.data;
 
-  late MusicTrack _currentTrack;
-  bool _isPlaying = true;
-
   @override
   void initState() {
     super.initState();
-    _currentTrack = _catalog.featuredTrack;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<MusicStore>().ensureReady();
+    });
   }
 
   @override
   bool get wantKeepAlive => true;
 
-  void _openPlayer([MusicTrack? track]) {
+  void _openPlayer(MusicStore store, [MusicTrack? track]) {
     if (track != null) {
-      setState(() {
-        _currentTrack = track;
-        _isPlaying = true;
-      });
+      store.selectTrack(track, autoplay: false);
     }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => MusicPlayerScreen(
-          track: track ?? _currentTrack,
-          queue: _catalog.queue,
+          track: track ?? store.currentTrack,
+          queue: store.queue.map((item) => item.track).toList(growable: false),
         ),
       ),
     );
   }
 
-  void _selectTrack(MusicTrack track) {
-    setState(() {
-      _currentTrack = track;
-      _isPlaying = true;
-    });
+  Future<void> _openPlaylist(MusicStore store, MusicPlaylist playlist) async {
+    await store.playPlaylist(playlist);
+    if (!mounted) return;
+    _openPlayer(store);
   }
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('音乐'),
-        actions: [
-          IconButton(onPressed: () {}, icon: const Icon(Icons.search_rounded)),
-        ],
-      ),
-      body: Stack(
-        children: [
-          const _MusicScreenBackdrop(),
-          ListView(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 148),
+    return Consumer<MusicStore>(
+      builder: (context, store, _) {
+        final currentTrack = store.currentTrack;
+        final isPlaying = store.isPlaying;
+        final playlists =
+            store.playlists.isEmpty ? _catalog.playlists : store.playlists;
+        final recentPlaylists = store.recentPlaylists;
+        final likedPlaylist = playlists.isNotEmpty
+            ? playlists.first
+            : MockMusicCatalog.likedPlaylist;
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('音乐'),
+            actions: [
+              IconButton(
+                onPressed: () {},
+                icon: const Icon(Icons.search_rounded),
+              ),
+            ],
+          ),
+          body: Stack(
             children: [
-              _MusicHeroCard(
-                track: _catalog.featuredTrack,
-                onTap: () => _openPlayer(_catalog.featuredTrack),
-              ),
-              const SizedBox(height: 24),
-              _NowPlayingSummary(
-                track: _currentTrack,
-                isPlaying: _isPlaying,
-                onTap: _openPlayer,
-              ),
-              const SizedBox(height: 28),
-              _SectionHeader(
-                title: '推荐歌单',
-                subtitle: '挑几组适合当前心情的氛围',
-                actionLabel: '查看全部',
-                onActionTap: () {},
-              ),
-              const SizedBox(height: 14),
-              SizedBox(
-                height: 176,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: _catalog.playlists.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 12),
-                  itemBuilder: (context, index) {
-                    final playlist = _catalog.playlists[index];
-                    return _PlaylistCard(playlist: playlist);
-                  },
-                ),
-              ),
-              const SizedBox(height: 28),
-              _SectionHeader(
-                title: '最近播放',
-                subtitle: '继续上次的节奏',
-                actionLabel: '更多',
-                onActionTap: () {},
-              ),
-              const SizedBox(height: 14),
-              ..._catalog.recentTracks.map(
-                (track) => Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _TrackListTile(
-                    track: track,
-                    active: track.id == _currentTrack.id,
-                    onTap: () => _selectTrack(track),
-                    onPlayTap: () => _openPlayer(track),
+              const _MusicScreenBackdrop(),
+              ListView(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 148),
+                children: [
+                  _MusicHeroCard(
+                    track: _catalog.featuredTrack,
+                    onTap: () => _openPlayer(store, _catalog.featuredTrack),
                   ),
+                  const SizedBox(height: 24),
+                  _FavoritePlaylistCard(
+                    playlist: likedPlaylist,
+                    currentTrack: currentTrack,
+                    onTap: () => _openPlaylist(store, likedPlaylist),
+                  ),
+                  const SizedBox(height: 28),
+                  _SectionHeader(
+                    title: '我的歌单',
+                    subtitle: '以后你可以自己创建、收藏和整理',
+                    actionLabel: '新建',
+                    onActionTap: () {},
+                  ),
+                  const SizedBox(height: 14),
+                  _CompactPlaylistGrid(
+                    playlists: playlists,
+                    onPlaylistTap: (playlist) => _openPlaylist(store, playlist),
+                  ),
+                  const SizedBox(height: 28),
+                  _SectionHeader(
+                    title: '最近播放',
+                    subtitle: '按歌单回到你最近听过的氛围',
+                    actionLabel: '更多',
+                    onActionTap: () {},
+                  ),
+                  const SizedBox(height: 14),
+                  ...recentPlaylists.map(
+                    (playlist) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _RecentPlaylistTile(
+                        playlist: playlist,
+                        onTap: () => _openPlaylist(store, playlist),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: 16,
+                child: _MiniPlayer(
+                  track: currentTrack,
+                  isPlaying: isPlaying,
+                  onTap: () => _openPlayer(store),
+                  onPlayPause: store.togglePlayPause,
                 ),
               ),
             ],
           ),
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 16,
-            child: _MiniPlayer(
-              track: _currentTrack,
-              isPlaying: _isPlaying,
-              onTap: _openPlayer,
-              onPlayPause: () {
-                setState(() {
-                  _isPlaying = !_isPlaying;
-                });
-              },
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -356,27 +355,27 @@ class _MusicHeroCard extends StatelessWidget {
   }
 }
 
-class _NowPlayingSummary extends StatelessWidget {
-  const _NowPlayingSummary({
-    required this.track,
-    required this.isPlaying,
+class _FavoritePlaylistCard extends StatelessWidget {
+  const _FavoritePlaylistCard({
+    required this.playlist,
+    required this.currentTrack,
     required this.onTap,
   });
 
-  final MusicTrack track;
-  final bool isPlaying;
+  final MusicPlaylist playlist;
+  final MusicTrack currentTrack;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final palette = paletteForTone(track.artworkTone);
+    final palette = paletteForTone(playlist.artworkTone);
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.7),
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
+        color: Colors.white.withValues(alpha: 0.78),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.78)),
         boxShadow: const [
           BoxShadow(
             color: Color(0x120B1220),
@@ -387,59 +386,68 @@ class _NowPlayingSummary extends StatelessWidget {
       ),
       child: Row(
         children: [
-          MusicArtwork(track: track, size: 72, showMeta: false),
-          const SizedBox(width: 14),
+          Container(
+            width: 76,
+            height: 76,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(colors: palette.gradient),
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: palette.glowColor.withValues(alpha: 0.45),
+                  blurRadius: 18,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.favorite_rounded,
+              color: Colors.white,
+              size: 30,
+            ),
+          ),
+          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '当前播放',
+                  '我喜欢的歌单',
                   style: theme.textTheme.bodySmall?.copyWith(
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.4,
                   ),
                 ),
                 const SizedBox(height: 6),
-                Text(track.title, style: theme.textTheme.titleMedium),
+                Text(playlist.title, style: theme.textTheme.titleLarge),
                 const SizedBox(height: 4),
                 Text(
-                  '${track.artist} · ${track.durationLabel}',
+                  '${playlist.trackCount} 首 · 快速开始今天最常听的收藏',
                   style: theme.textTheme.bodySmall,
                 ),
                 const SizedBox(height: 10),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(999),
-                  child: LinearProgressIndicator(
-                    value: 0.42,
-                    minHeight: 5,
-                    backgroundColor: const Color(0xFFE9EDF5),
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      palette.gradient.first,
-                    ),
+                Text(
+                  '上次停在：${currentTrack.title}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF7D879A),
                   ),
                 ),
               ],
             ),
           ),
           const SizedBox(width: 12),
-          Column(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(colors: palette.gradient),
-                ),
-                child: Icon(
-                  isPlaying ? Icons.equalizer_rounded : Icons.pause_rounded,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextButton(onPressed: onTap, child: const Text('展开')),
-            ],
+          FilledButton(
+            onPressed: onTap,
+            style: FilledButton.styleFrom(
+              backgroundColor: palette.gradient.first,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(56, 56),
+              shape: const CircleBorder(),
+              padding: EdgeInsets.zero,
+            ),
+            child: const Icon(Icons.play_arrow_rounded),
           ),
         ],
       ),
@@ -482,111 +490,114 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-class _PlaylistCard extends StatelessWidget {
-  const _PlaylistCard({required this.playlist});
+class _CompactPlaylistGrid extends StatelessWidget {
+  const _CompactPlaylistGrid({
+    required this.playlists,
+    required this.onPlaylistTap,
+  });
+
+  final List<MusicPlaylist> playlists;
+  final ValueChanged<MusicPlaylist> onPlaylistTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: playlists.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
+        childAspectRatio: 0.8,
+      ),
+      itemBuilder: (context, index) {
+        final playlist = playlists[index];
+        return _PlaylistGridCard(
+          playlist: playlist,
+          onTap: () => onPlaylistTap(playlist),
+        );
+      },
+    );
+  }
+}
+
+class _PlaylistGridCard extends StatelessWidget {
+  const _PlaylistGridCard({
+    required this.playlist,
+    required this.onTap,
+  });
 
   final MusicPlaylist playlist;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final palette = paletteForTone(playlist.artworkTone);
-    return Container(
-      width: 204,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.76)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x100B1220),
-            blurRadius: 16,
-            offset: Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    return Material(
+      color: Colors.white.withValues(alpha: 0.78),
+      borderRadius: BorderRadius.circular(26),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(26),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 56,
-                height: 56,
+                width: 48,
+                height: 48,
                 decoration: BoxDecoration(
                   gradient: LinearGradient(colors: palette.gradient),
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: palette.glowColor.withValues(alpha: 0.58),
-                      blurRadius: 16,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                child: Icon(palette.icon, color: Colors.white),
+                child: Icon(palette.icon, color: Colors.white, size: 22),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                playlist.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleSmall,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                playlist.tag,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: palette.gradient.first,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF3F5FA),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(playlist.tag, style: theme.textTheme.bodySmall),
+              Text(
+                '${playlist.trackCount} 首',
+                style: theme.textTheme.bodySmall,
               ),
             ],
           ),
-          const Spacer(),
-          Text(playlist.title, style: theme.textTheme.titleMedium),
-          const SizedBox(height: 8),
-          Text(
-            playlist.subtitle,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall?.copyWith(height: 1.45),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Text('${playlist.trackCount} 首', style: theme.textTheme.bodySmall),
-              const Spacer(),
-              Icon(
-                Icons.arrow_outward_rounded,
-                size: 18,
-                color: palette.gradient.first,
-              ),
-            ],
-          ),
-        ],
+        ),
       ),
     );
   }
 }
 
-class _TrackListTile extends StatelessWidget {
-  const _TrackListTile({
-    required this.track,
-    required this.active,
+class _RecentPlaylistTile extends StatelessWidget {
+  const _RecentPlaylistTile({
+    required this.playlist,
     required this.onTap,
-    required this.onPlayTap,
   });
 
-  final MusicTrack track;
-  final bool active;
+  final MusicPlaylist playlist;
   final VoidCallback onTap;
-  final VoidCallback onPlayTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final palette = paletteForTone(track.artworkTone);
+    final palette = paletteForTone(playlist.artworkTone);
     return Material(
-      color: active ? const Color(0xFFF0ECFF) : Colors.white.withValues(alpha: 0.78),
+      color: Colors.white.withValues(alpha: 0.78),
       borderRadius: BorderRadius.circular(28),
       child: InkWell(
         borderRadius: BorderRadius.circular(28),
@@ -595,7 +606,20 @@ class _TrackListTile extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           child: Row(
             children: [
-              MusicArtwork(track: track, size: 68, showMeta: false),
+              Container(
+                width: 68,
+                height: 68,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: palette.gradient),
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: Icon(
+                  playlist.isAiGenerated
+                      ? Icons.auto_awesome_rounded
+                      : palette.icon,
+                  color: Colors.white,
+                ),
+              ),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -605,33 +629,42 @@ class _TrackListTile extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            track.title,
+                            playlist.title,
                             style: theme.textTheme.titleMedium,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        if (track.isFavorite)
-                          const Padding(
-                            padding: EdgeInsets.only(left: 6),
-                            child: Icon(
-                              Icons.favorite_rounded,
-                              size: 16,
-                              color: Color(0xFFE91E63),
+                        if (playlist.isAiGenerated)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: palette.gradient.first.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              'AI',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: palette.gradient.first,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
                       ],
                     ),
-                    const SizedBox(height: 5),
+                    const SizedBox(height: 6),
                     Text(
-                      '${track.artist} · ${track.category}',
-                      style: theme.textTheme.bodySmall,
+                      playlist.subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(height: 1.45),
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      track.description,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      '${playlist.trackCount} 首歌 · 点一下继续播放这个歌单',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF7D879A),
                       ),
@@ -640,27 +673,20 @@ class _TrackListTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(colors: palette.gradient),
-                    ),
-                    child: IconButton(
-                      onPressed: onPlayTap,
-                      icon: const Icon(
-                        Icons.play_arrow_rounded,
-                        color: Colors.white,
-                      ),
-                    ),
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(colors: palette.gradient),
+                ),
+                child: IconButton(
+                  onPressed: onTap,
+                  icon: const Icon(
+                    Icons.play_arrow_rounded,
+                    color: Colors.white,
                   ),
-                  const SizedBox(height: 10),
-                  Text(track.durationLabel, style: theme.textTheme.bodySmall),
-                ],
+                ),
               ),
             ],
           ),
@@ -749,7 +775,9 @@ class _MiniPlayer extends StatelessWidget {
                     child: IconButton(
                       onPressed: onPlayPause,
                       icon: Icon(
-                        isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                        isPlaying
+                            ? Icons.pause_rounded
+                            : Icons.play_arrow_rounded,
                         color: Colors.white,
                       ),
                     ),

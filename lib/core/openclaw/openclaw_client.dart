@@ -90,4 +90,8 @@ abstract class OpenClawClient {
   Future<Map<String, dynamic>> restartGateway();
 
   Future<Map<String, dynamic>> getAdminTask(String taskId);
+
+  Future<Map<String, dynamic>> getMusicState();
+
+  Future<Map<String, dynamic>> saveMusicState({required Map<String, dynamic> payload});
 }

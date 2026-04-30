@@ -253,6 +253,33 @@ class OpenClawHttpClient implements OpenClawClient {
       _postAdminControl('/api/admin-control/restart/gateway');
 
   @override
+  Future<Map<String, dynamic>> getMusicState() async {
+    final response = await _httpClient.get(
+      _uri('/api/music/state'),
+      headers: _headers,
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('加载音乐状态失败', response);
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  @override
+  Future<Map<String, dynamic>> saveMusicState({
+    required Map<String, dynamic> payload,
+  }) async {
+    final response = await _httpClient.post(
+      _uri('/api/music/state'),
+      headers: _headers,
+      body: jsonEncode(payload),
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('保存音乐状态失败', response);
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  @override
   Future<Map<String, dynamic>> getAdminTask(String taskId) async {
     final response = await _httpClient.get(
       _uri('/api/admin-control/tasks/$taskId'),
