@@ -16,6 +16,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/debug/native_debug_bridge.dart';
+import '../../../core/openclaw/openclaw_client.dart';
 import '../application/chat_session_store.dart';
 import '../domain/chat_session.dart';
 
@@ -68,9 +69,26 @@ class _QuotedMessageDraft {
   final String rawText;
 }
 
+class _SlashSuggestionItem {
+  const _SlashSuggestionItem({
+    required this.insertText,
+    required this.label,
+    this.subtitle,
+    this.trailing,
+    this.onSelected,
+  });
+
+  final String insertText;
+  final String label;
+  final String? subtitle;
+  final String? trailing;
+  final Future<void> Function()? onSelected;
+}
+
 class _ChatScreenState extends State<ChatScreen> {
   final _currentUserId = 'user';
   final _composerController = TextEditingController();
+  final _composerFocusNode = FocusNode();
   final _imagePicker = ImagePicker();
   final _chatListController = ScrollController();
   final _chatController = core.InMemoryChatController();
@@ -95,6 +113,10 @@ class _ChatScreenState extends State<ChatScreen> {
   String _lastStreamingHintSignature = '';
   bool _streamingHintPulseActive = false;
   _QuotedMessageDraft? _quotedMessageDraft;
+  List<RuntimeModelCatalogProvider> _modelCatalogProviders = const [];
+  List<_SlashSuggestionItem> _slashSuggestions = const [];
+  bool _isLoadingModelCatalog = false;
+  String? _modelCatalogError;
 
   // Composer height tracking for relative positioning of floating elements
   static const double _composerPaddingVertical = 20.0; // 8 + 12
@@ -138,6 +160,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _chatListController.addListener(_handleScroll);
+    _composerController.addListener(_handleComposerTextChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final store = context.read<ChatSessionStore>();
@@ -826,6 +849,10 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _handleSend(String text) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
+    final store = context.read<ChatSessionStore>();
+    if (await _tryHandleLocalSlashCommand(trimmed)) {
+      return;
+    }
     final quoteDraft = _quotedMessageDraft;
     final payload =
         quoteDraft == null
@@ -833,7 +860,307 @@ class _ChatScreenState extends State<ChatScreen> {
             : '> ${quoteDraft.rawText.replaceAll(RegExp(r'\s+'), '\n> ')}\n\n$trimmed';
     _composerController.clear();
     setState(() => _quotedMessageDraft = null);
-    await context.read<ChatSessionStore>().sendMessage(widget.session, payload);
+    await store.sendMessage(widget.session, payload);
+  }
+
+  Future<bool> _tryHandleLocalSlashCommand(String text) async {
+    if (!text.startsWith('/model ')) return false;
+    final store = context.read<ChatSessionStore>();
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final args = text.substring(7).trim();
+    if (args.isEmpty || !args.contains('/')) return false;
+    final slashIndex = args.indexOf('/');
+    final providerId = args.substring(0, slashIndex).trim();
+    final modelId = args.substring(slashIndex + 1).trim();
+    if (providerId.isEmpty || modelId.isEmpty) return false;
+
+    await _ensureModelCatalogLoaded();
+    RuntimeModelCatalogProvider? provider;
+    for (final item in _modelCatalogProviders) {
+      if (item.id == providerId) {
+        provider = item;
+        break;
+      }
+    }
+    if (provider == null) return false;
+
+    RuntimeModelCatalogModel? model;
+    for (final item in provider.models) {
+      if (item.id == modelId) {
+        model = item;
+        break;
+      }
+    }
+    if (model == null) return false;
+
+    await store.updateModelSelection(providerId: providerId, modelId: modelId);
+    if (!mounted) return true;
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text('已切换到 ${provider.id}/${model.id}'),
+        duration: const Duration(milliseconds: 1400),
+      ),
+    );
+    _composerController.clear();
+    _composerFocusNode.requestFocus();
+    return true;
+  }
+
+  void _handleComposerTextChanged() {
+    unawaited(_refreshSlashSuggestions());
+  }
+
+  Future<void> _ensureModelCatalogLoaded() async {
+    if (_isLoadingModelCatalog || _modelCatalogProviders.isNotEmpty) return;
+    final store = context.read<ChatSessionStore>();
+    _isLoadingModelCatalog = true;
+    try {
+      final result = await store.loadRuntimeModelCatalog();
+      if (!mounted) return;
+      setState(() {
+        _modelCatalogProviders = result.providers;
+        _modelCatalogError = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _modelCatalogError = error.toString();
+      });
+    } finally {
+      _isLoadingModelCatalog = false;
+    }
+  }
+
+  Future<void> _refreshSlashSuggestions() async {
+    final text = _composerController.text;
+    if (!text.startsWith('/')) {
+      if (_slashSuggestions.isNotEmpty && mounted) {
+        setState(() => _slashSuggestions = const []);
+      }
+      return;
+    }
+
+    if (text == '/model' || text.startsWith('/model ')) {
+      await _ensureModelCatalogLoaded();
+    }
+
+    final next = _buildSlashSuggestions(text);
+    if (!mounted) return;
+    setState(() => _slashSuggestions = next);
+  }
+
+  List<_SlashSuggestionItem> _buildSlashSuggestions(String text) {
+    if (!text.startsWith('/')) return const [];
+    if (text == '/' || !text.contains(' ')) {
+      final query = text.substring(1).trim().toLowerCase();
+      return [
+            const _SlashSuggestionItem(
+              insertText: '/status ',
+              label: '/status',
+              subtitle: '查看当前会话状态',
+            ),
+            const _SlashSuggestionItem(
+              insertText: '/reasoning ',
+              label: '/reasoning',
+              subtitle: '切换 reasoning 模式',
+            ),
+            const _SlashSuggestionItem(
+              insertText: '/model ',
+              label: '/model',
+              subtitle: '切换 provider/model',
+            ),
+            const _SlashSuggestionItem(
+              insertText: '/new',
+              label: '/new',
+              subtitle: '新建/重置会话',
+            ),
+            const _SlashSuggestionItem(
+              insertText: '/reset',
+              label: '/reset',
+              subtitle: '重置当前会话',
+            ),
+            const _SlashSuggestionItem(
+              insertText: '/help',
+              label: '/help',
+              subtitle: '查看帮助',
+            ),
+            const _SlashSuggestionItem(
+              insertText: '/compact',
+              label: '/compact',
+              subtitle: '压缩上下文',
+            ),
+          ]
+          .where((item) {
+            return query.isEmpty || item.label.substring(1).contains(query);
+          })
+          .toList(growable: false);
+    }
+
+    if (text.startsWith('/reasoning ')) {
+      final query = text.substring('/reasoning '.length).trim().toLowerCase();
+      return ['on', 'off', 'stream']
+          .where((item) => query.isEmpty || item.contains(query))
+          .map(
+            (item) => _SlashSuggestionItem(
+              insertText: '/reasoning $item',
+              label: item,
+              subtitle: '/reasoning $item',
+            ),
+          )
+          .toList(growable: false);
+    }
+
+    if (text.startsWith('/model ')) {
+      final query = text.substring('/model '.length).trim();
+      if (query.isEmpty || !query.contains('/')) {
+        final providerQuery = query.toLowerCase();
+        return _modelCatalogProviders
+            .where((provider) {
+              return providerQuery.isEmpty ||
+                  provider.id.toLowerCase().contains(providerQuery) ||
+                  provider.name.toLowerCase().contains(providerQuery);
+            })
+            .map(
+              (provider) => _SlashSuggestionItem(
+                insertText: '/model ${provider.id}/',
+                label: provider.id,
+                subtitle: provider.name,
+                trailing: '${provider.models.length} models',
+              ),
+            )
+            .toList(growable: false);
+      }
+
+      final slashIndex = query.indexOf('/');
+      final providerId = query.substring(0, slashIndex).trim();
+      final modelQuery = query.substring(slashIndex + 1).trim().toLowerCase();
+      RuntimeModelCatalogProvider? provider;
+      for (final item in _modelCatalogProviders) {
+        if (item.id == providerId) {
+          provider = item;
+          break;
+        }
+      }
+      if (provider == null) return const [];
+      final resolvedProvider = provider;
+      return resolvedProvider.models
+          .where((model) {
+            return modelQuery.isEmpty ||
+                model.id.toLowerCase().contains(modelQuery) ||
+                model.name.toLowerCase().contains(modelQuery);
+          })
+          .map(
+            (model) => _SlashSuggestionItem(
+              insertText: '/model ${resolvedProvider.id}/${model.id}',
+              label: model.id,
+              subtitle: model.name,
+              trailing: resolvedProvider.id,
+              onSelected:
+                  () => _tryHandleLocalSlashCommand(
+                    '/model ${resolvedProvider.id}/${model.id}',
+                  ),
+            ),
+          )
+          .toList(growable: false);
+    }
+
+    return const [];
+  }
+
+  Future<void> _applySlashSuggestion(_SlashSuggestionItem item) async {
+    if (item.onSelected != null) {
+      await item.onSelected!.call();
+      return;
+    }
+    _composerController.value = TextEditingValue(
+      text: item.insertText,
+      selection: TextSelection.collapsed(offset: item.insertText.length),
+    );
+    if (mounted) {
+      setState(
+        () => _slashSuggestions = _buildSlashSuggestions(item.insertText),
+      );
+    }
+    _composerFocusNode.requestFocus();
+  }
+
+  Widget _buildSlashSuggestionPanel(ThemeData theme) {
+    if (_slashSuggestions.isEmpty &&
+        !_isLoadingModelCatalog &&
+        _modelCatalogError == null) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x121F2430),
+            blurRadius: 18,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_isLoadingModelCatalog)
+            const ListTile(
+              dense: true,
+              leading: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              title: Text('正在加载模型列表…'),
+            )
+          else if (_modelCatalogError != null && _slashSuggestions.isEmpty)
+            const ListTile(
+              dense: true,
+              leading: Icon(
+                Icons.error_outline_rounded,
+                color: Colors.redAccent,
+              ),
+              title: Text('模型列表加载失败'),
+            )
+          else
+            ..._slashSuggestions
+                .take(8)
+                .map(
+                  (item) => ListTile(
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    title: Text(
+                      item.label,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    subtitle:
+                        item.subtitle == null
+                            ? null
+                            : Text(
+                              item.subtitle!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                    trailing:
+                        item.trailing == null
+                            ? null
+                            : Text(
+                              item.trailing!,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: const Color(0xFF98A1B3),
+                              ),
+                            ),
+                    onTap: () => _applySlashSuggestion(item),
+                  ),
+                ),
+        ],
+      ),
+    );
   }
 
   Future<void> _handlePickImage() async {
@@ -1854,6 +2181,11 @@ class _ChatScreenState extends State<ChatScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,
                               children: [
+                                _buildSlashSuggestionPanel(theme),
+                                if (_slashSuggestions.isNotEmpty ||
+                                    _isLoadingModelCatalog ||
+                                    _modelCatalogError != null)
+                                  const SizedBox(height: 2),
                                 Text(
                                   '引用 ${_quotedMessageDraft!.authorName}',
                                   style: theme.textTheme.bodySmall?.copyWith(
@@ -1924,6 +2256,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           ),
                           child: TextField(
                             controller: _composerController,
+                            focusNode: _composerFocusNode,
                             minLines: 1,
                             maxLines: 5,
                             textInputAction: TextInputAction.send,
@@ -2120,7 +2453,9 @@ class _ChatScreenState extends State<ChatScreen> {
     _streamingHintPulseTimer?.cancel();
     _chatListController.removeListener(_handleScroll);
     _chatListController.dispose();
+    _composerController.removeListener(_handleComposerTextChanged);
     _composerController.dispose();
+    _composerFocusNode.dispose();
     super.dispose();
   }
 }

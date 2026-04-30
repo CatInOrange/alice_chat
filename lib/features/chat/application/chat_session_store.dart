@@ -6,6 +6,7 @@ import 'package:flutter_chat_core/flutter_chat_core.dart' as core;
 import 'package:uuid/uuid.dart';
 
 import '../../../core/openclaw/openclaw_http_client.dart';
+import '../../../core/openclaw/openclaw_client.dart';
 import '../../../core/openclaw/openclaw_config.dart';
 import '../../../core/openclaw/openclaw_settings.dart';
 import '../data/chat_cache_store.dart';
@@ -26,7 +27,7 @@ class ChatSessionStore extends ChangeNotifier {
           OpenClawHttpClient(
             const OpenClawConfig(
               baseUrl: '',
-              modelId: 'bian',
+              modelId: 'alicechat-default',
               providerId: 'alicechat-channel',
               agent: 'main',
               sessionName: 'alicechat',
@@ -83,6 +84,28 @@ class ChatSessionStore extends ChangeNotifier {
   }
 
   OpenClawConfig get currentConfig => _client.config;
+
+  Future<RuntimeModelCatalogResult> loadRuntimeModelCatalog() async {
+    await _ensureConfigReady();
+    return _client.loadRuntimeModelCatalog();
+  }
+
+  Future<void> updateModelSelection({
+    required String providerId,
+    required String modelId,
+  }) async {
+    await _ensureConfigReady();
+    final nextConfig = _client.config.copyWith(
+      providerId: providerId,
+      modelId: modelId,
+    );
+    await OpenClawSettingsStore.saveModelSelection(
+      modelId: modelId,
+      providerId: providerId,
+    );
+    _client = OpenClawHttpClient(nextConfig);
+    notifyListeners();
+  }
 
   ChatViewState stateFor(ChatSession session) {
     return _states.putIfAbsent(

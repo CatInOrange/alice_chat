@@ -127,18 +127,6 @@ interface RendererCommandContextValue {
 
 const RendererCommandContext = createContext<RendererCommandContextValue | null>(null);
 
-// TEMP DEBUG: expose debug info globally
-(window as any).__live2dLocalModelDebug = {
-  manifestModelPath: '',
-  localModelUrl: '',
-  manifestFileName: '',
-  localFileName: '',
-  filenameMatch: false,
-  localFileExists: null as boolean | null,
-  finalUrl: '',
-  checkPending: false,
-};
-
 async function checkLocalFileExists(url: string): Promise<boolean> {
   try {
     const response = await fetch(url, { method: 'HEAD' });
@@ -163,15 +151,7 @@ function resolvePreferredModelUrl(
     } catch {}
   }
 
-  // Update global debug info
-  const debug = (window as any).__live2dLocalModelDebug;
-  debug.manifestModelPath = manifestModelPath;
-  debug.localModelUrl = localModelUrl;
-  debug.manifestFileName = manifestFileName;
-  debug.localFileName = localFileName;
-  debug.filenameMatch = !manifestFileName || localFileName === manifestFileName;
-
-  if (localModelUrl) {
+if (localModelUrl) {
     try {
       new URL(localModelUrl); // validate URL format
       if (!manifestFileName || localFileName === manifestFileName) {
@@ -179,11 +159,7 @@ function resolvePreferredModelUrl(
           localModelUrl,
           manifestModelPath,
         });
-        // Async check file existence and update debug
-        debug.checkPending = true;
         checkLocalFileExists(localModelUrl).then((exists) => {
-          debug.checkPending = false;
-          debug.localFileExists = exists;
           if (!exists) {
             console.warn('[Live2D cache] local file does NOT exist!', {
               localModelUrl,
@@ -192,8 +168,6 @@ function resolvePreferredModelUrl(
             console.info('[Live2D cache] local file EXISTS!', { localModelUrl });
           }
         });
-        // Still return local URL if filename matches (even before existence check)
-        debug.finalUrl = localModelUrl;
         return localModelUrl;
       } else {
         console.warn('[Live2D cache] local model filename mismatch, fallback to remote', {
@@ -211,8 +185,6 @@ function resolvePreferredModelUrl(
     }
   }
   const remoteUrl = buildBackendUrl(backendUrl, manifestModelPath);
-  debug.finalUrl = remoteUrl;
-  debug.localFileExists = false;
   return remoteUrl;
 }
 

@@ -7,34 +7,61 @@ class OpenClawSettingsStore {
 
   static const _baseUrlKey = 'openclaw.baseUrl';
   static const _appPasswordKey = 'openclaw.appPassword';
-  static const _backgroundServiceEnabledKey = 'alicechat.backgroundServiceEnabled';
+  static const _modelIdKey = 'openclaw.modelId';
+  static const _providerIdKey = 'openclaw.providerId';
+  static const _backgroundServiceEnabledKey =
+      'alicechat.backgroundServiceEnabled';
 
   static const OpenClawConfig _defaultConfig = OpenClawConfig(
     baseUrl: '',
-    modelId: 'bian',
+    modelId: 'alicechat-default',
     providerId: 'alicechat-channel',
     agent: 'main',
     sessionName: 'alicechat',
-    bridgeUrl: 'ws://127.0.0.1:18791?token=yuanzhe-7611681-668128-zheyuan-012345',
+    bridgeUrl:
+        'ws://127.0.0.1:18791?token=yuanzhe-7611681-668128-zheyuan-012345',
   );
 
   static Future<OpenClawConfig> load() async {
     final prefs = await SharedPreferences.getInstance();
     final baseUrl = prefs.getString(_baseUrlKey)?.trim();
     final appPassword = prefs.getString(_appPasswordKey);
+    final modelId = prefs.getString(_modelIdKey)?.trim();
+    final providerId = prefs.getString(_providerIdKey)?.trim();
     return _defaultConfig.copyWith(
       baseUrl: (baseUrl == null || baseUrl.isEmpty) ? null : baseUrl,
-      appPassword: (appPassword == null || appPassword.isEmpty) ? null : appPassword,
+      appPassword:
+          (appPassword == null || appPassword.isEmpty) ? null : appPassword,
+      modelId: (modelId == null || modelId.isEmpty) ? null : modelId,
+      providerId:
+          (providerId == null || providerId.isEmpty) ? null : providerId,
     );
   }
 
   static Future<void> save({
     required String baseUrl,
     required String appPassword,
+    String? modelId,
+    String? providerId,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_baseUrlKey, baseUrl.trim());
     await prefs.setString(_appPasswordKey, appPassword);
+    if (modelId != null) {
+      await prefs.setString(_modelIdKey, modelId.trim());
+    }
+    if (providerId != null) {
+      await prefs.setString(_providerIdKey, providerId.trim());
+    }
+  }
+
+  static Future<void> saveModelSelection({
+    required String modelId,
+    required String providerId,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_modelIdKey, modelId.trim());
+    await prefs.setString(_providerIdKey, providerId.trim());
   }
 
   static Future<bool> loadBackgroundServiceEnabled() async {
