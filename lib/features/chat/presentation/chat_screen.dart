@@ -54,6 +54,20 @@ const _fallbackStreamingHints = <String>[
   '我已经按住思路了，别让它跑了',
 ];
 
+class _QuotedMessageDraft {
+  const _QuotedMessageDraft({
+    required this.messageId,
+    required this.authorName,
+    required this.previewText,
+    required this.rawText,
+  });
+
+  final String messageId;
+  final String authorName;
+  final String previewText;
+  final String rawText;
+}
+
 class _ChatScreenState extends State<ChatScreen> {
   final _currentUserId = 'user';
   final _composerController = TextEditingController();
@@ -80,6 +94,8 @@ class _ChatScreenState extends State<ChatScreen> {
   String _lastMeaningfulStreamingHint = '';
   String _lastStreamingHintSignature = '';
   bool _streamingHintPulseActive = false;
+  final Set<String> _locallyDeletedMessageIds = <String>{};
+  _QuotedMessageDraft? _quotedMessageDraft;
 
   // Composer height tracking for relative positioning of floating elements
   static const double _composerPaddingVertical = 20.0; // 8 + 12
@@ -367,19 +383,21 @@ class _ChatScreenState extends State<ChatScreen> {
                       horizontal: _streamingHintPulseActive ? 2 : 0,
                     ),
                     decoration: BoxDecoration(
-                      color: _streamingHintPulseActive
-                          ? const Color(0xFFF4E9FF)
-                          : Colors.transparent,
+                      color:
+                          _streamingHintPulseActive
+                              ? const Color(0xFFF4E9FF)
+                              : Colors.transparent,
                       borderRadius: BorderRadius.circular(16),
-                      boxShadow: _streamingHintPulseActive
-                          ? const [
-                              BoxShadow(
-                                color: Color(0x1A8B5CF6),
-                                blurRadius: 14,
-                                spreadRadius: 0.5,
-                              ),
-                            ]
-                          : const [],
+                      boxShadow:
+                          _streamingHintPulseActive
+                              ? const [
+                                BoxShadow(
+                                  color: Color(0x1A8B5CF6),
+                                  blurRadius: 14,
+                                  spreadRadius: 0.5,
+                                ),
+                              ]
+                              : const [],
                     ),
                     child: Builder(
                       builder: (context) {
@@ -395,10 +413,13 @@ class _ChatScreenState extends State<ChatScreen> {
                               const SizedBox(width: 8),
                               Text(
                                 hint,
-                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  color: _streamingHintPulseActive
-                                      ? const Color(0xFF7C3AED)
-                                      : const Color(0xFF667085),
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.bodySmall?.copyWith(
+                                  color:
+                                      _streamingHintPulseActive
+                                          ? const Color(0xFF7C3AED)
+                                          : const Color(0xFF667085),
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
@@ -435,7 +456,10 @@ class _ChatScreenState extends State<ChatScreen> {
     debugPrint(
       '[alicechat.screen] ${jsonEncode({'tag': 'handleStoreChanged', 'sessionId': state.backendSessionId, 'sessionLocalId': widget.session.id, 'isSubmitting': state.isSubmitting, 'isAssistantStreaming': state.isAssistantStreaming, 'pendingCount': state.pendingClientMessageIds.length, 'streamingCount': state.streamingMessageIds.length, 'messageCount': state.messages.length, 'lastEventSeq': state.lastEventSeq, 'assistantProgressSequence': state.assistantProgressSequence})}',
     );
-    _applyMessagesIncrementally(state.messages);
+    final visibleMessages = state.messages
+        .where((message) => !_locallyDeletedMessageIds.contains(message.id))
+        .toList(growable: false);
+    _applyMessagesIncrementally(visibleMessages);
     _syncStreamingHintState(state);
     setState(() {});
   }
@@ -801,8 +825,14 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _handleSend(String text) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
+    final quoteDraft = _quotedMessageDraft;
+    final payload =
+        quoteDraft == null
+            ? trimmed
+            : '> ${quoteDraft.rawText.replaceAll(RegExp(r'\s+'), '\n> ')}\n\n$trimmed';
     _composerController.clear();
-    await context.read<ChatSessionStore>().sendMessage(widget.session, trimmed);
+    setState(() => _quotedMessageDraft = null);
+    await context.read<ChatSessionStore>().sendMessage(widget.session, payload);
   }
 
   Future<void> _handlePickImage() async {
@@ -941,7 +971,12 @@ class _ChatScreenState extends State<ChatScreen> {
                   sentByMe
                       ? GestureDetector(
                         behavior: HitTestBehavior.opaque,
-                        onLongPress: () => _showMessageActionSheet(context, message.text),
+                        onLongPress:
+                            () => _showMessageActionSheet(
+                              context,
+                              message: message,
+                              sentByMe: sentByMe,
+                            ),
                         child: SimpleTextMessage(
                           message: message,
                           index: index,
@@ -1011,7 +1046,12 @@ class _ChatScreenState extends State<ChatScreen> {
     return RepaintBoundary(
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onLongPress: () => _showMessageActionSheet(context, message.text),
+        onLongPress:
+            () => _showMessageActionSheet(
+              context,
+              message: message,
+              sentByMe: false,
+            ),
         child: Container(
           constraints: BoxConstraints(maxWidth: maxWidth),
           decoration: BoxDecoration(
@@ -1176,10 +1216,11 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _showMessageActionSheet(
-    BuildContext context,
-    String text,
-  ) async {
-    final plainText = _stripModelNamePrefix(text).trim();
+    BuildContext context, {
+    required core.TextMessage message,
+    required bool sentByMe,
+  }) async {
+    final plainText = _stripModelNamePrefix(message.text).trim();
     if (plainText.isEmpty) return;
 
     final action = await showModalBottomSheet<String>(
@@ -1191,20 +1232,70 @@ class _ChatScreenState extends State<ChatScreen> {
         return SafeArea(
           top: false,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                ListTile(
-                  leading: const Icon(Icons.copy_rounded),
-                  title: Text(
-                    '复制',
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF6F7FB),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Text(
+                    _oneLinePreview(plainText, maxWidth: 48),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xFF667085),
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
-                  onTap: () => Navigator.of(sheetContext).pop('copy'),
                 ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildMessageActionButton(
+                        context: sheetContext,
+                        icon: Icons.copy_rounded,
+                        label: '复制',
+                        onTap: () => Navigator.of(sheetContext).pop('copy'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildMessageActionButton(
+                        context: sheetContext,
+                        icon: Icons.format_quote_rounded,
+                        label: '引用',
+                        onTap: () => Navigator.of(sheetContext).pop('quote'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildMessageActionButton(
+                        context: sheetContext,
+                        icon: Icons.delete_outline_rounded,
+                        label: '删除',
+                        destructive: sentByMe,
+                        enabled: sentByMe,
+                        onTap:
+                            sentByMe
+                                ? () => Navigator.of(sheetContext).pop('delete')
+                                : null,
+                      ),
+                    ),
+                  ],
+                ),
+                if (!sentByMe) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    '删除暂时只支持自己的消息',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF98A1B3),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1212,13 +1303,114 @@ class _ChatScreenState extends State<ChatScreen> {
       },
     );
 
-    if (action != 'copy') return;
-    await Clipboard.setData(ClipboardData(text: plainText));
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('已复制'),
-        duration: Duration(milliseconds: 1200),
+    switch (action) {
+      case 'copy':
+        await Clipboard.setData(ClipboardData(text: plainText));
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('已复制'),
+            duration: Duration(milliseconds: 1200),
+          ),
+        );
+        return;
+      case 'quote':
+        setState(() {
+          _quotedMessageDraft = _QuotedMessageDraft(
+            messageId: message.id,
+            authorName: sentByMe ? '你' : _assistantName,
+            previewText: _oneLinePreview(plainText, maxWidth: 42),
+            rawText: plainText,
+          );
+        });
+        if (!_composerController.selection.isValid) {
+          _composerController.selection = TextSelection.collapsed(
+            offset: _composerController.text.length,
+          );
+        }
+        if (!mounted) return;
+        ScaffoldMessenger.maybeOf(this.context)?.showSnackBar(
+          const SnackBar(
+            content: Text('已添加引用'),
+            duration: Duration(milliseconds: 900),
+          ),
+        );
+        return;
+      case 'delete':
+        _confirmLocalDelete(message);
+        return;
+      default:
+        return;
+    }
+  }
+
+  Future<void> _confirmLocalDelete(core.TextMessage message) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (dialogContext) => AlertDialog(
+            title: const Text('删除这条消息？'),
+            content: const Text('先仅在当前界面隐藏，不会删除后端记录。'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('删除'),
+              ),
+            ],
+          ),
+    );
+    if (confirmed == true) {
+      setState(() {
+        _locallyDeletedMessageIds.add(message.id);
+        if (_quotedMessageDraft?.messageId == message.id) {
+          _quotedMessageDraft = null;
+        }
+      });
+      _handleStoreChanged();
+    }
+  }
+
+  Widget _buildMessageActionButton({
+    required BuildContext context,
+    required IconData icon,
+    required String label,
+    required VoidCallback? onTap,
+    bool destructive = false,
+    bool enabled = true,
+  }) {
+    final color =
+        !enabled
+            ? const Color(0xFF98A1B3)
+            : destructive
+            ? const Color(0xFFE5484D)
+            : const Color(0xFF5B5BD6);
+    return Material(
+      color: const Color(0xFFF8F7FF),
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: color, size: 24),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1292,7 +1484,9 @@ class _ChatScreenState extends State<ChatScreen> {
     String resolved = '';
 
     if (mode == 'preview') {
-      resolved = _oneLinePreview(previewText.isNotEmpty ? previewText : progressText);
+      resolved = _oneLinePreview(
+        previewText.isNotEmpty ? previewText : progressText,
+      );
     } else if (mode == 'thinking' && progressText.isNotEmpty) {
       resolved = _oneLinePreview('我在想：$progressText');
     } else if (mode == 'plan' && progressText.isNotEmpty) {
@@ -1326,7 +1520,11 @@ class _ChatScreenState extends State<ChatScreen> {
     } else {
       final sequence = state.assistantProgressSequence;
       if (sequence != null) {
-        resolved = _buildProgressLabel(sequence, kind: progressKind, stage: progressStage);
+        resolved = _buildProgressLabel(
+          sequence,
+          kind: progressKind,
+          stage: progressStage,
+        );
       }
     }
 
@@ -1356,7 +1554,9 @@ class _ChatScreenState extends State<ChatScreen> {
   String _displayStreamingHint(ChatViewState state) {
     final resolved = _resolveStreamingHint(state);
     if (resolved.displayText.isNotEmpty) return resolved.displayText;
-    if (_lastMeaningfulStreamingHint.isNotEmpty) return _lastMeaningfulStreamingHint;
+    if (_lastMeaningfulStreamingHint.isNotEmpty) {
+      return _lastMeaningfulStreamingHint;
+    }
     return _fallbackStreamingHintFor(state);
   }
 
@@ -1368,8 +1568,10 @@ class _ChatScreenState extends State<ChatScreen> {
       state.assistantProgressSequence?.toString() ?? '',
     ].join('|');
     final seed = seedSource.hashCode;
-    final rawIndex = (seed + _fallbackStreamingHintIndex) % _fallbackStreamingHints.length;
-    final index = rawIndex < 0 ? rawIndex + _fallbackStreamingHints.length : rawIndex;
+    final rawIndex =
+        (seed + _fallbackStreamingHintIndex) % _fallbackStreamingHints.length;
+    final index =
+        rawIndex < 0 ? rawIndex + _fallbackStreamingHints.length : rawIndex;
     return _fallbackStreamingHints[index];
   }
 
@@ -1379,7 +1581,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _lastStreamingHintSignature = '';
       _streamingHintPulseActive = false;
       _streamingHintPulseTimer?.cancel();
-      _fallbackStreamingHintIndex = (_fallbackStreamingHintIndex + 1) % _fallbackStreamingHints.length;
+      _fallbackStreamingHintIndex =
+          (_fallbackStreamingHintIndex + 1) % _fallbackStreamingHints.length;
       return;
     }
 
@@ -1390,7 +1593,8 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
-    if (resolved.decorative && resolved.signature != _lastStreamingHintSignature) {
+    if (resolved.decorative &&
+        resolved.signature != _lastStreamingHintSignature) {
       _lastStreamingHintSignature = resolved.signature;
       _triggerStreamingHintPulse();
     }
@@ -1430,38 +1634,33 @@ class _ChatScreenState extends State<ChatScreen> {
     return decorativeHints.contains(normalized);
   }
 
-  String _buildProgressLabel(int sequence, {String kind = '', String stage = ''}) {
+  String _buildProgressLabel(
+    int sequence, {
+    String kind = '',
+    String stage = '',
+  }) {
     switch (kind) {
       case 'search':
-        return const [
-          '我去替你翻翻外面的消息',
-          '在外头替你找线索呢',
-          '搜到点边角料了，再拢一下',
-        ][(sequence - 1).clamp(0, 2)];
+        return const ['我去替你翻翻外面的消息', '在外头替你找线索呢', '搜到点边角料了，再拢一下'][(sequence - 1)
+            .clamp(0, 2)];
       case 'read':
-        return const [
-          '我在翻文件呢…',
-          '先把上下文给你捋顺',
-          '这一页我快看完了',
-        ][(sequence - 1).clamp(0, 2)];
+        return const ['我在翻文件呢…', '先把上下文给你捋顺', '这一页我快看完了'][(sequence - 1).clamp(
+          0,
+          2,
+        )];
       case 'exec':
-        return const [
-          '我敲两下命令给你看',
-          '先跑一下，别急嘛',
-          '结果快出来了，我盯着呢',
-        ][(sequence - 1).clamp(0, 2)];
+        return const ['我敲两下命令给你看', '先跑一下，别急嘛', '结果快出来了，我盯着呢'][(sequence - 1)
+            .clamp(0, 2)];
       case 'thinking':
-        return const [
-          '我先替你想一想',
-          '思路在收束了',
-          '快想明白了，别催',
-        ][(sequence - 1).clamp(0, 2)];
+        return const ['我先替你想一想', '思路在收束了', '快想明白了，别催'][(sequence - 1).clamp(
+          0,
+          2,
+        )];
       case 'plan':
-        return const [
-          '我先给你排个步骤',
-          '方案顺序我在理',
-          '差不多能开工了',
-        ][(sequence - 1).clamp(0, 2)];
+        return const ['我先给你排个步骤', '方案顺序我在理', '差不多能开工了'][(sequence - 1).clamp(
+          0,
+          2,
+        )];
       default:
         const texts = [
           '我在想你这句呢…',
@@ -1492,13 +1691,16 @@ class _ChatScreenState extends State<ChatScreen> {
     String command = '',
   }) {
     final cleaned = text.replaceAll(RegExp(r'\s+'), ' ').trim();
-    final phaseLabel = phase.isNotEmpty
-        ? '（$phase${status.isNotEmpty ? ' / $status' : ''}）'
-        : (status.isNotEmpty ? '（$status）' : '');
-    final toolLabel = toolName.isNotEmpty ? toolName : (title.isNotEmpty ? title : 'tool');
-    final callSuffix = toolCallId.isNotEmpty
-        ? ' #${toolCallId.length > 8 ? toolCallId.substring(0, 8) : toolCallId}'
-        : '';
+    final phaseLabel =
+        phase.isNotEmpty
+            ? '（$phase${status.isNotEmpty ? ' / $status' : ''}）'
+            : (status.isNotEmpty ? '（$status）' : '');
+    final toolLabel =
+        toolName.isNotEmpty ? toolName : (title.isNotEmpty ? title : 'tool');
+    final callSuffix =
+        toolCallId.isNotEmpty
+            ? ' #${toolCallId.length > 8 ? toolCallId.substring(0, 8) : toolCallId}'
+            : '';
     final commandLabel = command.isNotEmpty ? ' $command' : '';
 
     if (cleaned.isEmpty) {
@@ -1541,34 +1743,51 @@ class _ChatScreenState extends State<ChatScreen> {
       final char = collapsed[i];
       final codeUnit = char.codeUnitAt(0);
       // Full-width (Chinese, Japanese, Korean, full-width punctuation) or emoji
-      final charWidth = (codeUnit >= 0x1100 &&
-          (codeUnit <= 0x115F || // Hangul Jamo
-              codeUnit >= 0x2329 || // Left-pointing angle bracket
-              codeUnit >= 0x2E80 || // CJK radicals
-              (codeUnit >= 0x3000 && codeUnit <= 0x303F) || // CJK punctuation
-              (codeUnit >= 0x3040 && codeUnit <= 0x309F) || // Hiragana
-              (codeUnit >= 0x30A0 && codeUnit <= 0x30FF) || // Katakana
-              (codeUnit >= 0x3100 && codeUnit <= 0x312F) || // Bopomofo
-              (codeUnit >= 0x3130 && codeUnit <= 0x318F) || // Hangul compat
-              (codeUnit >= 0x3190 && codeUnit <= 0x319F) || // Kanbun
-              (codeUnit >= 0x31A0 && codeUnit <= 0x31BF) || // Bopomofo ext
-              (codeUnit >= 0x31C0 && codeUnit <= 0x31EF) || // CJK strokes
-              (codeUnit >= 0x31F0 && codeUnit <= 0x31FF) || // Katakana ext
-              (codeUnit >= 0x3200 && codeUnit <= 0x32FF) || // Enclosed CJK
-              (codeUnit >= 0x3300 && codeUnit <= 0x33FF) || // CJK compat
-              (codeUnit >= 0x3400 && codeUnit <= 0x4DBF) || // CJK ext A
-              (codeUnit >= 0x4E00 && codeUnit <= 0x9FFF) || // CJK Unified Ideographs
-              (codeUnit >= 0xA000 && codeUnit <= 0xA48F) || // Yi
-              (codeUnit >= 0xAC00 && codeUnit <= 0xD7AF) || // Hangul syllables
-              (codeUnit >= 0xF900 && codeUnit <= 0xFAFF) || // CJK compat ideographs
-              (codeUnit >= 0xFE10 && codeUnit <= 0xFE1F) || // Vertical forms
-              (codeUnit >= 0xFE30 && codeUnit <= 0xFE4F) || // CJK compat forms
-              (codeUnit >= 0xFF00 && codeUnit <= 0xFF60) || // Full-width ASCII
-              (codeUnit >= 0xFFE0 && codeUnit <= 0xFFE6) || // Full-width symbols
-              (codeUnit >= 0x20000 && codeUnit <= 0x2FFFD) || // CJK ext B+
-              (codeUnit >= 0x30000 && codeUnit <= 0x3FFFD))) // CJK ext C+
-          ? 2
-          : 1;
+      final charWidth =
+          (codeUnit >= 0x1100 &&
+                  (codeUnit <= 0x115F || // Hangul Jamo
+                      codeUnit >= 0x2329 || // Left-pointing angle bracket
+                      codeUnit >= 0x2E80 || // CJK radicals
+                      (codeUnit >= 0x3000 &&
+                          codeUnit <= 0x303F) || // CJK punctuation
+                      (codeUnit >= 0x3040 && codeUnit <= 0x309F) || // Hiragana
+                      (codeUnit >= 0x30A0 && codeUnit <= 0x30FF) || // Katakana
+                      (codeUnit >= 0x3100 && codeUnit <= 0x312F) || // Bopomofo
+                      (codeUnit >= 0x3130 &&
+                          codeUnit <= 0x318F) || // Hangul compat
+                      (codeUnit >= 0x3190 && codeUnit <= 0x319F) || // Kanbun
+                      (codeUnit >= 0x31A0 &&
+                          codeUnit <= 0x31BF) || // Bopomofo ext
+                      (codeUnit >= 0x31C0 &&
+                          codeUnit <= 0x31EF) || // CJK strokes
+                      (codeUnit >= 0x31F0 &&
+                          codeUnit <= 0x31FF) || // Katakana ext
+                      (codeUnit >= 0x3200 &&
+                          codeUnit <= 0x32FF) || // Enclosed CJK
+                      (codeUnit >= 0x3300 &&
+                          codeUnit <= 0x33FF) || // CJK compat
+                      (codeUnit >= 0x3400 && codeUnit <= 0x4DBF) || // CJK ext A
+                      (codeUnit >= 0x4E00 &&
+                          codeUnit <= 0x9FFF) || // CJK Unified Ideographs
+                      (codeUnit >= 0xA000 && codeUnit <= 0xA48F) || // Yi
+                      (codeUnit >= 0xAC00 &&
+                          codeUnit <= 0xD7AF) || // Hangul syllables
+                      (codeUnit >= 0xF900 &&
+                          codeUnit <= 0xFAFF) || // CJK compat ideographs
+                      (codeUnit >= 0xFE10 &&
+                          codeUnit <= 0xFE1F) || // Vertical forms
+                      (codeUnit >= 0xFE30 &&
+                          codeUnit <= 0xFE4F) || // CJK compat forms
+                      (codeUnit >= 0xFF00 &&
+                          codeUnit <= 0xFF60) || // Full-width ASCII
+                      (codeUnit >= 0xFFE0 &&
+                          codeUnit <= 0xFFE6) || // Full-width symbols
+                      (codeUnit >= 0x20000 &&
+                          codeUnit <= 0x2FFFD) || // CJK ext B+
+                      (codeUnit >= 0x30000 &&
+                          codeUnit <= 0x3FFFD))) // CJK ext C+
+              ? 2
+              : 1;
       if (totalWidth + charWidth > maxWidth) {
         break;
       }
@@ -1603,103 +1822,166 @@ class _ChatScreenState extends State<ChatScreen> {
                   if (mounted) setState(() => _composerHeight = measured);
                 });
               }
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
+              return Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: IconButton(
-                      onPressed:
-                          state.isSubmitting
-                              ? null
-                              : () => _showAttachmentMenu(state),
-                      icon: const Icon(Icons.add_rounded),
-                      color:
-                          state.isSubmitting
-                              ? const Color(0xFF98A1B3)
-                              : theme.colorScheme.primary,
-                      tooltip: '附件',
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Container(
+                  if (_quotedMessageDraft != null)
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
                       decoration: BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(24),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Color(0x0A1F2430),
-                            blurRadius: 14,
-                            offset: Offset(0, 4),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFE7EAF3)),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 4,
+                            height: 34,
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  '引用 ${_quotedMessageDraft!.authorName}',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.primary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  _quotedMessageDraft!.previewText,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: const Color(0xFF667085),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed:
+                                () =>
+                                    setState(() => _quotedMessageDraft = null),
+                            icon: const Icon(Icons.close_rounded, size: 18),
+                            color: const Color(0xFF98A1B3),
+                            splashRadius: 18,
+                            tooltip: '取消引用',
                           ),
                         ],
                       ),
-                      child: TextField(
-                        controller: _composerController,
-                        minLines: 1,
-                        maxLines: 5,
-                        textInputAction: TextInputAction.send,
-                        decoration: const InputDecoration(
-                          hintText: '发消息…',
-                          isDense: true,
+                    ),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20),
                         ),
-                        onSubmitted: (value) {
-                          if (value.trim().isNotEmpty && !state.isSubmitting) {
-                            _handleSend(value);
-                          }
-                        },
+                        child: IconButton(
+                          onPressed:
+                              state.isSubmitting
+                                  ? null
+                                  : () => _showAttachmentMenu(state),
+                          icon: const Icon(Icons.add_rounded),
+                          color:
+                              state.isSubmitting
+                                  ? const Color(0xFF98A1B3)
+                                  : theme.colorScheme.primary,
+                          tooltip: '附件',
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 180),
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color:
-                          state.isSubmitting
-                              ? const Color(0xFFD7CCFF)
-                              : theme.colorScheme.primary,
-                      borderRadius: BorderRadius.circular(22),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x1A7C4DFF),
-                          blurRadius: 16,
-                          offset: Offset(0, 6),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(24),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x0A1F2430),
+                                blurRadius: 14,
+                                offset: Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: TextField(
+                            controller: _composerController,
+                            minLines: 1,
+                            maxLines: 5,
+                            textInputAction: TextInputAction.send,
+                            decoration: const InputDecoration(
+                              hintText: '发消息…',
+                              isDense: true,
+                            ),
+                            onSubmitted: (value) {
+                              if (value.trim().isNotEmpty &&
+                                  !state.isSubmitting) {
+                                _handleSend(value);
+                              }
+                            },
+                          ),
                         ),
-                      ],
-                    ),
-                    child: IconButton(
-                      onPressed:
-                          state.isSubmitting
-                              ? null
-                              : () {
-                                final text = _composerController.text;
-                                if (text.trim().isNotEmpty) {
-                                  _handleSend(text);
-                                }
-                              },
-                      icon:
-                          state.isSubmitting
-                              ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                              : const Icon(Icons.arrow_upward_rounded),
-                      color: Colors.white,
-                      tooltip: '发送',
-                    ),
+                      ),
+                      const SizedBox(width: 10),
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color:
+                              state.isSubmitting
+                                  ? const Color(0xFFD7CCFF)
+                                  : theme.colorScheme.primary,
+                          borderRadius: BorderRadius.circular(22),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x1A7C4DFF),
+                              blurRadius: 16,
+                              offset: Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: IconButton(
+                          onPressed:
+                              state.isSubmitting
+                                  ? null
+                                  : () {
+                                    final text = _composerController.text;
+                                    if (text.trim().isNotEmpty) {
+                                      _handleSend(text);
+                                    }
+                                  },
+                          icon:
+                              state.isSubmitting
+                                  ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                  : const Icon(Icons.arrow_upward_rounded),
+                          color: Colors.white,
+                          tooltip: '发送',
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               );
@@ -1887,7 +2169,8 @@ class _ChatImageBubbleState extends State<_ChatImageBubble> {
     return '${widget.messageId}|${widget.imageUrl}|$password';
   }
 
-  String get _heroTag => 'chat-image-preview:${widget.messageId}:${widget.imageUrl}';
+  String get _heroTag =>
+      'chat-image-preview:${widget.messageId}:${widget.imageUrl}';
 
   bool _mapEquals(Map<String, String> a, Map<String, String> b) {
     if (identical(a, b)) return true;
@@ -1904,7 +2187,10 @@ class _ChatImageBubbleState extends State<_ChatImageBubble> {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(18),
         child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: widget.maxWidth, maxHeight: 320),
+          constraints: BoxConstraints(
+            maxWidth: widget.maxWidth,
+            maxHeight: 320,
+          ),
           child: FutureBuilder<File>(
             future: _fileFuture,
             builder: (context, snapshot) {
@@ -1976,10 +2262,7 @@ class _ChatImageBubbleState extends State<_ChatImageBubble> {
         opaque: false,
         barrierDismissible: true,
         pageBuilder: (context, animation, secondaryAnimation) {
-          return _ImagePreviewPage(
-            file: file,
-            heroTag: _heroTag,
-          );
+          return _ImagePreviewPage(file: file, heroTag: _heroTag);
         },
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           return FadeTransition(
