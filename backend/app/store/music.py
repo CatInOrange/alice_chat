@@ -44,8 +44,11 @@ class MusicStore:
 
     def save_state(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.ensure_schema()
-        value_json = json.dumps(payload or {}, ensure_ascii=False)
+        current = self.load_state()
+        merged = self._merge_dicts(current, payload or {})
         updated_at = _now()
+        merged["updatedAt"] = updated_at
+        value_json = json.dumps(merged, ensure_ascii=False)
         with connect(self.db) as conn:
             conn.execute(
                 """
@@ -58,6 +61,13 @@ class MusicStore:
                 (value_json, updated_at),
             )
             conn.commit()
-        result = dict(payload or {})
-        result["updatedAt"] = updated_at
+        return merged
+
+    def _merge_dicts(self, current: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+        result = dict(current)
+        for key, value in patch.items():
+            if isinstance(value, dict) and isinstance(result.get(key), dict):
+                result[key] = self._merge_dicts(result[key], value)
+            else:
+                result[key] = value
         return result

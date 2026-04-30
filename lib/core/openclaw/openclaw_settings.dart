@@ -11,6 +11,7 @@ class OpenClawSettingsStore {
   static const _providerIdKey = 'openclaw.providerId';
   static const _backgroundServiceEnabledKey =
       'alicechat.backgroundServiceEnabled';
+  static const _musicProviderCookiePrefix = 'music.provider.cookie.';
 
   static const OpenClawConfig _defaultConfig = OpenClawConfig(
     baseUrl: '',
@@ -80,5 +81,24 @@ class OpenClawSettingsStore {
   static Future<void> saveBackgroundServiceEnabled(bool enabled) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_backgroundServiceEnabledKey, enabled);
+  }
+
+  static Future<String?> loadMusicProviderCookie(String providerId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getString('$_musicProviderCookiePrefix$providerId')?.trim();
+    return (value == null || value.isEmpty) ? null : value;
+  }
+
+  static Future<void> saveMusicProviderCookie({
+    required String providerId,
+    required String cookie,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final normalized = cookie.trim();
+    if (normalized.isEmpty) {
+      await prefs.remove('$_musicProviderCookiePrefix$providerId');
+      return;
+    }
+    await prefs.setString('$_musicProviderCookiePrefix$providerId', normalized);
   }
 }

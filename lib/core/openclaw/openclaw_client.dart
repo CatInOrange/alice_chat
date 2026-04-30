@@ -93,5 +93,7 @@ abstract class OpenClawClient {
 
   Future<Map<String, dynamic>> getMusicState();
 
+  Future<Map<String, dynamic>> getMusicProviders();
+
   Future<Map<String, dynamic>> saveMusicState({required Map<String, dynamic> payload});
 }

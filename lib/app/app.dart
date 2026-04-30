@@ -14,6 +14,7 @@ import '../core/debug/native_debug_bridge.dart';
 import '../features/notifications/application/background_connection_service.dart';
 import '../features/notifications/application/notification_service.dart';
 import '../features/settings/presentation/settings_screen.dart';
+import '../features/music/application/music_platform_store.dart';
 import '../features/music/application/music_store.dart';
 import '../features/music/presentation/music_screen.dart';
 import '../features/webview/presentation/webview_screen.dart';
@@ -28,6 +29,7 @@ class AliceChatApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => ChatSessionStore()),
         ChangeNotifierProvider(create: (_) => MusicStore()),
+        ChangeNotifierProvider(create: (_) => MusicPlatformStore()),
       ],
       child: MaterialApp(
         title: 'Alice Chat',
