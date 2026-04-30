@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import uuid
 from dataclasses import replace
 
@@ -29,8 +30,35 @@ def _strip_model_prefix(text: str) -> str:
     return value[bracket_end + 1 :].lstrip()
 
 
+def _normalize_notification_preview(text: str, *, max_length: int = 100) -> str:
+    value = _strip_model_prefix(str(text or '').strip())
+    if not value:
+        return ''
+
+    value = re.sub(r'```.+?```', ' [代码片段] ', value, flags=re.S)
+    value = re.sub(r'`([^`]+)`', r'\1', value)
+    value = re.sub(r'!\[([^\]]*)\]\([^\)]+\)', lambda m: (m.group(1) or '[图片]').strip(), value)
+    value = re.sub(r'\[([^\]]+)\]\([^\)]+\)', r'\1', value)
+    value = re.sub(r'https?://\S+', '链接', value)
+    value = re.sub(r'(?m)^\s{0,3}#{1,6}\s*', '', value)
+    value = re.sub(r'(?m)^\s{0,3}>\s?', '', value)
+    value = re.sub(r'(?m)^\s*[-*+]\s+', '• ', value)
+    value = re.sub(r'(?m)^\s*\d+[.)]\s+', lambda m: f"{m.group(0).strip()} ", value)
+    value = re.sub(r'(?<!\*)\*\*(?!\*)(.+?)(?<!\*)\*\*(?!\*)', r'\1', value)
+    value = re.sub(r'(?<!_)__(?!_)(.+?)(?<!_)__(?!_)', r'\1', value)
+    value = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'\1', value)
+    value = re.sub(r'(?<!_)_(?!_)(.+?)(?<!_)_(?!_)', r'\1', value)
+    value = re.sub(r'~~(.+?)~~', r'\1', value)
+    value = value.replace('|', ' ')
+    value = re.sub(r'\s+', ' ', value).strip()
+    value = value.strip('`*_~#> -')
+    if len(value) > max_length:
+        value = value[: max_length - 1].rstrip() + '…'
+    return value
+
+
 def _pick_notification_preview(*, visible_text: str, has_images: bool) -> str:
-    preview = _strip_model_prefix(str(visible_text or '').strip())
+    preview = _normalize_notification_preview(visible_text)
     if preview:
         return preview
     if has_images:
@@ -211,9 +239,10 @@ def create_chat_router(context: AppContext) -> APIRouter:
                 },
             )
 
+        request_id = uuid.uuid4().hex
+
         async def run_job() -> None:
             assistant_message_id = f'msg_ai_{uuid.uuid4().hex[:12]}'
-            request_id = uuid.uuid4().hex
             assistant_raw_parts: list[str] = []
             delta_seq = 0
             terminal_event_sent = False
@@ -455,9 +484,12 @@ def create_chat_router(context: AppContext) -> APIRouter:
             content={
                 'ok': True,
                 'status': 'accepted',
+                'requestAccepted': True,
                 'sessionId': session_id,
                 'clientMessageId': client_message_id,
+                'persistedUserMessageId': user_message['id'] if user_message else user_message_id,
                 'messageId': user_message['id'] if user_message else user_message_id,
+                'requestId': request_id,
             }
         )
 

@@ -67,7 +67,7 @@ def create_events_router(context: AppContext) -> APIRouter:
             try:
                 while True:
                     try:
-                        event = await asyncio.wait_for(queue.get(), timeout=20)
+                        event = await asyncio.wait_for(queue.get(), timeout=8)
                     except TimeoutError:
                         yield ': keepalive\n\n'
                         continue

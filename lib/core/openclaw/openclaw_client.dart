@@ -5,6 +5,26 @@ class MessagePageResult {
   final Map<String, dynamic> paging;
 }
 
+class SendMessageResult {
+  const SendMessageResult({
+    required this.ok,
+    required this.status,
+    required this.sessionId,
+    required this.clientMessageId,
+    required this.persistedUserMessageId,
+    required this.requestAccepted,
+    this.requestId,
+  });
+
+  final bool ok;
+  final String status;
+  final String sessionId;
+  final String clientMessageId;
+  final String persistedUserMessageId;
+  final bool requestAccepted;
+  final String? requestId;
+}
+
 class UploadMediaResult {
   const UploadMediaResult({required this.attachment});
 
@@ -24,7 +44,7 @@ abstract class OpenClawClient {
     String? afterMessageId,
   });
 
-  Future<String> sendMessage({
+  Future<SendMessageResult> sendMessage({
     required String sessionId,
     required String text,
     List<Map<String, dynamic>> attachments = const [],

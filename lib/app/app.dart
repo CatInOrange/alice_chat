@@ -132,6 +132,7 @@ class _MainScaffoldState extends State<_MainScaffold>
     );
     if (state == AppLifecycleState.resumed) {
       unawaited(_consumePendingNotificationOpen(source: 'resumed'));
+      unawaited(context.read<ChatSessionStore>().handleAppResumed());
     }
   }
 
@@ -161,9 +162,10 @@ class _MainScaffoldState extends State<_MainScaffold>
       title: contact.name,
       subtitle: contact.subtitle ?? '',
       avatarAssetPath: contact.avatarAssetPath,
-      backendSessionId: (contact.backendSessionId ?? '').trim().isNotEmpty
-          ? contact.backendSessionId
-          : contact.id,
+      backendSessionId:
+          (contact.backendSessionId ?? '').trim().isNotEmpty
+              ? contact.backendSessionId
+              : contact.id,
       contactId: contact.id,
       isGatewayBacked: contact.isGatewayBacked,
     );
@@ -194,11 +196,10 @@ class _MainScaffoldState extends State<_MainScaffold>
     );
   }
 
-  Future<void> _consumePendingNotificationOpen({
-    required String source,
-  }) async {
+  Future<void> _consumePendingNotificationOpen({required String source}) async {
     final payload =
-        await BackgroundConnectionService.instance.consumePendingNotificationOpen();
+        await BackgroundConnectionService.instance
+            .consumePendingNotificationOpen();
     await NativeDebugBridge.instance.log(
       'app',
       '$source consumePendingNotificationOpen payload=${payload ?? {}}',
@@ -265,10 +266,11 @@ class _MainScaffoldState extends State<_MainScaffold>
     unawaited(_syncActiveSessionFromStore(activeSession));
   }
 
-  Future<void> _clearActiveSessionBindings({
-    required String reason,
-  }) async {
-    await NativeDebugBridge.instance.log('app', 'clearActiveSessionBindings reason=$reason');
+  Future<void> _clearActiveSessionBindings({required String reason}) async {
+    await NativeDebugBridge.instance.log(
+      'app',
+      'clearActiveSessionBindings reason=$reason',
+    );
     await NotificationService.instance.clearActiveSession();
     await BackgroundConnectionService.instance.updateActiveSession('');
   }

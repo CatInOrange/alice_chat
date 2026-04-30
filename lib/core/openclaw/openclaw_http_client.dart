@@ -88,7 +88,7 @@ class OpenClawHttpClient implements OpenClawClient {
   }
 
   @override
-  Future<String> sendMessage({
+  Future<SendMessageResult> sendMessage({
     required String sessionId,
     required String text,
     List<Map<String, dynamic>> attachments = const [],
@@ -127,7 +127,21 @@ class OpenClawHttpClient implements OpenClawClient {
     if (json['ok'] != true) {
       throw Exception('发送消息失败: ${response.body}');
     }
-    return (json['messageId'] ?? '').toString();
+    return SendMessageResult(
+      ok: json['ok'] == true,
+      status: (json['status'] ?? '').toString(),
+      sessionId: (json['sessionId'] ?? sessionId).toString(),
+      clientMessageId:
+          (json['clientMessageId'] ?? clientMessageId ?? '').toString(),
+      persistedUserMessageId:
+          (json['persistedUserMessageId'] ?? json['messageId'] ?? '')
+              .toString(),
+      requestAccepted: json['requestAccepted'] != false,
+      requestId:
+          (json['requestId'] ?? '').toString().trim().isEmpty
+              ? null
+              : (json['requestId'] ?? '').toString(),
+    );
   }
 
   @override

@@ -12,6 +12,13 @@ import '../data/chat_cache_store.dart';
 import '../domain/chat_message.dart' as domain;
 import '../domain/chat_session.dart';
 
+class _SessionMessageWindow {
+  const _SessionMessageWindow({this.oldestMessageId, this.newestMessageId});
+
+  final String? oldestMessageId;
+  final String? newestMessageId;
+}
+
 class ChatSessionStore extends ChangeNotifier {
   ChatSessionStore({OpenClawHttpClient? client})
     : _client =
@@ -34,7 +41,8 @@ class ChatSessionStore extends ChangeNotifier {
   static const int olderMessagePageSize = 5;
   static const int latestRefreshPageSize = 20;
   static const int maxMessagesAfterReconnect = 200;
-  static const Duration sendStuckTimeout = Duration(seconds: 45);
+  static const Duration sendPostReconcileDelay = Duration(seconds: 1);
+  static const Duration replyStuckTimeout = Duration(seconds: 25);
   static const Duration eventReconnectBaseDelay = Duration(seconds: 1);
   static const Duration eventReconnectMaxDelay = Duration(seconds: 8);
 
@@ -46,7 +54,8 @@ class ChatSessionStore extends ChangeNotifier {
   final Map<String, String> _sessionIdBySessionKey = {};
   final Map<String, StreamSubscription<Map<String, dynamic>>>
   _eventSubscriptions = {};
-  final Map<String, Timer> _sendWatchdogs = {};
+  final Map<String, Timer> _replyWatchdogs = {};
+  final Map<String, String> _replyWatchdogSessions = {};
   final Map<String, Timer> _eventReconnectTimers = {};
   final Map<String, DateTime> _lastDebugLogAt = {};
   DateTime? _lastBackendLoadLogAt;
@@ -153,6 +162,46 @@ class ChatSessionStore extends ChangeNotifier {
     await ensureReady(session);
   }
 
+  Future<void> handleAppResumed() async {
+    for (final state in _states.values) {
+      final sessionId = (state.backendSessionId ?? '').trim();
+      if (sessionId.isEmpty || !state.isReady) continue;
+      await reconnectSession(state.session, force: true, reason: 'app_resumed');
+    }
+  }
+
+  Future<void> reconnectSession(
+    ChatSession session, {
+    bool force = false,
+    String reason = 'manual',
+  }) async {
+    final state = stateFor(session);
+    final sessionId = (state.backendSessionId ?? '').trim();
+    if (sessionId.isEmpty) return;
+    if (!force && _eventSubscriptions.containsKey(sessionId)) {
+      return;
+    }
+    _eventReconnectTimers.remove(sessionId)?.cancel();
+    await _eventSubscriptions.remove(sessionId)?.cancel();
+    state.isEventConnecting = true;
+    _debugState(
+      'events.reconnect.$reason',
+      state,
+      extra: {'sessionId': sessionId},
+      force: true,
+    );
+    notifyListeners();
+    unawaited(
+      _reconcileSessionMessages(
+        session,
+        state,
+        sessionId: sessionId,
+        reason: 'reconnect_$reason',
+      ),
+    );
+    _ensureEventSubscription(session, sessionId);
+  }
+
   Future<void> sendMessage(ChatSession session, String text) async {
     await _sendMessageInternal(session, text: text, attachments: const []);
   }
@@ -205,11 +254,10 @@ class ChatSessionStore extends ChangeNotifier {
             );
 
     state
-      ..isSubmitting = true
+      ..requestPhase = ChatRequestPhase.posting
       ..appendMessage(userMessage)
       ..markShouldStickToBottom()
       ..pendingClientMessageIds.add(clientMessageId);
-    _armSendWatchdog(state, clientMessageId);
     _debugState(
       'sendMessage.begin',
       state,
@@ -222,7 +270,7 @@ class ChatSessionStore extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _client.sendMessage(
+      final sendResult = await _client.sendMessage(
         sessionId: sessionId,
         text: trimmed,
         attachments: attachments,
@@ -230,11 +278,38 @@ class ChatSessionStore extends ChangeNotifier {
         userId: sessionId,
         clientMessageId: clientMessageId,
       );
+      final reconcileWindow = _snapshotMessageWindow(state);
+      _confirmPostedMessage(
+        state,
+        clientMessageId: clientMessageId,
+        persistedMessageId: sendResult.persistedUserMessageId,
+      );
+      _armReplyWatchdog(
+        session,
+        state,
+        sessionId: sessionId,
+        clientMessageId: clientMessageId,
+      );
+      unawaited(
+        _reconcileSessionMessages(
+          session,
+          state,
+          sessionId: sessionId,
+          delay: sendPostReconcileDelay,
+          reason: 'post_send',
+          window: reconcileWindow,
+        ),
+      );
       _debugState(
         'sendMessage.posted',
         state,
-        extra: {'clientMessageId': clientMessageId},
+        extra: {
+          'clientMessageId': clientMessageId,
+          'persistedUserMessageId': sendResult.persistedUserMessageId,
+          'requestId': sendResult.requestId,
+        },
       );
+      notifyListeners();
     } catch (error) {
       Object finalError = error;
       if (_isUnknownSessionError(error)) {
@@ -252,7 +327,7 @@ class ChatSessionStore extends ChangeNotifier {
           sessionId = await _ensureBackendSession(session);
           state.backendSessionId = sessionId;
           _ensureEventSubscription(session, sessionId);
-          await _client.sendMessage(
+          final sendResult = await _client.sendMessage(
             sessionId: sessionId,
             text: trimmed,
             attachments: attachments,
@@ -260,12 +335,40 @@ class ChatSessionStore extends ChangeNotifier {
             userId: sessionId,
             clientMessageId: clientMessageId,
           );
+          final reconcileWindow = _snapshotMessageWindow(state);
+          _confirmPostedMessage(
+            state,
+            clientMessageId: clientMessageId,
+            persistedMessageId: sendResult.persistedUserMessageId,
+          );
+          _armReplyWatchdog(
+            session,
+            state,
+            sessionId: sessionId,
+            clientMessageId: clientMessageId,
+          );
+          unawaited(
+            _reconcileSessionMessages(
+              session,
+              state,
+              sessionId: sessionId,
+              delay: sendPostReconcileDelay,
+              reason: 'post_send_retry',
+              window: reconcileWindow,
+            ),
+          );
           _debugState(
             'sendMessage.posted.retry',
             state,
-            extra: {'clientMessageId': clientMessageId, 'sessionId': sessionId},
+            extra: {
+              'clientMessageId': clientMessageId,
+              'sessionId': sessionId,
+              'persistedUserMessageId': sendResult.persistedUserMessageId,
+              'requestId': sendResult.requestId,
+            },
             force: true,
           );
+          notifyListeners();
           return;
         } catch (retryError) {
           finalError = retryError;
@@ -368,7 +471,8 @@ class ChatSessionStore extends ChangeNotifier {
         state.mergeMessages(page.messages);
         totalFetched += page.messages.length;
         currentAfterId = page.newestMessageId;
-        hasMore = page.hasMoreAfter && page.messages.length >= latestRefreshPageSize;
+        hasMore =
+            page.hasMoreAfter && page.messages.length >= latestRefreshPageSize;
       }
 
       if (state.messages.isNotEmpty) {
@@ -433,13 +537,10 @@ class ChatSessionStore extends ChangeNotifier {
             _eventSubscriptions.remove(sessionId);
             state
               ..error = _humanizeError(error)
-              ..clearPending()
               ..clearStreaming()
               ..clearAssistantProgress()
-              ..isSubmitting = false
-              ..isAssistantStreaming = false
               ..isEventConnecting = false;
-            _cancelWatchdogsForState(state);
+            state.recomputeRequestPhase();
             _debugState(
               'events.onError',
               state,
@@ -454,10 +555,8 @@ class ChatSessionStore extends ChangeNotifier {
             state
               ..clearStreaming()
               ..clearAssistantProgress()
-              ..isSubmitting = state.pendingClientMessageIds.isNotEmpty
-              ..isAssistantStreaming = false
               ..isEventConnecting = false;
-            _cancelWatchdogsForState(state);
+            state.recomputeRequestPhase();
             _debugState('events.onDone', state, force: true);
             notifyListeners();
             _scheduleEventReconnect(session, sessionId, state);
@@ -526,9 +625,8 @@ class ChatSessionStore extends ChangeNotifier {
         } else {
           _clearOldestPendingClientMessage(state);
         }
-        state
-          ..isSubmitting = false
-          ..isAssistantStreaming = true;
+        state.recomputeRequestPhase();
+        state.requestPhase = ChatRequestPhase.replying;
         break;
       case 'assistant.progress':
         final messageId = (event['messageId'] ?? '').toString();
@@ -564,33 +662,33 @@ class ChatSessionStore extends ChangeNotifier {
         } else {
           _clearOldestPendingClientMessage(state);
         }
-        state
-          ..isSubmitting = false
-          ..isAssistantStreaming = true;
+        state.recomputeRequestPhase();
+        state.requestPhase = ChatRequestPhase.replying;
         break;
       case 'assistant.message.completed':
         final message = _mapEventMessage(event['message']);
         if (message == null) return;
+        final clientMessageId = (event['clientMessageId'] ?? '').toString();
         state.upsertMessage(message);
         state
           ..clearStreaming()
           ..clearAssistantProgress();
+        state.postedClientMessageIds.remove(clientMessageId);
         state.trackMessageWindow(message.id);
-        final clientMessageId = (event['clientMessageId'] ?? '').toString();
         if (clientMessageId.isNotEmpty) {
           _clearPendingClientMessage(state, clientMessageId, notify: false);
         } else {
           _clearOldestPendingClientMessage(state);
         }
-        state
-          ..isSubmitting = false
-          ..isAssistantStreaming = false;
+        state.recomputeRequestPhase();
         break;
       case 'assistant.message.failed':
         final error = (event['error'] ?? 'unknown error').toString();
+        final clientMessageId = (event['clientMessageId'] ?? '').toString();
         state
           ..clearStreaming()
           ..clearAssistantProgress();
+        state.postedClientMessageIds.remove(clientMessageId);
         state.appendMessage(
           core.TextMessage(
             id: _uuid.v4(),
@@ -599,15 +697,12 @@ class ChatSessionStore extends ChangeNotifier {
             text: '❌ 回复失败: $error',
           ),
         );
-        final clientMessageId = (event['clientMessageId'] ?? '').toString();
         if (clientMessageId.isNotEmpty) {
           _clearPendingClientMessage(state, clientMessageId, notify: false);
         } else {
           _clearOldestPendingClientMessage(state);
         }
-        state
-          ..isSubmitting = false
-          ..isAssistantStreaming = false;
+        state.recomputeRequestPhase();
         break;
     }
     final afterAssistantCount =
@@ -654,34 +749,136 @@ class ChatSessionStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _armSendWatchdog(ChatViewState state, String clientMessageId) {
-    _sendWatchdogs.remove(clientMessageId)?.cancel();
-    _sendWatchdogs[clientMessageId] = Timer(sendStuckTimeout, () {
-      if (!state.pendingClientMessageIds.contains(clientMessageId)) {
-        _sendWatchdogs.remove(clientMessageId)?.cancel();
+  void _confirmPostedMessage(
+    ChatViewState state, {
+    required String clientMessageId,
+    required String persistedMessageId,
+  }) {
+    final nextMessageId = persistedMessageId.trim();
+    if (nextMessageId.isNotEmpty) {
+      state.replaceMessageId(clientMessageId, nextMessageId);
+      state.trackMessageWindow(nextMessageId);
+    }
+    state.pendingClientMessageIds.remove(clientMessageId);
+    state.postedClientMessageIds.add(clientMessageId);
+    _replyWatchdogs.remove(clientMessageId)?.cancel();
+    _replyWatchdogSessions.remove(clientMessageId);
+    state.recomputeRequestPhase();
+  }
+
+  void _armReplyWatchdog(
+    ChatSession session,
+    ChatViewState state, {
+    required String sessionId,
+    required String clientMessageId,
+  }) {
+    _replyWatchdogs.remove(clientMessageId)?.cancel();
+    _replyWatchdogSessions[clientMessageId] = sessionId;
+    _replyWatchdogs[clientMessageId] = Timer(replyStuckTimeout, () {
+      _replyWatchdogs.remove(clientMessageId)?.cancel();
+      _replyWatchdogSessions.remove(clientMessageId);
+      if (state.backendSessionId != sessionId) {
         return;
       }
-      state.pendingClientMessageIds.remove(clientMessageId);
-      state
-        ..isSubmitting = false
-        ..isAssistantStreaming = state.streamingMessageIds.isNotEmpty;
-      state.appendMessage(
-        core.TextMessage(
-          id: _uuid.v4(),
-          authorId: 'assistant',
-          createdAt: DateTime.now(),
-          text: '⚠️ 这条消息已经发出，但确认事件迟迟没回来。我先把输入框解锁了。',
+      if (state.isAssistantStreaming) {
+        return;
+      }
+      unawaited(
+        _reconcileSessionMessages(
+          session,
+          state,
+          sessionId: sessionId,
+          reason: 'reply_watchdog',
+          appendSlowNotice: true,
         ),
       );
-      _sendWatchdogs.remove(clientMessageId)?.cancel();
+    });
+  }
+
+  _SessionMessageWindow _snapshotMessageWindow(ChatViewState state) {
+    return _SessionMessageWindow(
+      oldestMessageId: state.oldestLoadedMessageId,
+      newestMessageId: state.newestLoadedMessageId,
+    );
+  }
+
+  Future<void> _reconcileSessionMessages(
+    ChatSession session,
+    ChatViewState state, {
+    required String sessionId,
+    Duration? delay,
+    required String reason,
+    bool appendSlowNotice = false,
+    _SessionMessageWindow? window,
+  }) async {
+    if (delay != null) {
+      await Future<void>.delayed(delay);
+    }
+    if (state.backendSessionId != sessionId) {
+      return;
+    }
+    final reconcileWindow = window ?? _snapshotMessageWindow(state);
+    try {
+      final page = await _loadMessagesPage(
+        sessionId,
+        limit: latestRefreshPageSize,
+        afterMessageId: reconcileWindow.newestMessageId,
+      );
+      if (page.messages.isNotEmpty) {
+        state.mergeMessages(page.messages);
+      }
+      if (state.isAssistantStreaming &&
+          page.messages.any((message) => message.authorId == 'assistant')) {
+        state
+          ..clearStreaming()
+          ..clearAssistantProgress();
+        state.postedClientMessageIds.clear();
+      }
+      if (state.messages.isNotEmpty) {
+        state.oldestLoadedMessageId ??= state.messages.first.id;
+        state.newestLoadedMessageId = state.messages.last.id;
+      }
+      state.error = null;
+      state.recomputeRequestPhase();
       _debugState(
-        'watchdog.timeout',
+        'reconcile.$reason',
         state,
-        extra: {'clientMessageId': clientMessageId},
+        extra: {
+          'sessionId': sessionId,
+          'afterMessageId': reconcileWindow.newestMessageId,
+          'fetchedCount': page.messages.length,
+        },
         force: true,
       );
       notifyListeners();
-    });
+      unawaited(_persistStateCache(session, state));
+    } catch (error) {
+      _debugState(
+        'reconcile.$reason.error',
+        state,
+        extra: {'sessionId': sessionId, 'error': error.toString()},
+        force: true,
+      );
+      if (appendSlowNotice) {
+        final hasSlowNotice = state.messages.any(
+          (message) =>
+              message.authorId == 'assistant' &&
+              message is core.TextMessage &&
+              message.text == '⚠️ 消息已送达，助手回复可能因网络较慢稍后补上。',
+        );
+        if (!hasSlowNotice) {
+          state.appendMessage(
+            core.TextMessage(
+              id: _uuid.v4(),
+              authorId: 'assistant',
+              createdAt: DateTime.now(),
+              text: '⚠️ 消息已送达，助手回复可能因网络较慢稍后补上。',
+            ),
+          );
+          notifyListeners();
+        }
+      }
+    }
   }
 
   void _clearPendingClientMessage(
@@ -690,9 +887,10 @@ class ChatSessionStore extends ChangeNotifier {
     bool notify = false,
   }) {
     state.pendingClientMessageIds.remove(clientMessageId);
-    _sendWatchdogs.remove(clientMessageId)?.cancel();
-    state.isSubmitting = state.pendingClientMessageIds.isNotEmpty;
-    state.isAssistantStreaming = state.streamingMessageIds.isNotEmpty;
+    state.postedClientMessageIds.remove(clientMessageId);
+    _replyWatchdogs.remove(clientMessageId)?.cancel();
+    _replyWatchdogSessions.remove(clientMessageId);
+    state.recomputeRequestPhase();
     _debugState(
       'pending.clear',
       state,
@@ -708,7 +906,7 @@ class ChatSessionStore extends ChangeNotifier {
     bool notify = false,
   }) {
     if (state.pendingClientMessageIds.isEmpty) {
-      state.isSubmitting = false;
+      state.recomputeRequestPhase();
       if (notify) {
         notifyListeners();
       }
@@ -746,6 +944,7 @@ class ChatSessionStore extends ChangeNotifier {
       _eventSubscriptions.remove(oldSessionId)?.cancel();
       _eventReconnectTimers.remove(oldSessionId)?.cancel();
     }
+    _cancelWatchdogsForState(state);
     _sessionIdBySessionKey.remove(_keyFor(state.session));
     state
       ..backendSessionId = null
@@ -754,15 +953,20 @@ class ChatSessionStore extends ChangeNotifier {
       ..lastEventSeq = null
       ..reconnectAttempts = 0
       ..clearPending()
+      ..clearPosted()
       ..clearStreaming()
-      ..isSubmitting = false
-      ..isAssistantStreaming = false;
-    _cancelWatchdogsForState(state);
+      ..requestPhase = ChatRequestPhase.idle;
   }
 
   void _cancelWatchdogsForState(ChatViewState state) {
-    for (final clientMessageId in state.pendingClientMessageIds.toList()) {
-      _sendWatchdogs.remove(clientMessageId)?.cancel();
+    final backendSessionId = (state.backendSessionId ?? '').trim();
+    final keys = _replyWatchdogSessions.entries
+        .where((entry) => entry.value == backendSessionId)
+        .map((entry) => entry.key)
+        .toList(growable: false);
+    for (final clientMessageId in keys) {
+      _replyWatchdogs.remove(clientMessageId)?.cancel();
+      _replyWatchdogSessions.remove(clientMessageId);
     }
   }
 
@@ -907,7 +1111,9 @@ class ChatSessionStore extends ChangeNotifier {
             state.mergeMessages(page.messages);
             totalFetched += page.messages.length;
             currentAfterId = page.newestMessageId;
-            hasMore = page.hasMoreAfter && page.messages.length >= latestRefreshPageSize;
+            hasMore =
+                page.hasMoreAfter &&
+                page.messages.length >= latestRefreshPageSize;
           }
 
           if (state.messages.isNotEmpty) {
@@ -934,6 +1140,14 @@ class ChatSessionStore extends ChangeNotifier {
           } catch (_) {}
         }
         _ensureEventSubscription(session, sessionId);
+        unawaited(
+          _reconcileSessionMessages(
+            session,
+            state,
+            sessionId: sessionId,
+            reason: 'post_reconnect',
+          ),
+        );
       },
     );
   }
@@ -943,14 +1157,15 @@ class ChatSessionStore extends ChangeNotifier {
     for (final subscription in _eventSubscriptions.values) {
       subscription.cancel();
     }
-    for (final timer in _sendWatchdogs.values) {
+    for (final timer in _replyWatchdogs.values) {
       timer.cancel();
     }
     for (final timer in _eventReconnectTimers.values) {
       timer.cancel();
     }
     _eventSubscriptions.clear();
-    _sendWatchdogs.clear();
+    _replyWatchdogs.clear();
+    _replyWatchdogSessions.clear();
     _eventReconnectTimers.clear();
     super.dispose();
   }
@@ -1183,6 +1398,8 @@ class MessageLoadResult {
   final String? newestMessageId;
 }
 
+enum ChatRequestPhase { idle, posting, posted, replying }
+
 class ChatViewState {
   ChatViewState({required this.session})
     : draftController = ValueNotifier<String>('');
@@ -1193,9 +1410,13 @@ class ChatViewState {
   String? backendSessionId;
   bool isLoading = false;
   bool isReady = false;
-  bool isSubmitting = false;
-  bool isAssistantStreaming = false;
-  bool get isSending => isSubmitting;
+  ChatRequestPhase requestPhase = ChatRequestPhase.idle;
+  bool get isSubmitting => requestPhase == ChatRequestPhase.posting;
+  bool get isAssistantStreaming => requestPhase == ChatRequestPhase.replying;
+  bool get isSending => requestPhase != ChatRequestPhase.idle;
+  bool get hasPostedRequest =>
+      requestPhase == ChatRequestPhase.posted ||
+      requestPhase == ChatRequestPhase.replying;
   bool isEventConnecting = false;
   String? error;
   int? lastEventSeq;
@@ -1226,6 +1447,7 @@ class ChatViewState {
   String? newestLoadedMessageId;
   List<core.Message> messages = const [];
   final Set<String> pendingClientMessageIds = <String>{};
+  final Set<String> postedClientMessageIds = <String>{};
   final Set<String> streamingMessageIds = <String>{};
 
   void replaceMessages(List<core.Message> nextMessages) {
@@ -1247,15 +1469,15 @@ class ChatViewState {
       list[index] = message;
     } else {
       list.add(message);
-      list.sort(
-        (a, b) {
-          final createdAtA = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-          final createdAtB = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-          final cmp = createdAtA.compareTo(createdAtB);
-          if (cmp != 0) return cmp;
-          return a.id.compareTo(b.id);
-        },
-      );
+      list.sort((a, b) {
+        final createdAtA =
+            a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final createdAtB =
+            b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final cmp = createdAtA.compareTo(createdAtB);
+        if (cmp != 0) return cmp;
+        return a.id.compareTo(b.id);
+      });
     }
     messages = List<core.Message>.unmodifiable(list);
     trackMessageWindow(message.id);
@@ -1272,15 +1494,13 @@ class ChatViewState {
         merged.add(message);
       }
     }
-    merged.sort(
-      (a, b) {
-        final createdAtA = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        final createdAtB = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        final cmp = createdAtA.compareTo(createdAtB);
-        if (cmp != 0) return cmp;
-        return a.id.compareTo(b.id);
-      },
-    );
+    merged.sort((a, b) {
+      final createdAtA = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final createdAtB = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final cmp = createdAtA.compareTo(createdAtB);
+      if (cmp != 0) return cmp;
+      return a.id.compareTo(b.id);
+    });
     messages = List<core.Message>.unmodifiable(merged);
     if (messages.isNotEmpty) {
       oldestLoadedMessageId = messages.first.id;
@@ -1377,8 +1597,28 @@ class ChatViewState {
     pendingClientMessageIds.clear();
   }
 
+  void clearPosted() {
+    postedClientMessageIds.clear();
+  }
+
   void clearStreaming() {
     streamingMessageIds.clear();
+  }
+
+  void recomputeRequestPhase() {
+    if (pendingClientMessageIds.isNotEmpty) {
+      requestPhase = ChatRequestPhase.posting;
+      return;
+    }
+    if (streamingMessageIds.isNotEmpty) {
+      requestPhase = ChatRequestPhase.replying;
+      return;
+    }
+    if (postedClientMessageIds.isNotEmpty) {
+      requestPhase = ChatRequestPhase.posted;
+      return;
+    }
+    requestPhase = ChatRequestPhase.idle;
   }
 
   void setAssistantProgress({
@@ -1454,15 +1694,13 @@ class ChatViewState {
     final index = list.indexWhere((item) => item.id == clientMessageId);
     if (index < 0) return false;
     list[index] = confirmedMessage;
-    list.sort(
-      (a, b) {
-        final createdAtA = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        final createdAtB = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        final cmp = createdAtA.compareTo(createdAtB);
-        if (cmp != 0) return cmp;
-        return a.id.compareTo(b.id);
-      },
-    );
+    list.sort((a, b) {
+      final createdAtA = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final createdAtB = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final cmp = createdAtA.compareTo(createdAtB);
+      if (cmp != 0) return cmp;
+      return a.id.compareTo(b.id);
+    });
     messages = List<core.Message>.unmodifiable(list);
     return true;
   }
