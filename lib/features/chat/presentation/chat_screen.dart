@@ -2155,6 +2155,11 @@ class _ChatScreenState extends State<ChatScreen> {
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  _buildSlashSuggestionPanel(theme),
+                  if (_slashSuggestions.isNotEmpty ||
+                      _isLoadingModelCatalog ||
+                      _modelCatalogError != null)
+                    const SizedBox(height: 8),
                   if (_quotedMessageDraft != null)
                     Container(
                       width: double.infinity,
@@ -2181,11 +2186,6 @@ class _ChatScreenState extends State<ChatScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                _buildSlashSuggestionPanel(theme),
-                                if (_slashSuggestions.isNotEmpty ||
-                                    _isLoadingModelCatalog ||
-                                    _modelCatalogError != null)
-                                  const SizedBox(height: 2),
                                 Text(
                                   '引用 ${_quotedMessageDraft!.authorName}',
                                   style: theme.textTheme.bodySmall?.copyWith(
