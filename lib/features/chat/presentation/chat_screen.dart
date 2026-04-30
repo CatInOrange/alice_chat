@@ -16,7 +16,6 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/debug/native_debug_bridge.dart';
-import '../../../core/openclaw/openclaw_client.dart';
 import '../application/chat_session_store.dart';
 import '../domain/chat_session.dart';
 
@@ -85,6 +84,83 @@ class _SlashSuggestionItem {
   final Future<void> Function()? onSelected;
 }
 
+class _LocalModelOption {
+  const _LocalModelOption({required this.id, required this.name});
+
+  final String id;
+  final String name;
+}
+
+class _LocalModelProvider {
+  const _LocalModelProvider({
+    required this.id,
+    required this.name,
+    required this.models,
+  });
+
+  final String id;
+  final String name;
+  final List<_LocalModelOption> models;
+}
+
+const _localModelProviders = <_LocalModelProvider>[
+  _LocalModelProvider(
+    id: 'deepseek',
+    name: 'DeepSeek',
+    models: [
+      _LocalModelOption(id: 'deepseek-chat', name: 'DeepSeek Chat'),
+      _LocalModelOption(id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash'),
+      _LocalModelOption(id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro'),
+      _LocalModelOption(id: 'deepseek-reasoner', name: 'DeepSeek Reasoner'),
+    ],
+  ),
+  _LocalModelProvider(
+    id: 'google',
+    name: 'Google',
+    models: [
+      _LocalModelOption(id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash'),
+    ],
+  ),
+  _LocalModelProvider(
+    id: 'minimax',
+    name: 'MiniMax',
+    models: [
+      _LocalModelOption(
+        id: 'MiniMax-M2.7-highspeed',
+        name: 'MiniMax M2.7 Highspeed',
+      ),
+      _LocalModelOption(id: 'MiniMax-M2.5', name: 'MiniMax M2.5'),
+      _LocalModelOption(
+        id: 'MiniMax-M2.5-highspeed',
+        name: 'MiniMax M2.5 Highspeed',
+      ),
+      _LocalModelOption(
+        id: 'MiniMax-M2.5-Lightning',
+        name: 'MiniMax M2.5 Lightning',
+      ),
+      _LocalModelOption(id: 'MiniMax-M2.1', name: 'MiniMax M2.1'),
+      _LocalModelOption(
+        id: 'MiniMax-M2.1-lightning',
+        name: 'MiniMax M2.1 Lightning',
+      ),
+      _LocalModelOption(id: 'MiniMax-M2', name: 'MiniMax M2'),
+    ],
+  ),
+  _LocalModelProvider(
+    id: 'xai',
+    name: 'xAI',
+    models: [
+      _LocalModelOption(id: 'grok-3', name: 'Grok 3'),
+      _LocalModelOption(id: 'grok-3-fast', name: 'Grok 3 Fast'),
+      _LocalModelOption(id: 'grok-3-mini', name: 'Grok 3 Mini'),
+      _LocalModelOption(id: 'grok-3-mini-fast', name: 'Grok 3 Mini Fast'),
+      _LocalModelOption(id: 'grok-4', name: 'Grok 4'),
+      _LocalModelOption(id: 'grok-4-0709', name: 'Grok 4 0709'),
+      _LocalModelOption(id: 'grok-4-fast', name: 'Grok 4 Fast'),
+    ],
+  ),
+];
+
 class _ChatScreenState extends State<ChatScreen> {
   final _currentUserId = 'user';
   final _composerController = TextEditingController();
@@ -113,10 +189,7 @@ class _ChatScreenState extends State<ChatScreen> {
   String _lastStreamingHintSignature = '';
   bool _streamingHintPulseActive = false;
   _QuotedMessageDraft? _quotedMessageDraft;
-  List<RuntimeModelCatalogProvider> _modelCatalogProviders = const [];
   List<_SlashSuggestionItem> _slashSuggestions = const [];
-  bool _isLoadingModelCatalog = false;
-  String? _modelCatalogError;
 
   // Composer height tracking for relative positioning of floating elements
   static const double _composerPaddingVertical = 20.0; // 8 + 12
@@ -874,9 +947,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final modelId = args.substring(slashIndex + 1).trim();
     if (providerId.isEmpty || modelId.isEmpty) return false;
 
-    await _ensureModelCatalogLoaded();
-    RuntimeModelCatalogProvider? provider;
-    for (final item in _modelCatalogProviders) {
+    _LocalModelProvider? provider;
+    for (final item in _localModelProviders) {
       if (item.id == providerId) {
         provider = item;
         break;
@@ -884,7 +956,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     if (provider == null) return false;
 
-    RuntimeModelCatalogModel? model;
+    _LocalModelOption? model;
     for (final item in provider.models) {
       if (item.id == modelId) {
         model = item;
@@ -907,41 +979,16 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _handleComposerTextChanged() {
-    unawaited(_refreshSlashSuggestions());
+    _refreshSlashSuggestions();
   }
 
-  Future<void> _ensureModelCatalogLoaded() async {
-    if (_isLoadingModelCatalog || _modelCatalogProviders.isNotEmpty) return;
-    final store = context.read<ChatSessionStore>();
-    _isLoadingModelCatalog = true;
-    try {
-      final result = await store.loadRuntimeModelCatalog();
-      if (!mounted) return;
-      setState(() {
-        _modelCatalogProviders = result.providers;
-        _modelCatalogError = null;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _modelCatalogError = error.toString();
-      });
-    } finally {
-      _isLoadingModelCatalog = false;
-    }
-  }
-
-  Future<void> _refreshSlashSuggestions() async {
+  void _refreshSlashSuggestions() {
     final text = _composerController.text;
     if (!text.startsWith('/')) {
       if (_slashSuggestions.isNotEmpty && mounted) {
         setState(() => _slashSuggestions = const []);
       }
       return;
-    }
-
-    if (text == '/model' || text.startsWith('/model ')) {
-      await _ensureModelCatalogLoaded();
     }
 
     final next = _buildSlashSuggestions(text);
@@ -1014,7 +1061,7 @@ class _ChatScreenState extends State<ChatScreen> {
       final query = text.substring('/model '.length).trim();
       if (query.isEmpty || !query.contains('/')) {
         final providerQuery = query.toLowerCase();
-        return _modelCatalogProviders
+        return _localModelProviders
             .where((provider) {
               return providerQuery.isEmpty ||
                   provider.id.toLowerCase().contains(providerQuery) ||
@@ -1034,8 +1081,8 @@ class _ChatScreenState extends State<ChatScreen> {
       final slashIndex = query.indexOf('/');
       final providerId = query.substring(0, slashIndex).trim();
       final modelQuery = query.substring(slashIndex + 1).trim().toLowerCase();
-      RuntimeModelCatalogProvider? provider;
-      for (final item in _modelCatalogProviders) {
+      _LocalModelProvider? provider;
+      for (final item in _localModelProviders) {
         if (item.id == providerId) {
           provider = item;
           break;
@@ -1085,9 +1132,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildSlashSuggestionPanel(ThemeData theme) {
-    if (_slashSuggestions.isEmpty &&
-        !_isLoadingModelCatalog &&
-        _modelCatalogError == null) {
+    if (_slashSuggestions.isEmpty) {
       return const SizedBox.shrink();
     }
     return Container(
@@ -1106,58 +1151,39 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (_isLoadingModelCatalog)
-            const ListTile(
-              dense: true,
-              leading: SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-              title: Text('正在加载模型列表…'),
-            )
-          else if (_modelCatalogError != null && _slashSuggestions.isEmpty)
-            const ListTile(
-              dense: true,
-              leading: Icon(
-                Icons.error_outline_rounded,
-                color: Colors.redAccent,
-              ),
-              title: Text('模型列表加载失败'),
-            )
-          else
-            ..._slashSuggestions
-                .take(8)
-                .map(
-                  (item) => ListTile(
-                    dense: true,
-                    visualDensity: VisualDensity.compact,
-                    title: Text(
-                      item.label,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+          ..._slashSuggestions
+              .take(8)
+              .map(
+                (item) => ListTile(
+                  dense: true,
+                  visualDensity: VisualDensity.compact,
+                  title: Text(
+                    item.label,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
                     ),
-                    subtitle:
-                        item.subtitle == null
-                            ? null
-                            : Text(
-                              item.subtitle!,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                    trailing:
-                        item.trailing == null
-                            ? null
-                            : Text(
-                              item.trailing!,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: const Color(0xFF98A1B3),
-                              ),
-                            ),
-                    onTap: () => _applySlashSuggestion(item),
                   ),
+                  subtitle:
+                      item.subtitle == null
+                          ? null
+                          : Text(
+                            item.subtitle!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                  trailing:
+                      item.trailing == null
+                          ? null
+                          : Text(
+                            item.trailing!,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF98A1B3),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                  onTap: () => _applySlashSuggestion(item),
                 ),
+              ),
         ],
       ),
     );
@@ -2156,10 +2182,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   _buildSlashSuggestionPanel(theme),
-                  if (_slashSuggestions.isNotEmpty ||
-                      _isLoadingModelCatalog ||
-                      _modelCatalogError != null)
-                    const SizedBox(height: 8),
+                  if (_slashSuggestions.isNotEmpty) const SizedBox(height: 8),
                   if (_quotedMessageDraft != null)
                     Container(
                       width: double.infinity,

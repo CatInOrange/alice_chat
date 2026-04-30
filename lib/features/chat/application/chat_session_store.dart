@@ -6,7 +6,6 @@ import 'package:flutter_chat_core/flutter_chat_core.dart' as core;
 import 'package:uuid/uuid.dart';
 
 import '../../../core/openclaw/openclaw_http_client.dart';
-import '../../../core/openclaw/openclaw_client.dart';
 import '../../../core/openclaw/openclaw_config.dart';
 import '../../../core/openclaw/openclaw_settings.dart';
 import '../data/chat_cache_store.dart';
@@ -84,12 +83,6 @@ class ChatSessionStore extends ChangeNotifier {
   }
 
   OpenClawConfig get currentConfig => _client.config;
-
-  Future<RuntimeModelCatalogResult> loadRuntimeModelCatalog() async {
-    await _ensureConfigReady();
-    return _client.loadRuntimeModelCatalog();
-  }
-
   Future<void> updateModelSelection({
     required String providerId,
     required String modelId,

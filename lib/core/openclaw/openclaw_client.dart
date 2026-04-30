@@ -41,39 +41,6 @@ class DeleteMessageResult {
   final double? deletedAt;
 }
 
-class RuntimeModelCatalogProvider {
-  const RuntimeModelCatalogProvider({
-    required this.id,
-    required this.name,
-    required this.models,
-  });
-
-  final String id;
-  final String name;
-  final List<RuntimeModelCatalogModel> models;
-}
-
-class RuntimeModelCatalogModel {
-  const RuntimeModelCatalogModel({required this.id, required this.name});
-
-  final String id;
-  final String name;
-}
-
-class RuntimeModelCatalogResult {
-  const RuntimeModelCatalogResult({
-    required this.ok,
-    required this.providers,
-    required this.providerCount,
-    required this.modelCount,
-  });
-
-  final bool ok;
-  final List<RuntimeModelCatalogProvider> providers;
-  final int providerCount;
-  final int modelCount;
-}
-
 class UploadMediaResult {
   const UploadMediaResult({required this.attachment});
 
@@ -111,8 +78,6 @@ abstract class OpenClawClient {
     required String sessionId,
     required String messageId,
   });
-
-  Future<RuntimeModelCatalogResult> loadRuntimeModelCatalog();
 
   Stream<Map<String, dynamic>> subscribeEvents({String? sessionId, int? since});
 

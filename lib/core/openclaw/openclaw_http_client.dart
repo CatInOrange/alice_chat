@@ -177,55 +177,6 @@ class OpenClawHttpClient implements OpenClawClient {
   }
 
   @override
-  Future<RuntimeModelCatalogResult> loadRuntimeModelCatalog() async {
-    final response = await _httpClient.get(
-      _uri('/api/runtime/model-catalog'),
-      headers: _headers,
-    );
-    if (response.statusCode >= 400) {
-      throw _buildRequestException('加载模型清单失败', response);
-    }
-
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
-    final providersJson =
-        (json['providers'] as List<dynamic>? ?? const [])
-            .cast<Map<String, dynamic>>();
-    final providers = providersJson
-        .map((providerJson) {
-          final modelsJson =
-              (providerJson['models'] as List<dynamic>? ?? const [])
-                  .cast<Map<String, dynamic>>();
-          return RuntimeModelCatalogProvider(
-            id: (providerJson['id'] ?? '').toString(),
-            name: (providerJson['name'] ?? providerJson['id'] ?? '').toString(),
-            models: modelsJson
-                .map(
-                  (modelJson) => RuntimeModelCatalogModel(
-                    id: (modelJson['id'] ?? '').toString(),
-                    name:
-                        (modelJson['name'] ?? modelJson['id'] ?? '').toString(),
-                  ),
-                )
-                .toList(growable: false),
-          );
-        })
-        .toList(growable: false);
-
-    return RuntimeModelCatalogResult(
-      ok: json['ok'] == true,
-      providers: providers,
-      providerCount:
-          json['providerCount'] is num
-              ? (json['providerCount'] as num).toInt()
-              : providers.length,
-      modelCount:
-          json['modelCount'] is num
-              ? (json['modelCount'] as num).toInt()
-              : providers.fold<int>(0, (sum, item) => sum + item.models.length),
-    );
-  }
-
-  @override
   Future<UploadMediaResult> uploadMedia({
     required String filePath,
     String? filename,
