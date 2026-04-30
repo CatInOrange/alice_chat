@@ -14,6 +14,7 @@ import '../core/debug/native_debug_bridge.dart';
 import '../features/notifications/application/background_connection_service.dart';
 import '../features/notifications/application/notification_service.dart';
 import '../features/settings/presentation/settings_screen.dart';
+import '../features/music/presentation/music_screen.dart';
 import '../features/webview/presentation/webview_screen.dart';
 import 'theme.dart';
 
@@ -372,6 +373,7 @@ class _MainScaffoldState extends State<_MainScaffold>
                   key: const ValueKey('webview'),
                   active: _currentIndex == 1 && _activeChatSession == null,
                 ),
+                const MusicScreen(),
                 const SettingsScreen(),
               ],
             ),
@@ -413,6 +415,11 @@ class _MainScaffoldState extends State<_MainScaffold>
                       icon: Icon(Icons.web_outlined),
                       selectedIcon: Icon(Icons.web),
                       label: '网页',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.library_music_outlined),
+                      selectedIcon: Icon(Icons.library_music),
+                      label: '音乐',
                     ),
                     NavigationDestination(
                       icon: Icon(Icons.settings_outlined),
