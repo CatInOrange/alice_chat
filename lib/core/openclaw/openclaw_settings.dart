@@ -28,13 +28,18 @@ class OpenClawSettingsStore {
     final appPassword = prefs.getString(_appPasswordKey);
     final modelId = prefs.getString(_modelIdKey)?.trim();
     final providerId = prefs.getString(_providerIdKey)?.trim();
+    final normalizedProviderId =
+        (providerId == null || providerId.isEmpty)
+            ? null
+            : providerId == 'alicechat-channel'
+            ? providerId
+            : 'alicechat-channel';
     return _defaultConfig.copyWith(
       baseUrl: (baseUrl == null || baseUrl.isEmpty) ? null : baseUrl,
       appPassword:
           (appPassword == null || appPassword.isEmpty) ? null : appPassword,
       modelId: (modelId == null || modelId.isEmpty) ? null : modelId,
-      providerId:
-          (providerId == null || providerId.isEmpty) ? null : providerId,
+      providerId: normalizedProviderId,
     );
   }
 
@@ -61,7 +66,10 @@ class OpenClawSettingsStore {
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_modelIdKey, modelId.trim());
-    await prefs.setString(_providerIdKey, providerId.trim());
+    await prefs.setString(
+      _providerIdKey,
+      providerId.trim().isEmpty ? 'alicechat-channel' : providerId.trim(),
+    );
   }
 
   static Future<bool> loadBackgroundServiceEnabled() async {

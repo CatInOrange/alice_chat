@@ -74,14 +74,12 @@ class _SlashSuggestionItem {
     required this.label,
     this.subtitle,
     this.trailing,
-    this.onSelected,
   });
 
   final String insertText;
   final String label;
   final String? subtitle;
   final String? trailing;
-  final Future<void> Function()? onSelected;
 }
 
 class _LocalModelOption {
@@ -923,9 +921,6 @@ class _ChatScreenState extends State<ChatScreen> {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
     final store = context.read<ChatSessionStore>();
-    if (await _tryHandleLocalSlashCommand(trimmed)) {
-      return;
-    }
     final quoteDraft = _quotedMessageDraft;
     final payload =
         quoteDraft == null
@@ -934,48 +929,6 @@ class _ChatScreenState extends State<ChatScreen> {
     _composerController.clear();
     setState(() => _quotedMessageDraft = null);
     await store.sendMessage(widget.session, payload);
-  }
-
-  Future<bool> _tryHandleLocalSlashCommand(String text) async {
-    if (!text.startsWith('/model ')) return false;
-    final store = context.read<ChatSessionStore>();
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    final args = text.substring(7).trim();
-    if (args.isEmpty || !args.contains('/')) return false;
-    final slashIndex = args.indexOf('/');
-    final providerId = args.substring(0, slashIndex).trim();
-    final modelId = args.substring(slashIndex + 1).trim();
-    if (providerId.isEmpty || modelId.isEmpty) return false;
-
-    _LocalModelProvider? provider;
-    for (final item in _localModelProviders) {
-      if (item.id == providerId) {
-        provider = item;
-        break;
-      }
-    }
-    if (provider == null) return false;
-
-    _LocalModelOption? model;
-    for (final item in provider.models) {
-      if (item.id == modelId) {
-        model = item;
-        break;
-      }
-    }
-    if (model == null) return false;
-
-    await store.updateModelSelection(providerId: providerId, modelId: modelId);
-    if (!mounted) return true;
-    messenger?.showSnackBar(
-      SnackBar(
-        content: Text('已切换到 ${provider.id}/${model.id}'),
-        duration: const Duration(milliseconds: 1400),
-      ),
-    );
-    _composerController.clear();
-    _composerFocusNode.requestFocus();
-    return true;
   }
 
   void _handleComposerTextChanged() {
@@ -1102,10 +1055,6 @@ class _ChatScreenState extends State<ChatScreen> {
               label: model.id,
               subtitle: model.name,
               trailing: resolvedProvider.id,
-              onSelected:
-                  () => _tryHandleLocalSlashCommand(
-                    '/model ${resolvedProvider.id}/${model.id}',
-                  ),
             ),
           )
           .toList(growable: false);
@@ -1115,10 +1064,6 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _applySlashSuggestion(_SlashSuggestionItem item) async {
-    if (item.onSelected != null) {
-      await item.onSelected!.call();
-      return;
-    }
     _composerController.value = TextEditingValue(
       text: item.insertText,
       selection: TextSelection.collapsed(offset: item.insertText.length),

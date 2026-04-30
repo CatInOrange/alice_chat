@@ -83,22 +83,6 @@ class ChatSessionStore extends ChangeNotifier {
   }
 
   OpenClawConfig get currentConfig => _client.config;
-  Future<void> updateModelSelection({
-    required String providerId,
-    required String modelId,
-  }) async {
-    await _ensureConfigReady();
-    final nextConfig = _client.config.copyWith(
-      providerId: providerId,
-      modelId: modelId,
-    );
-    await OpenClawSettingsStore.saveModelSelection(
-      modelId: modelId,
-      providerId: providerId,
-    );
-    _client = OpenClawHttpClient(nextConfig);
-    notifyListeners();
-  }
 
   ChatViewState stateFor(ChatSession session) {
     return _states.putIfAbsent(
