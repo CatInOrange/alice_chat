@@ -113,9 +113,7 @@ class _WebviewScreenState extends State<WebviewScreen>
       final config = await OpenClawSettingsStore.load();
       final password = (config.appPassword ?? '').trim();
       const base = 'https://alice.newthu.com';
-      final modelId = config.modelId.trim().isNotEmpty
-          ? config.modelId.trim()
-          : 'bian';
+      const modelId = 'bian';
 
       final localModelUrl = await _ensureLocalModelReady(
         base: base,
@@ -142,12 +140,11 @@ class _WebviewScreenState extends State<WebviewScreen>
         'local_model_url': localModelUrl,
         if (modelId.isNotEmpty) 'model': modelId,
       };
-      final targetUrl = uri.replace(queryParameters: queryParameters).toString();
+      final targetUrl =
+          uri.replace(queryParameters: queryParameters).toString();
       await _controller.loadRequest(
         Uri.parse(targetUrl),
-        headers: {
-          if (password.isNotEmpty) 'X-AliceChat-Password': password,
-        },
+        headers: {if (password.isNotEmpty) 'X-AliceChat-Password': password},
       );
     } catch (error) {
       debugPrint('WebView bootstrap failed: $error');
@@ -179,7 +176,9 @@ class _WebviewScreenState extends State<WebviewScreen>
       modelId: modelId,
     );
     if (firstProbe.localModelUrl != null) {
-      debugPrint('Live2D cache hit modelId=$modelId url=${firstProbe.localModelUrl}');
+      debugPrint(
+        'Live2D cache hit modelId=$modelId url=${firstProbe.localModelUrl}',
+      );
       return firstProbe.localModelUrl;
     }
 
@@ -194,7 +193,9 @@ class _WebviewScreenState extends State<WebviewScreen>
         _bootMessage = _downloadMessages[2];
       });
     }
-    debugPrint('Live2D cache miss modelId=$modelId, waiting for local download');
+    debugPrint(
+      'Live2D cache miss modelId=$modelId, waiting for local download',
+    );
 
     final finalProbe = await Live2dModelCache.instance.prepare(
       basePageUrl: base,
@@ -261,13 +262,14 @@ class _WebviewScreenState extends State<WebviewScreen>
               SizedBox(
                 width: 72,
                 height: 72,
-                child: isFailed
-                    ? Icon(
-                        Icons.error_outline,
-                        size: 48,
-                        color: theme.colorScheme.error,
-                      )
-                    : const CircularProgressIndicator(strokeWidth: 5),
+                child:
+                    isFailed
+                        ? Icon(
+                          Icons.error_outline,
+                          size: 48,
+                          color: theme.colorScheme.error,
+                        )
+                        : const CircularProgressIndicator(strokeWidth: 5),
               ),
               const SizedBox(height: 20),
               Text(
@@ -286,7 +288,9 @@ class _WebviewScreenState extends State<WebviewScreen>
                 Text(
                   '首次进入会先把模型完整下载到本地，准备好后再打开页面。',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.textTheme.bodySmall?.color?.withValues(alpha: 0.75),
+                    color: theme.textTheme.bodySmall?.color?.withValues(
+                      alpha: 0.75,
+                    ),
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -308,7 +312,8 @@ class _WebviewScreenState extends State<WebviewScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final canReloadPage = _bootStage == _WebviewBootStage.ready ||
+    final canReloadPage =
+        _bootStage == _WebviewBootStage.ready ||
         _bootStage == _WebviewBootStage.loadingPage;
     return Scaffold(
       appBar: AppBar(
@@ -320,15 +325,16 @@ class _WebviewScreenState extends State<WebviewScreen>
           ),
         ],
       ),
-      body: (_bootStage == _WebviewBootStage.ready ||
-              _bootStage == _WebviewBootStage.loadingPage)
-          ? Stack(
-              children: [
-                WebViewWidget(controller: _controller),
-                if (_loading) _buildBootView(),
-              ],
-            )
-          : _buildBootView(),
+      body:
+          (_bootStage == _WebviewBootStage.ready ||
+                  _bootStage == _WebviewBootStage.loadingPage)
+              ? Stack(
+                children: [
+                  WebViewWidget(controller: _controller),
+                  if (_loading) _buildBootView(),
+                ],
+              )
+              : _buildBootView(),
     );
   }
 }
