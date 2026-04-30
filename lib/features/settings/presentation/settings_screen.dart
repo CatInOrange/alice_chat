@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/debug/native_debug_bridge.dart';
-import '../../../core/openclaw/music_provider_models.dart';
 import '../../../core/openclaw/openclaw_http_client.dart';
 import '../../../core/openclaw/openclaw_settings.dart';
 import '../../chat/application/chat_session_store.dart';
@@ -81,7 +80,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final musicPlatformStore = context.read<MusicPlatformStore>();
       await chatStore.reloadConfig();
       await musicPlatformStore.reloadConfig();
-      await musicPlatformStore.ensureReady();
+      await musicPlatformStore.ensureReady(forceRefresh: true);
       await NotificationService.instance.refreshConfig();
       await NativeDebugBridge.instance.log(
         'settings',
@@ -156,7 +155,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
 
       Map<String, dynamic> latestTask = task;
-      final deadline = DateTime.now().add(Duration(seconds: isBackend ? 90 : 120));
+      final deadline = DateTime.now().add(
+        Duration(seconds: isBackend ? 90 : 120),
+      );
       while (DateTime.now().isBefore(deadline)) {
         await Future<void>.delayed(const Duration(seconds: 2));
         try {
@@ -180,7 +181,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           if (isBackend) {
             await store.reloadConfig();
             await musicPlatformStore.reloadConfig();
-            await musicPlatformStore.ensureReady();
+            await musicPlatformStore.ensureReady(forceRefresh: true);
             await NotificationService.instance.refreshConfig();
           }
           if (!mounted) return;
@@ -212,11 +213,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _showCookieImportSheet(MusicProviderInfo provider) async {
-    final controller = TextEditingController();
-    final existingCookie =
-        await OpenClawSettingsStore.loadMusicProviderCookie(provider.providerId) ?? '';
-    controller.text = existingCookie;
+  Future<void> _showCookieImportSheet(MusicPlatformLocalState platform) async {
+    final controller = TextEditingController(text: platform.rawCookie ?? '');
     if (!mounted) return;
 
     await showModalBottomSheet<void>(
@@ -236,13 +234,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '导入 ${provider.displayName} Cookie',
+                '导入 ${platform.provider.displayName} Cookie',
                 style: Theme.of(sheetContext).textTheme.titleMedium,
               ),
               const SizedBox(height: 8),
-              const Text(
-                '当前先只做本地保存骨架，不会上传到 AliceChat 后端。后续前端会直接用它做真实登录态与播放源解析。',
-              ),
+              Text(platform.detail),
               const SizedBox(height: 12),
               TextField(
                 controller: controller,
@@ -266,8 +262,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Expanded(
                     child: FilledButton(
                       onPressed: () async {
-                        await OpenClawSettingsStore.saveMusicProviderCookie(
-                          providerId: provider.providerId,
+                        final store = context.read<MusicPlatformStore>();
+                        await store.saveProviderCookie(
+                          providerId: platform.provider.providerId,
                           cookie: controller.text,
                         );
                         if (!sheetContext.mounted) return;
@@ -277,12 +274,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           SnackBar(
                             content: Text(
                               controller.text.trim().isEmpty
-                                  ? '${provider.displayName} Cookie 已清空'
-                                  : '${provider.displayName} Cookie 已保存到本地',
+                                  ? '${platform.provider.displayName} Cookie 已清空'
+                                  : '${platform.provider.displayName} Cookie 已保存到本地',
                             ),
                           ),
                         );
-                        setState(() {});
                       },
                       child: const Text('保存'),
                     ),
@@ -386,7 +382,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         IconButton(
                           onPressed: musicPlatforms.isLoading
                               ? null
-                              : () => context.read<MusicPlatformStore>().ensureReady(),
+                              : () => context
+                                  .read<MusicPlatformStore>()
+                                  .ensureReady(forceRefresh: true),
                           icon: const Icon(Icons.refresh),
                           tooltip: '刷新平台状态',
                         ),
@@ -394,7 +392,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      '平台登录属于全局能力，统一放在设置页管理。当前先接入平台能力读取与 Cookie 导入骨架。',
+                      '平台登录属于全局能力，统一放在设置页管理。这一轮先把客户端侧本地登录骨架和状态判断立住。',
                     ),
                     const SizedBox(height: 16),
                     if (musicPlatforms.isLoading)
@@ -404,15 +402,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       )
                     else if ((musicPlatforms.error ?? '').trim().isNotEmpty)
                       _PlatformErrorBanner(message: musicPlatforms.error!)
-                    else if (musicPlatforms.providers.isEmpty)
+                    else if (musicPlatforms.platformStates.isEmpty)
                       const Text('暂未发现可用音乐平台')
                     else
-                      ...musicPlatforms.providers.map(
-                        (provider) => Padding(
+                      ...musicPlatforms.platformStates.map(
+                        (platform) => Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: _MusicProviderCard(
-                            provider: provider,
-                            onImportCookie: () => _showCookieImportSheet(provider),
+                            platform: platform,
+                            onImportCookie: () => _showCookieImportSheet(platform),
+                            onClearCookie: platform.hasCookie
+                                ? () async {
+                                    await context
+                                        .read<MusicPlatformStore>()
+                                        .clearProviderCookie(platform.provider.providerId);
+                                  }
+                                : null,
                           ),
                         ),
                       ),
@@ -522,53 +527,25 @@ class _PlatformErrorBanner extends StatelessWidget {
   }
 }
 
-class _MusicProviderCard extends StatefulWidget {
+class _MusicProviderCard extends StatelessWidget {
   const _MusicProviderCard({
-    required this.provider,
+    required this.platform,
     required this.onImportCookie,
+    required this.onClearCookie,
   });
 
-  final MusicProviderInfo provider;
+  final MusicPlatformLocalState platform;
   final Future<void> Function() onImportCookie;
-
-  @override
-  State<_MusicProviderCard> createState() => _MusicProviderCardState();
-}
-
-class _MusicProviderCardState extends State<_MusicProviderCard> {
-  String? _cookie;
-  bool _loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadCookie();
-  }
-
-  Future<void> _loadCookie() async {
-    final cookie = await OpenClawSettingsStore.loadMusicProviderCookie(
-      widget.provider.providerId,
-    );
-    if (!mounted) return;
-    setState(() {
-      _cookie = cookie;
-      _loading = false;
-    });
-  }
-
-  @override
-  void didUpdateWidget(covariant _MusicProviderCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.provider.providerId != widget.provider.providerId) {
-      _loading = true;
-      _loadCookie();
-    }
-  }
+  final Future<void> Function()? onClearCookie;
 
   @override
   Widget build(BuildContext context) {
-    final provider = widget.provider;
-    final hasCookie = (_cookie ?? '').trim().isNotEmpty;
+    final provider = platform.provider;
+    final statusColor = switch (platform.authState) {
+      MusicPlatformAuthStateKind.imported => const Color(0xFF2E7D32),
+      MusicPlatformAuthStateKind.suspicious => const Color(0xFFB26A00),
+      MusicPlatformAuthStateKind.missing => const Color(0xFF7B8190),
+    };
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -583,7 +560,9 @@ class _MusicProviderCardState extends State<_MusicProviderCard> {
             children: [
               CircleAvatar(
                 radius: 22,
-                backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
+                backgroundColor: Theme.of(
+                  context,
+                ).colorScheme.primary.withValues(alpha: 0.12),
                 child: Icon(
                   Icons.graphic_eq_rounded,
                   color: Theme.of(context).colorScheme.primary,
@@ -600,19 +579,15 @@ class _MusicProviderCardState extends State<_MusicProviderCard> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      _loading
-                          ? '正在读取本地登录状态…'
-                          : hasCookie
-                          ? '本地已保存 Cookie（后续可直接用于客户端登录态）'
-                          : '尚未配置本地登录信息',
+                      platform.summary,
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ],
                 ),
               ),
               _ProviderStatusChip(
-                label: hasCookie ? '已配置' : '未配置',
-                color: hasCookie ? const Color(0xFF2E7D32) : const Color(0xFFB26A00),
+                label: platform.statusLabel,
+                color: statusColor,
               ),
             ],
           ),
@@ -630,21 +605,27 @@ class _MusicProviderCardState extends State<_MusicProviderCard> {
               ),
             ],
           ),
-          if (provider.notes.trim().isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Text(platform.detail, style: Theme.of(context).textTheme.bodySmall),
+          if (platform.detectedKeys.isNotEmpty) ...[
             const SizedBox(height: 12),
-            Text(provider.notes, style: Theme.of(context).textTheme.bodySmall),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: platform.detectedKeys
+                  .take(6)
+                  .map((key) => _CapabilityChip(label: key))
+                  .toList(growable: false),
+            ),
           ],
           const SizedBox(height: 14),
           Row(
             children: [
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: () async {
-                    await widget.onImportCookie();
-                    await _loadCookie();
-                  },
+                  onPressed: onImportCookie,
                   icon: const Icon(Icons.cookie_outlined),
-                  label: Text(hasCookie ? '更新 Cookie' : '导入 Cookie'),
+                  label: Text(platform.hasCookie ? '更新 Cookie' : '导入 Cookie'),
                 ),
               ),
               const SizedBox(width: 12),
@@ -665,6 +646,17 @@ class _MusicProviderCardState extends State<_MusicProviderCard> {
               ),
             ],
           ),
+          if (onClearCookie != null) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: onClearCookie,
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('清空本地 Cookie'),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -687,10 +679,7 @@ class _ProviderStatusChip extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.w600,
-        ),
+        style: TextStyle(color: color, fontWeight: FontWeight.w600),
       ),
     );
   }
