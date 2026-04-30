@@ -145,6 +145,38 @@ class OpenClawHttpClient implements OpenClawClient {
   }
 
   @override
+  Future<DeleteMessageResult> deleteMessage({
+    required String sessionId,
+    required String messageId,
+  }) async {
+    final response = await _httpClient.delete(
+      _uri('/api/sessions/$sessionId/messages/$messageId'),
+      headers: _headers,
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('删除消息失败', response);
+    }
+
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    if (json['ok'] != true) {
+      throw Exception('删除消息失败: ${response.body}');
+    }
+
+    final deletedAtRaw = json['deletedAt'];
+    final deletedAt =
+        deletedAtRaw is num
+            ? deletedAtRaw.toDouble()
+            : double.tryParse('${deletedAtRaw ?? ''}');
+    return DeleteMessageResult(
+      ok: json['ok'] == true,
+      sessionId: (json['sessionId'] ?? sessionId).toString(),
+      messageId: (json['messageId'] ?? messageId).toString(),
+      deleted: json['deleted'] == true,
+      deletedAt: deletedAt,
+    );
+  }
+
+  @override
   Future<UploadMediaResult> uploadMedia({
     required String filePath,
     String? filename,

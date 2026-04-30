@@ -74,6 +74,8 @@ def migrate(conn: sqlite3.Connection) -> None:
             meta TEXT NOT NULL,
             source TEXT NOT NULL,
             attachments_json TEXT NOT NULL,
+            deleted_at REAL,
+            deleted_by TEXT NOT NULL DEFAULT '',
             created_at REAL NOT NULL,
             FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
         );
@@ -133,6 +135,12 @@ def migrate(conn: sqlite3.Connection) -> None:
         cols = {row[1] for row in conn.execute("PRAGMA table_info(messages)").fetchall()}
         if "raw_text" not in cols:
             conn.execute("ALTER TABLE messages ADD COLUMN raw_text TEXT NOT NULL DEFAULT ''")
+            conn.commit()
+        if "deleted_at" not in cols:
+            conn.execute("ALTER TABLE messages ADD COLUMN deleted_at REAL")
+            conn.commit()
+        if "deleted_by" not in cols:
+            conn.execute("ALTER TABLE messages ADD COLUMN deleted_by TEXT NOT NULL DEFAULT ''")
             conn.commit()
     except Exception:
         # Best-effort: keep startup resilient.

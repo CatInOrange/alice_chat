@@ -395,6 +395,81 @@ class ChatSessionStore extends ChangeNotifier {
     }
   }
 
+  Future<void> deleteMessage(ChatSession session, String messageId) async {
+    await _ensureConfigReady();
+    final state = stateFor(session);
+    final sessionId =
+        state.backendSessionId ?? await _ensureBackendSession(session);
+    state.backendSessionId = sessionId;
+
+    final index = state.messages.indexWhere(
+      (message) => message.id == messageId,
+    );
+    if (index < 0) return;
+    final removedMessage = state.messages[index];
+    final nextMessages = [...state.messages]..removeAt(index);
+    state.messages = List<core.Message>.unmodifiable(nextMessages);
+    if (state.messages.isNotEmpty) {
+      state.oldestLoadedMessageId = state.messages.first.id;
+      state.newestLoadedMessageId = state.messages.last.id;
+    } else {
+      state.oldestLoadedMessageId = null;
+      state.newestLoadedMessageId = null;
+    }
+    state.pendingClientMessageIds.remove(messageId);
+    state.postedClientMessageIds.remove(messageId);
+    state.streamingMessageIds.remove(messageId);
+    if (state.assistantProgressMessageId == messageId) {
+      state.clearAssistantProgress();
+    }
+    state.recomputeRequestPhase();
+    notifyListeners();
+    unawaited(_persistStateCache(session, state));
+
+    try {
+      await _client.deleteMessage(sessionId: sessionId, messageId: messageId);
+      _debugState(
+        'message.delete.success',
+        state,
+        extra: {'messageId': messageId, 'sessionId': sessionId},
+        force: true,
+      );
+    } catch (error) {
+      state.messages = List<core.Message>.unmodifiable(
+        [...state.messages, removedMessage]..sort((a, b) {
+          final createdAtA =
+              a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final createdAtB =
+              b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final cmp = createdAtA.compareTo(createdAtB);
+          if (cmp != 0) return cmp;
+          return a.id.compareTo(b.id);
+        }),
+      );
+      if (state.messages.isNotEmpty) {
+        state.oldestLoadedMessageId = state.messages.first.id;
+        state.newestLoadedMessageId = state.messages.last.id;
+      }
+      state.recomputeRequestPhase();
+      state.appendMessage(
+        core.TextMessage(
+          id: _uuid.v4(),
+          authorId: 'assistant',
+          createdAt: DateTime.now(),
+          text: '❌ 删除失败: ${_humanizeError(error)}',
+        ),
+      );
+      _debugState(
+        'message.delete.error',
+        state,
+        extra: {'messageId': messageId, 'error': error.toString()},
+        force: true,
+      );
+      notifyListeners();
+      unawaited(_persistStateCache(session, state));
+    }
+  }
+
   void updateScrollState(
     ChatSession session, {
     required double offset,
@@ -613,6 +688,29 @@ class ChatSessionStore extends ChangeNotifier {
           _clearPendingClientMessage(state, clientMessageId);
         }
         break;
+      case 'message.deleted':
+        final messageId = (event['messageId'] ?? '').toString();
+        if (messageId.isNotEmpty) {
+          state.messages = List<core.Message>.unmodifiable(
+            state.messages.where((message) => message.id != messageId),
+          );
+          if (state.oldestLoadedMessageId == messageId) {
+            state.oldestLoadedMessageId =
+                state.messages.isNotEmpty ? state.messages.first.id : null;
+          }
+          if (state.newestLoadedMessageId == messageId) {
+            state.newestLoadedMessageId =
+                state.messages.isNotEmpty ? state.messages.last.id : null;
+          }
+          state.pendingClientMessageIds.remove(messageId);
+          state.postedClientMessageIds.remove(messageId);
+          state.streamingMessageIds.remove(messageId);
+          if (state.assistantProgressMessageId == messageId) {
+            state.clearAssistantProgress();
+          }
+          state.recomputeRequestPhase();
+        }
+        break;
       case 'assistant.message.started':
         final messageId = (event['messageId'] ?? '').toString();
         state.streamingMessageIds.clear();
@@ -742,7 +840,8 @@ class ChatSessionStore extends ChangeNotifier {
         type == 'message.created' ||
         type == 'assistant.message.completed' ||
         type == 'assistant.message.failed' ||
-        type == 'message.status';
+        type == 'message.status' ||
+        type == 'message.deleted';
     if (shouldPersist) {
       unawaited(_persistStateCache(state.session, state));
     }

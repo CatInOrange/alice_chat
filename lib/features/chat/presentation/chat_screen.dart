@@ -94,7 +94,6 @@ class _ChatScreenState extends State<ChatScreen> {
   String _lastMeaningfulStreamingHint = '';
   String _lastStreamingHintSignature = '';
   bool _streamingHintPulseActive = false;
-  final Set<String> _locallyDeletedMessageIds = <String>{};
   _QuotedMessageDraft? _quotedMessageDraft;
 
   // Composer height tracking for relative positioning of floating elements
@@ -453,13 +452,15 @@ class _ChatScreenState extends State<ChatScreen> {
   void _handleStoreChanged() {
     if (!mounted) return;
     final state = context.read<ChatSessionStore>().stateFor(widget.session);
+    final quotedId = _quotedMessageDraft?.messageId;
+    if (quotedId != null &&
+        !state.messages.any((message) => message.id == quotedId)) {
+      _quotedMessageDraft = null;
+    }
     debugPrint(
       '[alicechat.screen] ${jsonEncode({'tag': 'handleStoreChanged', 'sessionId': state.backendSessionId, 'sessionLocalId': widget.session.id, 'isSubmitting': state.isSubmitting, 'isAssistantStreaming': state.isAssistantStreaming, 'pendingCount': state.pendingClientMessageIds.length, 'streamingCount': state.streamingMessageIds.length, 'messageCount': state.messages.length, 'lastEventSeq': state.lastEventSeq, 'assistantProgressSequence': state.assistantProgressSequence})}',
     );
-    final visibleMessages = state.messages
-        .where((message) => !_locallyDeletedMessageIds.contains(message.id))
-        .toList(growable: false);
-    _applyMessagesIncrementally(visibleMessages);
+    _applyMessagesIncrementally(state.messages);
     _syncStreamingHintState(state);
     setState(() {});
   }
@@ -1217,11 +1218,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _showMessageActionSheet(
     BuildContext context, {
-    required core.TextMessage message,
+    required core.Message message,
     required bool sentByMe,
   }) async {
-    final plainText = _stripModelNamePrefix(message.text).trim();
-    if (plainText.isEmpty) return;
+    final plainText = _extractPlainMessageText(message);
 
     final action = await showModalBottomSheet<String>(
       context: context,
@@ -1259,7 +1259,11 @@ class _ChatScreenState extends State<ChatScreen> {
                         context: sheetContext,
                         icon: Icons.copy_rounded,
                         label: '复制',
-                        onTap: () => Navigator.of(sheetContext).pop('copy'),
+                        enabled: plainText.isNotEmpty,
+                        onTap:
+                            plainText.isNotEmpty
+                                ? () => Navigator.of(sheetContext).pop('copy')
+                                : null,
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -1277,25 +1281,13 @@ class _ChatScreenState extends State<ChatScreen> {
                         context: sheetContext,
                         icon: Icons.delete_outline_rounded,
                         label: '删除',
-                        destructive: sentByMe,
-                        enabled: sentByMe,
-                        onTap:
-                            sentByMe
-                                ? () => Navigator.of(sheetContext).pop('delete')
-                                : null,
+                        destructive: true,
+                        enabled: true,
+                        onTap: () => Navigator.of(sheetContext).pop('delete'),
                       ),
                     ),
                   ],
                 ),
-                if (!sentByMe) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    '删除暂时只支持自己的消息',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: const Color(0xFF98A1B3),
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
@@ -1305,6 +1297,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     switch (action) {
       case 'copy':
+        if (plainText.isEmpty) return;
         await Clipboard.setData(ClipboardData(text: plainText));
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1315,6 +1308,7 @@ class _ChatScreenState extends State<ChatScreen> {
         );
         return;
       case 'quote':
+        if (plainText.isEmpty) return;
         setState(() {
           _quotedMessageDraft = _QuotedMessageDraft(
             messageId: message.id,
@@ -1337,20 +1331,20 @@ class _ChatScreenState extends State<ChatScreen> {
         );
         return;
       case 'delete':
-        _confirmLocalDelete(message);
+        _confirmDeleteMessage(message);
         return;
       default:
         return;
     }
   }
 
-  Future<void> _confirmLocalDelete(core.TextMessage message) async {
+  Future<void> _confirmDeleteMessage(core.Message message) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder:
           (dialogContext) => AlertDialog(
             title: const Text('删除这条消息？'),
-            content: const Text('先仅在当前界面隐藏，不会删除后端记录。'),
+            content: const Text('删除后会从当前会话中彻底移除。'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -1363,15 +1357,24 @@ class _ChatScreenState extends State<ChatScreen> {
             ],
           ),
     );
-    if (confirmed == true) {
-      setState(() {
-        _locallyDeletedMessageIds.add(message.id);
-        if (_quotedMessageDraft?.messageId == message.id) {
-          _quotedMessageDraft = null;
-        }
-      });
-      _handleStoreChanged();
+    if (confirmed != true || !mounted) return;
+    if (_quotedMessageDraft?.messageId == message.id) {
+      setState(() => _quotedMessageDraft = null);
     }
+    await context.read<ChatSessionStore>().deleteMessage(
+      widget.session,
+      message.id,
+    );
+  }
+
+  String _extractPlainMessageText(core.Message message) {
+    if (message is core.TextMessage) {
+      return _stripModelNamePrefix(message.text).trim();
+    }
+    if (message is core.ImageMessage) {
+      return (message.text ?? '').trim();
+    }
+    return '';
   }
 
   Widget _buildMessageActionButton({
@@ -2041,11 +2044,20 @@ class _ChatScreenState extends State<ChatScreen> {
                         ? CrossAxisAlignment.end
                         : CrossAxisAlignment.start,
                 children: [
-                  _ChatImageBubble(
-                    messageId: message.id,
-                    imageUrl: message.source,
-                    headers: headers,
-                    maxWidth: maxWidth,
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onLongPress:
+                        () => _showMessageActionSheet(
+                          context,
+                          message: message,
+                          sentByMe: sentByMe,
+                        ),
+                    child: _ChatImageBubble(
+                      messageId: message.id,
+                      imageUrl: message.source,
+                      headers: headers,
+                      maxWidth: maxWidth,
+                    ),
                   ),
                   if ((message.text ?? '').trim().isNotEmpty) ...[
                     const SizedBox(height: 6),

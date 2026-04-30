@@ -39,6 +39,8 @@ class MessageStore:
             "source": r["source"],
             "meta": r["meta"],
             "createdAt": r["created_at"],
+            "deletedAt": r["deleted_at"],
+            "deletedBy": r["deleted_by"],
         }
 
     def ensure_schema(self) -> None:
@@ -51,7 +53,7 @@ class MessageStore:
         self.ensure_schema()
         with connect(self.db) as conn:
             rows = conn.execute(
-                "SELECT * FROM messages ORDER BY created_at DESC LIMIT ?",
+                "SELECT * FROM messages WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT ?",
                 (int(limit),),
             ).fetchall()
             items = []
@@ -75,7 +77,7 @@ class MessageStore:
         self.ensure_schema()
         with connect(self.db) as conn:
             rows = conn.execute(
-                "SELECT * FROM messages WHERE session_id=? ORDER BY created_at ASC LIMIT ?",
+                "SELECT * FROM messages WHERE session_id=? AND deleted_at IS NULL ORDER BY created_at ASC LIMIT ?",
                 (session_id, int(limit)),
             ).fetchall()
             return [self._row_to_message(r) for r in rows]
@@ -110,6 +112,7 @@ class MessageStore:
                     SELECT *
                     FROM messages
                     WHERE session_id=?
+                      AND deleted_at IS NULL
                       AND (created_at < ? OR (created_at = ? AND id < ?))
                     ORDER BY created_at DESC, id DESC
                     LIMIT ?
@@ -130,6 +133,7 @@ class MessageStore:
                     SELECT *
                     FROM messages
                     WHERE session_id=?
+                      AND deleted_at IS NULL
                       AND (created_at > ? OR (created_at = ? AND id > ?))
                     ORDER BY created_at ASC, id ASC
                     LIMIT ?
@@ -150,7 +154,7 @@ class MessageStore:
                     """
                     SELECT *
                     FROM messages
-                    WHERE session_id=?
+                    WHERE session_id=? AND deleted_at IS NULL
                     ORDER BY created_at DESC, id DESC
                     LIMIT ?
                     """,
@@ -173,6 +177,44 @@ class MessageStore:
             "messages": items,
             "paging": paging,
         }
+
+    def get_message(self, message_id: str) -> dict | None:
+        self.ensure_schema()
+        with connect(self.db) as conn:
+            row = conn.execute(
+                "SELECT * FROM messages WHERE id=? LIMIT 1",
+                (str(message_id),),
+            ).fetchone()
+            return self._row_to_message(row) if row is not None else None
+
+    def soft_delete_message(
+        self,
+        message_id: str,
+        *,
+        deleted_by: str = '',
+        deleted_at: float | None = None,
+    ) -> dict | None:
+        self.ensure_schema()
+        deleted_ts = float(deleted_at or _now())
+        with connect(self.db) as conn:
+            row = conn.execute(
+                "SELECT * FROM messages WHERE id=? LIMIT 1",
+                (str(message_id),),
+            ).fetchone()
+            if row is None:
+                return None
+            if row["deleted_at"] is not None:
+                return self._row_to_message(row)
+            conn.execute(
+                "UPDATE messages SET deleted_at=?, deleted_by=? WHERE id=?",
+                (deleted_ts, str(deleted_by or ''), str(message_id)),
+            )
+            conn.commit()
+            updated = conn.execute(
+                "SELECT * FROM messages WHERE id=? LIMIT 1",
+                (str(message_id),),
+            ).fetchone()
+            return self._row_to_message(updated) if updated is not None else None
 
     def create_message(
         self,

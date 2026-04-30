@@ -25,6 +25,22 @@ class SendMessageResult {
   final String? requestId;
 }
 
+class DeleteMessageResult {
+  const DeleteMessageResult({
+    required this.ok,
+    required this.sessionId,
+    required this.messageId,
+    required this.deleted,
+    this.deletedAt,
+  });
+
+  final bool ok;
+  final String sessionId;
+  final String messageId;
+  final bool deleted;
+  final double? deletedAt;
+}
+
 class UploadMediaResult {
   const UploadMediaResult({required this.attachment});
 
@@ -56,6 +72,11 @@ abstract class OpenClawClient {
   Future<UploadMediaResult> uploadMedia({
     required String filePath,
     String? filename,
+  });
+
+  Future<DeleteMessageResult> deleteMessage({
+    required String sessionId,
+    required String messageId,
   });
 
   Stream<Map<String, dynamic>> subscribeEvents({String? sessionId, int? since});

@@ -8,6 +8,12 @@ from ..auth import verify_app_password
 from ..web.helpers import require_existing_session, session_to_api
 
 
+def _message_to_event_payload(message: dict) -> dict:
+    payload = dict(message)
+    payload.pop('rawText', None)
+    return payload
+
+
 def create_sessions_router(context: AppContext) -> APIRouter:
     router = APIRouter(dependencies=[Depends(verify_app_password)])
 
@@ -79,5 +85,33 @@ def create_sessions_router(context: AppContext) -> APIRouter:
             attachments=list(body.attachments or []),
         )
         return {'ok': True, 'message': msg}
+
+    @router.delete('/api/sessions/{session_id}/messages/{message_id}')
+    async def session_message_delete(session_id: str, message_id: str) -> dict:
+        session_id = require_existing_session(context.session_store, session_id)
+        message = context.message_store.get_message(message_id)
+        if message is None or str(message.get('sessionId') or '') != session_id:
+            return {'ok': False, 'error': 'message not found'}
+        deleted = context.message_store.soft_delete_message(
+            message_id,
+            deleted_by='user',
+        )
+        if deleted is None:
+            return {'ok': False, 'error': 'message not found'}
+        await context.events_bus.publish(
+            'message.deleted',
+            {
+                'sessionId': session_id,
+                'messageId': message_id,
+                'message': _message_to_event_payload(deleted),
+            },
+        )
+        return {
+            'ok': True,
+            'sessionId': session_id,
+            'messageId': message_id,
+            'deleted': True,
+            'deletedAt': deleted.get('deletedAt'),
+        }
 
     return router
