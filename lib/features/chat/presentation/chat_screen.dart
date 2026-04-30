@@ -965,9 +965,9 @@ class _ChatScreenState extends State<ChatScreen> {
               subtitle: '切换 reasoning 模式',
             ),
             const _SlashSuggestionItem(
-              insertText: '/model ',
+              insertText: '/model <',
               label: '/model',
-              subtitle: '切换 provider/model',
+              subtitle: '切换 <provider/model>',
             ),
             const _SlashSuggestionItem(
               insertText: '/new',
@@ -1022,7 +1022,7 @@ class _ChatScreenState extends State<ChatScreen> {
             })
             .map(
               (provider) => _SlashSuggestionItem(
-                insertText: '/model ${provider.id}/',
+                insertText: '/model <${provider.id}/',
                 label: provider.id,
                 subtitle: provider.name,
                 trailing: '${provider.models.length} models',
@@ -1051,7 +1051,7 @@ class _ChatScreenState extends State<ChatScreen> {
           })
           .map(
             (model) => _SlashSuggestionItem(
-              insertText: '/model ${resolvedProvider.id}/${model.id}',
+              insertText: '/model <${resolvedProvider.id}/${model.id}>',
               label: model.id,
               subtitle: model.name,
               trailing: resolvedProvider.id,

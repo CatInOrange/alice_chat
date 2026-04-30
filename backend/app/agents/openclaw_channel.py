@@ -77,6 +77,18 @@ def _extract_final_reply(frame: dict) -> str:
     return candidate.strip() if isinstance(candidate, str) else ""
 
 
+def _is_command_like_text(text: str) -> bool:
+    value = str(text or "").strip()
+    return value.startswith("/") if value else False
+
+
+def _synthetic_command_ack(text: str) -> str:
+    command = str(text or "").strip().splitlines()[0].strip()
+    if not command:
+        return "命令已收到 🙂"
+    return f"命令已收到 🙂\n{command}"
+
+
 def _is_retryable_bridge_connect_error(exc: BaseException) -> bool:
     if isinstance(exc, (TimeoutError, ConnectionRefusedError)):
         return True
@@ -624,6 +636,17 @@ class OpenClawChannelAgentBackend(AgentBackend):
                     run_state = str(frame.get("runState") or "").strip().lower()
                     had_reply_final = bool(frame.get("hadReplyFinal"))
                     if run_state == "completed" and not had_reply_final and not saw_reply_final_frame:
+                        if _is_command_like_text(request.user_text):
+                            final_reply = _synthetic_command_ack(request.user_text)
+                            accumulated_reply = final_reply
+                            saw_reply_final_frame = True
+                            _LOG.warning(
+                                "[OPENCLAW_CHANNEL SYNTHETIC_FINAL] requestId=%s sessionKey=%s command=%r",
+                                request_id,
+                                session_key,
+                                str(request.user_text or "").strip(),
+                            )
+                            break
                         raise _BridgeRequestError(
                             "Invalid bridge completion: received chat.run_final(completed) without chat.reply_final "
                             f"(requestId={request_id}, attempt={attempt}, last_frame_type={last_frame_type or 'none'})",
