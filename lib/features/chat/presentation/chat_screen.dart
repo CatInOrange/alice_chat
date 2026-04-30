@@ -73,89 +73,40 @@ class _SlashSuggestionItem {
     required this.insertText,
     required this.label,
     this.subtitle,
-    this.trailing,
   });
 
   final String insertText;
   final String label;
   final String? subtitle;
-  final String? trailing;
 }
 
-class _LocalModelOption {
-  const _LocalModelOption({required this.id, required this.name});
-
-  final String id;
-  final String name;
-}
-
-class _LocalModelProvider {
-  const _LocalModelProvider({
-    required this.id,
-    required this.name,
-    required this.models,
+class _SlashModelOption {
+  const _SlashModelOption({
+    required this.commandValue,
+    required this.label,
+    this.subtitle,
   });
 
-  final String id;
-  final String name;
-  final List<_LocalModelOption> models;
+  final String commandValue;
+  final String label;
+  final String? subtitle;
 }
 
-const _localModelProviders = <_LocalModelProvider>[
-  _LocalModelProvider(
-    id: 'deepseek',
-    name: 'DeepSeek',
-    models: [
-      _LocalModelOption(id: 'deepseek-chat', name: 'DeepSeek Chat'),
-      _LocalModelOption(id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash'),
-      _LocalModelOption(id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro'),
-      _LocalModelOption(id: 'deepseek-reasoner', name: 'DeepSeek Reasoner'),
-    ],
+const _allowedSlashModels = <_SlashModelOption>[
+  _SlashModelOption(
+    commandValue: 'minimax/MiniMax-M2.7-highspeed',
+    label: 'minimax/MiniMax-M2.7-highspeed',
+    subtitle: 'default primary',
   ),
-  _LocalModelProvider(
-    id: 'google',
-    name: 'Google',
-    models: [
-      _LocalModelOption(id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash'),
-    ],
+  _SlashModelOption(
+    commandValue: 'google/gemini-2.5-flash',
+    label: 'google/gemini-2.5-flash',
+    subtitle: 'default fallback',
   ),
-  _LocalModelProvider(
-    id: 'minimax',
-    name: 'MiniMax',
-    models: [
-      _LocalModelOption(
-        id: 'MiniMax-M2.7-highspeed',
-        name: 'MiniMax M2.7 Highspeed',
-      ),
-      _LocalModelOption(id: 'MiniMax-M2.5', name: 'MiniMax M2.5'),
-      _LocalModelOption(
-        id: 'MiniMax-M2.5-highspeed',
-        name: 'MiniMax M2.5 Highspeed',
-      ),
-      _LocalModelOption(
-        id: 'MiniMax-M2.5-Lightning',
-        name: 'MiniMax M2.5 Lightning',
-      ),
-      _LocalModelOption(id: 'MiniMax-M2.1', name: 'MiniMax M2.1'),
-      _LocalModelOption(
-        id: 'MiniMax-M2.1-lightning',
-        name: 'MiniMax M2.1 Lightning',
-      ),
-      _LocalModelOption(id: 'MiniMax-M2', name: 'MiniMax M2'),
-    ],
-  ),
-  _LocalModelProvider(
-    id: 'xai',
-    name: 'xAI',
-    models: [
-      _LocalModelOption(id: 'grok-3', name: 'Grok 3'),
-      _LocalModelOption(id: 'grok-3-fast', name: 'Grok 3 Fast'),
-      _LocalModelOption(id: 'grok-3-mini', name: 'Grok 3 Mini'),
-      _LocalModelOption(id: 'grok-3-mini-fast', name: 'Grok 3 Mini Fast'),
-      _LocalModelOption(id: 'grok-4', name: 'Grok 4'),
-      _LocalModelOption(id: 'grok-4-0709', name: 'Grok 4 0709'),
-      _LocalModelOption(id: 'grok-4-fast', name: 'Grok 4 Fast'),
-    ],
+  _SlashModelOption(
+    commandValue: 'deepseek-v4-flash',
+    label: 'deepseek-v4-flash',
+    subtitle: 'default fallback',
   ),
 ];
 
@@ -965,9 +916,9 @@ class _ChatScreenState extends State<ChatScreen> {
               subtitle: '切换 reasoning 模式',
             ),
             const _SlashSuggestionItem(
-              insertText: '/model <',
+              insertText: '/model ',
               label: '/model',
-              subtitle: '切换 <provider/model>',
+              subtitle: '切换默认模型',
             ),
             const _SlashSuggestionItem(
               insertText: '/new',
@@ -1011,50 +962,19 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     if (text.startsWith('/model ')) {
-      final query = text.substring('/model '.length).trim();
-      if (query.isEmpty || !query.contains('/')) {
-        final providerQuery = query.toLowerCase();
-        return _localModelProviders
-            .where((provider) {
-              return providerQuery.isEmpty ||
-                  provider.id.toLowerCase().contains(providerQuery) ||
-                  provider.name.toLowerCase().contains(providerQuery);
-            })
-            .map(
-              (provider) => _SlashSuggestionItem(
-                insertText: '/model <${provider.id}/',
-                label: provider.id,
-                subtitle: provider.name,
-                trailing: '${provider.models.length} models',
-              ),
-            )
-            .toList(growable: false);
-      }
-
-      final slashIndex = query.indexOf('/');
-      final providerId = query.substring(0, slashIndex).trim();
-      final modelQuery = query.substring(slashIndex + 1).trim().toLowerCase();
-      _LocalModelProvider? provider;
-      for (final item in _localModelProviders) {
-        if (item.id == providerId) {
-          provider = item;
-          break;
-        }
-      }
-      if (provider == null) return const [];
-      final resolvedProvider = provider;
-      return resolvedProvider.models
+      final query = text.substring('/model '.length).trim().toLowerCase();
+      return _allowedSlashModels
           .where((model) {
-            return modelQuery.isEmpty ||
-                model.id.toLowerCase().contains(modelQuery) ||
-                model.name.toLowerCase().contains(modelQuery);
+            return query.isEmpty ||
+                model.commandValue.toLowerCase().contains(query) ||
+                model.label.toLowerCase().contains(query) ||
+                (model.subtitle?.toLowerCase().contains(query) ?? false);
           })
           .map(
             (model) => _SlashSuggestionItem(
-              insertText: '/model <${resolvedProvider.id}/${model.id}>',
-              label: model.id,
-              subtitle: model.name,
-              trailing: resolvedProvider.id,
+              insertText: '/model ${model.commandValue}',
+              label: model.label,
+              subtitle: model.subtitle,
             ),
           )
           .toList(growable: false);
@@ -1115,16 +1035,6 @@ class _ChatScreenState extends State<ChatScreen> {
                             item.subtitle!,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                          ),
-                  trailing:
-                      item.trailing == null
-                          ? null
-                          : Text(
-                            item.trailing!,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: const Color(0xFF98A1B3),
-                              fontWeight: FontWeight.w600,
-                            ),
                           ),
                   onTap: () => _applySlashSuggestion(item),
                 ),
