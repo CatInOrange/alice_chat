@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 
 from ..app_context import AppContext
 from ..auth import verify_app_password
-from ..music_api_models import MusicCommandRequest, MusicStatePatchDto
+from ..music_api_models import MusicAiPlaylistDraftDto, MusicCommandRequest, MusicStatePatchDto
 
 
 def create_music_router(context: AppContext) -> APIRouter:
@@ -38,6 +38,29 @@ def create_music_router(context: AppContext) -> APIRouter:
         return {
             'ok': True,
             'providers': providers,
+        }
+
+    @router.get('/api/music/ai-playlists/latest')
+    async def get_latest_ai_playlist() -> dict:
+        playlist = context.music_service.load_latest_ai_playlist().payload
+        return {
+            'ok': True,
+            'playlist': None if playlist is None else playlist.model_dump(exclude_none=True),
+        }
+
+    @router.post('/api/music/ai-playlists/latest')
+    async def save_latest_ai_playlist(body: MusicAiPlaylistDraftDto) -> dict:
+        playlist = context.music_service.save_latest_ai_playlist(body).payload
+        payload = playlist.model_dump(exclude_none=True)
+        await context.events_bus.publish(
+            'music.ai_playlist_updated',
+            {
+                'playlist': payload,
+            },
+        )
+        return {
+            'ok': True,
+            'playlist': payload,
         }
 
     @router.post('/api/music/commands')

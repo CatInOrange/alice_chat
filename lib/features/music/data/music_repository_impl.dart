@@ -106,6 +106,47 @@ class MusicRepositoryImpl implements MusicRepository {
   }
 
   @override
+  Future<MusicAiPlaylistDraft?> loadLatestAiPlaylist() async {
+    final response = await _client.getLatestAiPlaylist();
+    final playlistMap = (response['playlist'] as Map?)?.cast<String, dynamic>();
+    if (playlistMap == null) {
+      return null;
+    }
+    final draft = MusicAiPlaylistDraft.fromMap(playlistMap);
+    if (draft.tracks.isEmpty) {
+      return draft;
+    }
+    final resolvedTracks = <MusicTrack>[];
+    for (final track in draft.tracks) {
+      try {
+        final resolved = await _resolver.resolveTrack(track);
+        resolvedTracks.add(
+          resolved.track.copyWith(
+            artworkUrl:
+                resolved.resolvedSource?.artworkUrl ??
+                resolved.candidate?.track.artworkUrl ??
+                track.artworkUrl,
+          ),
+        );
+      } catch (_) {
+        resolvedTracks.add(track);
+      }
+    }
+    return MusicAiPlaylistDraft(
+      id: draft.id,
+      title: draft.title,
+      subtitle: draft.subtitle,
+      description: draft.description,
+      tag: draft.tag,
+      artworkTone: draft.artworkTone,
+      isAiGenerated: draft.isAiGenerated,
+      tracks: List<MusicTrack>.unmodifiable(resolvedTracks),
+      createdAt: draft.createdAt,
+      updatedAt: draft.updatedAt,
+    );
+  }
+
+  @override
   Future<List<MusicTrack>> loadLikedTracks() async {
     final response = await _client.getMusicState();
     final likedTracks = ((response['likedTracks'] as List<dynamic>?) ?? const [])
@@ -140,6 +181,13 @@ class MusicRepositoryImpl implements MusicRepository {
         : null;
     if (playlist.id == 'liked-local') {
       return loadLikedTracks();
+    }
+    if (playlist.id.startsWith('ai-playlist:')) {
+      final latest = await loadLatestAiPlaylist();
+      if (latest != null && latest.id == playlist.id) {
+        return latest.tracks;
+      }
+      return const <MusicTrack>[];
     }
     if (providerId == null) {
       return MockMusicCatalog.tracksForPlaylist(playlist.id);

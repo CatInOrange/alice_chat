@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..music_api_models import MusicCommandRequest, MusicProviderDto, MusicStateDto, MusicStatePatchDto
+from ..music_api_models import MusicAiPlaylistDraftDto, MusicCommandRequest, MusicProviderDto, MusicStateDto, MusicStatePatchDto
 from ..store import MusicStore
 
 
 @dataclass(slots=True)
 class MusicStateResult:
     payload: MusicStateDto
+
+
+@dataclass(slots=True)
+class MusicAiPlaylistResult:
+    payload: MusicAiPlaylistDraftDto | None
 
 
 class MusicService:
@@ -20,6 +25,26 @@ class MusicService:
 
     def save_state(self, patch: MusicStatePatchDto) -> MusicStateResult:
         return MusicStateResult(payload=MusicStateDto.model_validate(self.store.save_state(patch.model_dump(exclude_none=True))))
+
+    def load_latest_ai_playlist(self) -> MusicAiPlaylistResult:
+        state = self.store.load_state()
+        payload = state.get('latestAiPlaylist')
+        if not isinstance(payload, dict):
+            return MusicAiPlaylistResult(payload=None)
+        return MusicAiPlaylistResult(
+            payload=MusicAiPlaylistDraftDto.model_validate(payload)
+        )
+
+    def save_latest_ai_playlist(self, playlist: MusicAiPlaylistDraftDto) -> MusicAiPlaylistResult:
+        saved = self.store.save_state(
+            {'latestAiPlaylist': playlist.model_dump(exclude_none=True)}
+        )
+        payload = saved.get('latestAiPlaylist')
+        if not isinstance(payload, dict):
+            return MusicAiPlaylistResult(payload=None)
+        return MusicAiPlaylistResult(
+            payload=MusicAiPlaylistDraftDto.model_validate(payload)
+        )
 
     def build_command_event(self, command: MusicCommandRequest) -> dict:
         return command.model_dump(exclude_none=True)

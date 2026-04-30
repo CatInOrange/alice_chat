@@ -84,6 +84,7 @@ class _MusicScreenState extends State<MusicScreen>
             store.playlists.isEmpty ? _catalog.playlists : store.playlists;
         final recentPlaylists = store.recentPlaylists;
         final likedPlaylist = _likedPlaylist ?? store.likedPlaylist;
+        final latestAiPlaylist = store.latestAiPlaylist;
 
         return Scaffold(
           appBar: AppBar(
@@ -102,8 +103,20 @@ class _MusicScreenState extends State<MusicScreen>
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 148),
                 children: [
                   _MusicHeroCard(
-                    track: _catalog.featuredTrack,
-                    onTap: () => _openPlayer(store, _catalog.featuredTrack),
+                    track: store.heroTrack,
+                    title: latestAiPlaylist?.title ?? '今晚推荐',
+                    headline: latestAiPlaylist?.subtitle ?? '给工作和夜色留一点音乐。',
+                    description:
+                        latestAiPlaylist?.description ?? store.heroTrack.description,
+                    buttonLabel: latestAiPlaylist != null ? '播放歌单' : '播放',
+                    badgeLabel: latestAiPlaylist != null ? 'AI 最新歌单' : '今晚推荐',
+                    onTap: () async {
+                      if (latestAiPlaylist != null) {
+                        await _openPlaylist(store, latestAiPlaylist.asPlaylist);
+                        return;
+                      }
+                      _openPlayer(store, store.heroTrack);
+                    },
                   ),
                   const SizedBox(height: 24),
                   _FavoritePlaylistCard(
@@ -221,10 +234,23 @@ class _GlowOrb extends StatelessWidget {
 }
 
 class _MusicHeroCard extends StatelessWidget {
-  const _MusicHeroCard({required this.track, required this.onTap});
+  const _MusicHeroCard({
+    required this.track,
+    required this.onTap,
+    required this.title,
+    required this.headline,
+    required this.description,
+    required this.buttonLabel,
+    required this.badgeLabel,
+  });
 
   final MusicTrack track;
   final VoidCallback onTap;
+  final String title;
+  final String headline;
+  final String description;
+  final String buttonLabel;
+  final String badgeLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -279,7 +305,7 @@ class _MusicHeroCard extends StatelessWidget {
                               ),
                             ),
                             child: Text(
-                              '今晚推荐',
+                              badgeLabel,
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: Colors.white,
                                 fontWeight: FontWeight.w700,
@@ -289,7 +315,7 @@ class _MusicHeroCard extends StatelessWidget {
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            '给工作和夜色留一点音乐。',
+                            headline,
                             style: theme.textTheme.titleLarge?.copyWith(
                               color: Colors.white,
                               fontSize: 24,
@@ -298,7 +324,7 @@ class _MusicHeroCard extends StatelessWidget {
                           ),
                           const SizedBox(height: 10),
                           Text(
-                            track.description,
+                            description,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.bodyMedium?.copyWith(
@@ -361,7 +387,7 @@ class _MusicHeroCard extends StatelessWidget {
                           ),
                         ),
                         icon: const Icon(Icons.play_arrow_rounded),
-                        label: const Text('播放'),
+                        label: Text(buttonLabel),
                       ),
                     ],
                   ),

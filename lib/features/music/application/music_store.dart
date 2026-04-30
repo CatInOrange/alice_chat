@@ -75,6 +75,7 @@ class MusicStore extends ChangeNotifier {
   List<MusicTrack> _recentTracks = MockMusicCatalog.recentTracks;
   List<MusicPlaylist> _recentPlaylists = MockMusicCatalog.recentPlaylists;
   List<MusicTrack> _likedTracks = const <MusicTrack>[];
+  MusicAiPlaylistDraft? _latestAiPlaylist;
   bool _isSearching = false;
   String? _searchError;
   List<MusicTrack> _searchResults = const [];
@@ -93,6 +94,7 @@ class MusicStore extends ChangeNotifier {
   List<MusicTrack> get recentTracks => _recentTracks;
   List<MusicPlaylist> get recentPlaylists => _recentPlaylists;
   List<MusicTrack> get likedTracks => _likedTracks;
+  MusicAiPlaylistDraft? get latestAiPlaylist => _latestAiPlaylist;
   bool get isSearching => _isSearching;
   String? get searchError => _searchError;
   List<MusicTrack> get searchResults => _searchResults;
@@ -148,18 +150,31 @@ class MusicStore extends ChangeNotifier {
         isFavorite: isTrackLiked(_currentTrack.id),
       );
       try {
+        _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
+      } catch (_) {
+        _latestAiPlaylist = null;
+      }
+      try {
         final remotePlaylists = await _repository.loadUserPlaylists();
         final basePlaylists = remotePlaylists.isNotEmpty
             ? remotePlaylists
             : _playlists;
         _playlists = List<MusicPlaylist>.unmodifiable([
+          if (_latestAiPlaylist != null) _latestAiPlaylist!.asPlaylist,
           likedPlaylist,
-          ...basePlaylists.where((item) => item.id != likedPlaylist.id),
+          ...basePlaylists.where(
+            (item) => item.id != likedPlaylist.id &&
+                item.id != _latestAiPlaylist?.id,
+          ),
         ]);
       } catch (_) {
         _playlists = List<MusicPlaylist>.unmodifiable([
+          if (_latestAiPlaylist != null) _latestAiPlaylist!.asPlaylist,
           likedPlaylist,
-          ..._playlists.where((item) => item.id != likedPlaylist.id),
+          ..._playlists.where(
+            (item) => item.id != likedPlaylist.id &&
+                item.id != _latestAiPlaylist?.id,
+          ),
         ]);
       }
       _isPlaying = state.isPlaying;
@@ -214,6 +229,13 @@ class MusicStore extends ChangeNotifier {
       ),
     );
   }
+
+  MusicTrack get heroTrack =>
+      _latestAiPlaylist?.tracks.isNotEmpty == true
+          ? _latestAiPlaylist!.tracks.first.copyWith(
+              isFavorite: isTrackLiked(_latestAiPlaylist!.tracks.first.id),
+            )
+          : _currentTrack;
 
   MusicPlaylist get likedPlaylist => MusicPlaylist(
     id: 'liked-local',
@@ -488,8 +510,28 @@ class MusicStore extends ChangeNotifier {
     );
   }
 
+  Future<void> _refreshLatestAiPlaylist() async {
+    try {
+      _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
+      _playlists = List<MusicPlaylist>.unmodifiable([
+        if (_latestAiPlaylist != null) _latestAiPlaylist!.asPlaylist,
+        likedPlaylist,
+        ..._playlists.where(
+          (item) => item.id != likedPlaylist.id && item.id != _latestAiPlaylist?.id,
+        ),
+      ]);
+      notifyListeners();
+    } catch (_) {
+      // ignore refresh failures; keep previous hero card
+    }
+  }
+
   void _handleBackendEvent(Map<String, dynamic> event) {
     final eventName = (event['event'] ?? '').toString();
+    if (eventName == 'music.ai_playlist_updated') {
+      unawaited(_refreshLatestAiPlaylist());
+      return;
+    }
     if (eventName != 'music.command') {
       return;
     }

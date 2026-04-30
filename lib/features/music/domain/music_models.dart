@@ -178,6 +178,90 @@ class MusicPlaylist {
   }
 }
 
+class MusicAiPlaylistDraft {
+  const MusicAiPlaylistDraft({
+    required this.id,
+    required this.title,
+    required this.subtitle,
+    required this.description,
+    required this.tag,
+    required this.artworkTone,
+    this.isAiGenerated = true,
+    this.tracks = const [],
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String title;
+  final String subtitle;
+  final String description;
+  final String tag;
+  final MusicArtworkTone artworkTone;
+  final bool isAiGenerated;
+  final List<MusicTrack> tracks;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  MusicPlaylist get asPlaylist => MusicPlaylist(
+    id: id,
+    title: title,
+    subtitle: subtitle,
+    tag: tag,
+    trackCount: tracks.length,
+    artworkTone: artworkTone,
+    isAiGenerated: isAiGenerated,
+  );
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'title': title,
+      'subtitle': subtitle,
+      'description': description,
+      'tag': tag,
+      'artworkTone': artworkTone.name,
+      'isAiGenerated': isAiGenerated,
+      'tracks': tracks.map((item) => item.toMap()).toList(),
+      if (createdAt != null) 'createdAt': createdAt!.millisecondsSinceEpoch / 1000,
+      if (updatedAt != null) 'updatedAt': updatedAt!.millisecondsSinceEpoch / 1000,
+    };
+  }
+
+  factory MusicAiPlaylistDraft.fromMap(Map<String, dynamic> map) {
+    DateTime? parseTs(dynamic raw) {
+      if (raw is num) {
+        return DateTime.fromMillisecondsSinceEpoch((raw * 1000).round());
+      }
+      final parsed = double.tryParse('$raw');
+      if (parsed == null) return null;
+      return DateTime.fromMillisecondsSinceEpoch((parsed * 1000).round());
+    }
+
+    return MusicAiPlaylistDraft(
+      id: (map['id'] ?? '').toString(),
+      title: (map['title'] ?? '').toString(),
+      subtitle: (map['subtitle'] ?? '').toString(),
+      description: (map['description'] ?? '').toString(),
+      tag: (map['tag'] ?? 'AI').toString(),
+      artworkTone: musicArtworkToneFromName(
+        (map['artworkTone'] ?? MusicArtworkTone.aurora.name).toString(),
+      ),
+      isAiGenerated: map['isAiGenerated'] != false,
+      tracks: ((map['tracks'] as List<dynamic>?) ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) => MusicTrack.fromMap(
+              Map<String, dynamic>.from(item.cast<String, dynamic>()),
+            ),
+          )
+          .toList(growable: false),
+      createdAt: parseTs(map['createdAt']),
+      updatedAt: parseTs(map['updatedAt']),
+    );
+  }
+}
+
 class MusicCatalogData {
   const MusicCatalogData({
     required this.featuredTrack,

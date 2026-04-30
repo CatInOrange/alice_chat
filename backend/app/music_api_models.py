@@ -104,6 +104,19 @@ class MusicCommandRequest(MusicApiModel):
     positionMs: int | None = None
 
 
+class MusicAiPlaylistDraftDto(MusicApiModel):
+    id: str = ''
+    title: str = ''
+    subtitle: str = ''
+    description: str = ''
+    tag: str = 'AI'
+    artworkTone: str = 'aurora'
+    isAiGenerated: bool = True
+    tracks: list[MusicTrackDto] = Field(default_factory=list)
+    createdAt: float | None = None
+    updatedAt: float | None = None
+
+
 class MusicStateDto(MusicApiModel):
     currentTrack: MusicTrackDto | None = None
     queue: list[PlaybackQueueItemDto] = Field(default_factory=list)
@@ -111,6 +124,7 @@ class MusicStateDto(MusicApiModel):
     recentTracks: list[MusicTrackDto] = Field(default_factory=list)
     recentPlaylists: list[MusicPlaylistDto] = Field(default_factory=list)
     likedTracks: list[MusicTrackDto] = Field(default_factory=list)
+    latestAiPlaylist: MusicAiPlaylistDraftDto | None = None
     isPlaying: bool = False
     positionMs: int = 0
     currentPlaylistId: str | None = None
@@ -124,6 +138,7 @@ class MusicStatePatchDto(MusicApiModel):
     recentTracks: list[MusicTrackDto] | None = None
     recentPlaylists: list[MusicPlaylistDto] | None = None
     likedTracks: list[MusicTrackDto] | None = None
+    latestAiPlaylist: MusicAiPlaylistDraftDto | None = None
     isPlaying: bool | None = None
     positionMs: int | None = None
     currentPlaylistId: str | None = None
