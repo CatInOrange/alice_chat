@@ -68,6 +68,18 @@ class _QuotedMessageDraft {
   final String rawText;
 }
 
+class _PendingImageDraft {
+  const _PendingImageDraft({
+    required this.filePath,
+    required this.fileName,
+    required this.fileSize,
+  });
+
+  final String filePath;
+  final String fileName;
+  final int fileSize;
+}
+
 class _SlashSuggestionItem {
   const _SlashSuggestionItem({
     required this.insertText,
@@ -138,6 +150,8 @@ class _ChatScreenState extends State<ChatScreen> {
   String _lastStreamingHintSignature = '';
   bool _streamingHintPulseActive = false;
   _QuotedMessageDraft? _quotedMessageDraft;
+  _PendingImageDraft? _pendingImageDraft;
+  bool _isSendingImage = false;
   List<_SlashSuggestionItem> _slashSuggestions = const [];
 
   // Composer height tracking for relative positioning of floating elements
@@ -870,7 +884,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _handleSend(String text) async {
     final trimmed = text.trim();
-    if (trimmed.isEmpty) return;
+    final pendingImage = _pendingImageDraft;
+    if (trimmed.isEmpty && pendingImage == null) return;
     final store = context.read<ChatSessionStore>();
     final quoteDraft = _quotedMessageDraft;
     final payload =
@@ -878,8 +893,40 @@ class _ChatScreenState extends State<ChatScreen> {
             ? trimmed
             : '> ${quoteDraft.rawText.replaceAll(RegExp(r'\s+'), '\n> ')}\n\n$trimmed';
     _composerController.clear();
-    setState(() => _quotedMessageDraft = null);
-    await store.sendMessage(widget.session, payload);
+    setState(() {
+      _quotedMessageDraft = null;
+      if (pendingImage != null) {
+        _pendingImageDraft = null;
+        _isSendingImage = true;
+      }
+    });
+
+    try {
+      if (pendingImage != null) {
+        await store.sendImageMessage(
+          widget.session,
+          filePath: pendingImage.filePath,
+          caption: payload,
+        );
+      } else {
+        await store.sendMessage(widget.session, payload);
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        if (pendingImage != null) {
+          _pendingImageDraft = pendingImage;
+          _isSendingImage = false;
+        }
+      });
+      _showSnackBar('发送图片失败：${_humanizeUiError(error)}');
+      return;
+    }
+
+    if (!mounted) return;
+    if (pendingImage != null) {
+      setState(() => _isSendingImage = false);
+    }
   }
 
   void _handleComposerTextChanged() {
@@ -1045,19 +1092,60 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _handlePickImage() async {
-    final file = await _imagePicker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 92,
-    );
-    if (file == null) return;
-    final caption = _composerController.text.trim();
-    _composerController.clear();
-    if (!mounted) return;
-    await context.read<ChatSessionStore>().sendImageMessage(
-      widget.session,
-      filePath: file.path,
-      caption: caption,
-    );
+    try {
+      final file = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 92,
+      );
+      if (file == null || !mounted) return;
+      final imageFile = File(file.path);
+      final fileSize = await imageFile.length();
+      const maxUploadBytes = 20 * 1024 * 1024;
+      if (fileSize > maxUploadBytes) {
+        _showSnackBar('图片不能超过 20MB');
+        return;
+      }
+      setState(() {
+        _pendingImageDraft = _PendingImageDraft(
+          filePath: file.path,
+          fileName: file.name,
+          fileSize: fileSize,
+        );
+      });
+      _composerFocusNode.requestFocus();
+    } catch (error) {
+      if (!mounted) return;
+      _showSnackBar('选取图片失败：${_humanizeUiError(error)}');
+    }
+  }
+
+  String _formatFileSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    final kb = bytes / 1024;
+    if (kb < 1024) return '${kb.toStringAsFixed(kb >= 100 ? 0 : 1)} KB';
+    final mb = kb / 1024;
+    return '${mb.toStringAsFixed(mb >= 100 ? 0 : 1)} MB';
+  }
+
+  String _humanizeUiError(Object error) {
+    final text = error.toString().trim();
+    if (text.startsWith('Exception: ')) {
+      return text.substring('Exception: '.length).trim();
+    }
+    return text.isEmpty ? '未知错误' : text;
+  }
+
+  void _showSnackBar(String message) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) return;
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: const Duration(milliseconds: 1800),
+        ),
+      );
   }
 
   Future<void> _showAttachmentMenu(ChatViewState state) async {
@@ -2095,6 +2183,83 @@ class _ChatScreenState extends State<ChatScreen> {
                         ],
                       ),
                     ),
+                  if (_pendingImageDraft != null)
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFE7EAF3)),
+                      ),
+                      child: Row(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.file(
+                              File(_pendingImageDraft!.filePath),
+                              width: 56,
+                              height: 56,
+                              fit: BoxFit.cover,
+                              errorBuilder:
+                                  (_, __, ___) => Container(
+                                    width: 56,
+                                    height: 56,
+                                    color: const Color(0xFFF1F3F9),
+                                    alignment: Alignment.center,
+                                    child: const Icon(
+                                      Icons.broken_image_outlined,
+                                    ),
+                                  ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  '准备发送图片',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _pendingImageDraft!.fileName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: const Color(0xFF667085),
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _formatFileSize(_pendingImageDraft!.fileSize),
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: const Color(0xFF98A1B3),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed:
+                                _isSendingImage
+                                    ? null
+                                    : () => setState(
+                                      () => _pendingImageDraft = null,
+                                    ),
+                            icon: const Icon(Icons.close_rounded, size: 18),
+                            color: const Color(0xFF98A1B3),
+                            splashRadius: 18,
+                            tooltip: '取消图片',
+                          ),
+                        ],
+                      ),
+                    ),
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
@@ -2107,12 +2272,12 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                         child: IconButton(
                           onPressed:
-                              state.isSubmitting
+                              (state.isSubmitting || _isSendingImage)
                                   ? null
                                   : () => _showAttachmentMenu(state),
                           icon: const Icon(Icons.add_rounded),
                           color:
-                              state.isSubmitting
+                              (state.isSubmitting || _isSendingImage)
                                   ? const Color(0xFF98A1B3)
                                   : theme.colorScheme.primary,
                           tooltip: '附件',
@@ -2143,8 +2308,10 @@ class _ChatScreenState extends State<ChatScreen> {
                               isDense: true,
                             ),
                             onSubmitted: (value) {
-                              if (value.trim().isNotEmpty &&
-                                  !state.isSubmitting) {
+                              if ((value.trim().isNotEmpty ||
+                                      _pendingImageDraft != null) &&
+                                  !state.isSubmitting &&
+                                  !_isSendingImage) {
                                 _handleSend(value);
                               }
                             },
@@ -2158,7 +2325,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         height: 44,
                         decoration: BoxDecoration(
                           color:
-                              state.isSubmitting
+                              (state.isSubmitting || _isSendingImage)
                                   ? const Color(0xFFD7CCFF)
                                   : theme.colorScheme.primary,
                           borderRadius: BorderRadius.circular(22),
@@ -2172,16 +2339,17 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                         child: IconButton(
                           onPressed:
-                              state.isSubmitting
+                              (state.isSubmitting || _isSendingImage)
                                   ? null
                                   : () {
                                     final text = _composerController.text;
-                                    if (text.trim().isNotEmpty) {
+                                    if (text.trim().isNotEmpty ||
+                                        _pendingImageDraft != null) {
                                       _handleSend(text);
                                     }
                                   },
                           icon:
-                              state.isSubmitting
+                              (state.isSubmitting || _isSendingImage)
                                   ? const SizedBox(
                                     width: 18,
                                     height: 18,
