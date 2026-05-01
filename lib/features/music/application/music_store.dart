@@ -96,6 +96,7 @@ class MusicStore extends ChangeNotifier {
   bool _isSearching = false;
   String? _searchError;
   List<MusicTrack> _searchResults = const [];
+  List<String> _recentSearches = const [];
   bool _isAdvancingQueue = false;
   bool _isLoadingPlaylist = false;
   String? _loadingPlaylistId;
@@ -135,12 +136,46 @@ class MusicStore extends ChangeNotifier {
   bool get isSearching => _isSearching;
   String? get searchError => _searchError;
   List<MusicTrack> get searchResults => _searchResults;
+  List<String> get recentSearches => _recentSearches;
   bool get isLoadingPlaylist => _isLoadingPlaylist;
   String? get loadingPlaylistId => _loadingPlaylistId;
   String? get currentPlaylistId => _currentPlaylistId;
   bool get shuffleEnabled => _shuffleEnabled;
   MusicRepeatMode get repeatMode => _repeatMode;
   bool get hasPlaybackContext => _queue.isNotEmpty || _isPlaying;
+
+  MusicPlaylist? get currentPlaylist {
+    final playlistId = _currentPlaylistId;
+    if (playlistId == null || playlistId.trim().isEmpty) return null;
+    if (playlistId == likedPlaylist.id) return likedPlaylist;
+    if (_latestAiPlaylist != null && _latestAiPlaylist!.id == playlistId) {
+      return _latestAiPlaylist!.asPlaylist;
+    }
+    for (final item in _aiPlaylistHistory) {
+      if (item.id == playlistId) return item.asPlaylist;
+    }
+    for (final item in _recentPlaylists) {
+      if (item.id == playlistId) return item;
+    }
+    for (final item in _playlists) {
+      if (item.id == playlistId) return item;
+    }
+    return null;
+  }
+
+  String get currentPlaybackSourceLabel {
+    final playlist = currentPlaylist;
+    if (playlist != null) {
+      if (playlist.id == likedPlaylist.id) return '来自 我喜欢的';
+      if (playlist.isAiGenerated) return '来自 ${playlist.title}';
+      return '来自 ${playlist.title}';
+    }
+    if (_latestAiPlaylist != null && _currentTrack.id == heroTrack.id) {
+      return '来自 AI 最新歌单';
+    }
+    if (_queue.isNotEmpty) return '来自当前播放队列';
+    return '还没有播放来源';
+  }
   bool get hasPreviousTrack =>
       _playbackHistory.isNotEmpty || _position >= const Duration(seconds: 3);
   bool get hasNextTrack =>
@@ -316,6 +351,15 @@ class MusicStore extends ChangeNotifier {
         ),
       );
     }
+  }
+
+  Future<void> retryCurrentPlaylist() async {
+    final playlist = currentPlaylist;
+    if (playlist == null) {
+      await refreshLibrary();
+      return;
+    }
+    await playPlaylist(playlist);
   }
 
   Future<void> playPlaylist(MusicPlaylist playlist) async {
@@ -509,6 +553,10 @@ class MusicStore extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    _recentSearches = List<String>.unmodifiable([
+      keyword,
+      ..._recentSearches.where((item) => item != keyword),
+    ].take(8));
     _isSearching = true;
     _searchError = null;
     notifyListeners();
@@ -557,6 +605,11 @@ class MusicStore extends ChangeNotifier {
   void clearSearchResults() {
     _searchResults = const [];
     _searchError = null;
+    notifyListeners();
+  }
+
+  void clearRecentSearches() {
+    _recentSearches = const [];
     notifyListeners();
   }
 

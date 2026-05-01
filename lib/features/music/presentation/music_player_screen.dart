@@ -94,7 +94,7 @@ class MusicPlayerScreen extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    currentTrack.album,
+                                    store.currentPlaybackSourceLabel,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.titleMedium,
@@ -102,10 +102,7 @@ class MusicPlayerScreen extends StatelessWidget {
                                 ],
                               ),
                             ),
-                            const _GlassIconButton(
-                              icon: Icons.more_horiz_rounded,
-                              onPressed: _noop,
-                            ),
+                            const SizedBox(width: 44, height: 44),
                           ],
                         ),
                       ),
@@ -155,8 +152,13 @@ class MusicPlayerScreen extends StatelessWidget {
                                               ),
                                               const SizedBox(height: 8),
                                               Text(
-                                                '${currentTrack.artist} · ${currentTrack.category}',
+                                                '${currentTrack.artist} · ${currentTrack.album}',
                                                 style: theme.textTheme.bodyMedium,
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                store.currentPlaybackSourceLabel,
+                                                style: theme.textTheme.bodySmall,
                                               ),
                                               const SizedBox(height: 8),
                                               Text(
@@ -796,4 +798,3 @@ String _formatDuration(Duration duration) {
   return '$minutes:$seconds';
 }
 
-void _noop() {}
