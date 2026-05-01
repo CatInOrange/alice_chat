@@ -254,8 +254,21 @@ class MusicStore extends ChangeNotifier {
       _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
       _recentPlaylists = _normalizeRecentPlaylists(state.recentPlaylists);
       _currentPlaylistId = _normalizePlaylistId(state.currentPlaylistId);
-      _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
-      _aiPlaylistHistory = await _repository.loadAiPlaylistHistory();
+      try {
+        _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
+      } catch (error) {
+        _debugState('refresh.latest_ai.error', extra: {
+          'error': error.toString(),
+        }, force: true, level: 'ERROR');
+      }
+      try {
+        _aiPlaylistHistory = await _repository.loadAiPlaylistHistory();
+      } catch (error) {
+        _debugState('refresh.ai_history.error', extra: {
+          'error': error.toString(),
+        }, force: true, level: 'ERROR');
+        _aiPlaylistHistory = const [];
+      }
       _cacheKnownAiPlaylistTracks();
       final remotePlaylists = await _repository.loadUserPlaylists();
       final basePlaylists = remotePlaylists.isNotEmpty
@@ -314,12 +327,15 @@ class MusicStore extends ChangeNotifier {
       );
       try {
         _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
-        _aiPlaylistHistory = await _repository.loadAiPlaylistHistory();
-        _cacheKnownAiPlaylistTracks();
       } catch (_) {
         _latestAiPlaylist = null;
+      }
+      try {
+        _aiPlaylistHistory = await _repository.loadAiPlaylistHistory();
+      } catch (_) {
         _aiPlaylistHistory = const [];
       }
+      _cacheKnownAiPlaylistTracks();
       try {
         final remotePlaylists = await _repository.loadUserPlaylists();
         final basePlaylists = remotePlaylists.isNotEmpty
@@ -403,7 +419,7 @@ class MusicStore extends ChangeNotifier {
       'playlistTitle': playlist.title,
     });
     try {
-      final tracks = await _repository.loadPlaylistTracks(playlist);
+      final tracks = await loadPlaylistTracks(playlist);
       _debugState('playlist.open.loaded', extra: {
         'playlistId': playlist.id,
         'playlistTitle': playlist.title,
@@ -1150,6 +1166,7 @@ class MusicStore extends ChangeNotifier {
   Future<void> _playCurrentQueueHead({
     bool resetPosition = true,
     bool clearCachedPlaybackOnRetry = true,
+    bool allowSkipOnFailure = true,
   }) async {
     final prepared = await _preparePlayback(_currentTrack);
     final preparedTrack = prepared.track.copyWith(
@@ -1169,8 +1186,13 @@ class MusicStore extends ChangeNotifier {
       );
     } catch (error) {
       if (!clearCachedPlaybackOnRetry || _currentTrack.cachedPlayback == null) {
+        final friendlyError = _friendlyPlaybackError(error);
+        final skipped = await _skipFailedCurrentTrack(friendlyError, allowSkipOnFailure: allowSkipOnFailure);
+        if (skipped) {
+          return;
+        }
         _isPlaying = false;
-        _error = _friendlyPlaybackError(error);
+        _error = friendlyError;
         rethrow;
       }
       final refreshed = await _preparePlayback(
@@ -1191,8 +1213,13 @@ class MusicStore extends ChangeNotifier {
           source: refreshed.resolvedSource!,
         );
       } catch (retryError) {
+        final friendlyError = _friendlyPlaybackError(retryError);
+        final skipped = await _skipFailedCurrentTrack(friendlyError, allowSkipOnFailure: allowSkipOnFailure);
+        if (skipped) {
+          return;
+        }
         _isPlaying = false;
-        _error = _friendlyPlaybackError(retryError);
+        _error = friendlyError;
         rethrow;
       }
     }
@@ -1221,6 +1248,37 @@ class MusicStore extends ChangeNotifier {
       }
     }
     return _friendlyPlaybackError(error, fallback: '加载歌单失败，请稍后再试');
+  }
+
+  Future<bool> _skipFailedCurrentTrack(
+    String friendlyError, {
+    required bool allowSkipOnFailure,
+  }) async {
+    if (!allowSkipOnFailure || _queue.length <= 1) {
+      return false;
+    }
+    final failedTrack = _currentTrack;
+    _debugState('playback.skip_failed_track', extra: {
+      'trackId': failedTrack.id,
+      'title': failedTrack.title,
+      'error': friendlyError,
+      'remainingQueue': _queue.length - 1,
+    }, force: true, level: 'ERROR');
+    _playbackHistory.add(failedTrack);
+    _queue = List<PlaybackQueueItem>.unmodifiable(_queue.skip(1));
+    _currentTrack = _queue.first.track.copyWith(
+      isFavorite: isTrackLiked(_queue.first.track.id),
+    );
+    _duration = _currentTrack.duration;
+    _position = Duration.zero;
+    _error = '《${failedTrack.title}》暂时无法播放，已自动跳到下一首';
+    notifyListeners();
+    await _playCurrentQueueHead(
+      resetPosition: true,
+      clearCachedPlaybackOnRetry: true,
+      allowSkipOnFailure: false,
+    );
+    return true;
   }
 
   String _friendlyPlaybackError(Object error, {String? fallback}) {

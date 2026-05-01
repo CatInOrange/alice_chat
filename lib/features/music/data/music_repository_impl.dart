@@ -125,7 +125,21 @@ class MusicRepositoryImpl implements MusicRepository {
     if (playlistMap == null) {
       return null;
     }
-    final draft = MusicAiPlaylistDraft.fromMap(playlistMap);
+    final parsed = MusicAiPlaylistDraft.fromMap(playlistMap);
+    final draft = parsed.id == 'ai-playlist:latest'
+        ? parsed
+        : MusicAiPlaylistDraft(
+            id: 'ai-playlist:latest',
+            title: parsed.title,
+            subtitle: parsed.subtitle,
+            description: parsed.description,
+            tag: parsed.tag,
+            artworkTone: parsed.artworkTone,
+            isAiGenerated: parsed.isAiGenerated,
+            tracks: parsed.tracks,
+            createdAt: parsed.createdAt,
+            updatedAt: parsed.updatedAt,
+          );
     if (draft.tracks.isEmpty) {
       return draft;
     }
@@ -161,16 +175,23 @@ class MusicRepositoryImpl implements MusicRepository {
 
   @override
   Future<List<MusicAiPlaylistDraft>> loadAiPlaylistHistory() async {
-    final response = await _client.getAiPlaylistHistory();
-    final raw = (response['playlists'] as List<dynamic>?) ?? const [];
-    return raw
-        .whereType<Map>()
-        .map(
-          (item) => MusicAiPlaylistDraft.fromMap(
-            Map<String, dynamic>.from(item.cast<String, dynamic>()),
-          ),
-        )
-        .toList(growable: false);
+    try {
+      final response = await _client.getAiPlaylistHistory();
+      final raw = (response['playlists'] as List<dynamic>?) ?? const [];
+      return raw
+          .whereType<Map>()
+          .map(
+            (item) => MusicAiPlaylistDraft.fromMap(
+              Map<String, dynamic>.from(item.cast<String, dynamic>()),
+            ),
+          )
+          .toList(growable: false);
+    } catch (error) {
+      await _debugLog('repository.loadAiPlaylistHistory.error', {
+        'error': error.toString(),
+      });
+      return const <MusicAiPlaylistDraft>[];
+    }
   }
 
   @override
