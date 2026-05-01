@@ -15,99 +15,18 @@ from ..auth import verify_app_password
 from ..config import load_config
 from ..services.chat_streaming import ChatStreamingService
 from ..services.routing import resolve_routing
+from ..utils.suspicious_reply import (
+    build_suspicious_meta as _build_suspicious_meta,
+    detect_suspicious_final as _detect_suspicious_final,
+    mark_recovery_meta as _mark_recovery_meta,
+    select_preview_recovery_text as _select_preview_recovery_text,
+    strip_model_prefix as _strip_model_prefix,
+)
 from ..web.helpers import build_route_key, require_existing_session
 
 _LOG = logging.getLogger(__name__)
 
 
-_SUSPICIOUS_FINAL_KEYWORDS = (
-    'apply patch failed',
-    'command failed',
-    'tool failed',
-    'approval required',
-    'exit code',
-)
-
-
-def _contains_chinese(text: str) -> bool:
-    return any('\u4e00' <= ch <= '\u9fff' for ch in str(text or ''))
-
-
-def _detect_suspicious_final(text: str) -> str | None:
-    value = _strip_model_prefix(str(text or '').strip())
-    if not value:
-        return None
-    lowered = value.lower()
-    if _contains_chinese(value):
-        return None
-    for keyword in _SUSPICIOUS_FINAL_KEYWORDS:
-        if keyword in lowered:
-            return keyword
-    return None
-
-
-def _parse_message_meta(meta_value: object) -> dict:
-    if isinstance(meta_value, dict):
-        return dict(meta_value)
-    if not meta_value:
-        return {}
-    try:
-        parsed = json.loads(str(meta_value))
-    except Exception:
-        return {}
-    return dict(parsed) if isinstance(parsed, dict) else {}
-
-
-def _build_suspicious_meta(*, existing_meta: object, request_id: str, reason: str) -> str:
-    meta = _parse_message_meta(existing_meta)
-    suspicious = dict(meta.get('suspiciousFinal') or {}) if isinstance(meta.get('suspiciousFinal'), dict) else {}
-    suspicious.update({
-        'flagged': True,
-        'reason': reason,
-        'requestId': request_id,
-        'recoveryAttempted': False,
-        'recoverySucceeded': False,
-    })
-    meta['suspiciousFinal'] = suspicious
-    return json.dumps(meta, ensure_ascii=False)
-
-
-def _mark_recovery_meta(*, existing_meta: object, succeeded: bool, recovered_text: str = '') -> str:
-    meta = _parse_message_meta(existing_meta)
-    suspicious = dict(meta.get('suspiciousFinal') or {}) if isinstance(meta.get('suspiciousFinal'), dict) else {}
-    suspicious['recoveryAttempted'] = True
-    suspicious['recoverySucceeded'] = succeeded
-    if succeeded and recovered_text:
-        suspicious['recoveredText'] = recovered_text
-    meta['suspiciousFinal'] = suspicious
-    return json.dumps(meta, ensure_ascii=False)
-
-
-def _select_preview_recovery_text(*, final_text: str, preview_text: str) -> str:
-    final_value = _strip_model_prefix(str(final_text or '').strip())
-    preview_value = _strip_model_prefix(str(preview_text or '').strip())
-    if not final_value or not preview_value:
-        return ''
-    if preview_value == final_value:
-        return ''
-    if not _contains_chinese(preview_value):
-        return ''
-    if len(preview_value) <= len(final_value) + 12:
-        return ''
-    lowered_preview = preview_value.lower()
-    if any(keyword in lowered_preview for keyword in _SUSPICIOUS_FINAL_KEYWORDS):
-        return ''
-    return preview_value
-
-
-def _strip_model_prefix(text: str) -> str:
-    value = str(text or '').lstrip()
-    if not value.startswith('['):
-        return str(text or '').strip()
-    bracket_end = value.find(']')
-    if bracket_end <= 1:
-        return str(text or '').strip()
-    return value[bracket_end + 1 :].lstrip()
 
 
 def _normalize_notification_preview(text: str, *, max_length: int = 100) -> str:

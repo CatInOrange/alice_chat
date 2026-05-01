@@ -10,9 +10,15 @@ from dataclasses import replace
 from ..app_context import AppContext
 from ..services.routing import resolve_routing
 from ..utils import strip_stage_directives
+from ..utils.frame_audit import audit_frame
+from ..utils.suspicious_reply import (
+    build_suspicious_meta,
+    detect_suspicious_final,
+    mark_recovery_meta,
+    select_preview_recovery_text,
+)
 from ..web.helpers import build_route_key, require_existing_session
 from ..web.sse import format_sse
-from ..utils.frame_audit import audit_frame
 
 
 class ChatStreamingService:
@@ -33,6 +39,7 @@ class ChatStreamingService:
         session_store = self.context.session_store
         chat_service = self.context.chat_service
         events_bus = self.context.events_bus
+        request_id = str(body.get('requestId') or '').strip()
 
         resolved = chat_service.resolve_request(body)
         session_id = require_existing_session(session_store, str(body.get('sessionId') or '').strip())
@@ -116,6 +123,7 @@ class ChatStreamingService:
         loop.run_in_executor(None, run_provider_blocking)
 
         assistant_raw = ''
+        latest_reply_preview = ''
         try:
             while True:
                 if result_fut.done() and delta_q.empty():
@@ -132,6 +140,9 @@ class ChatStreamingService:
                     continue
 
                 payload = delta_task.result()
+                preview_text = str(payload.get('replyPreview') or '').strip()
+                if preview_text:
+                    latest_reply_preview = preview_text
                 delta_text = str(payload.get('text') or payload.get('delta') or '')
                 if not delta_text:
                     continue
@@ -185,6 +196,31 @@ class ChatStreamingService:
 
         assistant_raw = str(result.get('rawReply') or result.get('reply') or '')
         assistant_visible = strip_stage_directives(str(result.get('reply') or ''))
+        suspicious_reason = detect_suspicious_final(assistant_visible)
+        assistant_meta = resolved.assistant_meta
+        if suspicious_reason:
+            assistant_meta = build_suspicious_meta(
+                existing_meta=assistant_meta,
+                request_id=request_id,
+                reason=suspicious_reason,
+            )
+            recovered_text = select_preview_recovery_text(
+                final_text=assistant_visible,
+                preview_text=latest_reply_preview,
+            )
+            if recovered_text:
+                assistant_visible = recovered_text
+                assistant_raw = recovered_text
+                assistant_meta = mark_recovery_meta(
+                    existing_meta=assistant_meta,
+                    succeeded=True,
+                    recovered_text=recovered_text,
+                )
+            else:
+                assistant_meta = mark_recovery_meta(
+                    existing_meta=assistant_meta,
+                    succeeded=False,
+                )
 
         chat_service.persist_user_message(
             session_id=session_id,
@@ -198,7 +234,7 @@ class ChatStreamingService:
             reply=assistant_visible,
             raw_reply=assistant_raw,
             images=result.get('images') or [],
-            meta=resolved.assistant_meta,
+            meta=assistant_meta,
             source=resolved.message_source,
         )
         for item in persisted_messages:

@@ -96,15 +96,19 @@ openclaw gateway restart
 tool 调后端时默认按以下顺序取配置：
 
 1. 环境变量 `ALICECHAT_API_BASE_URL`
-2. `ALICECHAT_CONFIG_PATH` 指向的 AliceChat `config.json`（默认 `/root/.openclaw/AliceChat/config.json`）
-3. 若仍无 baseUrl，则回退 `http://127.0.0.1:18081`
+2. `ALICECHAT_BACKEND_CONFIG_PATH` 指向的 AliceChat `backend/config.json`（默认 `/root/.openclaw/AliceChat/backend/config.json`）
+3. `ALICECHAT_CONFIG_PATH` 指向的顶层 AliceChat `config.json`（默认 `/root/.openclaw/AliceChat/config.json`）
+4. 若仍无 baseUrl，则回退 `http://127.0.0.1:18081`
 
 鉴权密码按以下顺序取：
 
 1. 环境变量 `ALICECHAT_APP_PASSWORD`
-2. AliceChat `config.json` 中的 `auth.appAccessPassword`
+2. `backend/config.json` 中的 `auth.appAccessPassword`
+3. 顶层 `config.json` 中的 `auth.appAccessPassword`
 
-因此通常不需要额外改 OpenClaw 主仓；只要它是从当前 `sourcePath` 加载这个插件，重启 gateway 后新 tool 就会出现。
+插件请求头会使用后端当前真正识别的 `x-alicechat-password`。
+
+因此通常不需要额外改 OpenClaw 主仓；但要注意运行时实际加载的是安装副本而不只是 sourcePath，改完后需要重启 gateway 让新 tool 生效。
 
 ## Python 后端配置
 

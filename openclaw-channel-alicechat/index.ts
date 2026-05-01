@@ -4,6 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { createChannelReplyPipeline } from 'openclaw/plugin-sdk/channel-reply-pipeline';
 
+const ALICECHAT_BACKEND_CONFIG_PATH = process.env.ALICECHAT_BACKEND_CONFIG_PATH || '/root/.openclaw/AliceChat/backend/config.json';
 const ALICECHAT_CONFIG_PATH = process.env.ALICECHAT_CONFIG_PATH || '/root/.openclaw/AliceChat/config.json';
 const DEFAULT_ALICECHAT_API_BASE_URL = process.env.ALICECHAT_API_BASE_URL || 'http://127.0.0.1:18081';
 
@@ -234,21 +235,29 @@ async function loadAliceChatApiSettings() {
   let appPassword = String(process.env.ALICECHAT_APP_PASSWORD || '').trim();
   let baseUrl = String(process.env.ALICECHAT_API_BASE_URL || '').trim();
 
-  try {
-    const raw = await fs.readFile(ALICECHAT_CONFIG_PATH, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (!baseUrl) {
-      const server = parsed?.server || {};
-      const host = String(server.host || '127.0.0.1').trim();
-      const normalizedHost = host === '0.0.0.0' ? '127.0.0.1' : host || '127.0.0.1';
-      const port = Number(server.port || 18081);
-      baseUrl = `http://${normalizedHost}:${port}`;
+  const configPaths = [
+    ALICECHAT_BACKEND_CONFIG_PATH,
+    ALICECHAT_CONFIG_PATH,
+  ].filter(Boolean);
+
+  for (const configPath of configPaths) {
+    try {
+      const raw = await fs.readFile(configPath, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (!baseUrl) {
+        const server = parsed?.server || {};
+        const host = String(server.host || '127.0.0.1').trim();
+        const normalizedHost = host === '0.0.0.0' ? '127.0.0.1' : host || '127.0.0.1';
+        const port = Number(server.port || 18081);
+        baseUrl = `http://${normalizedHost}:${port}`;
+      }
+      if (!appPassword) {
+        appPassword = String(parsed?.auth?.appAccessPassword || '').trim();
+      }
+      if (baseUrl && appPassword) break;
+    } catch (error) {
+      // ignore and continue to next config source
     }
-    if (!appPassword) {
-      appPassword = String(parsed?.auth?.appAccessPassword || '').trim();
-    }
-  } catch (error) {
-    // ignore and fall back to env/defaults
   }
 
   cachedAliceChatApiSettings = {
@@ -261,7 +270,7 @@ async function loadAliceChatApiSettings() {
 async function callAliceChatApi(method, routePath, payload) {
   const { baseUrl, appPassword } = await loadAliceChatApiSettings();
   if (!appPassword) {
-    throw new Error('AliceChat appAccessPassword 未配置；请设置 ALICECHAT_APP_PASSWORD 或检查 AliceChat config.json');
+    throw new Error('AliceChat appAccessPassword 未配置；请设置 ALICECHAT_APP_PASSWORD，或检查 backend/config.json / config.json');
   }
 
   const url = new URL(routePath, `${baseUrl.replace(/\/$/, '')}/`).toString();
@@ -269,7 +278,7 @@ async function callAliceChatApi(method, routePath, payload) {
     method,
     headers: {
       'content-type': 'application/json',
-      'x-app-password': appPassword,
+      'x-alicechat-password': appPassword,
     },
     body: payload === undefined ? undefined : JSON.stringify(payload),
   });
