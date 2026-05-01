@@ -4,6 +4,9 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { createChannelReplyPipeline } from 'openclaw/plugin-sdk/channel-reply-pipeline';
 
+const ALICECHAT_CONFIG_PATH = process.env.ALICECHAT_CONFIG_PATH || '/root/.openclaw/AliceChat/config.json';
+const DEFAULT_ALICECHAT_API_BASE_URL = process.env.ALICECHAT_API_BASE_URL || 'http://127.0.0.1:18081';
+
 const CHANNEL_ID = 'alicechat';
 const FRAME_AUDIT_ENABLED = !['', '0', 'false', 'no', 'off'].includes(String(process.env.ALICECHAT_FRAME_AUDIT || '1').toLowerCase());
 const FRAME_AUDIT_DIR = process.env.ALICECHAT_FRAME_AUDIT_DIR || '/root/.openclaw/AliceChat/data/frame-audit';
@@ -219,6 +222,74 @@ async function mediaUrlToDataPayload(mediaUrl) {
     return { mimeType: resolveMimeType(raw), data: buffer.toString('base64') };
   }
   return null;
+}
+
+let cachedAliceChatApiSettings = null;
+
+async function loadAliceChatApiSettings() {
+  if (cachedAliceChatApiSettings) {
+    return cachedAliceChatApiSettings;
+  }
+
+  let appPassword = String(process.env.ALICECHAT_APP_PASSWORD || '').trim();
+  let baseUrl = String(process.env.ALICECHAT_API_BASE_URL || '').trim();
+
+  try {
+    const raw = await fs.readFile(ALICECHAT_CONFIG_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!baseUrl) {
+      const server = parsed?.server || {};
+      const host = String(server.host || '127.0.0.1').trim();
+      const normalizedHost = host === '0.0.0.0' ? '127.0.0.1' : host || '127.0.0.1';
+      const port = Number(server.port || 18081);
+      baseUrl = `http://${normalizedHost}:${port}`;
+    }
+    if (!appPassword) {
+      appPassword = String(parsed?.auth?.appAccessPassword || '').trim();
+    }
+  } catch (error) {
+    // ignore and fall back to env/defaults
+  }
+
+  cachedAliceChatApiSettings = {
+    baseUrl: baseUrl || DEFAULT_ALICECHAT_API_BASE_URL,
+    appPassword,
+  };
+  return cachedAliceChatApiSettings;
+}
+
+async function callAliceChatApi(method, routePath, payload) {
+  const { baseUrl, appPassword } = await loadAliceChatApiSettings();
+  if (!appPassword) {
+    throw new Error('AliceChat appAccessPassword 未配置；请设置 ALICECHAT_APP_PASSWORD 或检查 AliceChat config.json');
+  }
+
+  const url = new URL(routePath, `${baseUrl.replace(/\/$/, '')}/`).toString();
+  const response = await fetch(url, {
+    method,
+    headers: {
+      'content-type': 'application/json',
+      'x-app-password': appPassword,
+    },
+    body: payload === undefined ? undefined : JSON.stringify(payload),
+  });
+
+  const text = await response.text();
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (error) {
+      data = { raw: text };
+    }
+  }
+
+  if (!response.ok) {
+    const detail = data && typeof data === 'object' ? JSON.stringify(data) : text;
+    throw new Error(`AliceChat API ${method} ${routePath} 失败 (${response.status}): ${detail || response.statusText}`);
+  }
+
+  return data;
 }
 
 function createBridgeServer(ctx) {
@@ -796,6 +867,141 @@ const alicechatPlugin = {
 };
 
 export function register(api) {
+  api.registerTool({
+    name: 'save_latest_ai_playlist',
+    label: 'Save latest AI playlist',
+    description: 'Save the latest AI music playlist draft into AliceChat backend so the app hero card can refresh.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        id: { type: 'string', description: 'Playlist id. Recommended prefix: ai-playlist:...' },
+        title: { type: 'string' },
+        subtitle: { type: 'string' },
+        description: { type: 'string' },
+        tag: { type: 'string' },
+        artworkTone: {
+          type: 'string',
+          enum: ['twilight', 'sunset', 'aurora', 'ocean', 'rose', 'midnight'],
+        },
+        isAiGenerated: { type: 'boolean' },
+        tracks: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              id: { type: 'string' },
+              title: { type: 'string' },
+              artist: { type: 'string' },
+              album: { type: 'string' },
+              category: { type: 'string' },
+              description: { type: 'string' },
+              artworkTone: {
+                type: 'string',
+                enum: ['twilight', 'sunset', 'aurora', 'ocean', 'rose', 'midnight'],
+              },
+              artworkUrl: { type: 'string' },
+              preferredSourceId: { type: 'string' },
+              sourceTrackId: { type: 'string' },
+              durationMs: { type: 'number' },
+            },
+            required: ['title', 'artist'],
+          },
+        },
+      },
+      required: ['title', 'subtitle', 'description', 'tracks'],
+    },
+    async execute(_id, params) {
+      try {
+        const nowSeconds = Date.now() / 1000;
+        const normalizedTracks = Array.isArray(params.tracks)
+          ? params.tracks.map((track, index) => ({
+              id: String(track.id || `${String(params.id || 'ai-playlist:latest')}:track:${index}`),
+              title: String(track.title || '').trim(),
+              artist: String(track.artist || '').trim(),
+              album: String(track.album || '').trim(),
+              category: String(track.category || '').trim(),
+              description: String(track.description || '').trim(),
+              artworkTone: String(track.artworkTone || params.artworkTone || 'aurora').trim() || 'aurora',
+              artworkUrl: String(track.artworkUrl || '').trim() || undefined,
+              preferredSourceId: String(track.preferredSourceId || '').trim() || undefined,
+              sourceTrackId: String(track.sourceTrackId || '').trim() || undefined,
+              durationMs: Number(track.durationMs || 0),
+            })).filter((track) => track.title && track.artist)
+          : [];
+
+        if (!normalizedTracks.length) {
+          return {
+            content: [{ type: 'text', text: 'Error: tracks 不能为空，且每首歌至少要有 title 和 artist。' }],
+            details: { error: true },
+          };
+        }
+
+        const payload = {
+          id: String(params.id || `ai-playlist:${Date.now()}`).trim(),
+          title: String(params.title || '').trim(),
+          subtitle: String(params.subtitle || '').trim(),
+          description: String(params.description || '').trim(),
+          tag: String(params.tag || 'AI').trim() || 'AI',
+          artworkTone: String(params.artworkTone || 'aurora').trim() || 'aurora',
+          isAiGenerated: params.isAiGenerated !== false,
+          tracks: normalizedTracks,
+          createdAt: nowSeconds,
+          updatedAt: nowSeconds,
+        };
+
+        const response = await callAliceChatApi('POST', '/api/music/ai-playlists/latest', payload);
+        return {
+          content: [{
+            type: 'text',
+            text: `Saved latest AI playlist: ${payload.title} (${normalizedTracks.length} tracks).`,
+          }],
+          details: response,
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Error: ${error?.message || String(error)}` }],
+          details: { error: true },
+        };
+      }
+    },
+  });
+
+  api.registerTool({
+    name: 'get_latest_ai_playlist',
+    label: 'Get latest AI playlist',
+    description: 'Read the latest AI music playlist draft from AliceChat backend.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {},
+    },
+    async execute() {
+      try {
+        const response = await callAliceChatApi('GET', '/api/music/ai-playlists/latest');
+        const playlist = response?.playlist;
+        if (!playlist) {
+          return {
+            content: [{ type: 'text', text: 'No latest AI playlist found.' }],
+            details: response,
+          };
+        }
+        const title = String(playlist.title || 'Untitled');
+        const count = Array.isArray(playlist.tracks) ? playlist.tracks.length : 0;
+        return {
+          content: [{ type: 'text', text: `Latest AI playlist: ${title} (${count} tracks).` }],
+          details: response,
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Error: ${error?.message || String(error)}` }],
+          details: { error: true },
+        };
+      }
+    },
+  });
+
   api.registerChannel({ plugin: alicechatPlugin });
 }
 
@@ -807,7 +1013,7 @@ const plugin = {
     schema: {},
   },
   register(api) {
-    api.registerChannel({ plugin: alicechatPlugin });
+    register(api);
   },
 };
 

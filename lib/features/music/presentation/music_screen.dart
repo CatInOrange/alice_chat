@@ -19,18 +19,12 @@ class MusicScreen extends StatefulWidget {
 class _MusicScreenState extends State<MusicScreen>
     with AutomaticKeepAliveClientMixin {
   static const _catalog = MockMusicCatalog.data;
-  MusicPlaylist? _likedPlaylist;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final store = context.read<MusicStore>();
-      await store.ensureReady();
-      if (!mounted) return;
-      setState(() {
-        _likedPlaylist = store.likedPlaylist;
-      });
+      await context.read<MusicStore>().ensureReady();
     });
   }
 
@@ -83,7 +77,7 @@ class _MusicScreenState extends State<MusicScreen>
         final playlists =
             store.playlists.isEmpty ? _catalog.playlists : store.playlists;
         final recentPlaylists = store.recentPlaylists;
-        final likedPlaylist = _likedPlaylist ?? store.likedPlaylist;
+        final likedPlaylist = store.likedPlaylist;
         final latestAiPlaylist = store.latestAiPlaylist;
 
         return Scaffold(

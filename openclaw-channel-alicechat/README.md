@@ -79,6 +79,33 @@ export ALICECHAT_SECRET="your-secret-token-here"
 openclaw gateway restart
 ```
 
+## AI 工具（新增）
+
+本插件现在除了注册 AliceChat channel，也会注册两个可供 AI 调用的 tool：
+
+- `save_latest_ai_playlist`
+- `get_latest_ai_playlist`
+
+它们会直接调用 AliceChat backend：
+
+- `POST /api/music/ai-playlists/latest`
+- `GET /api/music/ai-playlists/latest`
+
+### tool 的配置来源
+
+tool 调后端时默认按以下顺序取配置：
+
+1. 环境变量 `ALICECHAT_API_BASE_URL`
+2. `ALICECHAT_CONFIG_PATH` 指向的 AliceChat `config.json`（默认 `/root/.openclaw/AliceChat/config.json`）
+3. 若仍无 baseUrl，则回退 `http://127.0.0.1:18081`
+
+鉴权密码按以下顺序取：
+
+1. 环境变量 `ALICECHAT_APP_PASSWORD`
+2. AliceChat `config.json` 中的 `auth.appAccessPassword`
+
+因此通常不需要额外改 OpenClaw 主仓；只要它是从当前 `sourcePath` 加载这个插件，重启 gateway 后新 tool 就会出现。
+
 ## Python 后端配置
 
 AliceChat Python Backend 需要连接到插件的 WebSocket 地址：

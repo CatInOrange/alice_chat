@@ -280,6 +280,13 @@ class MusicStore extends ChangeNotifier {
           .map((item) => item.id == track.id ? item.copyWith(isFavorite: liked) : item)
           .toList(growable: false),
     );
+    _playlists = List<MusicPlaylist>.unmodifiable([
+      if (_latestAiPlaylist != null) _latestAiPlaylist!.asPlaylist,
+      likedPlaylist,
+      ..._playlists.where(
+        (item) => item.id != likedPlaylist.id && item.id != _latestAiPlaylist?.id,
+      ),
+    ]);
     notifyListeners();
     await _repository.setTrackLiked(track, liked);
     unawaited(
