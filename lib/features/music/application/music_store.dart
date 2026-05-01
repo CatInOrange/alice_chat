@@ -945,25 +945,34 @@ class MusicStore extends ChangeNotifier {
     );
   }
 
-  bool get canEnableIntelligenceMode {
-    final playlist = currentPlaylist;
-    if (playlist == null) return false;
-    if (_providerIdForPlaylist(playlist.id) != 'netease') return false;
-    final sourceTrackId = (_currentTrack.sourceTrackId ?? '').trim();
-    return sourceTrackId.isNotEmpty;
+  bool get canEnableIntelligenceMode => _resolveIntelligenceContext() != null;
+
+  bool get canAttemptIntelligenceMode => _currentTrackProviderId() == 'netease';
+
+  String? get intelligenceModeHint {
+    if (isIntelligenceMode) {
+      return '后续会根据当前歌曲自动续播相似内容';
+    }
+    if (!canAttemptIntelligenceMode) {
+      return '心动模式仅支持当前有网易云音源的歌曲';
+    }
+    if (!canEnableIntelligenceMode) {
+      return '当前歌曲有网易云音源，但需要从网易云歌单内开启心动模式';
+    }
+    return '当前歌曲可开启心动模式';
   }
 
   Future<void> enableIntelligenceMode() async {
     await ensureReady();
-    final playlist = currentPlaylist;
-    if (playlist == null || _providerIdForPlaylist(playlist.id) != 'netease') {
-      _error = '心动模式仅支持网易云歌单';
+    final sourceTrackId = (_currentTrack.sourceTrackId ?? '').trim();
+    if (!canAttemptIntelligenceMode || sourceTrackId.isEmpty) {
+      _error = '当前歌曲还没有网易云音源，暂时无法开启心动模式';
       notifyListeners();
       return;
     }
-    final sourceTrackId = (_currentTrack.sourceTrackId ?? '').trim();
-    if (sourceTrackId.isEmpty) {
-      _error = '当前歌曲还没有网易云音源，暂时无法开启心动模式';
+    final playlist = _resolveIntelligenceContext();
+    if (playlist == null) {
+      _error = '当前歌曲有网易云音源，但还缺少网易云歌单上下文，暂时无法开启心动模式';
       notifyListeners();
       return;
     }
@@ -1450,6 +1459,53 @@ class MusicStore extends ChangeNotifier {
   String? _providerIdForPlaylist(String playlistId) {
     if (playlistId.startsWith('netease-playlist:')) return 'netease';
     if (playlistId.startsWith('migu-playlist:')) return 'migu';
+    return null;
+  }
+
+  String? _currentTrackProviderId() {
+    final preferred = (_currentTrack.preferredSourceId ?? '').trim();
+    if (preferred.isNotEmpty) {
+      return preferred;
+    }
+    final cached = (_currentTrack.cachedPlayback?.providerId ?? '').trim();
+    if (cached.isNotEmpty) {
+      return cached;
+    }
+    final trackId = _currentTrack.id.trim();
+    if (trackId.contains(':')) {
+      final prefix = trackId.split(':').first.trim();
+      if (prefix.isNotEmpty) {
+        return prefix;
+      }
+    }
+    return null;
+  }
+
+  MusicPlaylist? _resolveIntelligenceContext() {
+    final playlist = currentPlaylist;
+    if (playlist != null && _providerIdForPlaylist(playlist.id) == 'netease') {
+      return playlist;
+    }
+    if (_intelligenceSourcePlaylist != null &&
+        _providerIdForPlaylist(_intelligenceSourcePlaylist!.id) == 'netease') {
+      return _intelligenceSourcePlaylist;
+    }
+    for (final item in _recentPlaylists) {
+      if (_providerIdForPlaylist(item.id) == 'netease') {
+        final tracks = _playlistTracksCache[item.id] ?? const <MusicTrack>[];
+        if (tracks.any((track) => track.id == _currentTrack.id)) {
+          return item;
+        }
+      }
+    }
+    for (final item in _playlists) {
+      if (_providerIdForPlaylist(item.id) == 'netease') {
+        final tracks = _playlistTracksCache[item.id] ?? const <MusicTrack>[];
+        if (tracks.any((track) => track.id == _currentTrack.id)) {
+          return item;
+        }
+      }
+    }
     return null;
   }
 

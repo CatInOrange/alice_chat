@@ -101,11 +101,11 @@ class MusicPlayerScreen extends StatelessWidget {
                                     overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.titleMedium,
                                   ),
-                                  if (store.isIntelligenceMode) ...[
+                                  if ((store.intelligenceModeHint ?? '').trim().isNotEmpty) ...[
                                     const SizedBox(height: 4),
                                     Text(
-                                      '后续会根据当前歌曲自动续播相似内容',
-                                      maxLines: 1,
+                                      store.intelligenceModeHint!,
+                                      maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                       style: theme.textTheme.bodySmall,
                                     ),
@@ -251,6 +251,7 @@ class MusicPlayerScreen extends StatelessWidget {
                                       onToggleShuffle: store.toggleShuffle,
                                       onCycleRepeat: store.cycleRepeatMode,
                                       canEnableIntelligence: store.canEnableIntelligenceMode,
+                                      canAttemptIntelligence: store.canAttemptIntelligenceMode,
                                     ),
                                     ],
                                   ),
@@ -793,6 +794,7 @@ class _PlayerControls extends StatelessWidget {
     required this.onToggleShuffle,
     required this.onCycleRepeat,
     required this.canEnableIntelligence,
+    required this.canAttemptIntelligence,
   });
 
   final Color accentColor;
@@ -808,6 +810,7 @@ class _PlayerControls extends StatelessWidget {
   final Future<void> Function() onToggleShuffle;
   final VoidCallback onCycleRepeat;
   final bool canEnableIntelligence;
+  final bool canAttemptIntelligence;
 
   @override
   Widget build(BuildContext context) {
@@ -859,14 +862,14 @@ class _PlayerControls extends StatelessWidget {
         ),
         _PlayerActionButton(
           icon: repeatMode == MusicRepeatMode.one
-              ? Icons.repeat_one_rounded
+              ? (canAttemptIntelligence
+                  ? Icons.auto_awesome_rounded
+                  : Icons.repeat_one_rounded)
               : repeatMode == MusicRepeatMode.intelligence
                   ? Icons.auto_awesome_rounded
                   : Icons.repeat_rounded,
           isActive: repeatMode != MusicRepeatMode.off,
-          onPressed: (repeatMode == MusicRepeatMode.one && !canEnableIntelligence)
-              ? onCycleRepeat
-              : onCycleRepeat,
+          onPressed: onCycleRepeat,
         ),
       ],
     );
