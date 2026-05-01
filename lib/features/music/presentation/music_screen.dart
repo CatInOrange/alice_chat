@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../application/music_store.dart';
-import '../data/mock_music_catalog.dart';
 import '../domain/music_models.dart';
 import 'music_player_screen.dart';
 import 'widgets/music_artwork.dart';
@@ -18,8 +17,6 @@ class MusicScreen extends StatefulWidget {
 
 class _MusicScreenState extends State<MusicScreen>
     with AutomaticKeepAliveClientMixin {
-  static const _catalog = MockMusicCatalog.data;
-
   @override
   void initState() {
     super.initState();
@@ -46,9 +43,13 @@ class _MusicScreenState extends State<MusicScreen>
   }
 
   Future<void> _openPlaylist(MusicStore store, MusicPlaylist playlist) async {
-    await store.playPlaylist(playlist);
-    if (!mounted) return;
-    _openPlayer(store);
+    try {
+      await store.playPlaylist(playlist);
+      if (!mounted) return;
+      _openPlayer(store);
+    } catch (_) {
+      // store.error already updated; keep user on current screen
+    }
   }
 
   Future<void> _openSearch(BuildContext context, MusicStore store) async {
@@ -74,8 +75,7 @@ class _MusicScreenState extends State<MusicScreen>
           isFavorite: store.isTrackLiked(store.currentTrack.id),
         );
         final isPlaying = store.isPlaying;
-        final playlists =
-            store.playlists.isEmpty ? _catalog.playlists : store.playlists;
+        final playlists = store.playlists;
         final recentPlaylists = store.recentPlaylists;
         final likedPlaylist = store.likedPlaylist;
         final latestAiPlaylist = store.latestAiPlaylist;
@@ -115,15 +115,20 @@ class _MusicScreenState extends State<MusicScreen>
                   const SizedBox(height: 24),
                   _FavoritePlaylistCard(
                     playlist: likedPlaylist,
-                    currentTrack: currentTrack,
+                    currentTrack: store.likedTracks.isNotEmpty
+                        ? store.likedTracks.first
+                        : currentTrack,
+                    isLoading: store.isLoadingPlaylist,
                     onTap: () => _openPlaylist(store, likedPlaylist),
                   ),
                   const SizedBox(height: 28),
                   _SectionHeader(
                     title: '我的歌单',
-                    subtitle: '“我喜欢”由 AliceChat 独立维护，其他平台歌单继续并列展示',
-                    actionLabel: '新建',
-                    onActionTap: () {},
+                    subtitle: '“我喜欢”是 AliceChat 本地维护收藏，其他平台歌单并列展示',
+                    actionLabel: '刷新',
+                    onActionTap: () {
+                      store.ensureReady();
+                    },
                   ),
                   const SizedBox(height: 14),
                   _CompactPlaylistGrid(
@@ -134,11 +139,23 @@ class _MusicScreenState extends State<MusicScreen>
                   _SectionHeader(
                     title: '最近播放',
                     subtitle: '按歌单回到你最近听过的氛围',
-                    actionLabel: '更多',
-                    onActionTap: () {},
+                    actionLabel: '刷新',
+                    onActionTap: () {
+                      store.ensureReady();
+                    },
                   ),
                   const SizedBox(height: 14),
-                  ...recentPlaylists.map(
+                  if ((store.error ?? '').trim().isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      child: _InlineNotice(
+                        message: store.error!,
+                        onDismiss: store.clearError,
+                      ),
+                    ),
+                  if (playlists.isEmpty && recentPlaylists.isEmpty && latestAiPlaylist == null)
+                    const _EmptyMusicState()
+                  else ...recentPlaylists.map(
                     (playlist) => Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: _RecentPlaylistTile(
@@ -149,17 +166,18 @@ class _MusicScreenState extends State<MusicScreen>
                   ),
                 ],
               ),
-              Positioned(
-                left: 16,
-                right: 16,
-                bottom: 16,
-                child: _MiniPlayer(
-                  track: currentTrack,
-                  isPlaying: isPlaying,
-                  onTap: () => _openPlayer(store),
-                  onPlayPause: store.togglePlayPause,
+              if (store.hasPlaybackContext)
+                Positioned(
+                  left: 16,
+                  right: 16,
+                  bottom: 16,
+                  child: _MiniPlayer(
+                    track: currentTrack,
+                    isPlaying: isPlaying,
+                    onTap: () => _openPlayer(store),
+                    onPlayPause: store.togglePlayPause,
+                  ),
                 ),
-              ),
             ],
           ),
         );
@@ -400,11 +418,13 @@ class _FavoritePlaylistCard extends StatelessWidget {
     required this.playlist,
     required this.currentTrack,
     required this.onTap,
+    this.isLoading = false,
   });
 
   final MusicPlaylist playlist;
   final MusicTrack currentTrack;
   final VoidCallback onTap;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -462,7 +482,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
                 Text(playlist.title, style: theme.textTheme.titleLarge),
                 const SizedBox(height: 4),
                 Text(
-                  '${playlist.trackCount} 首 · AliceChat 跨平台统一收藏',
+                  '${playlist.trackCount} 首 · AliceChat 本地收藏',
                   style: theme.textTheme.bodySmall,
                 ),
                 const SizedBox(height: 10),
@@ -479,7 +499,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           FilledButton(
-            onPressed: onTap,
+            onPressed: isLoading ? null : onTap,
             style: FilledButton.styleFrom(
               backgroundColor: palette.gradient.first,
               foregroundColor: Colors.white,
@@ -487,7 +507,16 @@ class _FavoritePlaylistCard extends StatelessWidget {
               shape: const CircleBorder(),
               padding: EdgeInsets.zero,
             ),
-            child: const Icon(Icons.play_arrow_rounded),
+            child: isLoading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                : const Icon(Icons.play_arrow_rounded),
           ),
         ],
       ),
@@ -731,6 +760,73 @@ class _RecentPlaylistTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _InlineNotice extends StatelessWidget {
+  const _InlineNotice({required this.message, required this.onDismiss});
+
+  final String message;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFFFF6F3),
+      borderRadius: BorderRadius.circular(18),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            const Icon(Icons.error_outline_rounded, color: Color(0xFFD55A4A), size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: const Color(0xFF9A3C33),
+                  height: 1.4,
+                ),
+              ),
+            ),
+            IconButton(
+              onPressed: onDismiss,
+              icon: const Icon(Icons.close_rounded, size: 18),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyMusicState extends StatelessWidget {
+  const _EmptyMusicState();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(28),
+      ),
+      child: Column(
+        children: [
+          const Icon(Icons.music_off_rounded, size: 36, color: Color(0xFF7D879A)),
+          const SizedBox(height: 12),
+          Text('还没有可展示的音乐内容', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 8),
+          Text(
+            '先去设置页登录网易云，或者让 AI 生成一份歌单。',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall,
+          ),
+        ],
       ),
     );
   }

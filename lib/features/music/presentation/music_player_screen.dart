@@ -115,7 +115,11 @@ class MusicPlayerScreen extends StatelessWidget {
                           padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
                           child: Column(
                             children: [
-                              _DiscStage(track: currentTrack),
+                              _DiscStage(
+                                track: currentTrack,
+                                isPlaying: store.isPlaying,
+                                isBuffering: store.isBuffering,
+                              ),
                               const SizedBox(height: 28),
                               Container(
                                 padding: const EdgeInsets.all(22),
@@ -207,11 +211,15 @@ class MusicPlayerScreen extends StatelessWidget {
                                       accentColor: palette.gradient.first,
                                       isPlaying: store.isPlaying,
                                       isBuffering: store.isBuffering,
-                                      hasPrevious: true,
-                                      hasNext: currentQueue.length > 1,
+                                      shuffleEnabled: store.shuffleEnabled,
+                                      repeatMode: store.repeatMode,
+                                      hasPrevious: store.hasPreviousTrack,
+                                      hasNext: store.hasNextTrack,
                                       onPlayPause: store.togglePlayPause,
                                       onPrevious: store.playPrevious,
                                       onNext: store.playNext,
+                                      onToggleShuffle: store.toggleShuffle,
+                                      onCycleRepeat: store.cycleRepeatMode,
                                     ),
                                   ],
                                 ),
@@ -249,11 +257,22 @@ class MusicPlayerScreen extends StatelessWidget {
                                           ],
                                         ),
                                         const SizedBox(height: 14),
-                                        for (final item in nextTracks)
-                                          Padding(
-                                            padding: const EdgeInsets.only(bottom: 12),
-                                            child: _QueueItem(track: item),
-                                          ),
+                                        if (nextTracks.isEmpty)
+                                          Text(
+                                            '当前队列里没有下一首了',
+                                            style: theme.textTheme.bodySmall,
+                                          )
+                                        else
+                                          for (final item in nextTracks)
+                                            Padding(
+                                              padding: const EdgeInsets.only(bottom: 12),
+                                              child: _QueueItem(
+                                                track: item,
+                                                onTap: () => store.playQueueIndex(
+                                                  currentQueue.indexWhere((queued) => queued.id == item.id),
+                                                ),
+                                              ),
+                                            ),
                                       ],
                                     ),
                                   ),
@@ -276,9 +295,15 @@ class MusicPlayerScreen extends StatelessWidget {
 }
 
 class _DiscStage extends StatefulWidget {
-  const _DiscStage({required this.track});
+  const _DiscStage({
+    required this.track,
+    required this.isPlaying,
+    required this.isBuffering,
+  });
 
   final MusicTrack track;
+  final bool isPlaying;
+  final bool isBuffering;
 
   @override
   State<_DiscStage> createState() => _DiscStageState();
@@ -294,13 +319,27 @@ class _DiscStageState extends State<_DiscStage>
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 12),
-    )..repeat();
+    );
+    if (widget.isPlaying && !widget.isBuffering) {
+      _controller.repeat();
+    }
   }
 
   @override
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DiscStage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final shouldSpin = widget.isPlaying && !widget.isBuffering;
+    if (shouldSpin && !_controller.isAnimating) {
+      _controller.repeat();
+    } else if (!shouldSpin && _controller.isAnimating) {
+      _controller.stop();
+    }
   }
 
   @override
@@ -498,28 +537,42 @@ class _PlayerControls extends StatelessWidget {
     required this.accentColor,
     required this.isPlaying,
     required this.isBuffering,
+    required this.shuffleEnabled,
+    required this.repeatMode,
     required this.hasPrevious,
     required this.hasNext,
     required this.onPlayPause,
     required this.onPrevious,
     required this.onNext,
+    required this.onToggleShuffle,
+    required this.onCycleRepeat,
   });
 
   final Color accentColor;
   final bool isPlaying;
   final bool isBuffering;
+  final bool shuffleEnabled;
+  final MusicRepeatMode repeatMode;
   final bool hasPrevious;
   final bool hasNext;
   final Future<void> Function() onPlayPause;
   final Future<void> Function() onPrevious;
   final Future<void> Function() onNext;
+  final Future<void> Function() onToggleShuffle;
+  final VoidCallback onCycleRepeat;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
-        const _PlayerActionButton(icon: Icons.shuffle_rounded, onPressed: _noop),
+        _PlayerActionButton(
+          icon: Icons.shuffle_rounded,
+          isActive: shuffleEnabled,
+          onPressed: () {
+            onToggleShuffle();
+          },
+        ),
         _PlayerActionButton(
           icon: Icons.skip_previous_rounded,
           onPressed: hasPrevious
@@ -556,29 +609,38 @@ class _PlayerControls extends StatelessWidget {
                 }
               : null,
         ),
-        const _PlayerActionButton(icon: Icons.repeat_rounded, onPressed: _noop),
+        _PlayerActionButton(
+          icon: repeatMode == MusicRepeatMode.one
+              ? Icons.repeat_one_rounded
+              : Icons.repeat_rounded,
+          isActive: repeatMode != MusicRepeatMode.off,
+          onPressed: onCycleRepeat,
+        ),
       ],
     );
   }
 }
 
 class _QueueItem extends StatelessWidget {
-  const _QueueItem({required this.track});
+  const _QueueItem({required this.track, required this.onTap});
 
   final MusicTrack track;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final palette = paletteForTone(track.artworkTone);
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.66),
+    return Material(
+      color: Colors.white.withValues(alpha: 0.66),
+      borderRadius: BorderRadius.circular(22),
+      child: InkWell(
         borderRadius: BorderRadius.circular(22),
-      ),
-      child: Row(
-        children: [
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
           MusicArtwork(track: track, size: 56, showMeta: false),
           const SizedBox(width: 12),
           Expanded(
@@ -596,15 +658,17 @@ class _QueueItem extends StatelessWidget {
               ],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: palette.gradient.first.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            child: Text(track.durationLabel, style: theme.textTheme.bodySmall),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: palette.gradient.first.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(track.durationLabel, style: theme.textTheme.bodySmall),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -659,10 +723,15 @@ class _GlassIconButton extends StatelessWidget {
 }
 
 class _PlayerActionButton extends StatelessWidget {
-  const _PlayerActionButton({required this.icon, required this.onPressed});
+  const _PlayerActionButton({
+    required this.icon,
+    required this.onPressed,
+    this.isActive = false,
+  });
 
   final IconData icon;
   final VoidCallback? onPressed;
+  final bool isActive;
 
   @override
   Widget build(BuildContext context) {
@@ -672,12 +741,14 @@ class _PlayerActionButton extends StatelessWidget {
       decoration: BoxDecoration(
         color: onPressed == null
             ? Colors.white.withValues(alpha: 0.45)
-            : Colors.white.withValues(alpha: 0.9),
+            : isActive
+                ? const Color(0xFF111827)
+                : Colors.white.withValues(alpha: 0.9),
         shape: BoxShape.circle,
       ),
       child: IconButton(
         onPressed: onPressed,
-        icon: Icon(icon),
+        icon: Icon(icon, color: isActive ? Colors.white : null),
       ),
     );
   }

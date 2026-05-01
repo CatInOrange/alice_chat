@@ -2,7 +2,6 @@ import '../../../core/openclaw/openclaw_client.dart';
 import '../application/music_store.dart';
 import '../domain/music_models.dart';
 import '../domain/music_runtime_models.dart';
-import 'mock_music_catalog.dart';
 import 'music_repository.dart';
 import 'sources/music_source_resolver.dart';
 import 'sources/music_source_resolver_impl.dart';
@@ -71,14 +70,7 @@ class MusicRepositoryImpl implements MusicRepository {
         ),
       );
     } catch (_) {
-      return MusicStateSnapshot(
-        currentTrack: MockMusicCatalog.featuredTrack,
-        queue: MockMusicCatalog.data.queue
-            .map((item) => PlaybackQueueItem(track: item))
-            .toList(growable: false),
-        playlists: MockMusicCatalog.playlists,
-        recentTracks: MockMusicCatalog.recentTracks,
-      );
+      return const MusicStateSnapshot();
     }
   }
 
@@ -112,7 +104,7 @@ class MusicRepositoryImpl implements MusicRepository {
     final resolvedTracks = <MusicTrack>[];
     for (final track in draft.tracks) {
       try {
-        final resolved = await _resolver.resolveTrack(track);
+        final resolved = await _resolver.resolveTrack(track, allowFallback: false);
         resolvedTracks.add(
           resolved.track.copyWith(
             artworkUrl:
@@ -183,7 +175,7 @@ class MusicRepositoryImpl implements MusicRepository {
       return const <MusicTrack>[];
     }
     if (providerId == null) {
-      return MockMusicCatalog.tracksForPlaylist(playlist.id);
+      return const <MusicTrack>[];
     }
     final provider = (_resolver as MusicSourceResolverImpl)
         .registry

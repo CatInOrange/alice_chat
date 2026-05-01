@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
@@ -6,7 +7,6 @@ import '../../../core/openclaw/openclaw_client.dart';
 import '../../../core/openclaw/openclaw_config.dart';
 import '../../../core/openclaw/openclaw_http_client.dart';
 import '../../../core/openclaw/openclaw_settings.dart';
-import '../data/mock_music_catalog.dart';
 import '../data/music_repository.dart';
 import '../data/music_repository_impl.dart';
 import '../data/playback/just_audio_playback_adapter.dart';
@@ -20,6 +20,8 @@ import '../data/sources/netease_music_source_provider.dart';
 import '../domain/music_command.dart';
 import '../domain/music_models.dart';
 import '../domain/music_runtime_models.dart';
+
+enum MusicRepeatMode { off, all, one }
 
 class MusicStore extends ChangeNotifier {
   MusicStore({OpenClawClient? client})
@@ -44,11 +46,18 @@ class MusicStore extends ChangeNotifier {
     _playbackAdapter = _createPlaybackAdapter();
     _repository = MusicRepositoryImpl(client: _client, resolver: _resolver);
     _eventClient = _client;
-    _currentTrack = MockMusicCatalog.featuredTrack;
+    _currentTrack = const MusicTrack(
+      id: '',
+      title: '还没有开始播放',
+      artist: 'AliceChat 音乐',
+      album: '等待你的下一首歌',
+      duration: Duration.zero,
+      category: '未开始播放',
+      description: '登录音乐平台、点开歌单，或者让 AI 先为你生成一份歌单。',
+      artworkTone: MusicArtworkTone.twilight,
+    );
     _duration = _currentTrack.duration;
-    _queue = MockMusicCatalog.data.queue
-        .map((item) => PlaybackQueueItem(track: item))
-        .toList(growable: false);
+    _queue = const [];
     _configReady = reloadConfig();
   }
 
@@ -72,15 +81,18 @@ class MusicStore extends ChangeNotifier {
   late MusicTrack _currentTrack;
   List<PlaybackQueueItem> _queue = const [];
   final List<MusicTrack> _playbackHistory = <MusicTrack>[];
-  List<MusicPlaylist> _playlists = MockMusicCatalog.playlists;
-  List<MusicTrack> _recentTracks = MockMusicCatalog.recentTracks;
-  List<MusicPlaylist> _recentPlaylists = MockMusicCatalog.recentPlaylists;
+  List<MusicPlaylist> _playlists = const [];
+  List<MusicTrack> _recentTracks = const [];
+  List<MusicPlaylist> _recentPlaylists = const [];
   List<MusicTrack> _likedTracks = const <MusicTrack>[];
   MusicAiPlaylistDraft? _latestAiPlaylist;
   bool _isSearching = false;
   String? _searchError;
   List<MusicTrack> _searchResults = const [];
   bool _isAdvancingQueue = false;
+  bool _isLoadingPlaylist = false;
+  bool _shuffleEnabled = false;
+  MusicRepeatMode _repeatMode = MusicRepeatMode.off;
 
   bool get isReady => _isReady;
   bool get isLoading => _isLoading;
@@ -99,6 +111,17 @@ class MusicStore extends ChangeNotifier {
   bool get isSearching => _isSearching;
   String? get searchError => _searchError;
   List<MusicTrack> get searchResults => _searchResults;
+  bool get isLoadingPlaylist => _isLoadingPlaylist;
+  bool get shuffleEnabled => _shuffleEnabled;
+  MusicRepeatMode get repeatMode => _repeatMode;
+  bool get hasPlaybackContext => _queue.isNotEmpty || _isPlaying;
+  bool get hasPreviousTrack =>
+      _playbackHistory.isNotEmpty || _position >= const Duration(seconds: 3);
+  bool get hasNextTrack =>
+      _queue.length > 1 ||
+      (_repeatMode == MusicRepeatMode.one && _queue.isNotEmpty) ||
+      (_repeatMode == MusicRepeatMode.all &&
+          (_queue.isNotEmpty || _playbackHistory.isNotEmpty));
 
   Future<void> reloadConfig() async {
     final config = await OpenClawSettingsStore.load();
@@ -157,15 +180,10 @@ class MusicStore extends ChangeNotifier {
       if (state.currentTrack != null) {
         _currentTrack = state.currentTrack!;
       }
-      if (state.queue.isNotEmpty) {
-        _queue = List<PlaybackQueueItem>.unmodifiable(state.queue);
-      }
-      if (state.playlists.isNotEmpty) {
-        _playlists = List<MusicPlaylist>.unmodifiable(state.playlists);
-      }
-      if (state.recentTracks.isNotEmpty) {
-        _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
-      }
+      _queue = List<PlaybackQueueItem>.unmodifiable(state.queue);
+      _playlists = List<MusicPlaylist>.unmodifiable(state.playlists);
+      _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
+      _recentPlaylists = List<MusicPlaylist>.unmodifiable(state.playlists.take(6));
       _likedTracks = List<MusicTrack>.unmodifiable(state.likedTracks);
       _currentTrack = _currentTrack.copyWith(
         isFavorite: isTrackLiked(_currentTrack.id),
@@ -180,25 +198,11 @@ class MusicStore extends ChangeNotifier {
         final basePlaylists = remotePlaylists.isNotEmpty
             ? remotePlaylists
             : _playlists;
-        _playlists = List<MusicPlaylist>.unmodifiable([
-          if (_latestAiPlaylist != null) _latestAiPlaylist!.asPlaylist,
-          likedPlaylist,
-          ...basePlaylists.where(
-            (item) => item.id != likedPlaylist.id &&
-                item.id != _latestAiPlaylist?.id,
-          ),
-        ]);
+        _rebuildPlaylists(basePlaylists: basePlaylists);
       } catch (_) {
-        _playlists = List<MusicPlaylist>.unmodifiable([
-          if (_latestAiPlaylist != null) _latestAiPlaylist!.asPlaylist,
-          likedPlaylist,
-          ..._playlists.where(
-            (item) => item.id != likedPlaylist.id &&
-                item.id != _latestAiPlaylist?.id,
-          ),
-        ]);
+        _rebuildPlaylists(basePlaylists: _playlists);
       }
-      _isPlaying = state.isPlaying;
+      _isPlaying = state.isPlaying && _queue.isNotEmpty;
       _position = state.position;
       _duration = state.currentTrack?.duration ?? _currentTrack.duration;
       _isReady = true;
@@ -226,29 +230,35 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> playPlaylist(MusicPlaylist playlist) async {
-    List<MusicTrack> tracks;
+    _isLoadingPlaylist = true;
+    _error = null;
+    notifyListeners();
     try {
-      tracks = await _repository.loadPlaylistTracks(playlist);
-    } catch (_) {
-      tracks = MockMusicCatalog.tracksForPlaylist(playlist.id);
+      final tracks = await _repository.loadPlaylistTracks(playlist);
+      if (tracks.isEmpty) {
+        throw StateError('这个歌单暂时没有可播放的歌曲');
+      }
+      _recentPlaylists = List<MusicPlaylist>.unmodifiable([
+        playlist,
+        ..._recentPlaylists.where((item) => item.id != playlist.id),
+      ].take(6));
+      await handleCommand(
+        MusicCommand(
+          type: MusicCommandType.replaceQueue,
+          source: MusicCommandSource.manual,
+          queue: tracks
+              .map((track) => PlaybackQueueItem(track: track))
+              .toList(growable: false),
+        ),
+      );
+    } catch (error) {
+      _error = _friendlyPlaybackError(error, fallback: '加载歌单失败，请稍后再试');
+      notifyListeners();
+      rethrow;
+    } finally {
+      _isLoadingPlaylist = false;
+      notifyListeners();
     }
-    if (tracks.isEmpty) {
-      tracks = MockMusicCatalog.tracksForPlaylist(playlist.id);
-    }
-    if (tracks.isEmpty) return;
-    _recentPlaylists = [
-      playlist,
-      ..._recentPlaylists.where((item) => item.id != playlist.id),
-    ].take(6).toList(growable: false);
-    await handleCommand(
-      MusicCommand(
-        type: MusicCommandType.replaceQueue,
-        source: MusicCommandSource.manual,
-        queue: tracks
-            .map((track) => PlaybackQueueItem(track: track))
-            .toList(growable: false),
-      ),
-    );
   }
 
   MusicTrack get heroTrack =>
@@ -398,6 +408,30 @@ class MusicStore extends ChangeNotifier {
       await _playbackAdapter.pause();
       _isPlaying = false;
     } else {
+      if (_queue.isEmpty) {
+        if (_currentTrack.id.trim().isEmpty) {
+          _error = '当前没有可播放的歌曲';
+          notifyListeners();
+          return;
+        }
+        await handleCommand(
+          MusicCommand.play(
+            queue: [PlaybackQueueItem(track: _currentTrack)],
+            source: MusicCommandSource.manual,
+          ),
+        );
+        return;
+      }
+      final adapterState = _playbackAdapter.state;
+      if (adapterState.currentSource == null) {
+        await handleCommand(
+          MusicCommand.play(
+            queue: _queue,
+            source: MusicCommandSource.manual,
+          ),
+        );
+        return;
+      }
       await _playbackAdapter.resume();
       _isPlaying = true;
     }
@@ -492,63 +526,34 @@ class MusicStore extends ChangeNotifier {
       case MusicCommandType.replaceQueue:
         final incomingQueue = command.queue;
         if (incomingQueue.isNotEmpty) {
-          _queue = List<PlaybackQueueItem>.unmodifiable(
-            incomingQueue
-                .map(
-                  (item) => PlaybackQueueItem(
-                    track: item.track.copyWith(
-                      isFavorite: isTrackLiked(item.track.id),
-                    ),
-                    candidate: item.candidate,
-                    resolvedSource: item.resolvedSource,
-                    requestedBy: item.requestedBy,
+          final normalizedQueue = incomingQueue
+              .map(
+                (item) => PlaybackQueueItem(
+                  track: item.track.copyWith(
+                    isFavorite: isTrackLiked(item.track.id),
                   ),
-                )
-                .toList(growable: false),
-          );
+                  candidate: item.candidate,
+                  resolvedSource: item.resolvedSource,
+                  requestedBy: item.requestedBy,
+                ),
+              )
+              .toList(growable: true);
+          if (_shuffleEnabled && normalizedQueue.length > 1) {
+            final first = normalizedQueue.first;
+            final tail = normalizedQueue.sublist(1)..shuffle(Random());
+            normalizedQueue
+              ..clear()
+              ..add(first)
+              ..addAll(tail);
+          }
+          _queue = List<PlaybackQueueItem>.unmodifiable(normalizedQueue);
           _currentTrack = _queue.first.track;
           _playbackHistory.clear();
         }
-        final prepared = await _preparePlayback(_currentTrack);
-        final preparedTrack = prepared.track.copyWith(
-          isFavorite: isTrackLiked(prepared.track.id),
-        );
-        _currentTrack = preparedTrack;
-        if (_queue.isNotEmpty) {
-          _queue = List<PlaybackQueueItem>.unmodifiable([
-            prepared.copyWith(track: preparedTrack),
-            ..._queue.skip(1),
-          ]);
+        if (_queue.isEmpty) {
+          throw StateError('当前没有可播放的歌曲');
         }
-        try {
-          await _playbackAdapter.play(
-            track: _currentTrack,
-            source: prepared.resolvedSource!,
-          );
-        } catch (_) {
-          final refreshed = await _repository.resolveTrack(
-            _currentTrack.copyWith(cachedPlayback: null),
-            allowFallback: false,
-          );
-          final refreshedTrack = refreshed.track.copyWith(
-            isFavorite: isTrackLiked(refreshed.track.id),
-          );
-          _currentTrack = refreshedTrack;
-          if (_queue.isNotEmpty) {
-            _queue = List<PlaybackQueueItem>.unmodifiable([
-              refreshed.copyWith(track: refreshedTrack),
-              ..._queue.skip(1),
-            ]);
-          }
-          await _playbackAdapter.play(
-            track: _currentTrack,
-            source: refreshed.resolvedSource!,
-          );
-        }
-        _isPlaying = true;
-        _duration = _currentTrack.duration;
-        _position = Duration.zero;
-        _error = null;
+        await _playCurrentQueueHead();
         break;
       case MusicCommandType.appendToQueue:
         if (command.queue.isNotEmpty) {
@@ -667,51 +672,36 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> _advanceToNextTrack() async {
-    if (_queue.length <= 1 || _isAdvancingQueue) {
+    if (_isAdvancingQueue || _queue.isEmpty) {
       return;
     }
     _isAdvancingQueue = true;
     try {
+      if (_repeatMode == MusicRepeatMode.one) {
+        await _playCurrentQueueHead(resetPosition: true, clearCachedPlaybackOnRetry: false);
+        return;
+      }
+      if (_queue.length <= 1) {
+        if (_repeatMode == MusicRepeatMode.all && _playbackHistory.isNotEmpty) {
+          _queue = List<PlaybackQueueItem>.unmodifiable([
+            ..._queue,
+            ..._playbackHistory.map((track) => PlaybackQueueItem(track: track)),
+          ]);
+          _playbackHistory.clear();
+        } else {
+          _isPlaying = false;
+          _position = _duration;
+          return;
+        }
+      }
       _playbackHistory.add(_currentTrack);
       final nextQueue = _queue.sublist(1);
       _queue = List<PlaybackQueueItem>.unmodifiable(nextQueue);
-      _currentTrack = nextQueue.first.track.copyWith(
-        isFavorite: isTrackLiked(nextQueue.first.track.id),
+      _currentTrack = _queue.first.track.copyWith(
+        isFavorite: isTrackLiked(_queue.first.track.id),
       );
       _duration = _currentTrack.duration;
-      final prepared = await _preparePlayback(_currentTrack);
-      _currentTrack = prepared.track.copyWith(
-        isFavorite: isTrackLiked(prepared.track.id),
-      );
-      _queue = List<PlaybackQueueItem>.unmodifiable([
-        prepared.copyWith(track: _currentTrack),
-        ...nextQueue.skip(1),
-      ]);
-      try {
-        await _playbackAdapter.play(
-          track: _currentTrack,
-          source: prepared.resolvedSource!,
-        );
-      } catch (_) {
-        final refreshed = await _repository.resolveTrack(
-          _currentTrack.copyWith(cachedPlayback: null),
-          allowFallback: false,
-        );
-        _currentTrack = refreshed.track.copyWith(
-          isFavorite: isTrackLiked(refreshed.track.id),
-        );
-        _queue = List<PlaybackQueueItem>.unmodifiable([
-          refreshed.copyWith(track: _currentTrack),
-          ...nextQueue.skip(1),
-        ]);
-        await _playbackAdapter.play(
-          track: _currentTrack,
-          source: refreshed.resolvedSource!,
-        );
-      }
-      _isPlaying = true;
-      _position = Duration.zero;
-      _error = null;
+      await _playCurrentQueueHead();
     } finally {
       _isAdvancingQueue = false;
     }
@@ -746,6 +736,138 @@ class MusicStore extends ChangeNotifier {
         isFavorite: isTrackLiked(resolved.track.id),
       ),
     );
+  }
+
+  Future<void> playQueueIndex(int index) async {
+    await ensureReady();
+    if (index < 0 || index >= _queue.length) return;
+    if (index == 0) {
+      await _playCurrentQueueHead(resetPosition: true, clearCachedPlaybackOnRetry: false);
+      return;
+    }
+    final selected = _queue[index];
+    _playbackHistory.addAll(_queue.take(index).map((item) => item.track));
+    _queue = List<PlaybackQueueItem>.unmodifiable([
+      selected,
+      ..._queue.skip(index + 1),
+    ]);
+    _currentTrack = selected.track.copyWith(
+      isFavorite: isTrackLiked(selected.track.id),
+    );
+    _duration = _currentTrack.duration;
+    await _playCurrentQueueHead();
+    notifyListeners();
+  }
+
+  Future<void> toggleShuffle() async {
+    _shuffleEnabled = !_shuffleEnabled;
+    if (_queue.length > 2) {
+      final head = _queue.first;
+      final tail = _queue.sublist(1).toList(growable: true);
+      if (_shuffleEnabled) {
+        tail.shuffle(Random());
+      }
+      _queue = List<PlaybackQueueItem>.unmodifiable([head, ...tail]);
+    }
+    notifyListeners();
+  }
+
+  void cycleRepeatMode() {
+    switch (_repeatMode) {
+      case MusicRepeatMode.off:
+        _repeatMode = MusicRepeatMode.all;
+        break;
+      case MusicRepeatMode.all:
+        _repeatMode = MusicRepeatMode.one;
+        break;
+      case MusicRepeatMode.one:
+        _repeatMode = MusicRepeatMode.off;
+        break;
+    }
+    notifyListeners();
+  }
+
+  void _rebuildPlaylists({List<MusicPlaylist>? basePlaylists}) {
+    final source = basePlaylists ?? _playlists;
+    _playlists = List<MusicPlaylist>.unmodifiable([
+      if (_latestAiPlaylist != null) _latestAiPlaylist!.asPlaylist,
+      likedPlaylist,
+      ...source.where(
+        (item) => item.id != likedPlaylist.id && item.id != _latestAiPlaylist?.id,
+      ),
+    ]);
+  }
+
+  Future<void> _playCurrentQueueHead({
+    bool resetPosition = true,
+    bool clearCachedPlaybackOnRetry = true,
+  }) async {
+    final prepared = await _preparePlayback(_currentTrack);
+    final preparedTrack = prepared.track.copyWith(
+      isFavorite: isTrackLiked(prepared.track.id),
+    );
+    _currentTrack = preparedTrack;
+    if (_queue.isNotEmpty) {
+      _queue = List<PlaybackQueueItem>.unmodifiable([
+        prepared.copyWith(track: preparedTrack),
+        ..._queue.skip(1),
+      ]);
+    }
+    try {
+      await _playbackAdapter.play(
+        track: _currentTrack,
+        source: prepared.resolvedSource!,
+      );
+    } catch (error) {
+      final shouldRetry = clearCachedPlaybackOnRetry && _currentTrack.cachedPlayback != null;
+      if (!shouldRetry) {
+        _isPlaying = false;
+        _error = _friendlyPlaybackError(error);
+        rethrow;
+      }
+      final refreshed = await _repository.resolveTrack(
+        _currentTrack.copyWith(cachedPlayback: null),
+        allowFallback: false,
+      );
+      final refreshedTrack = refreshed.track.copyWith(
+        isFavorite: isTrackLiked(refreshed.track.id),
+      );
+      _currentTrack = refreshedTrack;
+      if (_queue.isNotEmpty) {
+        _queue = List<PlaybackQueueItem>.unmodifiable([
+          refreshed.copyWith(track: refreshedTrack),
+          ..._queue.skip(1),
+        ]);
+      }
+      try {
+        await _playbackAdapter.play(
+          track: _currentTrack,
+          source: refreshed.resolvedSource!,
+        );
+      } catch (retryError) {
+        _isPlaying = false;
+        _error = _friendlyPlaybackError(retryError);
+        rethrow;
+      }
+    }
+    _isPlaying = true;
+    if (resetPosition) {
+      _position = Duration.zero;
+    }
+    _duration = _currentTrack.duration;
+    _error = null;
+  }
+
+  String _friendlyPlaybackError(Object error, {String? fallback}) {
+    final raw = error.toString().trim();
+    if (raw.isEmpty) return fallback ?? '当前歌曲暂时无法播放';
+    if (raw.contains('未能为')) {
+      return raw.replaceFirst('Bad state: ', '');
+    }
+    if (raw.contains('Source error') || raw.contains('PlayerException')) {
+      return fallback ?? '播放失败，已尝试重新解析音源但仍未成功';
+    }
+    return fallback ?? raw.replaceFirst('Exception: ', '').replaceFirst('Bad state: ', '');
   }
 
   @override

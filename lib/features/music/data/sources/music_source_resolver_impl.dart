@@ -56,15 +56,7 @@ class MusicSourceResolverImpl implements MusicSourceResolver {
     }
 
     if (allowFallback) {
-      return PlaybackQueueItem(
-        track: track,
-        resolvedSource: ResolvedPlaybackSource(
-          providerId: preferredProviderId ?? 'unresolved',
-          sourceTrackId: track.sourceTrackId ?? track.id,
-          streamUrl: 'mock://${track.id}',
-          artworkUrl: track.artworkUrl,
-        ),
-      );
+      throw StateError('未能为《${track.title} - ${track.artist}》解析可播放音源');
     }
 
     throw StateError('未能为《${track.title} - ${track.artist}》解析可播放音源');
