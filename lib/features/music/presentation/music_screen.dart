@@ -480,28 +480,6 @@ class _MusicScreenState extends State<MusicScreen>
                       onPlaylistTap: (playlist) => _openPlaylistDetail(store, playlist),
                       onPlaylistLongPress: (playlist) => _showCustomPlaylistActions(context, store, playlist),
                     ),
-                  const SizedBox(height: 28),
-                  _SectionHeader(
-                    title: '平台歌单',
-                    subtitle: '网易云等平台同步过来的歌单会显示在这里',
-                    actionLabel: '刷新',
-                    isBusy: store.isLoading,
-                    onActionTap: () {
-                      store.refreshLibrary();
-                    },
-                  ),
-                  const SizedBox(height: 14),
-                  if (store.remotePlaylists.isEmpty)
-                    const _SectionPlaceholder(
-                      title: '暂时还没有同步到平台歌单',
-                      subtitle: '检查登录状态后重新刷新，平台歌单会出现在这里',
-                    )
-                  else
-                    _CompactPlaylistGrid(
-                      playlists: store.remotePlaylists,
-                      currentPlaylistId: store.currentPlaylistId,
-                      onPlaylistTap: (playlist) => _openPlaylistDetail(store, playlist),
-                    ),
                   if ((store.error ?? '').trim().isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 20, bottom: 12),

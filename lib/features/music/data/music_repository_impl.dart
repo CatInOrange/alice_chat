@@ -313,16 +313,33 @@ class MusicRepositoryImpl implements MusicRepository {
       return const <MusicTrack>[];
     }
     try {
-      return await provider.loadIntelligenceTracks(
+      await _debugLog('repository.loadIntelligenceTracks.request', {
+        'providerId': providerId,
+        'playlistId': playlist.id,
+        'seedTrackId': seedTrack.id,
+        'songId': sourceTrackId,
+        'startTrackId': startSourceTrackId.isEmpty ? null : startSourceTrackId,
+      });
+      final tracks = await provider.loadIntelligenceTracks(
         playlistId: playlist.id,
         songId: sourceTrackId,
         startTrackId: startSourceTrackId.isEmpty ? null : startSourceTrackId,
       );
+      await _debugLog('repository.loadIntelligenceTracks.done', {
+        'providerId': providerId,
+        'playlistId': playlist.id,
+        'seedTrackId': seedTrack.id,
+        'songId': sourceTrackId,
+        'trackCount': tracks.length,
+      });
+      return tracks;
     } catch (error) {
       await _debugLog('repository.loadIntelligenceTracks.error', {
         'providerId': providerId,
         'playlistId': playlist.id,
         'seedTrackId': seedTrack.id,
+        'songId': sourceTrackId,
+        'startTrackId': startSourceTrackId.isEmpty ? null : startSourceTrackId,
         'error': error.toString(),
       });
       return const <MusicTrack>[];

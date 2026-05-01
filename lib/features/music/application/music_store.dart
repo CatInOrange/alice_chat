@@ -989,14 +989,29 @@ class MusicStore extends ChangeNotifier {
   Future<void> enableIntelligenceMode() async {
     await ensureReady();
     final sourceTrackId = (_currentTrack.sourceTrackId ?? '').trim();
+    _debugState('intelligence.enable.request', extra: {
+      'trackId': _currentTrack.id,
+      'title': _currentTrack.title,
+      'providerId': _currentTrackProviderId(),
+      'sourceTrackId': sourceTrackId,
+      'neteaseLikedPlaylistId': _neteaseLikedPlaylistId,
+    }, force: true);
     if (!canAttemptIntelligenceMode || sourceTrackId.isEmpty) {
       _error = '当前歌曲还没有网易云音源，暂时无法开启心动模式';
+      _debugState('intelligence.enable.blocked_no_source', extra: {
+        'providerId': _currentTrackProviderId(),
+        'sourceTrackId': sourceTrackId,
+      }, force: true, level: 'ERROR');
       notifyListeners();
       return;
     }
     final playlist = _resolveIntelligenceContext();
     if (playlist == null) {
       _error = '当前歌曲有网易云音源，但还缺少网易云歌单上下文，暂时无法开启心动模式';
+      _debugState('intelligence.enable.blocked_no_context', extra: {
+        'sourceTrackId': sourceTrackId,
+        'neteaseLikedPlaylistId': _neteaseLikedPlaylistId,
+      }, force: true, level: 'ERROR');
       notifyListeners();
       return;
     }
@@ -1006,6 +1021,12 @@ class MusicStore extends ChangeNotifier {
       ..clear()
       ..add(sourceTrackId);
     _repeatMode = MusicRepeatMode.intelligence;
+    _debugState('intelligence.enable.ready', extra: {
+      'sourceTrackId': sourceTrackId,
+      'playlistId': playlist.id,
+      'playlistTitle': playlist.title,
+      'playlistTag': playlist.tag,
+    }, force: true);
     notifyListeners();
     await _refreshIntelligenceQueue(startTrack: _currentTrack, keepCurrentTrack: true);
   }
@@ -1032,6 +1053,15 @@ class MusicStore extends ChangeNotifier {
     try {
       final cacheKey = '${playlist.id}::${startTrack.sourceTrackId ?? startTrack.id}';
       List<MusicTrack> tracks = _intelligenceCache[cacheKey] ?? const <MusicTrack>[];
+      _debugState('intelligence.queue.refresh.start', extra: {
+        'playlistId': playlist.id,
+        'playlistTitle': playlist.title,
+        'seedTrackId': startTrack.id,
+        'seedSourceTrackId': startTrack.sourceTrackId,
+        'keepCurrentTrack': keepCurrentTrack,
+        'cacheKey': cacheKey,
+        'cacheHit': tracks.isNotEmpty,
+      }, force: true);
       if (tracks.isEmpty) {
         tracks = await _repository.loadIntelligenceTracks(
           playlist: playlist,
@@ -1039,6 +1069,11 @@ class MusicStore extends ChangeNotifier {
           startTrack: startTrack,
         );
         _intelligenceCache[cacheKey] = tracks;
+        _debugState('intelligence.queue.fetch.done', extra: {
+          'playlistId': playlist.id,
+          'seedSourceTrackId': startTrack.sourceTrackId,
+          'fetchedCount': tracks.length,
+        }, force: true);
       }
       final filtered = <MusicTrack>[];
       for (final track in tracks) {
@@ -1053,6 +1088,12 @@ class MusicStore extends ChangeNotifier {
       }
       if (filtered.isEmpty) {
         _error = '心动模式暂时没有拿到新的推荐歌曲';
+        _debugState('intelligence.queue.empty', extra: {
+          'playlistId': playlist.id,
+          'rawCount': tracks.length,
+          'queueLength': _queue.length,
+          'recentIntelligenceCount': _recentIntelligenceTrackIds.length,
+        }, force: true, level: 'ERROR');
         disableIntelligenceMode();
         return;
       }
@@ -1084,9 +1125,21 @@ class MusicStore extends ChangeNotifier {
       }
       _currentPlaylistId = playlist.id;
       _error = null;
+      _debugState('intelligence.queue.ready', extra: {
+        'playlistId': playlist.id,
+        'addedCount': filtered.length,
+        'queueLength': _queue.length,
+        'recentIntelligenceCount': _recentIntelligenceTrackIds.length,
+      }, force: true);
       notifyListeners();
       unawaited(_savePlaybackSnapshot());
-    } catch (_) {
+    } catch (error) {
+      _debugState('intelligence.queue.error', extra: {
+        'playlistId': playlist.id,
+        'seedTrackId': startTrack.id,
+        'seedSourceTrackId': startTrack.sourceTrackId,
+        'error': error.toString(),
+      }, force: true, level: 'ERROR');
       _error = '心动模式加载失败，已退回普通播放';
       disableIntelligenceMode();
     } finally {

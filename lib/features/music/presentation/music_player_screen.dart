@@ -133,7 +133,6 @@ class MusicPlayerScreen extends StatelessWidget {
                                 currentLyric: currentLyric,
                                 nextLyric: nextLyric,
                                 isLoading: store.isLyricsLoading,
-                                onRetry: store.refreshCurrentLyrics,
                               ),
                               const SizedBox(height: 28),
                               GestureDetector(
@@ -445,13 +444,11 @@ class _LyricsPreviewCard extends StatelessWidget {
     required this.currentLyric,
     required this.nextLyric,
     required this.isLoading,
-    required this.onRetry,
   });
 
   final String? currentLyric;
   final String? nextLyric;
   final bool isLoading;
-  final Future<void> Function() onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -473,21 +470,11 @@ class _LyricsPreviewCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Text(
-                    '歌词',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const Spacer(),
-                  if (!isLoading)
-                    TextButton(
-                      onPressed: onRetry,
-                      child: const Text('刷新歌词'),
-                    ),
-                ],
+              Text(
+                '歌词',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               if (isLoading)
                 const Padding(
