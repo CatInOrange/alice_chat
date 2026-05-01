@@ -167,6 +167,60 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
   }
 
   @override
+  Future<List<MusicTrack>> loadIntelligenceTracks({
+    required String playlistId,
+    required String songId,
+    String? startTrackId,
+  }) async {
+    final normalizedPlaylistId = playlistId.startsWith(_playlistPrefix)
+        ? playlistId.substring(_playlistPrefix.length)
+        : playlistId;
+    final normalizedSongId = songId.trim();
+    final normalizedStartTrackId = (startTrackId ?? '').trim();
+    if (normalizedPlaylistId.isEmpty || normalizedSongId.isEmpty) {
+      return const <MusicTrack>[];
+    }
+    final cookie = await OpenClawSettingsStore.loadMusicProviderCookie(id);
+    final seededCookie = _seedCookieHeader(cookie);
+    if ((seededCookie ?? '').trim().isEmpty) {
+      return const <MusicTrack>[];
+    }
+    final query = <String, String>{
+      'pid': normalizedPlaylistId,
+      'id': normalizedSongId,
+      if (normalizedStartTrackId.isNotEmpty) 'sid': normalizedStartTrackId,
+    };
+    final payload = await _getJson(
+      '/api/playmode/intelligence/list',
+      query: query,
+      cookieHeader: seededCookie,
+    );
+    final rawCode = payload['code'];
+    final code = rawCode is num ? rawCode.toInt() : int.tryParse('$rawCode');
+    if (code != null && code != 200) {
+      return const <MusicTrack>[];
+    }
+    final items = ((payload['data'] as List?) ?? const <dynamic>[])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item.cast<String, dynamic>()))
+        .toList(growable: false);
+    final tracks = <MusicTrack>[];
+    final seen = <String>{};
+    for (final item in items) {
+      final songMap = (item['songInfo'] as Map?)?.cast<String, dynamic>() ??
+          (item['song'] as Map?)?.cast<String, dynamic>() ??
+          item;
+      final candidate = _candidateFromSong(songMap);
+      if (candidate == null) continue;
+      final track = candidate.track.toMusicTrack();
+      if (seen.add(track.id)) {
+        tracks.add(track);
+      }
+    }
+    return List<MusicTrack>.unmodifiable(tracks);
+  }
+
+  @override
   Future<List<MusicPlaylist>> loadUserPlaylists() async {
     final cookie = await OpenClawSettingsStore.loadMusicProviderCookie(id);
     if ((cookie ?? '').trim().isEmpty) {

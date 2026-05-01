@@ -291,6 +291,43 @@ class MusicRepositoryImpl implements MusicRepository {
   }
 
   @override
+  Future<List<MusicTrack>> loadIntelligenceTracks({
+    required MusicPlaylist playlist,
+    required MusicTrack seedTrack,
+    MusicTrack? startTrack,
+  }) async {
+    final providerId = _providerIdForPlaylist(playlist.id);
+    if (providerId != 'netease') {
+      return const <MusicTrack>[];
+    }
+    final registry = (_resolver as MusicSourceResolverImpl).registry;
+    final provider = registry.providerById('netease');
+    if (provider == null) {
+      return const <MusicTrack>[];
+    }
+    final sourceTrackId = (seedTrack.sourceTrackId ?? '').trim();
+    final startSourceTrackId = (startTrack?.sourceTrackId ?? '').trim();
+    if (sourceTrackId.isEmpty) {
+      return const <MusicTrack>[];
+    }
+    try {
+      return await provider.loadIntelligenceTracks(
+        playlistId: playlist.id,
+        songId: sourceTrackId,
+        startTrackId: startSourceTrackId.isEmpty ? null : startSourceTrackId,
+      );
+    } catch (error) {
+      await _debugLog('repository.loadIntelligenceTracks.error', {
+        'providerId': providerId,
+        'playlistId': playlist.id,
+        'seedTrackId': seedTrack.id,
+        'error': error.toString(),
+      });
+      return const <MusicTrack>[];
+    }
+  }
+
+  @override
   Future<List<MusicTrack>> loadPlaylistTracks(MusicPlaylist playlist) async {
     final providerId = _providerIdForPlaylist(playlist.id);
     if (playlist.id == 'liked-local') {

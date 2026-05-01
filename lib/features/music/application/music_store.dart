@@ -23,7 +23,7 @@ import '../domain/music_command.dart';
 import '../domain/music_models.dart';
 import '../domain/music_runtime_models.dart';
 
-enum MusicRepeatMode { off, all, one }
+enum MusicRepeatMode { off, all, one, intelligence }
 
 class MusicStore extends ChangeNotifier {
   MusicStore({OpenClawClient? client})
@@ -112,6 +112,12 @@ class MusicStore extends ChangeNotifier {
   String? _currentPlaylistId;
   bool _shuffleEnabled = false;
   MusicRepeatMode _repeatMode = MusicRepeatMode.off;
+  MusicPlaylist? _intelligenceSourcePlaylist;
+  String? _intelligenceLastAnchorTrackId;
+  bool _isLoadingIntelligenceBatch = false;
+  final Set<String> _recentIntelligenceTrackIds = <String>{};
+  final Map<String, List<MusicTrack>> _intelligenceCache =
+      <String, List<MusicTrack>>{};
   final Map<String, DateTime> _lastDebugLogAt = <String, DateTime>{};
 
   bool get isReady => _isReady;
@@ -160,6 +166,8 @@ class MusicStore extends ChangeNotifier {
   String? get currentPlaylistId => _currentPlaylistId;
   bool get shuffleEnabled => _shuffleEnabled;
   MusicRepeatMode get repeatMode => _repeatMode;
+  MusicPlaylist? get intelligenceSourcePlaylist => _intelligenceSourcePlaylist;
+  bool get isIntelligenceMode => _repeatMode == MusicRepeatMode.intelligence;
   bool get hasPlaybackContext => _queue.isNotEmpty || _isPlaying;
 
   MusicPlaylist? get currentPlaylist {
@@ -198,6 +206,9 @@ class MusicStore extends ChangeNotifier {
   String get currentPlaybackSourceLabel {
     final playlist = currentPlaylist;
     if (playlist != null) {
+      if (isIntelligenceMode && _intelligenceSourcePlaylist != null) {
+        return '心动模式 · 基于 ${_intelligenceSourcePlaylist!.title}';
+      }
       if (playlist.id == likedPlaylist.id) return '来自 我喜欢的';
       if (playlist.isAiGenerated) return '来自 ${playlist.title}';
       return '来自 ${playlist.title}';
@@ -214,7 +225,8 @@ class MusicStore extends ChangeNotifier {
       _queue.length > 1 ||
       (_repeatMode == MusicRepeatMode.one && _queue.isNotEmpty) ||
       (_repeatMode == MusicRepeatMode.all &&
-          (_queue.isNotEmpty || _playbackHistory.isNotEmpty));
+          (_queue.isNotEmpty || _playbackHistory.isNotEmpty)) ||
+      (_repeatMode == MusicRepeatMode.intelligence && _queue.isNotEmpty);
 
   bool isPlaylistLoading(String playlistId) => _loadingPlaylistId == playlistId;
 
@@ -933,6 +945,132 @@ class MusicStore extends ChangeNotifier {
     );
   }
 
+  bool get canEnableIntelligenceMode {
+    final playlist = currentPlaylist;
+    if (playlist == null) return false;
+    if (_providerIdForPlaylist(playlist.id) != 'netease') return false;
+    final sourceTrackId = (_currentTrack.sourceTrackId ?? '').trim();
+    return sourceTrackId.isNotEmpty;
+  }
+
+  Future<void> enableIntelligenceMode() async {
+    await ensureReady();
+    final playlist = currentPlaylist;
+    if (playlist == null || _providerIdForPlaylist(playlist.id) != 'netease') {
+      _error = '心动模式仅支持网易云歌单';
+      notifyListeners();
+      return;
+    }
+    final sourceTrackId = (_currentTrack.sourceTrackId ?? '').trim();
+    if (sourceTrackId.isEmpty) {
+      _error = '当前歌曲还没有网易云音源，暂时无法开启心动模式';
+      notifyListeners();
+      return;
+    }
+    _intelligenceSourcePlaylist = playlist;
+    _intelligenceLastAnchorTrackId = sourceTrackId;
+    _recentIntelligenceTrackIds
+      ..clear()
+      ..add(sourceTrackId);
+    _repeatMode = MusicRepeatMode.intelligence;
+    notifyListeners();
+    await _refreshIntelligenceQueue(startTrack: _currentTrack, keepCurrentTrack: true);
+  }
+
+  void disableIntelligenceMode({bool keepQueue = true}) {
+    _repeatMode = MusicRepeatMode.off;
+    _intelligenceSourcePlaylist = null;
+    _intelligenceLastAnchorTrackId = null;
+    _isLoadingIntelligenceBatch = false;
+    _recentIntelligenceTrackIds.clear();
+    if (!keepQueue) {
+      _queue = List<PlaybackQueueItem>.unmodifiable(_queue.take(1));
+    }
+    notifyListeners();
+  }
+
+  Future<void> _refreshIntelligenceQueue({
+    required MusicTrack startTrack,
+    required bool keepCurrentTrack,
+  }) async {
+    final playlist = _intelligenceSourcePlaylist;
+    if (playlist == null || _isLoadingIntelligenceBatch) return;
+    _isLoadingIntelligenceBatch = true;
+    try {
+      final cacheKey = '${playlist.id}::${startTrack.sourceTrackId ?? startTrack.id}';
+      List<MusicTrack> tracks = _intelligenceCache[cacheKey] ?? const <MusicTrack>[];
+      if (tracks.isEmpty) {
+        tracks = await _repository.loadIntelligenceTracks(
+          playlist: playlist,
+          seedTrack: startTrack,
+          startTrack: startTrack,
+        );
+        _intelligenceCache[cacheKey] = tracks;
+      }
+      final filtered = <MusicTrack>[];
+      for (final track in tracks) {
+        final sourceId = (track.sourceTrackId ?? '').trim();
+        if (sourceId.isNotEmpty && _recentIntelligenceTrackIds.contains(sourceId)) {
+          continue;
+        }
+        if (_queue.any((item) => item.track.id == track.id)) {
+          continue;
+        }
+        filtered.add(track.copyWith(isFavorite: isTrackLiked(track.id)));
+      }
+      if (filtered.isEmpty) {
+        _error = '心动模式暂时没有拿到新的推荐歌曲';
+        disableIntelligenceMode();
+        return;
+      }
+      if (keepCurrentTrack) {
+        final currentHead = _queue.isNotEmpty
+            ? _queue.first
+            : PlaybackQueueItem(track: _currentTrack);
+        _queue = List<PlaybackQueueItem>.unmodifiable([
+          currentHead,
+          ...filtered.map((track) => PlaybackQueueItem(track: track)),
+        ]);
+      } else {
+        _queue = List<PlaybackQueueItem>.unmodifiable([
+          ..._queue,
+          ...filtered.map((track) => PlaybackQueueItem(track: track)),
+        ]);
+      }
+      for (final track in filtered) {
+        final sourceId = (track.sourceTrackId ?? '').trim();
+        if (sourceId.isNotEmpty) {
+          _recentIntelligenceTrackIds.add(sourceId);
+        }
+      }
+      if (_recentIntelligenceTrackIds.length > 120) {
+        final keep = _recentIntelligenceTrackIds.toList(growable: false);
+        _recentIntelligenceTrackIds
+          ..clear()
+          ..addAll(keep.skip(keep.length - 120));
+      }
+      _currentPlaylistId = playlist.id;
+      _error = null;
+      notifyListeners();
+      unawaited(_savePlaybackSnapshot());
+    } catch (_) {
+      _error = '心动模式加载失败，已退回普通播放';
+      disableIntelligenceMode();
+    } finally {
+      _isLoadingIntelligenceBatch = false;
+    }
+  }
+
+  Future<void> _maybePrefetchIntelligenceQueue() async {
+    if (!isIntelligenceMode || _queue.length > 2) return;
+    final lastTrack = _queue.isNotEmpty ? _queue.last.track : _currentTrack;
+    final sourceId = (lastTrack.sourceTrackId ?? '').trim();
+    if (sourceId.isEmpty) return;
+    if (_intelligenceLastAnchorTrackId == sourceId && _queue.length > 1) return;
+    _intelligenceLastAnchorTrackId = sourceId;
+    await _refreshIntelligenceQueue(startTrack: lastTrack, keepCurrentTrack: false);
+  }
+
   Future<void> playPrevious() async {
     await ensureReady();
     if (_position >= const Duration(seconds: 3)) {
@@ -1130,6 +1268,9 @@ class MusicStore extends ChangeNotifier {
         return;
       }
       if (_queue.length <= 1) {
+        if (_repeatMode == MusicRepeatMode.intelligence) {
+          await _maybePrefetchIntelligenceQueue();
+        }
         if (_repeatMode == MusicRepeatMode.all && _playbackHistory.isNotEmpty) {
           _queue = List<PlaybackQueueItem>.unmodifiable([
             ..._queue,
@@ -1143,6 +1284,9 @@ class MusicStore extends ChangeNotifier {
         }
       }
       _playbackHistory.add(_currentTrack);
+      if (_repeatMode == MusicRepeatMode.intelligence) {
+        unawaited(_maybePrefetchIntelligenceQueue());
+      }
       final nextQueue = _queue.sublist(1);
       _queue = List<PlaybackQueueItem>.unmodifiable(nextQueue);
       _currentTrack = _queue.first.track.copyWith(
@@ -1256,7 +1400,14 @@ class MusicStore extends ChangeNotifier {
         _repeatMode = MusicRepeatMode.one;
         break;
       case MusicRepeatMode.one:
-        _repeatMode = MusicRepeatMode.off;
+        if (canEnableIntelligenceMode) {
+          unawaited(enableIntelligenceMode());
+        } else {
+          _repeatMode = MusicRepeatMode.off;
+        }
+        break;
+      case MusicRepeatMode.intelligence:
+        disableIntelligenceMode();
         break;
     }
     notifyListeners();
@@ -1295,6 +1446,12 @@ class MusicStore extends ChangeNotifier {
 
   bool _isCustomPlaylist(String playlistId) =>
       playlistId.startsWith('custom-playlist:');
+
+  String? _providerIdForPlaylist(String playlistId) {
+    if (playlistId.startsWith('netease-playlist:')) return 'netease';
+    if (playlistId.startsWith('migu-playlist:')) return 'migu';
+    return null;
+  }
 
   bool _isSystemPlaylist(MusicPlaylist playlist) {
     return playlist.id == likedPlaylist.id ||

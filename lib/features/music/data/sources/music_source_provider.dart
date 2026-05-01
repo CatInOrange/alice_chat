@@ -12,6 +12,12 @@ abstract class MusicSourceProvider {
 
   Future<MusicLyrics?> loadLyrics(MusicTrack track) async => null;
 
+  Future<List<MusicTrack>> loadIntelligenceTracks({
+    required String playlistId,
+    required String songId,
+    String? startTrackId,
+  }) async => const <MusicTrack>[];
+
   Future<List<MusicPlaylist>> loadUserPlaylists() async => const <MusicPlaylist>[];
 
   Future<MusicPlaylist?> loadLikedPlaylist() async => null;

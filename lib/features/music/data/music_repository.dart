@@ -25,6 +25,12 @@ abstract class MusicRepository {
 
   Future<MusicLyrics?> loadLyrics(MusicTrack track);
 
+  Future<List<MusicTrack>> loadIntelligenceTracks({
+    required MusicPlaylist playlist,
+    required MusicTrack seedTrack,
+    MusicTrack? startTrack,
+  });
+
   Future<void> savePlaybackSnapshot({
     required MusicTrack currentTrack,
     required List<PlaybackQueueItem> queue,
