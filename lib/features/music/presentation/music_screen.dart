@@ -18,6 +18,7 @@ class MusicScreen extends StatefulWidget {
 class _MusicScreenState extends State<MusicScreen>
     with AutomaticKeepAliveClientMixin {
   bool _isNavigatingToPlayer = false;
+  bool _isOpeningSearch = false;
   final Set<String> _pendingPlaylistActions = <String>{};
 
   String _friendlyHomeError(String raw) {
@@ -176,17 +177,23 @@ class _MusicScreenState extends State<MusicScreen>
   }
 
   Future<void> _openSearch(BuildContext context, MusicStore store) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        return ChangeNotifierProvider.value(
-          value: store,
-          child: const _MusicSearchSheet(),
-        );
-      },
-    );
+    if (_isOpeningSearch) return;
+    _isOpeningSearch = true;
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (sheetContext) {
+          return ChangeNotifierProvider.value(
+            value: store,
+            child: const _MusicSearchSheet(),
+          );
+        },
+      );
+    } finally {
+      _isOpeningSearch = false;
+    }
   }
 
   @override
@@ -212,7 +219,7 @@ class _MusicScreenState extends State<MusicScreen>
             title: const Text('音乐'),
             actions: [
               IconButton(
-                onPressed: () => _openSearch(context, store),
+                onPressed: _isOpeningSearch ? null : () => _openSearch(context, store),
                 icon: const Icon(Icons.search_rounded),
               ),
             ],
@@ -638,7 +645,7 @@ class _MusicHeroCard extends StatelessWidget {
                           if (onDetailTap != null) ...[
                             const SizedBox(height: 8),
                             TextButton(
-                              onPressed: onDetailTap,
+                              onPressed: isBusy ? null : onDetailTap,
                               style: TextButton.styleFrom(
                                 foregroundColor: Colors.white,
                               ),
@@ -1552,6 +1559,7 @@ class _MusicSearchSheet extends StatefulWidget {
 class _MusicSearchSheetState extends State<_MusicSearchSheet> {
   late final TextEditingController _controller;
   String? _pendingTrackId;
+  final Set<String> _pendingLikeTrackIds = <String>{};
 
   Future<void> _playSearchTrack(BuildContext context, MusicTrack track) async {
     if (_pendingTrackId == track.id) return;
@@ -1575,6 +1583,22 @@ class _MusicSearchSheetState extends State<_MusicSearchSheet> {
       if (mounted) {
         setState(() {
           _pendingTrackId = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _toggleSearchTrackLiked(MusicTrack track) async {
+    if (_pendingLikeTrackIds.contains(track.id)) return;
+    setState(() {
+      _pendingLikeTrackIds.add(track.id);
+    });
+    try {
+      await context.read<MusicStore>().toggleTrackLiked(track);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _pendingLikeTrackIds.remove(track.id);
         });
       }
     }
@@ -1707,11 +1731,15 @@ class _MusicSearchSheetState extends State<_MusicSearchSheet> {
                         return _SearchResultTile(
                           track: track,
                           isBusy: _pendingTrackId == track.id,
+                          isLiking: _pendingLikeTrackIds.contains(track.id),
                           onOpen: () async {
                             await _showSearchTrackPreview(context, track, _playSearchTrack);
                           },
                           onPlay: () async {
                             await _playSearchTrack(context, track);
+                          },
+                          onToggleLike: () async {
+                            await _toggleSearchTrackLiked(track);
                           },
                         );
                       },
@@ -1785,13 +1813,17 @@ class _SearchResultTile extends StatelessWidget {
     required this.track,
     required this.onOpen,
     required this.onPlay,
+    required this.onToggleLike,
     this.isBusy = false,
+    this.isLiking = false,
   });
 
   final MusicTrack track;
   final VoidCallback onOpen;
   final VoidCallback onPlay;
+  final VoidCallback onToggleLike;
   final bool isBusy;
+  final bool isLiking;
 
   @override
   Widget build(BuildContext context) {
@@ -1827,20 +1859,24 @@ class _SearchResultTile extends StatelessWidget {
                       shape: const CircleBorder(),
                       child: InkWell(
                         customBorder: const CircleBorder(),
-                        onTap: () {
-                          context.read<MusicStore>().toggleTrackLiked(effectiveTrack);
-                        },
+                        onTap: isLiking ? null : onToggleLike,
                         child: Padding(
                           padding: const EdgeInsets.all(4),
-                          child: Icon(
-                            effectiveTrack.isFavorite
-                                ? Icons.favorite_rounded
-                                : Icons.favorite_border_rounded,
-                            size: 16,
-                            color: effectiveTrack.isFavorite
-                                ? const Color(0xFFE91E63)
-                                : const Color(0xFF7D879A),
-                          ),
+                          child: isLiking
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : Icon(
+                                  effectiveTrack.isFavorite
+                                      ? Icons.favorite_rounded
+                                      : Icons.favorite_border_rounded,
+                                  size: 16,
+                                  color: effectiveTrack.isFavorite
+                                      ? const Color(0xFFE91E63)
+                                      : const Color(0xFF7D879A),
+                                ),
                         ),
                       ),
                     ),
@@ -1878,7 +1914,7 @@ class _SearchResultTile extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               IconButton(
-                onPressed: isBusy ? null : onPlay,
+                onPressed: isBusy || isLiking ? null : onPlay,
                 icon: isBusy
                     ? SizedBox(
                         width: 22,

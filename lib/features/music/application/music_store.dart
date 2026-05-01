@@ -96,6 +96,7 @@ class MusicStore extends ChangeNotifier {
   final Map<String, List<MusicTrack>> _playlistTracksCache =
       <String, List<MusicTrack>>{};
   int _searchRequestSerial = 0;
+  String? _activeSearchQuery;
   bool _isSearching = false;
   String? _searchError;
   List<MusicTrack> _searchResults = const [];
@@ -420,7 +421,7 @@ class MusicStore extends ChangeNotifier {
         'queueLength': _queue.length,
       }, force: true);
     } catch (error) {
-      _error = _friendlyPlaybackError(error, fallback: '加载歌单失败，请稍后再试');
+      _error = _friendlyPlaylistLoadError(error, playlist);
       _debugState('playlist.open.error', extra: {
         'playlistId': playlist.id,
         'playlistTitle': playlist.title,
@@ -511,8 +512,7 @@ class MusicStore extends ChangeNotifier {
       playlist.copyWith(trackCount: tracks.length),
     );
     _cacheTracksForPlaylist(normalizedPlaylist.id, tracks);
-    _currentPlaylistId = normalizedPlaylist.id;
-    _recentPlaylists = List<MusicPlaylist>.unmodifiable([
+    final nextRecentPlaylists = List<MusicPlaylist>.unmodifiable([
       normalizedPlaylist,
       ..._recentPlaylists.where((item) => item.id != normalizedPlaylist.id),
     ].take(6));
@@ -525,6 +525,10 @@ class MusicStore extends ChangeNotifier {
             .toList(growable: false),
       ),
     );
+    _currentPlaylistId = normalizedPlaylist.id;
+    _recentPlaylists = nextRecentPlaylists;
+    notifyListeners();
+    unawaited(_savePlaybackSnapshot());
   }
 
   bool isTrackLiked(String trackId) =>
@@ -592,7 +596,15 @@ class MusicStore extends ChangeNotifier {
     );
     _rebuildPlaylists(basePlaylists: _playlists);
     notifyListeners();
-    await _repository.setTrackLiked(nextTrack, liked);
+    try {
+      await _repository.setTrackLiked(nextTrack, liked);
+    } catch (error) {
+      _debugState('liked.sync.error', extra: {
+        'trackId': track.id,
+        'liked': liked,
+        'error': error.toString(),
+      }, force: true, level: 'ERROR');
+    }
     unawaited(_savePlaybackSnapshot());
   }
 
@@ -601,10 +613,15 @@ class MusicStore extends ChangeNotifier {
     if (keyword.isEmpty) {
       _searchResults = const [];
       _searchError = null;
+      _activeSearchQuery = null;
       notifyListeners();
       return;
     }
+    if (_isSearching && _activeSearchQuery == keyword) {
+      return;
+    }
     final requestSerial = ++_searchRequestSerial;
+    _activeSearchQuery = keyword;
     _recentSearches = List<String>.unmodifiable([
       keyword,
       ..._recentSearches.where((item) => item != keyword),
@@ -657,12 +674,16 @@ class MusicStore extends ChangeNotifier {
     } finally {
       if (requestSerial == _searchRequestSerial) {
         _isSearching = false;
+        _activeSearchQuery = null;
         notifyListeners();
       }
     }
   }
 
   void clearSearchResults() {
+    _searchRequestSerial += 1;
+    _activeSearchQuery = null;
+    _isSearching = false;
     _searchResults = const [];
     _searchError = null;
     notifyListeners();
@@ -1181,6 +1202,25 @@ class MusicStore extends ChangeNotifier {
     }
     _duration = _currentTrack.duration;
     _error = null;
+  }
+
+  String _friendlyPlaylistLoadError(Object error, MusicPlaylist playlist) {
+    final raw = error.toString().trim().replaceFirst('Exception: ', '').replaceFirst('Bad state: ', '');
+    if (raw.contains('这个歌单暂时没有可播放的歌曲')) {
+      if (playlist.id.startsWith('ai-playlist:')) {
+        return '这份 AI 歌单里暂时没有可播放的歌曲';
+      }
+      return raw;
+    }
+    if (playlist.id.startsWith('ai-playlist:')) {
+      if (raw.contains('加载 AI 歌单失败') || raw.contains('加载 AI 历史歌单失败')) {
+        return 'AI 歌单加载失败，请稍后再试';
+      }
+      if (raw.contains('source') || raw.contains('未能为')) {
+        return 'AI 歌单里的歌曲暂时没能成功匹配音源，请稍后重试';
+      }
+    }
+    return _friendlyPlaybackError(error, fallback: '加载歌单失败，请稍后再试');
   }
 
   String _friendlyPlaybackError(Object error, {String? fallback}) {

@@ -191,6 +191,14 @@ class MusicPlayerScreen extends StatelessWidget {
                                       _PlaybackErrorBanner(
                                         message: store.error!,
                                         onDismiss: store.clearError,
+                                        onRetry: () {
+                                          final raw = store.error ?? '';
+                                          if (raw.contains('加载歌单')) {
+                                            store.retryCurrentPlaylist();
+                                            return;
+                                          }
+                                          store.retryCurrentTrack();
+                                        },
                                       ),
                                     ],
                                     const SizedBox(height: 22),
@@ -428,10 +436,12 @@ class _PlaybackErrorBanner extends StatelessWidget {
   const _PlaybackErrorBanner({
     required this.message,
     required this.onDismiss,
+    required this.onRetry,
   });
 
   final String message;
   final VoidCallback onDismiss;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -457,14 +467,30 @@ class _PlaybackErrorBanner extends StatelessWidget {
           ),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              message,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: const Color(0xFF9A3C33),
-                height: 1.4,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  message,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF9A3C33),
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: onRetry,
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFF9A3C33),
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(0, 0),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: const Text('重试'),
+                ),
+              ],
             ),
           ),
           const SizedBox(width: 8),
