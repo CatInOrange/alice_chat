@@ -110,6 +110,7 @@ class MusicStore extends ChangeNotifier {
   bool _isLoadingPlaylist = false;
   String? _loadingPlaylistId;
   String? _currentPlaylistId;
+  String? _neteaseLikedPlaylistId;
   bool _shuffleEnabled = false;
   MusicRepeatMode _repeatMode = MusicRepeatMode.off;
   MusicPlaylist? _intelligenceSourcePlaylist;
@@ -295,6 +296,7 @@ class MusicStore extends ChangeNotifier {
       _recentPlaylists = _normalizeRecentPlaylists(state.recentPlaylists);
       _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(state.customPlaylists);
       _currentPlaylistId = _normalizePlaylistId(state.currentPlaylistId);
+      _neteaseLikedPlaylistId = state.neteaseLikedPlaylistId?.trim();
       try {
         _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
       } catch (error) {
@@ -312,6 +314,11 @@ class MusicStore extends ChangeNotifier {
       }
       _cacheKnownAiPlaylistTracks();
       final remotePlaylists = await _repository.loadUserPlaylists();
+      final remoteLikedPlaylist = _findNeteaseLikedPlaylist(remotePlaylists);
+      if (remoteLikedPlaylist != null) {
+        _neteaseLikedPlaylistId = remoteLikedPlaylist.id;
+        await _mergeRemoteLikedTracks(remoteLikedPlaylist);
+      }
       final basePlaylists = remotePlaylists.isNotEmpty
           ? remotePlaylists
           : _playlists.where(
@@ -365,6 +372,7 @@ class MusicStore extends ChangeNotifier {
       _likedTracks = List<MusicTrack>.unmodifiable(state.likedTracks);
       _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(state.customPlaylists);
       _currentPlaylistId = _normalizePlaylistId(state.currentPlaylistId);
+      _neteaseLikedPlaylistId = state.neteaseLikedPlaylistId?.trim();
       _currentTrack = _currentTrack.copyWith(
         isFavorite: isTrackLiked(_currentTrack.id),
       );
@@ -381,6 +389,11 @@ class MusicStore extends ChangeNotifier {
       _cacheKnownAiPlaylistTracks();
       try {
         final remotePlaylists = await _repository.loadUserPlaylists();
+        final remoteLikedPlaylist = _findNeteaseLikedPlaylist(remotePlaylists);
+        if (remoteLikedPlaylist != null) {
+          _neteaseLikedPlaylistId = remoteLikedPlaylist.id;
+          await _mergeRemoteLikedTracks(remoteLikedPlaylist);
+        }
         final basePlaylists = remotePlaylists.isNotEmpty
             ? remotePlaylists
             : _playlists;
@@ -720,6 +733,7 @@ class MusicStore extends ChangeNotifier {
       _likedTracks.any((item) => item.id == trackId);
 
   Future<void> toggleTrackLiked(MusicTrack track) async {
+    await ensureReady();
     final liked = !isTrackLiked(track.id);
     final playbackState = _playbackAdapter.state;
     final cachedPlayback = _currentTrack.id == track.id &&
@@ -783,6 +797,16 @@ class MusicStore extends ChangeNotifier {
     notifyListeners();
     try {
       await _repository.setTrackLiked(nextTrack, liked);
+      if (liked && _neteaseLikedPlaylistId != null) {
+        _intelligenceSourcePlaylist ??= MusicPlaylist(
+          id: _neteaseLikedPlaylistId!,
+          title: '喜欢',
+          subtitle: '网易云喜欢的歌曲',
+          tag: 'LIKED',
+          trackCount: _likedTracks.length,
+          artworkTone: MusicArtworkTone.rose,
+        );
+      }
     } catch (error) {
       _debugState('liked.sync.error', extra: {
         'trackId': track.id,
@@ -1490,6 +1514,16 @@ class MusicStore extends ChangeNotifier {
         _providerIdForPlaylist(_intelligenceSourcePlaylist!.id) == 'netease') {
       return _intelligenceSourcePlaylist;
     }
+    if ((_neteaseLikedPlaylistId ?? '').trim().isNotEmpty) {
+      return MusicPlaylist(
+        id: _neteaseLikedPlaylistId!,
+        title: '喜欢',
+        subtitle: '网易云喜欢的歌曲',
+        tag: 'LIKED',
+        trackCount: _likedTracks.length,
+        artworkTone: MusicArtworkTone.rose,
+      );
+    }
     for (final item in _recentPlaylists) {
       if (_providerIdForPlaylist(item.id) == 'netease') {
         final tracks = _playlistTracksCache[item.id] ?? const <MusicTrack>[];
@@ -1536,6 +1570,52 @@ class MusicStore extends ChangeNotifier {
       }
     }
     return playlist;
+  }
+
+  Future<void> _mergeRemoteLikedTracks(MusicPlaylist playlist) async {
+    try {
+      final remoteTracks = await _repository.loadPlaylistTracks(playlist);
+      if (remoteTracks.isEmpty) {
+        return;
+      }
+      final merged = <MusicTrack>[];
+      final seen = <String>{};
+      for (final track in [...remoteTracks, ..._likedTracks]) {
+        final normalized = track.copyWith(
+          isFavorite: true,
+          preferredSourceId: track.preferredSourceId ?? 'netease',
+        );
+        final key = _trackIdentityKey(normalized);
+        if (seen.add(key)) {
+          merged.add(normalized);
+        }
+      }
+      _likedTracks = List<MusicTrack>.unmodifiable(merged);
+      _cacheTracksForPlaylist(likedPlaylist.id, _likedTracks);
+    } catch (error) {
+      _debugState('liked.remote_merge.error', extra: {
+        'playlistId': playlist.id,
+        'error': error.toString(),
+      }, force: true, level: 'ERROR');
+    }
+  }
+
+  MusicPlaylist? _findNeteaseLikedPlaylist(List<MusicPlaylist> playlists) {
+    for (final item in playlists) {
+      if (item.tag == 'LIKED' && _providerIdForPlaylist(item.id) == 'netease') {
+        return item;
+      }
+    }
+    return null;
+  }
+
+  String _trackIdentityKey(MusicTrack track) {
+    final providerId = (track.preferredSourceId ?? track.cachedPlayback?.providerId ?? '').trim();
+    final sourceTrackId = (track.sourceTrackId ?? track.cachedPlayback?.sourceTrackId ?? '').trim();
+    if (providerId.isNotEmpty && sourceTrackId.isNotEmpty) {
+      return '$providerId::$sourceTrackId';
+    }
+    return track.id.trim();
   }
 
   String? _normalizePlaylistId(String? playlistId) {
@@ -1739,6 +1819,7 @@ class MusicStore extends ChangeNotifier {
       recentPlaylists: _recentPlaylists,
       customPlaylists: _customPlaylists,
       currentPlaylistId: _currentPlaylistId,
+      neteaseLikedPlaylistId: _neteaseLikedPlaylistId,
     );
   }
 
@@ -1853,6 +1934,7 @@ class MusicStateSnapshot {
     this.recentPlaylists = const [],
     this.customPlaylists = const [],
     this.currentPlaylistId,
+    this.neteaseLikedPlaylistId,
     this.isPlaying = false,
     this.position = Duration.zero,
   });
@@ -1865,6 +1947,7 @@ class MusicStateSnapshot {
   final List<MusicPlaylist> recentPlaylists;
   final List<CustomMusicPlaylist> customPlaylists;
   final String? currentPlaylistId;
+  final String? neteaseLikedPlaylistId;
   final bool isPlaying;
   final Duration position;
 }

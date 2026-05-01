@@ -73,6 +73,7 @@ class MusicRepositoryImpl implements MusicRepository {
           )
           .toList(growable: false);
       final currentPlaylistId = (response['currentPlaylistId'] ?? '').toString().trim();
+      final neteaseLikedPlaylistId = (response['neteaseLikedPlaylistId'] ?? '').toString().trim();
       final positionMsRaw = response['positionMs'] ?? 0;
       return MusicStateSnapshot(
         currentTrack:
@@ -84,6 +85,7 @@ class MusicRepositoryImpl implements MusicRepository {
         recentPlaylists: recentPlaylists,
         customPlaylists: customPlaylists,
         currentPlaylistId: currentPlaylistId.isEmpty ? null : currentPlaylistId,
+        neteaseLikedPlaylistId: neteaseLikedPlaylistId.isEmpty ? null : neteaseLikedPlaylistId,
         isPlaying: response['isPlaying'] == true,
         position: Duration(
           milliseconds: positionMsRaw is num
@@ -374,6 +376,7 @@ class MusicRepositoryImpl implements MusicRepository {
     List<MusicPlaylist>? recentPlaylists,
     List<CustomMusicPlaylist>? customPlaylists,
     String? currentPlaylistId,
+    String? neteaseLikedPlaylistId,
   }) async {
     try {
       await _client.saveMusicState(
@@ -389,6 +392,8 @@ class MusicRepositoryImpl implements MusicRepository {
           if (customPlaylists != null)
             'customPlaylists': customPlaylists.map((item) => item.toMap()).toList(),
           if (currentPlaylistId != null) 'currentPlaylistId': currentPlaylistId,
+          if (neteaseLikedPlaylistId != null)
+            'neteaseLikedPlaylistId': neteaseLikedPlaylistId,
         },
       );
     } catch (_) {

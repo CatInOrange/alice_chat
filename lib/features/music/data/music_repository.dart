@@ -40,5 +40,6 @@ abstract class MusicRepository {
     List<MusicPlaylist>? recentPlaylists,
     List<CustomMusicPlaylist>? customPlaylists,
     String? currentPlaylistId,
+    String? neteaseLikedPlaylistId,
   });
 }
