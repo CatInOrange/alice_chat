@@ -10,6 +10,8 @@ abstract class MusicSourceProvider {
 
   Future<ResolvedPlaybackSource?> resolvePlayback(SourceCandidate candidate);
 
+  Future<MusicLyrics?> loadLyrics(MusicTrack track) async => null;
+
   Future<List<MusicPlaylist>> loadUserPlaylists() async => const <MusicPlaylist>[];
 
   Future<MusicPlaylist?> loadLikedPlaylist() async => null;

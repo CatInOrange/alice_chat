@@ -7,6 +7,7 @@ import '../../domain/music_runtime_models.dart';
 import 'music_source_provider.dart';
 
 class NeteaseMusicSourceProvider extends MusicSourceProvider {
+  final Map<String, MusicLyrics?> _lyricsCache = <String, MusicLyrics?>{};
   static const _userAgent =
       'Mozilla/5.0 (Linux; Android 14; AliceChat) AppleWebKit/537.36';
   static const _playlistPrefix = 'netease-playlist:';
@@ -81,6 +82,44 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
       }
     }
     return bestCandidate;
+  }
+
+  @override
+  Future<MusicLyrics?> loadLyrics(MusicTrack track) async {
+    final key = '${track.preferredSourceId ?? id}:${track.sourceTrackId ?? track.id}';
+    if (_lyricsCache.containsKey(key)) {
+      return _lyricsCache[key];
+    }
+    final candidate = await matchTrack(track);
+    final sourceTrackId =
+        candidate?.sourceTrackId.trim() ?? track.sourceTrackId?.trim() ?? '';
+    if (sourceTrackId.isEmpty) {
+      _lyricsCache[key] = null;
+      return null;
+    }
+    try {
+      final payload = await _getJson(
+        '/api/song/lyric',
+        query: <String, String>{'id': sourceTrackId, 'lv': '1', 'tv': '0'},
+        cookieHeader: _seedCookieHeader(
+          await OpenClawSettingsStore.loadMusicProviderCookie(id),
+        ),
+      );
+      final lyric = ((payload['lrc'] as Map?)?.cast<String, dynamic>() ??
+              const <String, dynamic>{})['lyric']
+          ?.toString() ??
+          '';
+      final translated = ((payload['tlyric'] as Map?)?.cast<String, dynamic>() ??
+              const <String, dynamic>{})['lyric']
+          ?.toString() ??
+          '';
+      final parsed = _parseLyrics(lyric, translated: translated);
+      _lyricsCache[key] = parsed;
+      return parsed;
+    } catch (_) {
+      _lyricsCache[key] = null;
+      return null;
+    }
   }
 
   @override
@@ -302,6 +341,62 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
       trackCount: trackCount,
       artworkTone: isLiked ? MusicArtworkTone.rose : _toneForSeed(rawId),
     );
+  }
+
+
+  MusicLyrics? _parseLyrics(String raw, {String translated = ''}) {
+    final lines = <MusicLyricsLine>[];
+    final text = raw.trim();
+    if (text.isEmpty) {
+      final plain = translated.trim();
+      return plain.isEmpty
+          ? null
+          : MusicLyrics(synced: false, plainText: plain);
+    }
+    final reg = RegExp(r'\[(\d{2}):(\d{2})(?:\.(\d{1,3}))?\]');
+    final translatedMap = <int, String>{};
+    for (final row in translated.split('\n')) {
+      final matches = reg.allMatches(row).toList(growable: false);
+      if (matches.isEmpty) continue;
+      final content = row.replaceAll(reg, '').trim();
+      if (content.isEmpty) continue;
+      for (final match in matches) {
+        final ts = _lyricTimestamp(match);
+        translatedMap[ts.inMilliseconds] = content;
+      }
+    }
+    for (final row in text.split('\n')) {
+      final matches = reg.allMatches(row).toList(growable: false);
+      if (matches.isEmpty) continue;
+      final content = row.replaceAll(reg, '').trim();
+      for (final match in matches) {
+        final ts = _lyricTimestamp(match);
+        final translatedText = translatedMap[ts.inMilliseconds]?.trim();
+        final merged = translatedText != null &&
+                translatedText.isNotEmpty &&
+                translatedText != content
+            ? '$content\n$translatedText'
+            : content;
+        lines.add(MusicLyricsLine(timestamp: ts, text: merged));
+      }
+    }
+    lines.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    if (lines.isEmpty) {
+      return MusicLyrics(synced: false, plainText: text);
+    }
+    return MusicLyrics(
+      synced: true,
+      lines: List<MusicLyricsLine>.unmodifiable(lines),
+      plainText: text,
+    );
+  }
+
+  Duration _lyricTimestamp(RegExpMatch match) {
+    final min = int.tryParse(match.group(1) ?? '0') ?? 0;
+    final sec = int.tryParse(match.group(2) ?? '0') ?? 0;
+    final fracRaw = (match.group(3) ?? '0').padRight(3, '0');
+    final ms = int.tryParse(fracRaw) ?? 0;
+    return Duration(minutes: min, seconds: sec, milliseconds: ms);
   }
 
   double _matchScore({

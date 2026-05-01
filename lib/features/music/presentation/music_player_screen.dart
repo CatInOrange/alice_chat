@@ -41,6 +41,8 @@ class MusicPlayerScreen extends StatelessWidget {
             : (store.position.inMilliseconds / totalDuration.inMilliseconds)
                 .clamp(0, 1)
                 .toDouble();
+        final currentLyric = store.currentLyricLine;
+        final nextLyric = store.nextLyricLine;
 
         return Scaffold(
           body: Container(
@@ -116,6 +118,13 @@ class MusicPlayerScreen extends StatelessWidget {
                                 track: currentTrack,
                                 isPlaying: store.isPlaying,
                                 isBuffering: store.isBuffering,
+                              ),
+                              const SizedBox(height: 20),
+                              _LyricsPreviewCard(
+                                currentLyric: currentLyric,
+                                nextLyric: nextLyric,
+                                isLoading: store.isLyricsLoading,
+                                onRetry: store.refreshCurrentLyrics,
                               ),
                               const SizedBox(height: 28),
                               GestureDetector(
@@ -418,6 +427,89 @@ Future<void> _showCreateAndCollectSheet(
       );
     },
   );
+}
+
+class _LyricsPreviewCard extends StatelessWidget {
+  const _LyricsPreviewCard({
+    required this.currentLyric,
+    required this.nextLyric,
+    required this.isLoading,
+    required this.onRetry,
+  });
+
+  final String? currentLyric;
+  final String? nextLyric;
+  final bool isLoading;
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hasCurrent = (currentLyric ?? '').trim().isNotEmpty;
+    final hasNext = (nextLyric ?? '').trim().isNotEmpty;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(28),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.62),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(
+                    '歌词',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (!isLoading)
+                    TextButton(
+                      onPressed: onRetry,
+                      child: const Text('刷新歌词'),
+                    ),
+                ],
+              ),
+              if (isLoading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: LinearProgressIndicator(minHeight: 3),
+                )
+              else if (!hasCurrent)
+                Text('这首歌暂时还没有可用歌词', style: theme.textTheme.bodyMedium)
+              else ...[
+                Text(
+                  currentLyric!.replaceAll('\n', ' · '),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    height: 1.45,
+                  ),
+                ),
+                if (hasNext) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    nextLyric!.replaceAll('\n', ' · '),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: Colors.black54,
+                      height: 1.45,
+                    ),
+                  ),
+                ],
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _DiscStage extends StatefulWidget {

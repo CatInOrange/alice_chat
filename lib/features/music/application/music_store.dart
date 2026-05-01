@@ -102,6 +102,10 @@ class MusicStore extends ChangeNotifier {
   String? _searchError;
   List<MusicTrack> _searchResults = const [];
   List<String> _recentSearches = const [];
+  final Map<String, MusicLyrics?> _lyricsCache = <String, MusicLyrics?>{};
+  MusicLyrics? _currentLyrics;
+  bool _isLyricsLoading = false;
+  String? _lyricsError;
   bool _isAdvancingQueue = false;
   bool _isLoadingPlaylist = false;
   String? _loadingPlaylistId;
@@ -148,6 +152,9 @@ class MusicStore extends ChangeNotifier {
   String? get searchError => _searchError;
   List<MusicTrack> get searchResults => _searchResults;
   List<String> get recentSearches => _recentSearches;
+  MusicLyrics? get currentLyrics => _currentLyrics;
+  bool get isLyricsLoading => _isLyricsLoading;
+  String? get lyricsError => _lyricsError;
   bool get isLoadingPlaylist => _isLoadingPlaylist;
   String? get loadingPlaylistId => _loadingPlaylistId;
   String? get currentPlaylistId => _currentPlaylistId;
@@ -175,6 +182,17 @@ class MusicStore extends ChangeNotifier {
       if (item.id == playlistId) return item;
     }
     return null;
+  }
+
+  String? get currentLyricLine => _currentLyrics?.lineAt(_position)?.text.trim();
+
+  String? get nextLyricLine => _currentLyrics?.nextLineAfter(_position)?.text.trim();
+
+  String get miniPlayerSubtitle {
+    final lyric = currentLyricLine;
+    if ((lyric ?? '').trim().isNotEmpty) return lyric!.replaceAll('\n', ' · ');
+    final fallback = '${_currentTrack.artist} · ${_currentTrack.album}'.trim();
+    return fallback.isEmpty ? currentPlaybackSourceLabel : fallback;
   }
 
   String get currentPlaybackSourceLabel {
@@ -291,6 +309,7 @@ class MusicStore extends ChangeNotifier {
       _currentTrack = _currentTrack.copyWith(
         isFavorite: isTrackLiked(_currentTrack.id),
       );
+      unawaited(_loadLyricsForTrack(_currentTrack, forceRefresh: false));
       _debugState('refresh.done', extra: {
         'hasLatestAiPlaylist': _latestAiPlaylist != null,
         'latestAiPlaylistId': _latestAiPlaylist?.id,
@@ -360,6 +379,7 @@ class MusicStore extends ChangeNotifier {
       _isPlaying = state.isPlaying && _queue.isNotEmpty;
       _position = state.position;
       _duration = state.currentTrack?.duration ?? _currentTrack.duration;
+      unawaited(_loadLyricsForTrack(_currentTrack, forceRefresh: false));
       _isReady = true;
     } catch (error) {
       _error = error.toString();
@@ -374,6 +394,7 @@ class MusicStore extends ChangeNotifier {
     _duration = track.duration;
     _isPlaying = autoplay;
     _currentPlaylistId = null;
+    unawaited(_loadLyricsForTrack(_currentTrack, forceRefresh: false));
     notifyListeners();
     if (autoplay) {
       await handleCommand(
@@ -1066,7 +1087,11 @@ class MusicStore extends ChangeNotifier {
   void _handlePlaybackState(PlaybackAdapterState state) {
     final track = state.currentTrack;
     if (track != null) {
+      final previousTrackId = _currentTrack.id;
       _currentTrack = track.copyWith(isFavorite: isTrackLiked(track.id));
+      if (_currentTrack.id != previousTrackId) {
+        unawaited(_loadLyricsForTrack(_currentTrack, forceRefresh: false));
+      }
     }
     _isPlaying = state.isPlaying;
     _isBuffering = state.isBuffering;
@@ -1375,6 +1400,58 @@ class MusicStore extends ChangeNotifier {
     }
     _duration = _currentTrack.duration;
     _error = null;
+    unawaited(_loadLyricsForTrack(_currentTrack, forceRefresh: false));
+  }
+
+  Future<void> refreshCurrentLyrics() async {
+    await _loadLyricsForTrack(_currentTrack, forceRefresh: true);
+  }
+
+  Future<void> _loadLyricsForTrack(MusicTrack track, {required bool forceRefresh}) async {
+    final cacheKey = _lyricsCacheKey(track);
+    if (cacheKey.isEmpty) {
+      _currentLyrics = null;
+      _lyricsError = null;
+      _isLyricsLoading = false;
+      notifyListeners();
+      return;
+    }
+    if (!forceRefresh && _lyricsCache.containsKey(cacheKey)) {
+      _currentLyrics = _lyricsCache[cacheKey];
+      _lyricsError = null;
+      _isLyricsLoading = false;
+      notifyListeners();
+      return;
+    }
+    _isLyricsLoading = true;
+    _lyricsError = null;
+    notifyListeners();
+    try {
+      final lyrics = await _repository.loadLyrics(track);
+      _lyricsCache[cacheKey] = lyrics;
+      if (_currentTrack.id == track.id) {
+        _currentLyrics = lyrics;
+      }
+    } catch (error) {
+      if (_currentTrack.id == track.id) {
+        _currentLyrics = null;
+        _lyricsError = error.toString();
+      }
+    } finally {
+      if (_currentTrack.id == track.id) {
+        _isLyricsLoading = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  String _lyricsCacheKey(MusicTrack track) {
+    final preferred = (track.preferredSourceId ?? track.cachedPlayback?.providerId ?? '').trim();
+    final sourceTrackId = (track.sourceTrackId ?? track.cachedPlayback?.sourceTrackId ?? '').trim();
+    if (preferred.isEmpty && sourceTrackId.isEmpty) {
+      return track.id.trim();
+    }
+    return '$preferred::$sourceTrackId';
   }
 
   String _friendlyPlaylistLoadError(Object error, MusicPlaylist playlist) {

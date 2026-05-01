@@ -2,6 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../../domain/music_models.dart';
 
+String? effectiveArtworkUrl(MusicTrack track) {
+  final cached = (track.cachedPlayback?.artworkUrl ?? '').trim();
+  if (cached.isNotEmpty) return cached;
+  final direct = (track.artworkUrl ?? '').trim();
+  if (direct.isNotEmpty) return direct;
+  return null;
+}
+
 class MusicArtworkPalette {
   const MusicArtworkPalette({
     required this.gradient,
@@ -75,6 +83,7 @@ class MusicArtwork extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = paletteForTone(track.artworkTone);
     final borderRadius = BorderRadius.circular(circular ? size / 2 : 28);
+    final artworkUrl = effectiveArtworkUrl(track);
     final body = Container(
       width: size,
       height: size,
@@ -94,63 +103,91 @@ class MusicArtwork extends StatelessWidget {
           ),
         ],
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: Padding(
-          padding: EdgeInsets.all(circular ? size * 0.16 : 18),
-          child: Column(
-            crossAxisAlignment: circular
-                ? CrossAxisAlignment.center
-                : CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Container(
-                width: circular ? size * 0.24 : 44,
-                height: circular ? size * 0.24 : 44,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.18),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  palette.icon,
-                  color: Colors.white,
-                  size: circular ? size * 0.11 : 22,
+      child: ClipRRect(
+        borderRadius: borderRadius,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (artworkUrl != null)
+              Image.network(
+                artworkUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              ),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: artworkUrl == null
+                      ? palette.gradient
+                      : [
+                          Colors.black.withValues(alpha: showMeta ? 0.12 : 0.02),
+                          Colors.black.withValues(alpha: showMeta ? 0.34 : 0.08),
+                        ],
                 ),
               ),
-              if (showMeta)
-                Column(
-                  crossAxisAlignment: circular
-                      ? CrossAxisAlignment.center
-                      : CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      track.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: circular ? TextAlign.center : TextAlign.start,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: circular ? size * 0.08 : 18,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.2,
+              child: Material(
+                color: Colors.transparent,
+                child: Padding(
+                  padding: EdgeInsets.all(circular ? size * 0.16 : 18),
+                  child: Column(
+                    crossAxisAlignment: circular
+                        ? CrossAxisAlignment.center
+                        : CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Container(
+                        width: circular ? size * 0.24 : 44,
+                        height: circular ? size * 0.24 : 44,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: artworkUrl == null ? 0.18 : 0.24),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          palette.icon,
+                          color: Colors.white,
+                          size: circular ? size * 0.11 : 22,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      track.artist,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: circular ? TextAlign.center : TextAlign.start,
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.84),
-                        fontSize: circular ? size * 0.042 : 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
+                      if (showMeta)
+                        Column(
+                          crossAxisAlignment: circular
+                              ? CrossAxisAlignment.center
+                              : CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              track.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: circular ? TextAlign.center : TextAlign.start,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: circular ? size * 0.08 : 18,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.2,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              track.artist,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: circular ? TextAlign.center : TextAlign.start,
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.84),
+                                fontSize: circular ? size * 0.042 : 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
                 ),
-            ],
-          ),
+              ),
+            ),
+          ],
         ),
       ),
     );

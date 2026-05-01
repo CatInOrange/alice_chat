@@ -201,6 +201,72 @@ class MusicTrack {
   }
 }
 
+class MusicLyricsLine {
+  const MusicLyricsLine({
+    required this.timestamp,
+    required this.text,
+  });
+
+  final Duration timestamp;
+  final String text;
+
+  Map<String, dynamic> toMap() {
+    return {
+      'timestampMs': timestamp.inMilliseconds,
+      'text': text,
+    };
+  }
+
+  factory MusicLyricsLine.fromMap(Map<String, dynamic> map) {
+    final raw = map['timestampMs'] ?? 0;
+    return MusicLyricsLine(
+      timestamp: Duration(
+        milliseconds: raw is num ? raw.toInt() : int.tryParse('$raw') ?? 0,
+      ),
+      text: (map['text'] ?? '').toString(),
+    );
+  }
+}
+
+class MusicLyrics {
+  const MusicLyrics({
+    this.synced = false,
+    this.lines = const [],
+    this.plainText,
+  });
+
+  final bool synced;
+  final List<MusicLyricsLine> lines;
+  final String? plainText;
+
+  bool get hasContent =>
+      lines.any((line) => line.text.trim().isNotEmpty) ||
+      (plainText ?? '').trim().isNotEmpty;
+
+  MusicLyricsLine? lineAt(Duration position) {
+    MusicLyricsLine? current;
+    for (final line in lines) {
+      if (line.timestamp > position) break;
+      if (line.text.trim().isNotEmpty) {
+        current = line;
+      }
+    }
+    if (current != null) return current;
+    final plain = (plainText ?? '').trim();
+    if (plain.isEmpty) return null;
+    return MusicLyricsLine(timestamp: Duration.zero, text: plain.split('\n').first.trim());
+  }
+
+  MusicLyricsLine? nextLineAfter(Duration position) {
+    for (final line in lines) {
+      if (line.timestamp > position && line.text.trim().isNotEmpty) {
+        return line;
+      }
+    }
+    return null;
+  }
+}
+
 class MusicPlaylist {
   const MusicPlaylist({
     required this.id,

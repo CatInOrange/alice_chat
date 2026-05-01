@@ -275,6 +275,22 @@ class MusicRepositoryImpl implements MusicRepository {
   }
 
   @override
+  Future<MusicLyrics?> loadLyrics(MusicTrack track) async {
+    final provider = _providerForTrack(track);
+    if (provider == null) return null;
+    try {
+      return await provider.loadLyrics(track);
+    } catch (error) {
+      await _debugLog('repository.loadLyrics.error', {
+        'providerId': provider.id,
+        'trackId': track.id,
+        'error': error.toString(),
+      });
+      return null;
+    }
+  }
+
+  @override
   Future<List<MusicTrack>> loadPlaylistTracks(MusicPlaylist playlist) async {
     final providerId = _providerIdForPlaylist(playlist.id);
     if (playlist.id == 'liked-local') {

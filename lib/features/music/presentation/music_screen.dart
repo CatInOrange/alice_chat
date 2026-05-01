@@ -402,6 +402,7 @@ class _MusicScreenState extends State<MusicScreen>
         final latestAiPlaylist = store.latestAiPlaylist;
         final aiPlaylistHistory = store.aiPlaylistHistory;
         final currentPlaybackSourceLabel = store.currentPlaybackSourceLabel;
+        final miniSubtitle = store.miniPlayerSubtitle;
         final latestAiPlaylistActionPending = latestAiPlaylist != null &&
             _isPlaylistActionPending(latestAiPlaylist.id);
 
@@ -582,7 +583,7 @@ class _MusicScreenState extends State<MusicScreen>
                   bottom: 16,
                   child: _MiniPlayer(
                     track: currentTrack,
-                    sourceLabel: currentPlaybackSourceLabel,
+                    sourceLabel: miniSubtitle,
                     isPlaying: isPlaying,
                     onTap: () => _openPlayer(store),
                     onPlayPause: store.togglePlayPause,
@@ -686,17 +687,10 @@ class _MusicHeroCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final palette = paletteForTone(track.artworkTone);
+    final artworkUrl = effectiveArtworkUrl(track);
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(36),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            palette.gradient.first,
-            Color.lerp(palette.gradient.last, Colors.black, 0.12)!,
-          ],
-        ),
         boxShadow: [
           BoxShadow(
             color: palette.glowColor.withValues(alpha: 0.82),
@@ -705,181 +699,221 @@ class _MusicHeroCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(36),
-          onTap: onDetailTap ?? onPlayTap,
-          child: Padding(
-            padding: const EdgeInsets.all(22),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 7,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.16),
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.16),
-                              ),
-                            ),
-                            child: Text(
-                              badgeLabel,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.4,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            title,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: Colors.white.withValues(alpha: 0.78),
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 0.4,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            headline,
-                            style: theme.textTheme.titleLarge?.copyWith(
-                              color: Colors.white,
-                              fontSize: 24,
-                              height: 1.2,
-                            ),
-                          ),
-                          if ((subtitle ?? '').trim().isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            Text(
-                              subtitle!,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: Colors.white.withValues(alpha: 0.9),
-                              ),
-                            ),
-                          ],
-                          if ((timestampLabel ?? '').trim().isNotEmpty) ...[
-                            const SizedBox(height: 8),
-                            Text(
-                              timestampLabel!,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: Colors.white.withValues(alpha: 0.74),
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 10),
-                          Text(
-                            description,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: Colors.white.withValues(alpha: 0.82),
-                              height: 1.5,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    MusicArtwork(
-                      track: track,
-                      size: 108,
-                      heroTag: 'music-artwork-${track.id}',
-                    ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(36),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (artworkUrl != null)
+              Image.network(
+                artworkUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              ),
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color.lerp(
+                      palette.gradient.first,
+                      Colors.black,
+                      artworkUrl == null ? 0.08 : 0.28,
+                    )!,
+                    Color.lerp(
+                      palette.gradient.last,
+                      Colors.black,
+                      artworkUrl == null ? 0.12 : 0.46,
+                    )!,
                   ],
                 ),
-                const SizedBox(height: 22),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.12),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
+              ),
+            ),
+            BackdropFilter(
+              filter: ImageFilter.blur(
+                sigmaX: artworkUrl == null ? 0 : 18,
+                sigmaY: artworkUrl == null ? 0 : 18,
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(36),
+                  onTap: onDetailTap ?? onPlayTap,
+                  child: Padding(
+                    padding: const EdgeInsets.all(22),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              track.title,
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                color: Colors.white,
-                                fontSize: 18,
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 7,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.16),
+                                      borderRadius: BorderRadius.circular(999),
+                                      border: Border.all(
+                                        color: Colors.white.withValues(alpha: 0.16),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      badgeLabel,
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 0.4,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    title,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: Colors.white.withValues(alpha: 0.78),
+                                      fontWeight: FontWeight.w700,
+                                      letterSpacing: 0.4,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    headline,
+                                    style: theme.textTheme.titleLarge?.copyWith(
+                                      color: Colors.white,
+                                      fontSize: 24,
+                                      height: 1.2,
+                                    ),
+                                  ),
+                                  if ((subtitle ?? '').trim().isNotEmpty) ...[
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      subtitle!,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                        color: Colors.white.withValues(alpha: 0.9),
+                                      ),
+                                    ),
+                                  ],
+                                  if ((timestampLabel ?? '').trim().isNotEmpty) ...[
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      timestampLabel!,
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: Colors.white.withValues(alpha: 0.74),
+                                      ),
+                                    ),
+                                  ],
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    description,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: Colors.white.withValues(alpha: 0.82),
+                                      height: 1.5,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            const SizedBox(height: 6),
-                            Text(
-                              '${track.artist} · ${track.album}',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: Colors.white.withValues(alpha: 0.78),
-                              ),
+                            const SizedBox(width: 14),
+                            MusicArtwork(
+                              track: track,
+                              size: 108,
+                              heroTag: 'music-artwork-${track.id}',
                             ),
                           ],
                         ),
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          FilledButton.tonalIcon(
-                            onPressed: isBusy ? null : onPlayTap,
-                            style: FilledButton.styleFrom(
-                              backgroundColor: Colors.white,
-                              foregroundColor: palette.gradient.first,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 18,
-                                vertical: 14,
-                              ),
+                        const SizedBox(height: 22),
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.12),
                             ),
-                            icon: isBusy
-                                ? SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        palette.gradient.first,
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      track.title,
+                                      style: theme.textTheme.titleMedium?.copyWith(
+                                        color: Colors.white,
+                                        fontSize: 18,
                                       ),
                                     ),
-                                  )
-                                : const Icon(Icons.play_arrow_rounded),
-                            label: Text(isBusy ? '处理中...' : buttonLabel),
-                          ),
-                          if (onDetailTap != null) ...[
-                            const SizedBox(height: 8),
-                            TextButton(
-                              onPressed: isBusy ? null : onDetailTap,
-                              style: TextButton.styleFrom(
-                                foregroundColor: Colors.white,
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      '${track.artist} · ${track.album}',
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: Colors.white.withValues(alpha: 0.78),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                              child: const Text('查看歌单'),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ],
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  FilledButton.tonalIcon(
+                                    onPressed: isBusy ? null : onPlayTap,
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: Colors.white,
+                                      foregroundColor: palette.gradient.first,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 18,
+                                        vertical: 14,
+                                      ),
+                                    ),
+                                    icon: isBusy
+                                        ? SizedBox(
+                                            width: 18,
+                                            height: 18,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              valueColor: AlwaysStoppedAnimation<Color>(
+                                                palette.gradient.first,
+                                              ),
+                                            ),
+                                          )
+                                        : const Icon(Icons.play_arrow_rounded),
+                                    label: Text(isBusy ? '处理中...' : buttonLabel),
+                                  ),
+                                  if (onDetailTap != null) ...[
+                                    const SizedBox(height: 8),
+                                    TextButton(
+                                      onPressed: isBusy ? null : onDetailTap,
+                                      style: TextButton.styleFrom(
+                                        foregroundColor: Colors.white,
+                                      ),
+                                      child: const Text('查看歌单'),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
