@@ -28,10 +28,11 @@ class _MusicScreenState extends State<MusicScreen>
   @override
   bool get wantKeepAlive => true;
 
-  void _openPlayer(MusicStore store, [MusicTrack? track]) {
+  Future<void> _openPlayer(MusicStore store, [MusicTrack? track]) async {
     if (track != null) {
-      store.selectTrack(track, autoplay: false);
+      await store.selectTrack(track, autoplay: true);
     }
+    if (!mounted) return;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => MusicPlayerScreen(
@@ -109,7 +110,7 @@ class _MusicScreenState extends State<MusicScreen>
                         await _openPlaylist(store, latestAiPlaylist.asPlaylist);
                         return;
                       }
-                      _openPlayer(store, store.heroTrack);
+                      await _openPlayer(store, store.heroTrack);
                     },
                   ),
                   const SizedBox(height: 24),
@@ -127,7 +128,7 @@ class _MusicScreenState extends State<MusicScreen>
                     subtitle: '“我喜欢”是 AliceChat 本地维护收藏，其他平台歌单并列展示',
                     actionLabel: '刷新',
                     onActionTap: () {
-                      store.ensureReady();
+                      store.refreshLibrary();
                     },
                   ),
                   const SizedBox(height: 14),
@@ -141,7 +142,7 @@ class _MusicScreenState extends State<MusicScreen>
                     subtitle: '按歌单回到你最近听过的氛围',
                     actionLabel: '刷新',
                     onActionTap: () {
-                      store.ensureReady();
+                      store.refreshLibrary();
                     },
                   ),
                   const SizedBox(height: 14),

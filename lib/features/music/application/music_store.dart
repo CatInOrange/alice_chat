@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../core/debug/native_debug_bridge.dart';
 import '../../../core/openclaw/openclaw_client.dart';
 import '../../../core/openclaw/openclaw_config.dart';
 import '../../../core/openclaw/openclaw_http_client.dart';
@@ -93,6 +94,7 @@ class MusicStore extends ChangeNotifier {
   bool _isLoadingPlaylist = false;
   bool _shuffleEnabled = false;
   MusicRepeatMode _repeatMode = MusicRepeatMode.off;
+  final Map<String, DateTime> _lastDebugLogAt = <String, DateTime>{};
 
   bool get isReady => _isReady;
   bool get isLoading => _isLoading;
@@ -161,6 +163,51 @@ class MusicStore extends ChangeNotifier {
       if (identical(_ensureReadyTask, task)) {
         _ensureReadyTask = null;
       }
+    }
+  }
+
+  Future<void> refreshLibrary() async {
+    await _configReady;
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+    _debugState('refresh.start', extra: {
+      'hasLatestAiPlaylist': _latestAiPlaylist != null,
+      'playlistCount': _playlists.length,
+      'likedCount': _likedTracks.length,
+    });
+    try {
+      final state = await _repository.loadMusicState();
+      _likedTracks = List<MusicTrack>.unmodifiable(state.likedTracks);
+      _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
+      _recentPlaylists = List<MusicPlaylist>.unmodifiable(state.playlists.take(6));
+      _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
+      final remotePlaylists = await _repository.loadUserPlaylists();
+      final basePlaylists = remotePlaylists.isNotEmpty
+          ? remotePlaylists
+          : _playlists.where(
+              (item) => item.id != likedPlaylist.id && item.id != _latestAiPlaylist?.id,
+            ).toList(growable: false);
+      _rebuildPlaylists(basePlaylists: basePlaylists);
+      _currentTrack = _currentTrack.copyWith(
+        isFavorite: isTrackLiked(_currentTrack.id),
+      );
+      _debugState('refresh.done', extra: {
+        'hasLatestAiPlaylist': _latestAiPlaylist != null,
+        'latestAiPlaylistId': _latestAiPlaylist?.id,
+        'latestAiTrackCount': _latestAiPlaylist?.tracks.length ?? 0,
+        'playlistCount': _playlists.length,
+        'likedCount': _likedTracks.length,
+      }, force: true);
+    } catch (error) {
+      _error = '刷新歌单失败，请稍后再试';
+      _debugState('refresh.error', extra: {
+        'error': error.toString(),
+      }, force: true, level: 'ERROR');
+      rethrow;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
   }
 
@@ -233,8 +280,20 @@ class MusicStore extends ChangeNotifier {
     _isLoadingPlaylist = true;
     _error = null;
     notifyListeners();
+    _debugState('playlist.open.start', extra: {
+      'playlistId': playlist.id,
+      'playlistTitle': playlist.title,
+    });
     try {
       final tracks = await _repository.loadPlaylistTracks(playlist);
+      _debugState('playlist.open.loaded', extra: {
+        'playlistId': playlist.id,
+        'playlistTitle': playlist.title,
+        'trackCount': tracks.length,
+        'firstTrack': tracks.isEmpty ? null : '${tracks.first.title} - ${tracks.first.artist}',
+        'firstPreferredSourceId': tracks.isEmpty ? null : tracks.first.preferredSourceId,
+        'firstSourceTrackId': tracks.isEmpty ? null : tracks.first.sourceTrackId,
+      });
       if (tracks.isEmpty) {
         throw StateError('这个歌单暂时没有可播放的歌曲');
       }
@@ -251,8 +310,23 @@ class MusicStore extends ChangeNotifier {
               .toList(growable: false),
         ),
       );
+      _debugState('playlist.open.playing', extra: {
+        'playlistId': playlist.id,
+        'currentTrackId': _currentTrack.id,
+        'currentTrackTitle': _currentTrack.title,
+        'isPlaying': _isPlaying,
+        'queueLength': _queue.length,
+      }, force: true);
     } catch (error) {
       _error = _friendlyPlaybackError(error, fallback: '加载歌单失败，请稍后再试');
+      _debugState('playlist.open.error', extra: {
+        'playlistId': playlist.id,
+        'playlistTitle': playlist.title,
+        'error': error.toString(),
+        'friendlyError': _error,
+        'currentTrackId': _currentTrack.id,
+        'queueLength': _queue.length,
+      }, force: true, level: 'ERROR');
       notifyListeners();
       rethrow;
     } finally {
@@ -621,8 +695,15 @@ class MusicStore extends ChangeNotifier {
           (item) => item.id != likedPlaylist.id && item.id != _latestAiPlaylist?.id,
         ),
       ]);
+      _debugState('ai_playlist.refresh', extra: {
+        'latestAiPlaylistId': _latestAiPlaylist?.id,
+        'latestAiTrackCount': _latestAiPlaylist?.tracks.length ?? 0,
+      }, force: true);
       notifyListeners();
-    } catch (_) {
+    } catch (error) {
+      _debugState('ai_playlist.refresh.error', extra: {
+        'error': error.toString(),
+      }, force: true, level: 'ERROR');
       // ignore refresh failures; keep previous hero card
     }
   }
@@ -712,6 +793,13 @@ class MusicStore extends ChangeNotifier {
     if (cached != null &&
         cached.streamUrl.trim().isNotEmpty &&
         !cached.isExpired) {
+      _debugState('playback.prepare.cached', extra: {
+        'trackId': track.id,
+        'title': track.title,
+        'artist': track.artist,
+        'providerId': cached.providerId,
+        'sourceTrackId': cached.sourceTrackId,
+      });
       return PlaybackQueueItem(
         track: track.copyWith(
           preferredSourceId: track.preferredSourceId ?? cached.providerId,
@@ -730,12 +818,32 @@ class MusicStore extends ChangeNotifier {
       );
     }
 
-    final resolved = await _repository.resolveTrack(track, allowFallback: false);
-    return resolved.copyWith(
-      track: resolved.track.copyWith(
-        isFavorite: isTrackLiked(resolved.track.id),
-      ),
-    );
+    try {
+      final resolved = await _repository.resolveTrack(track, allowFallback: false);
+      _debugState('playback.prepare.resolved', extra: {
+        'trackId': track.id,
+        'title': track.title,
+        'artist': track.artist,
+        'preferredSourceId': resolved.track.preferredSourceId,
+        'sourceTrackId': resolved.track.sourceTrackId,
+        'resolvedProviderId': resolved.resolvedSource?.providerId,
+      });
+      return resolved.copyWith(
+        track: resolved.track.copyWith(
+          isFavorite: isTrackLiked(resolved.track.id),
+        ),
+      );
+    } catch (error) {
+      _debugState('playback.prepare.error', extra: {
+        'trackId': track.id,
+        'title': track.title,
+        'artist': track.artist,
+        'preferredSourceId': track.preferredSourceId,
+        'sourceTrackId': track.sourceTrackId,
+        'error': error.toString(),
+      }, force: true, level: 'ERROR');
+      rethrow;
+    }
   }
 
   Future<void> playQueueIndex(int index) async {
@@ -868,6 +976,37 @@ class MusicStore extends ChangeNotifier {
       return fallback ?? '播放失败，已尝试重新解析音源但仍未成功';
     }
     return fallback ?? raw.replaceFirst('Exception: ', '').replaceFirst('Bad state: ', '');
+  }
+
+  void _debugState(
+    String tag, {
+    Map<String, dynamic>? extra,
+    bool force = false,
+    String level = 'INFO',
+  }) {
+    final now = DateTime.now();
+    final lastAt = _lastDebugLogAt[tag];
+    if (!force && lastAt != null && now.difference(lastAt).inMilliseconds < 250) {
+      return;
+    }
+    _lastDebugLogAt[tag] = now;
+    final payload = <String, dynamic>{
+      'tag': 'music.$tag',
+      'ts': now.toIso8601String(),
+      'currentTrackId': _currentTrack.id,
+      'currentTrackTitle': _currentTrack.title,
+      'currentTrackArtist': _currentTrack.artist,
+      'queueLength': _queue.length,
+      'isPlaying': _isPlaying,
+      'isBuffering': _isBuffering,
+      'isLoading': _isLoading,
+      'isLoadingPlaylist': _isLoadingPlaylist,
+      'latestAiPlaylistId': _latestAiPlaylist?.id,
+      if (extra != null) ...extra,
+    };
+    final message = payload.entries.map((e) => '${e.key}=${e.value}').join(' | ');
+    unawaited(NativeDebugBridge.instance.log('music', message, level: level));
+    unawaited(_client.sendClientDebugLog(payload));
   }
 
   @override
