@@ -112,6 +112,9 @@ class MusicArtwork extends StatelessWidget {
               Image.network(
                 artworkUrl,
                 fit: BoxFit.cover,
+                cacheWidth: (size * 3).round(),
+                cacheHeight: (size * 3).round(),
+                filterQuality: FilterQuality.medium,
                 errorBuilder: (_, __, ___) => const SizedBox.shrink(),
               ),
             DecoratedBox(

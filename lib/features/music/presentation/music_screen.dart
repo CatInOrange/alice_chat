@@ -708,6 +708,9 @@ class _MusicHeroCard extends StatelessWidget {
               Image.network(
                 artworkUrl,
                 fit: BoxFit.cover,
+                cacheWidth: 1200,
+                cacheHeight: 1200,
+                filterQuality: FilterQuality.medium,
                 errorBuilder: (_, __, ___) => const SizedBox.shrink(),
               ),
             Container(
@@ -828,7 +831,6 @@ class _MusicHeroCard extends StatelessWidget {
                             MusicArtwork(
                               track: track,
                               size: 108,
-                              heroTag: 'music-artwork-${track.id}',
                             ),
                           ],
                         ),
