@@ -687,10 +687,17 @@ class _MusicHeroCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final palette = paletteForTone(track.artworkTone);
-    final artworkUrl = effectiveArtworkUrl(track);
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(36),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            palette.gradient.first,
+            Color.lerp(palette.gradient.last, Colors.black, 0.12)!,
+          ],
+        ),
         boxShadow: [
           BoxShadow(
             color: palette.glowColor.withValues(alpha: 0.82),
@@ -699,55 +706,16 @@ class _MusicHeroCard extends StatelessWidget {
           ),
         ],
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(36),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (artworkUrl != null)
-              Image.network(
-                artworkUrl,
-                fit: BoxFit.cover,
-                cacheWidth: 1200,
-                cacheHeight: 1200,
-                filterQuality: FilterQuality.medium,
-                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-              ),
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color.lerp(
-                      palette.gradient.first,
-                      Colors.black,
-                      artworkUrl == null ? 0.08 : 0.28,
-                    )!,
-                    Color.lerp(
-                      palette.gradient.last,
-                      Colors.black,
-                      artworkUrl == null ? 0.12 : 0.46,
-                    )!,
-                  ],
-                ),
-              ),
-            ),
-            BackdropFilter(
-              filter: ImageFilter.blur(
-                sigmaX: artworkUrl == null ? 0 : 18,
-                sigmaY: artworkUrl == null ? 0 : 18,
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(36),
-                  onTap: onDetailTap ?? onPlayTap,
-                  child: Padding(
-                    padding: const EdgeInsets.all(22),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(36),
+          onTap: onDetailTap ?? onPlayTap,
+          child: Padding(
+            padding: const EdgeInsets.all(22),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -909,13 +877,9 @@ class _MusicHeroCard extends StatelessWidget {
                             ],
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
