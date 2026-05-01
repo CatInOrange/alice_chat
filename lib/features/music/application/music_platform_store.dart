@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import '../../../core/openclaw/music_provider_models.dart';
 import '../../../core/openclaw/openclaw_client.dart';
@@ -75,7 +75,7 @@ class MusicPlatformQrLoginState {
   bool get canRenderQr => (qrData ?? '').trim().isNotEmpty;
 }
 
-class MusicPlatformStore extends ChangeNotifier {
+class MusicPlatformStore extends ChangeNotifier with WidgetsBindingObserver {
   MusicPlatformStore({OpenClawClient? client})
     : _client =
           client ??
@@ -89,7 +89,9 @@ class MusicPlatformStore extends ChangeNotifier {
               bridgeUrl:
                   'ws://127.0.0.1:18791?token=yuanzhe-7611681-668128-zheyuan-012345',
             ),
-          );
+          ) {
+    WidgetsBinding.instance.addObserver(this);
+  }
 
   OpenClawClient _client;
   bool _isLoading = false;
@@ -101,6 +103,11 @@ class MusicPlatformStore extends ChangeNotifier {
   final Map<String, Timer> _qrPollTimers = <String, Timer>{};
   final Map<String, _NeteaseQrSession> _qrSessions =
       <String, _NeteaseQrSession>{};
+  final Map<String, int> _qrPollFailureCounts = <String, int>{};
+  final Set<String> _qrPollInFlight = <String>{};
+  bool _appInForeground = true;
+
+  static const int _maxQrTransientFailures = 3;
 
   bool get isLoading => _isLoading;
   bool get isReady => _isReady;
@@ -200,6 +207,8 @@ class MusicPlatformStore extends ChangeNotifier {
     }
 
     await closeQrLogin(providerId, clearState: true);
+    _qrPollFailureCounts.remove(providerId);
+    _qrPollInFlight.remove(providerId);
     _setQrState(
       MusicPlatformQrLoginState(
         providerId: providerId,
@@ -224,6 +233,7 @@ class MusicPlatformStore extends ChangeNotifier {
         ),
       );
       _startQrPolling(providerId);
+      unawaited(_pollQrLogin(providerId));
     } catch (error) {
       _setQrState(
         MusicPlatformQrLoginState(
@@ -244,6 +254,8 @@ class MusicPlatformStore extends ChangeNotifier {
   }) async {
     _qrPollTimers.remove(providerId)?.cancel();
     _qrSessions.remove(providerId);
+    _qrPollFailureCounts.remove(providerId);
+    _qrPollInFlight.remove(providerId);
     if (clearState) {
       final nextStates = Map<String, MusicPlatformQrLoginState>.from(_qrStates);
       nextStates.remove(providerId);
@@ -392,12 +404,15 @@ class MusicPlatformStore extends ChangeNotifier {
     final session = _qrSessions[providerId];
     final state = _qrStates[providerId];
     if (session == null || state == null) return;
+    if (!_appInForeground) return;
+    if (_qrPollInFlight.contains(providerId)) return;
     if (state.phase == MusicPlatformQrLoginPhase.authorized ||
         state.phase == MusicPlatformQrLoginPhase.expired ||
         state.phase == MusicPlatformQrLoginPhase.failed) {
       return;
     }
 
+    _qrPollInFlight.add(providerId);
     try {
       final response = await _neteaseGet(
         '/api/login/qrcode/client/login',
@@ -410,6 +425,7 @@ class MusicPlatformStore extends ChangeNotifier {
       session.cookieJar
         ..clear()
         ..addAll(response.cookieJar);
+      _qrPollFailureCounts.remove(providerId);
       final payload = _decodeJsonMap(response.body);
       final code = int.tryParse((payload['code'] ?? '').toString()) ?? -1;
       switch (code) {
@@ -419,7 +435,7 @@ class MusicPlatformStore extends ChangeNotifier {
               providerId: providerId,
               phase: MusicPlatformQrLoginPhase.waitingScan,
               statusLabel: '待扫码',
-              detail: '二维码已生成，请用网易云音乐 App 扫码。',
+              detail: '二维码已生成，请用网易云音乐 App 扫码。扫码时就算临时切出 AliceChat，回来后也会继续轮询。',
               qrData: state.qrData,
               unikey: session.unikey,
             ),
@@ -431,7 +447,7 @@ class MusicPlatformStore extends ChangeNotifier {
               providerId: providerId,
               phase: MusicPlatformQrLoginPhase.waitingConfirm,
               statusLabel: '待确认',
-              detail: '已经扫码，请在手机上确认登录。',
+              detail: '已经扫码，请在手机上确认登录。若刚才切到网易云完成确认，回到 AliceChat 后会自动继续检查结果。',
               qrData: state.qrData,
               unikey: session.unikey,
             ),
@@ -487,6 +503,22 @@ class MusicPlatformStore extends ChangeNotifier {
           await closeQrLogin(providerId);
       }
     } catch (error) {
+      final failures = (_qrPollFailureCounts[providerId] ?? 0) + 1;
+      _qrPollFailureCounts[providerId] = failures;
+      if (!_appInForeground || failures < _maxQrTransientFailures) {
+        _setQrState(
+          MusicPlatformQrLoginState(
+            providerId: providerId,
+            phase: state.phase,
+            statusLabel: state.statusLabel,
+            detail:
+                '${state.detail}\n\n轮询刚才短暂中断，正在自动重试（$failures/$_maxQrTransientFailures）。如果你刚切到网易云扫码，这是预期现象。',
+            qrData: state.qrData,
+            unikey: session.unikey,
+          ),
+        );
+        return;
+      }
       _setQrState(
         MusicPlatformQrLoginState(
           providerId: providerId,
@@ -498,6 +530,8 @@ class MusicPlatformStore extends ChangeNotifier {
         ),
       );
       await closeQrLogin(providerId);
+    } finally {
+      _qrPollInFlight.remove(providerId);
     }
   }
 
@@ -657,7 +691,27 @@ class MusicPlatformStore extends ChangeNotifier {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final nextForeground = state == AppLifecycleState.resumed;
+    final resumedNow = !_appInForeground && nextForeground;
+    _appInForeground = nextForeground;
+    if (!resumedNow) {
+      return;
+    }
+    for (final entry in _qrStates.entries) {
+      final phase = entry.value.phase;
+      if (phase == MusicPlatformQrLoginPhase.waitingScan ||
+          phase == MusicPlatformQrLoginPhase.waitingConfirm ||
+          phase == MusicPlatformQrLoginPhase.preparing) {
+        _startQrPolling(entry.key);
+        unawaited(_pollQrLogin(entry.key));
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     for (final timer in _qrPollTimers.values) {
       timer.cancel();
     }
