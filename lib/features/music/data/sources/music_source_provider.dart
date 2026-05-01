@@ -16,4 +16,6 @@ abstract class MusicSourceProvider {
 
   Future<List<MusicTrack>> loadPlaylistTracks(String playlistId) async =>
       const <MusicTrack>[];
+
+  Future<bool> setTrackLiked(MusicTrack track, bool liked) async => false;
 }

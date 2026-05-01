@@ -1,8 +1,10 @@
+import '../../../core/debug/native_debug_bridge.dart';
 import '../../../core/openclaw/openclaw_client.dart';
 import '../application/music_store.dart';
 import '../domain/music_models.dart';
 import '../domain/music_runtime_models.dart';
 import 'music_repository.dart';
+import 'sources/music_source_provider.dart';
 import 'sources/music_source_resolver.dart';
 import 'sources/music_source_resolver_impl.dart';
 
@@ -54,6 +56,15 @@ class MusicRepositoryImpl implements MusicRepository {
             ),
           )
           .toList(growable: false);
+      final recentPlaylists = ((response['recentPlaylists'] as List<dynamic>?) ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) => MusicPlaylist.fromMap(
+              Map<String, dynamic>.from(item.cast<String, dynamic>()),
+            ),
+          )
+          .toList(growable: false);
+      final currentPlaylistId = (response['currentPlaylistId'] ?? '').toString().trim();
       final positionMsRaw = response['positionMs'] ?? 0;
       return MusicStateSnapshot(
         currentTrack:
@@ -62,6 +73,8 @@ class MusicRepositoryImpl implements MusicRepository {
         playlists: playlists,
         recentTracks: recentTracks,
         likedTracks: likedTracks,
+        recentPlaylists: recentPlaylists,
+        currentPlaylistId: currentPlaylistId.isEmpty ? null : currentPlaylistId,
         isPlaying: response['isPlaying'] == true,
         position: Duration(
           milliseconds: positionMsRaw is num
@@ -84,10 +97,25 @@ class MusicRepositoryImpl implements MusicRepository {
 
   @override
   Future<List<MusicPlaylist>> loadUserPlaylists() async {
-    final netease = (_resolver as MusicSourceResolverImpl).registry.providerById(
-      'netease',
-    );
-    return netease?.loadUserPlaylists() ?? const <MusicPlaylist>[];
+    final registry = (_resolver as MusicSourceResolverImpl).registry;
+    final results = <MusicPlaylist>[];
+    final seen = <String>{};
+    for (final provider in registry.providers) {
+      try {
+        final playlists = await provider.loadUserPlaylists();
+        for (final playlist in playlists) {
+          if (seen.add(playlist.id)) {
+            results.add(playlist);
+          }
+        }
+      } catch (error) {
+        await _debugLog('repository.loadUserPlaylists.error', {
+          'providerId': provider.id,
+          'error': error.toString(),
+        });
+      }
+    }
+    return results;
   }
 
   @override
@@ -157,13 +185,32 @@ class MusicRepositoryImpl implements MusicRepository {
         'likedTracks': filtered.map((item) => item.toMap()).toList(),
       },
     );
+
+    final provider = _providerForTrack(track);
+    if (provider == null) {
+      return;
+    }
+    try {
+      final synced = await provider.setTrackLiked(track, liked);
+      await _debugLog('repository.setTrackLiked.sync', {
+        'providerId': provider.id,
+        'trackId': track.id,
+        'liked': liked,
+        'synced': synced,
+      });
+    } catch (error) {
+      await _debugLog('repository.setTrackLiked.sync.error', {
+        'providerId': provider.id,
+        'trackId': track.id,
+        'liked': liked,
+        'error': error.toString(),
+      });
+    }
   }
 
   @override
   Future<List<MusicTrack>> loadPlaylistTracks(MusicPlaylist playlist) async {
-    final providerId = playlist.id.startsWith('netease-playlist:')
-        ? 'netease'
-        : null;
+    final providerId = _providerIdForPlaylist(playlist.id);
     if (playlist.id == 'liked-local') {
       return loadLikedTracks();
     }
@@ -182,6 +229,11 @@ class MusicRepositoryImpl implements MusicRepository {
         .providerById(providerId);
     final tracks = await provider?.loadPlaylistTracks(playlist.id) ??
         const <MusicTrack>[];
+    await _debugLog('repository.loadPlaylistTracks', {
+      'playlistId': playlist.id,
+      'providerId': providerId,
+      'trackCount': tracks.length,
+    });
     return tracks;
   }
 
@@ -192,6 +244,8 @@ class MusicRepositoryImpl implements MusicRepository {
     required bool isPlaying,
     required Duration position,
     List<MusicTrack>? likedTracks,
+    List<MusicPlaylist>? recentPlaylists,
+    String? currentPlaylistId,
   }) async {
     try {
       await _client.saveMusicState(
@@ -202,10 +256,42 @@ class MusicRepositoryImpl implements MusicRepository {
           'positionMs': position.inMilliseconds,
           if (likedTracks != null)
             'likedTracks': likedTracks.map((item) => item.toMap()).toList(),
+          if (recentPlaylists != null)
+            'recentPlaylists': recentPlaylists.map((item) => item.toMap()).toList(),
+          if (currentPlaylistId != null) 'currentPlaylistId': currentPlaylistId,
         },
       );
     } catch (_) {
       // best effort for first pass
     }
+  }
+
+  MusicSourceProvider? _providerForTrack(MusicTrack track) {
+    final registry = (_resolver as MusicSourceResolverImpl).registry;
+    final preferred = track.preferredSourceId?.trim();
+    if (preferred != null && preferred.isNotEmpty) {
+      return registry.providerById(preferred);
+    }
+    if ((track.sourceTrackId ?? '').trim().isNotEmpty && track.id.contains(':')) {
+      return registry.providerById(track.id.split(':').first);
+    }
+    return registry.providerById('netease');
+  }
+
+  String? _providerIdForPlaylist(String playlistId) {
+    if (playlistId.startsWith('netease-playlist:')) return 'netease';
+    if (playlistId.startsWith('migu-playlist:')) return 'migu';
+    return null;
+  }
+
+  Future<void> _debugLog(String tag, Map<String, dynamic> payload) async {
+    final enriched = <String, dynamic>{
+      'tag': 'music.$tag',
+      'ts': DateTime.now().toIso8601String(),
+      ...payload,
+    };
+    final message = enriched.entries.map((e) => '${e.key}=${e.value}').join(' | ');
+    await NativeDebugBridge.instance.log('music', message, level: 'INFO');
+    await _client.sendClientDebugLog(enriched);
   }
 }

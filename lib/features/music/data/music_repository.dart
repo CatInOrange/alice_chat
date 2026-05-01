@@ -23,5 +23,7 @@ abstract class MusicRepository {
     required bool isPlaying,
     required Duration position,
     List<MusicTrack>? likedTracks,
+    List<MusicPlaylist>? recentPlaylists,
+    String? currentPlaylistId,
   });
 }

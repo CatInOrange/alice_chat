@@ -220,6 +220,26 @@ class MusicPlaylist {
   final MusicArtworkTone artworkTone;
   final bool isAiGenerated;
 
+  MusicPlaylist copyWith({
+    String? id,
+    String? title,
+    String? subtitle,
+    String? tag,
+    int? trackCount,
+    MusicArtworkTone? artworkTone,
+    bool? isAiGenerated,
+  }) {
+    return MusicPlaylist(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      subtitle: subtitle ?? this.subtitle,
+      tag: tag ?? this.tag,
+      trackCount: trackCount ?? this.trackCount,
+      artworkTone: artworkTone ?? this.artworkTone,
+      isAiGenerated: isAiGenerated ?? this.isAiGenerated,
+    );
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'id': id,

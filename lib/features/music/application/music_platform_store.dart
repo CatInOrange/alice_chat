@@ -284,10 +284,13 @@ class MusicPlatformStore extends ChangeNotifier with WidgetsBindingObserver {
       provider: provider,
       rawCookie: cookie,
     );
-    if (provider.providerId != 'netease' || !baseState.hasCookie) {
+    if (!baseState.hasCookie) {
       return baseState;
     }
-    return _validateNeteaseAccount(baseState);
+    if (provider.providerId == 'netease') {
+      return _validateNeteaseAccount(baseState);
+    }
+    return baseState;
   }
 
   MusicPlatformLocalState _buildLocalState({
@@ -302,7 +305,9 @@ class MusicPlatformStore extends ChangeNotifier with WidgetsBindingObserver {
         authState: MusicPlatformAuthStateKind.missing,
         statusLabel: '未配置',
         summary: '还没有导入本地登录信息',
-        detail: '你现在可以直接导入 Cookie，或者改用二维码登录。后续真实搜索和播放源解析都会基于本地登录态继续往下接。',
+        detail: provider.providerId == 'netease'
+            ? '你现在可以直接导入 Cookie，或者改用二维码登录。后续真实搜索和播放源解析都会基于本地登录态继续往下接。'
+            : '先导入 ${provider.displayName} 的 Cookie。当前阶段先接搜索和播放，歌单/账号能力会逐步补齐。',
         detectedKeys: const [],
       );
     }

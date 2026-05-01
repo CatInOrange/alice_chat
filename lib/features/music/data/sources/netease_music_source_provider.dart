@@ -6,10 +6,11 @@ import '../../domain/music_models.dart';
 import '../../domain/music_runtime_models.dart';
 import 'music_source_provider.dart';
 
-class NeteaseMusicSourceProvider implements MusicSourceProvider {
+class NeteaseMusicSourceProvider extends MusicSourceProvider {
   static const _userAgent =
       'Mozilla/5.0 (Linux; Android 14; AliceChat) AppleWebKit/537.36';
   static const _playlistPrefix = 'netease-playlist:';
+  static const _seedCookieKeys = <String>['NMTID', '_ntes_nuid', '_ntes_nnid3'];
 
   @override
   String get id => 'netease';
@@ -91,7 +92,7 @@ class NeteaseMusicSourceProvider implements MusicSourceProvider {
         'ids': '[${candidate.sourceTrackId}]',
         'br': '320000',
       },
-      cookieHeader: cookie,
+      cookieHeader: _seedCookieHeader(cookie),
     );
     final data = ((payload['data'] as List?) ?? const <dynamic>[])
         .whereType<Map>()
@@ -111,7 +112,8 @@ class NeteaseMusicSourceProvider implements MusicSourceProvider {
       HttpHeaders.userAgentHeader: _userAgent,
       HttpHeaders.refererHeader: 'https://music.163.com/',
       'origin': 'https://music.163.com',
-      if ((cookie ?? '').trim().isNotEmpty) HttpHeaders.cookieHeader: cookie!.trim(),
+      if ((_seedCookieHeader(cookie) ?? '').trim().isNotEmpty)
+        HttpHeaders.cookieHeader: _seedCookieHeader(cookie)!.trim(),
     };
 
     return ResolvedPlaybackSource(
@@ -132,9 +134,10 @@ class NeteaseMusicSourceProvider implements MusicSourceProvider {
       return const <MusicPlaylist>[];
     }
 
+    final seededCookie = _seedCookieHeader(cookie);
     final accountPayload = await _getJson(
       '/api/nuser/account/get',
-      cookieHeader: cookie,
+      cookieHeader: seededCookie,
     );
     final account = (accountPayload['account'] as Map?)?.cast<String, dynamic>() ??
         const <String, dynamic>{};
@@ -153,7 +156,7 @@ class NeteaseMusicSourceProvider implements MusicSourceProvider {
         'offset': '0',
         'includeVideo': 'false',
       },
-      cookieHeader: cookie,
+      cookieHeader: seededCookie,
     );
     final playlists = ((playlistPayload['playlist'] as List?) ?? const <dynamic>[])
         .whereType<Map>()
@@ -168,7 +171,10 @@ class NeteaseMusicSourceProvider implements MusicSourceProvider {
   Future<MusicPlaylist?> loadLikedPlaylist() async {
     final playlists = await loadUserPlaylists();
     if (playlists.isEmpty) return null;
-    return playlists.first;
+    return playlists.firstWhere(
+      (item) => item.tag == 'LIKED',
+      orElse: () => playlists.first,
+    );
   }
 
   @override
@@ -183,7 +189,7 @@ class NeteaseMusicSourceProvider implements MusicSourceProvider {
     final payload = await _getJson(
       '/api/v6/playlist/detail',
       query: <String, String>{'id': normalizedId, 'n': '200'},
-      cookieHeader: cookie,
+      cookieHeader: _seedCookieHeader(cookie),
     );
     final playlist = (payload['playlist'] as Map?)?.cast<String, dynamic>() ??
         const <String, dynamic>{};
@@ -195,6 +201,38 @@ class NeteaseMusicSourceProvider implements MusicSourceProvider {
         .map((candidate) => candidate.track.toMusicTrack())
         .toList(growable: false);
     return tracks;
+  }
+
+  @override
+  Future<bool> setTrackLiked(MusicTrack track, bool liked) async {
+    final cookie = await OpenClawSettingsStore.loadMusicProviderCookie(id);
+    final seededCookie = _seedCookieHeader(cookie);
+    if ((seededCookie ?? '').trim().isEmpty) {
+      return false;
+    }
+    final csrf = _parseCookieMap(seededCookie!)['__csrf']?.trim();
+    if ((csrf ?? '').isEmpty) {
+      return false;
+    }
+    final candidate = await matchTrack(track);
+    final sourceTrackId = candidate?.sourceTrackId.trim() ?? '';
+    if (sourceTrackId.isEmpty) {
+      return false;
+    }
+    final payload = await _getJson(
+      '/api/song/like',
+      query: <String, String>{
+        'id': sourceTrackId,
+        'like': liked ? 'true' : 'false',
+        'alg': 'itembased',
+        'time': '3',
+        'csrf_token': csrf!,
+      },
+      cookieHeader: seededCookie,
+    );
+    final codeRaw = payload['code'];
+    final code = codeRaw is num ? codeRaw.toInt() : int.tryParse('$codeRaw');
+    return code == 200;
   }
 
   SourceCandidate? _candidateFromSong(Map<String, dynamic> song) {
@@ -256,9 +294,9 @@ class NeteaseMusicSourceProvider implements MusicSourceProvider {
         title.contains('收藏');
     return MusicPlaylist(
       id: '$_playlistPrefix$rawId',
-      title: title,
+      title: isLiked ? '喜欢' : title,
       subtitle: description.isEmpty
-          ? (isLiked ? '网易云“我喜欢”的歌曲' : '来自网易云音乐')
+          ? (isLiked ? '网易云喜欢的歌曲' : '来自网易云音乐')
           : description,
       tag: isLiked ? 'LIKED' : 'NETEASE',
       trackCount: trackCount,
@@ -289,7 +327,8 @@ class NeteaseMusicSourceProvider implements MusicSourceProvider {
         normalizedQueryArtist.contains(normalizedResultArtist)) {
       score += 5;
     }
-    final durationPenalty = (normalizedResultTitle.length - normalizedQueryTitle.length).abs() * 0.05;
+    final durationPenalty =
+        (normalizedResultTitle.length - normalizedQueryTitle.length).abs() * 0.05;
     return score - durationPenalty;
   }
 
@@ -307,6 +346,37 @@ class NeteaseMusicSourceProvider implements MusicSourceProvider {
     if (url.endsWith('.m4a')) return 'audio/mp4';
     if (url.endsWith('.mp3')) return 'audio/mpeg';
     return null;
+  }
+
+  Map<String, String> _parseCookieMap(String cookieHeader) {
+    final map = <String, String>{};
+    for (final segment in cookieHeader.split(';')) {
+      final trimmed = segment.trim();
+      if (trimmed.isEmpty) continue;
+      final separator = trimmed.indexOf('=');
+      if (separator <= 0) continue;
+      final key = trimmed.substring(0, separator).trim();
+      final value = trimmed.substring(separator + 1).trim();
+      if (key.isEmpty || value.isEmpty) continue;
+      map[key] = value;
+    }
+    return map;
+  }
+
+  String? _seedCookieHeader(String? cookieHeader) {
+    final normalized = (cookieHeader ?? '').trim();
+    if (normalized.isEmpty) return null;
+    final map = _parseCookieMap(normalized);
+    for (final key in _seedCookieKeys) {
+      map.putIfAbsent(key, () => _syntheticSeedFor(key));
+    }
+    map.putIfAbsent('os', () => 'pc');
+    return map.entries.map((entry) => '${entry.key}=${entry.value}').join('; ');
+  }
+
+  String _syntheticSeedFor(String key) {
+    final stamp = DateTime.now().millisecondsSinceEpoch.toRadixString(16);
+    return '${key.toLowerCase()}_$stamp';
   }
 
   Future<Map<String, dynamic>> _getJson(

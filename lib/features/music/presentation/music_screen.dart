@@ -136,13 +136,16 @@ class _MusicScreenState extends State<MusicScreen>
                     currentTrack: store.likedTracks.isNotEmpty
                         ? store.likedTracks.first
                         : currentTrack,
-                    isLoading: store.isLoadingPlaylist,
-                    onTap: () => _openPlaylist(store, likedPlaylist),
+                    isLoading: store.isPlaylistLoading(likedPlaylist.id),
+                    isActive: store.isPlaylistActive(likedPlaylist.id),
+                    isPlaying: store.isPlaylistPlaying(likedPlaylist.id),
+                    onTap: () => _openPlaylistDetail(store, likedPlaylist),
+                    onPlayTap: () => _openPlaylist(store, likedPlaylist),
                   ),
                   const SizedBox(height: 28),
                   _SectionHeader(
                     title: '我的歌单',
-                    subtitle: '“我喜欢”是 AliceChat 本地维护收藏，其他平台歌单并列展示',
+                    subtitle: '你的收藏和平台歌单都在这里',
                     actionLabel: '刷新',
                     onActionTap: () {
                       store.refreshLibrary();
@@ -151,6 +154,7 @@ class _MusicScreenState extends State<MusicScreen>
                   const SizedBox(height: 14),
                   _CompactPlaylistGrid(
                     playlists: store.libraryPlaylists,
+                    currentPlaylistId: store.currentPlaylistId,
                     onPlaylistTap: (playlist) => _openPlaylistDetail(store, playlist),
                   ),
                   const SizedBox(height: 28),
@@ -178,7 +182,9 @@ class _MusicScreenState extends State<MusicScreen>
                       padding: const EdgeInsets.only(bottom: 12),
                       child: _RecentPlaylistTile(
                         playlist: playlist,
-                        onTap: () => _openPlaylist(store, playlist),
+                        isActive: store.isPlaylistActive(playlist.id),
+                        onTap: () => _openPlaylistDetail(store, playlist),
+                        onPlayTap: () => _openPlaylist(store, playlist),
                       ),
                     ),
                   ),
@@ -436,13 +442,19 @@ class _FavoritePlaylistCard extends StatelessWidget {
     required this.playlist,
     required this.currentTrack,
     required this.onTap,
+    required this.onPlayTap,
     this.isLoading = false,
+    this.isActive = false,
+    this.isPlaying = false,
   });
 
   final MusicPlaylist playlist;
   final MusicTrack currentTrack;
   final VoidCallback onTap;
+  final VoidCallback onPlayTap;
   final bool isLoading;
+  final bool isActive;
+  final bool isPlaying;
 
   @override
   Widget build(BuildContext context) {
@@ -495,7 +507,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '我喜欢的歌单',
+                      isActive ? '当前歌单' : '我喜欢的歌单',
                       style: theme.textTheme.bodySmall?.copyWith(
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.4,
@@ -505,7 +517,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
                     Text(playlist.title, style: theme.textTheme.titleLarge),
                     const SizedBox(height: 4),
                     Text(
-                      '${playlist.trackCount} 首 · AliceChat 本地收藏',
+                      '${playlist.trackCount} 首 · ${isActive ? '正在使用这份歌单' : '点进来继续听'}',
                       style: theme.textTheme.bodySmall,
                     ),
                     const SizedBox(height: 10),
@@ -522,7 +534,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               FilledButton(
-                onPressed: isLoading ? null : onTap,
+                onPressed: isLoading ? null : onPlayTap,
                 style: FilledButton.styleFrom(
                   backgroundColor: palette.gradient.first,
                   foregroundColor: Colors.white,
@@ -539,7 +551,13 @@ class _FavoritePlaylistCard extends StatelessWidget {
                           valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                         ),
                       )
-                    : const Icon(Icons.play_arrow_rounded),
+                    : Icon(
+                        isPlaying
+                            ? Icons.equalizer_rounded
+                            : (isActive
+                                ? Icons.pause_circle_filled_rounded
+                                : Icons.play_arrow_rounded),
+                      ),
               ),
             ],
           ),
@@ -587,10 +605,12 @@ class _SectionHeader extends StatelessWidget {
 class _CompactPlaylistGrid extends StatelessWidget {
   const _CompactPlaylistGrid({
     required this.playlists,
+    required this.currentPlaylistId,
     required this.onPlaylistTap,
   });
 
   final List<MusicPlaylist> playlists;
+  final String? currentPlaylistId;
   final ValueChanged<MusicPlaylist> onPlaylistTap;
 
   @override
@@ -609,6 +629,7 @@ class _CompactPlaylistGrid extends StatelessWidget {
         final playlist = playlists[index];
         return _PlaylistGridCard(
           playlist: playlist,
+          isActive: currentPlaylistId == playlist.id,
           onTap: () => onPlaylistTap(playlist),
         );
       },
@@ -620,10 +641,12 @@ class _PlaylistGridCard extends StatelessWidget {
   const _PlaylistGridCard({
     required this.playlist,
     required this.onTap,
+    this.isActive = false,
   });
 
   final MusicPlaylist playlist;
   final VoidCallback onTap;
+  final bool isActive;
 
   @override
   Widget build(BuildContext context) {
@@ -652,13 +675,13 @@ class _PlaylistGridCard extends StatelessWidget {
               const SizedBox(height: 12),
               Text(
                 playlist.title,
-                maxLines: 2,
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.titleSmall,
               ),
               const SizedBox(height: 6),
               Text(
-                playlist.tag,
+                isActive ? '正在播放' : playlist.tag,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: palette.gradient.first,
                   fontWeight: FontWeight.w700,
@@ -681,10 +704,14 @@ class _RecentPlaylistTile extends StatelessWidget {
   const _RecentPlaylistTile({
     required this.playlist,
     required this.onTap,
+    required this.onPlayTap,
+    this.isActive = false,
   });
 
   final MusicPlaylist playlist;
   final VoidCallback onTap;
+  final VoidCallback onPlayTap;
+  final bool isActive;
 
   @override
   Widget build(BuildContext context) {
@@ -729,7 +756,7 @@ class _RecentPlaylistTile extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        if (playlist.isAiGenerated)
+                        if (playlist.isAiGenerated || isActive)
                           Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 8,
@@ -740,7 +767,7 @@ class _RecentPlaylistTile extends StatelessWidget {
                               borderRadius: BorderRadius.circular(999),
                             ),
                             child: Text(
-                              'AI',
+                              isActive ? '正在播放' : 'AI',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: palette.gradient.first,
                                 fontWeight: FontWeight.w700,
@@ -758,7 +785,7 @@ class _RecentPlaylistTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      '${playlist.trackCount} 首歌 · 点一下继续播放这个歌单',
+                      '${playlist.trackCount} 首歌 · 点左侧看详情，点右侧直接播放',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF7D879A),
                       ),
@@ -775,7 +802,7 @@ class _RecentPlaylistTile extends StatelessWidget {
                   gradient: LinearGradient(colors: palette.gradient),
                 ),
                 child: IconButton(
-                  onPressed: onTap,
+                  onPressed: onPlayTap,
                   icon: const Icon(
                     Icons.play_arrow_rounded,
                     color: Colors.white,
@@ -989,7 +1016,7 @@ class _PlaylistDetailScreen extends StatelessWidget {
                       ),
                     ),
                     FilledButton.icon(
-                      onPressed: tracks.isEmpty || store.isLoadingPlaylist
+                      onPressed: tracks.isEmpty || store.isPlaylistLoading(playlist.id)
                           ? null
                           : () async {
                               await store.playLoadedPlaylist(playlist, tracks);
@@ -1102,10 +1129,10 @@ class _MusicSearchSheetState extends State<_MusicSearchSheet> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('搜索网易云', style: Theme.of(context).textTheme.titleLarge),
+            Text('搜索音乐', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
             Text(
-              '先接真实搜索和直连解析。输入歌名或歌手，点结果就会尝试播放。',
+              '优先搜索网易云，再补咪咕结果。输入歌名或歌手，点结果就会尝试播放。',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 16),
@@ -1263,7 +1290,7 @@ class _SearchResultTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${effectiveTrack.artist} · ${effectiveTrack.album}',
+                      '${effectiveTrack.artist} · ${effectiveTrack.album} · ${effectiveTrack.category}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall,

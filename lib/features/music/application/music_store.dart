@@ -13,6 +13,7 @@ import '../data/music_repository_impl.dart';
 import '../data/playback/just_audio_playback_adapter.dart';
 import '../data/playback/playback_adapter.dart';
 import '../data/playback/stub_playback_adapter.dart';
+import '../data/sources/migu_music_source_provider.dart';
 import '../data/sources/mock_music_source_provider.dart';
 import '../data/sources/music_source_registry.dart';
 import '../data/sources/music_source_resolver.dart';
@@ -41,7 +42,11 @@ class MusicStore extends ChangeNotifier {
             ) {
     _resolver = MusicSourceResolverImpl(
       registry: MusicSourceRegistry(
-        providers: [NeteaseMusicSourceProvider(), MockMusicSourceProvider()],
+        providers: [
+          NeteaseMusicSourceProvider(),
+          MiguMusicSourceProvider(),
+          MockMusicSourceProvider(),
+        ],
       ),
     );
     _playbackAdapter = _createPlaybackAdapter();
@@ -92,6 +97,8 @@ class MusicStore extends ChangeNotifier {
   List<MusicTrack> _searchResults = const [];
   bool _isAdvancingQueue = false;
   bool _isLoadingPlaylist = false;
+  String? _loadingPlaylistId;
+  String? _currentPlaylistId;
   bool _shuffleEnabled = false;
   MusicRepeatMode _repeatMode = MusicRepeatMode.off;
   final Map<String, DateTime> _lastDebugLogAt = <String, DateTime>{};
@@ -106,9 +113,19 @@ class MusicStore extends ChangeNotifier {
   MusicTrack get currentTrack => _currentTrack;
   List<PlaybackQueueItem> get queue => _queue;
   List<MusicPlaylist> get playlists => _playlists;
-  List<MusicPlaylist> get libraryPlaylists => _playlists
-      .where((item) => !_isSystemPlaylist(item))
-      .toList(growable: false);
+  List<MusicPlaylist> get libraryPlaylists {
+    final ordered = <MusicPlaylist>[likedPlaylist];
+    final seen = <String>{likedPlaylist.id};
+    for (final item in _playlists) {
+      if (_isSystemPlaylist(item)) continue;
+      if (_isRemoteLikedPlaylist(item)) continue;
+      if (seen.add(item.id)) {
+        ordered.add(item);
+      }
+    }
+    return List<MusicPlaylist>.unmodifiable(ordered);
+  }
+
   List<MusicTrack> get recentTracks => _recentTracks;
   List<MusicPlaylist> get recentPlaylists => _recentPlaylists;
   List<MusicTrack> get likedTracks => _likedTracks;
@@ -117,6 +134,8 @@ class MusicStore extends ChangeNotifier {
   String? get searchError => _searchError;
   List<MusicTrack> get searchResults => _searchResults;
   bool get isLoadingPlaylist => _isLoadingPlaylist;
+  String? get loadingPlaylistId => _loadingPlaylistId;
+  String? get currentPlaylistId => _currentPlaylistId;
   bool get shuffleEnabled => _shuffleEnabled;
   MusicRepeatMode get repeatMode => _repeatMode;
   bool get hasPlaybackContext => _queue.isNotEmpty || _isPlaying;
@@ -127,6 +146,13 @@ class MusicStore extends ChangeNotifier {
       (_repeatMode == MusicRepeatMode.one && _queue.isNotEmpty) ||
       (_repeatMode == MusicRepeatMode.all &&
           (_queue.isNotEmpty || _playbackHistory.isNotEmpty));
+
+  bool isPlaylistLoading(String playlistId) => _loadingPlaylistId == playlistId;
+
+  bool isPlaylistActive(String playlistId) => _currentPlaylistId == playlistId;
+
+  bool isPlaylistPlaying(String playlistId) =>
+      _currentPlaylistId == playlistId && (_isPlaying || _isLoadingPlaylist);
 
   Future<void> reloadConfig() async {
     final config = await OpenClawSettingsStore.load();
@@ -185,7 +211,8 @@ class MusicStore extends ChangeNotifier {
       final state = await _repository.loadMusicState();
       _likedTracks = List<MusicTrack>.unmodifiable(state.likedTracks);
       _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
-      _recentPlaylists = List<MusicPlaylist>.unmodifiable(state.playlists.take(6));
+      _recentPlaylists = List<MusicPlaylist>.unmodifiable(state.recentPlaylists);
+      _currentPlaylistId = state.currentPlaylistId;
       _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
       final remotePlaylists = await _repository.loadUserPlaylists();
       final basePlaylists = remotePlaylists.isNotEmpty
@@ -203,6 +230,7 @@ class MusicStore extends ChangeNotifier {
         'latestAiTrackCount': _latestAiPlaylist?.tracks.length ?? 0,
         'playlistCount': _playlists.length,
         'likedCount': _likedTracks.length,
+        'recentPlaylistCount': _recentPlaylists.length,
       }, force: true);
     } catch (error) {
       _error = '刷新歌单失败，请稍后再试';
@@ -235,8 +263,9 @@ class MusicStore extends ChangeNotifier {
       _queue = List<PlaybackQueueItem>.unmodifiable(state.queue);
       _playlists = List<MusicPlaylist>.unmodifiable(state.playlists);
       _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
-      _recentPlaylists = List<MusicPlaylist>.unmodifiable(state.playlists.take(6));
+      _recentPlaylists = List<MusicPlaylist>.unmodifiable(state.recentPlaylists);
       _likedTracks = List<MusicTrack>.unmodifiable(state.likedTracks);
+      _currentPlaylistId = state.currentPlaylistId;
       _currentTrack = _currentTrack.copyWith(
         isFavorite: isTrackLiked(_currentTrack.id),
       );
@@ -270,6 +299,7 @@ class MusicStore extends ChangeNotifier {
     _currentTrack = track.copyWith(isFavorite: isTrackLiked(track.id));
     _duration = track.duration;
     _isPlaying = autoplay;
+    _currentPlaylistId = null;
     notifyListeners();
     if (autoplay) {
       await handleCommand(
@@ -283,6 +313,7 @@ class MusicStore extends ChangeNotifier {
 
   Future<void> playPlaylist(MusicPlaylist playlist) async {
     _isLoadingPlaylist = true;
+    _loadingPlaylistId = playlist.id;
     _error = null;
     notifyListeners();
     _debugState('playlist.open.start', extra: {
@@ -321,6 +352,7 @@ class MusicStore extends ChangeNotifier {
       rethrow;
     } finally {
       _isLoadingPlaylist = false;
+      _loadingPlaylistId = null;
       notifyListeners();
     }
   }
@@ -334,8 +366,8 @@ class MusicStore extends ChangeNotifier {
 
   MusicPlaylist get likedPlaylist => MusicPlaylist(
     id: 'liked-local',
-    title: '我喜欢的',
-    subtitle: 'AliceChat 为你统一维护的跨平台收藏',
+    title: '喜欢',
+    subtitle: '你的跨平台收藏',
     tag: 'LIKED',
     trackCount: _likedTracks.length,
     artworkTone: MusicArtworkTone.rose,
@@ -345,6 +377,11 @@ class MusicStore extends ChangeNotifier {
 
   Future<List<MusicTrack>> loadPlaylistTracks(MusicPlaylist playlist) async {
     await ensureReady();
+    if (playlist.id == likedPlaylist.id) {
+      return _likedTracks
+          .map((track) => track.copyWith(isFavorite: true))
+          .toList(growable: false);
+    }
     final tracks = await _repository.loadPlaylistTracks(playlist);
     return tracks
         .map((track) => track.copyWith(isFavorite: isTrackLiked(track.id)))
@@ -366,8 +403,9 @@ class MusicStore extends ChangeNotifier {
     ]
         .map((track) => track.copyWith(isFavorite: isTrackLiked(track.id)))
         .toList(growable: false);
+    _currentPlaylistId = playlist.id;
     _recentPlaylists = List<MusicPlaylist>.unmodifiable([
-      playlist,
+      playlist.copyWith(trackCount: tracks.length),
       ..._recentPlaylists.where((item) => item.id != playlist.id),
     ].take(6));
     await handleCommand(
@@ -444,24 +482,10 @@ class MusicStore extends ChangeNotifier {
           )
           .toList(growable: false),
     );
-    _playlists = List<MusicPlaylist>.unmodifiable([
-      if (_latestAiPlaylist != null) _latestAiPlaylist!.asPlaylist,
-      likedPlaylist,
-      ..._playlists.where(
-        (item) => item.id != likedPlaylist.id && item.id != _latestAiPlaylist?.id,
-      ),
-    ]);
+    _rebuildPlaylists(basePlaylists: _playlists);
     notifyListeners();
-    await _repository.setTrackLiked(track, liked);
-    unawaited(
-      _repository.savePlaybackSnapshot(
-        currentTrack: _currentTrack,
-        queue: _queue,
-        isPlaying: _isPlaying,
-        position: _position,
-        likedTracks: _likedTracks,
-      ),
-    );
+    await _repository.setTrackLiked(nextTrack, liked);
+    unawaited(_savePlaybackSnapshot());
   }
 
   Future<void> searchTracks(String query) async {
@@ -476,16 +500,41 @@ class MusicStore extends ChangeNotifier {
     _searchError = null;
     notifyListeners();
     try {
-      final provider = (_resolver as MusicSourceResolverImpl)
-          .registry
-          .providerById('netease');
-      final candidates = await provider?.searchTracks(keyword) ?? const [];
-      _searchResults = candidates
-          .map((item) => item.track.toMusicTrack())
-          .toList(growable: false);
+      final registry = (_resolver as MusicSourceResolverImpl).registry;
+      final netease = registry.providerById('netease');
+      final migu = registry.providerById('migu');
+      final neteaseCandidates = await netease?.searchTracks(keyword) ?? const [];
+      final miguCandidates = await migu?.searchTracks(keyword) ?? const [];
+      final results = <MusicTrack>[];
+      final seen = <String>{};
+      for (final item in neteaseCandidates) {
+        final track = item.track.toMusicTrack();
+        final key = _searchDedupKey(track);
+        if (seen.add(key)) {
+          results.add(track);
+        }
+      }
+      for (final item in miguCandidates) {
+        final track = item.track.toMusicTrack();
+        final key = _searchDedupKey(track);
+        if (seen.add(key)) {
+          results.add(track);
+        }
+      }
+      _searchResults = List<MusicTrack>.unmodifiable(results.take(20));
+      _debugState('search.done', extra: {
+        'query': keyword,
+        'neteaseCount': neteaseCandidates.length,
+        'miguCount': miguCandidates.length,
+        'resultCount': _searchResults.length,
+      });
     } catch (error) {
       _searchError = error.toString();
       _searchResults = const [];
+      _debugState('search.error', extra: {
+        'query': keyword,
+        'error': error.toString(),
+      }, force: true, level: 'ERROR');
     } finally {
       _isSearching = false;
       notifyListeners();
@@ -538,15 +587,7 @@ class MusicStore extends ChangeNotifier {
       _isPlaying = true;
     }
     notifyListeners();
-    unawaited(
-      _repository.savePlaybackSnapshot(
-        currentTrack: _currentTrack,
-        queue: _queue,
-        isPlaying: _isPlaying,
-        position: _position,
-        likedTracks: _likedTracks,
-      ),
-    );
+    unawaited(_savePlaybackSnapshot());
   }
 
   Future<void> seekTo(Duration position) async {
@@ -560,15 +601,7 @@ class MusicStore extends ChangeNotifier {
     await _playbackAdapter.seek(clamped);
     _position = clamped;
     notifyListeners();
-    unawaited(
-      _repository.savePlaybackSnapshot(
-        currentTrack: _currentTrack,
-        queue: _queue,
-        isPlaying: _isPlaying,
-        position: _position,
-        likedTracks: _likedTracks,
-      ),
-    );
+    unawaited(_savePlaybackSnapshot());
   }
 
   Future<void> playNext() async {
@@ -610,15 +643,7 @@ class MusicStore extends ChangeNotifier {
     _position = Duration.zero;
     _error = null;
     notifyListeners();
-    unawaited(
-      _repository.savePlaybackSnapshot(
-        currentTrack: _currentTrack,
-        queue: _queue,
-        isPlaying: _isPlaying,
-        position: _position,
-        likedTracks: _likedTracks,
-      ),
-    );
+    unawaited(_savePlaybackSnapshot());
   }
 
   Future<void> handleCommand(MusicCommand command) async {
@@ -702,27 +727,13 @@ class MusicStore extends ChangeNotifier {
         break;
     }
     notifyListeners();
-    unawaited(
-      _repository.savePlaybackSnapshot(
-        currentTrack: _currentTrack,
-        queue: _queue,
-        isPlaying: _isPlaying,
-        position: _position,
-        likedTracks: _likedTracks,
-      ),
-    );
+    unawaited(_savePlaybackSnapshot());
   }
 
   Future<void> _refreshLatestAiPlaylist() async {
     try {
       _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
-      _playlists = List<MusicPlaylist>.unmodifiable([
-        if (_latestAiPlaylist != null) _latestAiPlaylist!.asPlaylist,
-        likedPlaylist,
-        ..._playlists.where(
-          (item) => item.id != likedPlaylist.id && item.id != _latestAiPlaylist?.id,
-        ),
-      ]);
+      _rebuildPlaylists(basePlaylists: _playlists);
       _debugState('ai_playlist.refresh', extra: {
         'latestAiPlaylistId': _latestAiPlaylist?.id,
         'latestAiTrackCount': _latestAiPlaylist?.tracks.length ?? 0,
@@ -732,7 +743,6 @@ class MusicStore extends ChangeNotifier {
       _debugState('ai_playlist.refresh.error', extra: {
         'error': error.toString(),
       }, force: true, level: 'ERROR');
-      // ignore refresh failures; keep previous hero card
     }
   }
 
@@ -925,12 +935,26 @@ class MusicStore extends ChangeNotifier {
 
   void _rebuildPlaylists({List<MusicPlaylist>? basePlaylists}) {
     final source = basePlaylists ?? _playlists;
-    _playlists = List<MusicPlaylist>.unmodifiable([
-      if (_latestAiPlaylist != null) _latestAiPlaylist!.asPlaylist,
-      likedPlaylist,
-      ...source.where((item) => !_isSystemPlaylist(item)),
-    ]);
+    final merged = <MusicPlaylist>[];
+    final seen = <String>{};
+    if (_latestAiPlaylist != null && seen.add(_latestAiPlaylist!.id)) {
+      merged.add(_latestAiPlaylist!.asPlaylist);
+    }
+    if (seen.add(likedPlaylist.id)) {
+      merged.add(likedPlaylist);
+    }
+    for (final item in source) {
+      if (_isSystemPlaylist(item)) continue;
+      if (_isRemoteLikedPlaylist(item)) continue;
+      if (seen.add(item.id)) {
+        merged.add(item);
+      }
+    }
+    _playlists = List<MusicPlaylist>.unmodifiable(merged);
   }
+
+  bool _isRemoteLikedPlaylist(MusicPlaylist playlist) =>
+      playlist.id != likedPlaylist.id && playlist.tag == 'LIKED';
 
   bool _isSystemPlaylist(MusicPlaylist playlist) {
     return playlist.id == likedPlaylist.id ||
@@ -959,23 +983,20 @@ class MusicStore extends ChangeNotifier {
         source: prepared.resolvedSource!,
       );
     } catch (error) {
-      final shouldRetry = clearCachedPlaybackOnRetry && _currentTrack.cachedPlayback != null;
-      if (!shouldRetry) {
+      if (!clearCachedPlaybackOnRetry || _currentTrack.cachedPlayback == null) {
         _isPlaying = false;
         _error = _friendlyPlaybackError(error);
         rethrow;
       }
-      final refreshed = await _repository.resolveTrack(
+      final refreshed = await _preparePlayback(
         _currentTrack.copyWith(cachedPlayback: null),
-        allowFallback: false,
       );
-      final refreshedTrack = refreshed.track.copyWith(
+      _currentTrack = refreshed.track.copyWith(
         isFavorite: isTrackLiked(refreshed.track.id),
       );
-      _currentTrack = refreshedTrack;
       if (_queue.isNotEmpty) {
         _queue = List<PlaybackQueueItem>.unmodifiable([
-          refreshed.copyWith(track: refreshedTrack),
+          refreshed.copyWith(track: _currentTrack),
           ..._queue.skip(1),
         ]);
       }
@@ -1010,6 +1031,24 @@ class MusicStore extends ChangeNotifier {
     return fallback ?? raw.replaceFirst('Exception: ', '').replaceFirst('Bad state: ', '');
   }
 
+  Future<void> _savePlaybackSnapshot() {
+    return _repository.savePlaybackSnapshot(
+      currentTrack: _currentTrack,
+      queue: _queue,
+      isPlaying: _isPlaying,
+      position: _position,
+      likedTracks: _likedTracks,
+      recentPlaylists: _recentPlaylists,
+      currentPlaylistId: _currentPlaylistId,
+    );
+  }
+
+  String _searchDedupKey(MusicTrack track) {
+    String normalize(String value) =>
+        value.toLowerCase().replaceAll(RegExp(r'\s+'), '').trim();
+    return '${normalize(track.title)}::${normalize(track.artist)}';
+  }
+
   void _debugState(
     String tag, {
     Map<String, dynamic>? extra,
@@ -1028,6 +1067,8 @@ class MusicStore extends ChangeNotifier {
       'currentTrackId': _currentTrack.id,
       'currentTrackTitle': _currentTrack.title,
       'currentTrackArtist': _currentTrack.artist,
+      'currentPlaylistId': _currentPlaylistId,
+      'loadingPlaylistId': _loadingPlaylistId,
       'queueLength': _queue.length,
       'isPlaying': _isPlaying,
       'isBuffering': _isBuffering,
@@ -1057,6 +1098,8 @@ class MusicStateSnapshot {
     this.playlists = const [],
     this.recentTracks = const [],
     this.likedTracks = const [],
+    this.recentPlaylists = const [],
+    this.currentPlaylistId,
     this.isPlaying = false,
     this.position = Duration.zero,
   });
@@ -1066,6 +1109,8 @@ class MusicStateSnapshot {
   final List<MusicPlaylist> playlists;
   final List<MusicTrack> recentTracks;
   final List<MusicTrack> likedTracks;
+  final List<MusicPlaylist> recentPlaylists;
+  final String? currentPlaylistId;
   final bool isPlaying;
   final Duration position;
 }

@@ -59,8 +59,20 @@ class MusicService:
                 supportsSearch=True,
                 supportsLyrics=True,
                 supportsResolve=True,
+                supportsPlaylistLookup=True,
+                supportsUserLibrary=True,
+                notes='优先平台；已接搜索、播放解析、歌单读取与 Cookie/二维码登录。',
+            ),
+            MusicProviderDto(
+                providerId='migu',
+                displayName='咪咕音乐',
+                authMode='client',
+                supportedAuthMethods=['cookieImport'],
+                supportsSearch=True,
+                supportsLyrics=False,
+                supportsResolve=True,
                 supportsPlaylistLookup=False,
                 supportsUserLibrary=False,
-                notes='当前阶段只收口协议；真实登录态与播放源解析计划放在 App 端实现。',
-            )
+                notes='当前先接搜索与播放解析；Cookie 导入为后续账号能力预留。',
+            ),
         ]

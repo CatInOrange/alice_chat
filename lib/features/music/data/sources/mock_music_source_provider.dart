@@ -3,7 +3,7 @@ import '../../domain/music_runtime_models.dart';
 import '../mock_music_catalog.dart';
 import 'music_source_provider.dart';
 
-class MockMusicSourceProvider implements MusicSourceProvider {
+class MockMusicSourceProvider extends MusicSourceProvider {
   @override
   String get id => 'mock';
 
@@ -73,4 +73,7 @@ class MockMusicSourceProvider implements MusicSourceProvider {
   @override
   Future<List<MusicTrack>> loadPlaylistTracks(String playlistId) async =>
       MockMusicCatalog.tracksForPlaylist(playlistId);
+
+  @override
+  Future<bool> setTrackLiked(MusicTrack track, bool liked) async => false;
 }
