@@ -295,15 +295,30 @@ class MusicAiPlaylistDraft {
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
-  MusicPlaylist get asPlaylist => MusicPlaylist(
-    id: id,
-    title: title,
-    subtitle: subtitle,
-    tag: tag,
-    trackCount: tracks.length,
-    artworkTone: artworkTone,
-    isAiGenerated: isAiGenerated,
-  );
+  MusicPlaylist get asPlaylist {
+    final stamp = updatedAt ?? createdAt;
+    final timeLabel = stamp == null
+        ? subtitle
+        : '${_formatMonthDayTime(stamp)} · ${subtitle.isEmpty ? 'AI 歌单' : subtitle}';
+    return MusicPlaylist(
+      id: id,
+      title: title,
+      subtitle: timeLabel,
+      tag: tag,
+      trackCount: tracks.length,
+      artworkTone: artworkTone,
+      isAiGenerated: isAiGenerated,
+    );
+  }
+
+  static String _formatMonthDayTime(DateTime value) {
+    final local = value.toLocal();
+    final mm = local.month.toString().padLeft(2, '0');
+    final dd = local.day.toString().padLeft(2, '0');
+    final hh = local.hour.toString().padLeft(2, '0');
+    final min = local.minute.toString().padLeft(2, '0');
+    return '$mm-$dd $hh:$min';
+  }
 
   Map<String, dynamic> toMap() {
     return {

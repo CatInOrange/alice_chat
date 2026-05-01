@@ -214,6 +214,12 @@ class MusicStore extends ChangeNotifier {
       _recentPlaylists = List<MusicPlaylist>.unmodifiable(state.recentPlaylists);
       _currentPlaylistId = state.currentPlaylistId;
       _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
+      if (_latestAiPlaylist != null) {
+        _recentPlaylists = List<MusicPlaylist>.unmodifiable([
+          _latestAiPlaylist!.asPlaylist,
+          ..._recentPlaylists.where((item) => item.id != _latestAiPlaylist!.id),
+        ].take(6));
+      }
       final remotePlaylists = await _repository.loadUserPlaylists();
       final basePlaylists = remotePlaylists.isNotEmpty
           ? remotePlaylists
@@ -271,6 +277,12 @@ class MusicStore extends ChangeNotifier {
       );
       try {
         _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
+        if (_latestAiPlaylist != null) {
+          _recentPlaylists = List<MusicPlaylist>.unmodifiable([
+            _latestAiPlaylist!.asPlaylist,
+            ..._recentPlaylists.where((item) => item.id != _latestAiPlaylist!.id),
+          ].take(6));
+        }
       } catch (_) {
         _latestAiPlaylist = null;
       }
@@ -361,6 +373,9 @@ class MusicStore extends ChangeNotifier {
       _latestAiPlaylist?.tracks.isNotEmpty == true
           ? _latestAiPlaylist!.tracks.first.copyWith(
               isFavorite: isTrackLiked(_latestAiPlaylist!.tracks.first.id),
+              description: (_latestAiPlaylist!.updatedAt ?? _latestAiPlaylist!.createdAt) == null
+                  ? _latestAiPlaylist!.description
+                  : '${_formatPlaylistStamp(_latestAiPlaylist!.updatedAt ?? _latestAiPlaylist!.createdAt!)} · ${_latestAiPlaylist!.description}',
             )
           : _currentTrack;
 
@@ -732,12 +747,25 @@ class MusicStore extends ChangeNotifier {
 
   Future<void> _refreshLatestAiPlaylist() async {
     try {
-      _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
+      final previous = _latestAiPlaylist;
+      final next = await _repository.loadLatestAiPlaylist();
+      _latestAiPlaylist = next;
+      if (next != null) {
+        _recentPlaylists = List<MusicPlaylist>.unmodifiable([
+          next.asPlaylist,
+          ..._recentPlaylists.where((item) => item.id != next.id),
+        ].take(6));
+      } else if (previous != null) {
+        _recentPlaylists = List<MusicPlaylist>.unmodifiable(
+          _recentPlaylists.where((item) => item.id != previous.id).toList(growable: false),
+        );
+      }
       _rebuildPlaylists(basePlaylists: _playlists);
       _debugState('ai_playlist.refresh', extra: {
         'latestAiPlaylistId': _latestAiPlaylist?.id,
         'latestAiTrackCount': _latestAiPlaylist?.tracks.length ?? 0,
       }, force: true);
+      unawaited(_savePlaybackSnapshot());
       notifyListeners();
     } catch (error) {
       _debugState('ai_playlist.refresh.error', extra: {
@@ -1047,6 +1075,15 @@ class MusicStore extends ChangeNotifier {
     String normalize(String value) =>
         value.toLowerCase().replaceAll(RegExp(r'\s+'), '').trim();
     return '${normalize(track.title)}::${normalize(track.artist)}';
+  }
+
+  String _formatPlaylistStamp(DateTime value) {
+    final local = value.toLocal();
+    final mm = local.month.toString().padLeft(2, '0');
+    final dd = local.day.toString().padLeft(2, '0');
+    final hh = local.hour.toString().padLeft(2, '0');
+    final min = local.minute.toString().padLeft(2, '0');
+    return '$mm-$dd $hh:$min';
   }
 
   void _debugState(

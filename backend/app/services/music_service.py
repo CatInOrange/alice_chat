@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import time
 
 from ..music_api_models import MusicAiPlaylistDraftDto, MusicCommandRequest, MusicProviderDto, MusicStateDto, MusicStatePatchDto
 from ..store import MusicStore
@@ -36,8 +37,16 @@ class MusicService:
         )
 
     def save_latest_ai_playlist(self, playlist: MusicAiPlaylistDraftDto) -> MusicAiPlaylistResult:
+        now = time()
+        normalized = playlist.model_copy(
+            update={
+                'id': 'ai-playlist:latest',
+                'createdAt': playlist.createdAt or now,
+                'updatedAt': playlist.updatedAt or now,
+            }
+        )
         saved = self.store.save_state(
-            {'latestAiPlaylist': playlist.model_dump(exclude_none=True)}
+            {'latestAiPlaylist': normalized.model_dump(exclude_none=True)}
         )
         payload = saved.get('latestAiPlaylist')
         if not isinstance(payload, dict):

@@ -28,6 +28,17 @@ class _MusicScreenState extends State<MusicScreen>
   @override
   bool get wantKeepAlive => true;
 
+  String? _formatAiPlaylistTime(MusicAiPlaylistDraft? playlist) {
+    final stamp = playlist?.updatedAt ?? playlist?.createdAt;
+    if (stamp == null) return null;
+    final local = stamp.toLocal();
+    final mm = local.month.toString().padLeft(2, '0');
+    final dd = local.day.toString().padLeft(2, '0');
+    final hh = local.hour.toString().padLeft(2, '0');
+    final min = local.minute.toString().padLeft(2, '0');
+    return '生成于 $mm-$dd $hh:$min';
+  }
+
   Future<void> _openPlayer(MusicStore store, [MusicTrack? track]) async {
     if (track != null) {
       await store.selectTrack(track, autoplay: true);
@@ -117,11 +128,13 @@ class _MusicScreenState extends State<MusicScreen>
                   _MusicHeroCard(
                     track: store.heroTrack,
                     title: latestAiPlaylist?.title ?? '今晚推荐',
-                    headline: latestAiPlaylist?.subtitle ?? '给工作和夜色留一点音乐。',
+                    headline: latestAiPlaylist?.title ?? '给工作和夜色留一点音乐。',
+                    subtitle: latestAiPlaylist?.subtitle,
                     description:
                         latestAiPlaylist?.description ?? store.heroTrack.description,
                     buttonLabel: latestAiPlaylist != null ? '播放歌单' : '播放',
                     badgeLabel: latestAiPlaylist != null ? 'AI 最新歌单' : '今晚推荐',
+                    timestampLabel: _formatAiPlaylistTime(latestAiPlaylist),
                     onTap: () async {
                       if (latestAiPlaylist != null) {
                         await _openPlaylist(store, latestAiPlaylist.asPlaylist);
@@ -278,6 +291,8 @@ class _MusicHeroCard extends StatelessWidget {
     required this.description,
     required this.buttonLabel,
     required this.badgeLabel,
+    this.subtitle,
+    this.timestampLabel,
   });
 
   final MusicTrack track;
@@ -287,6 +302,8 @@ class _MusicHeroCard extends StatelessWidget {
   final String description;
   final String buttonLabel;
   final String badgeLabel;
+  final String? subtitle;
+  final String? timestampLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -351,6 +368,15 @@ class _MusicHeroCard extends StatelessWidget {
                           ),
                           const SizedBox(height: 16),
                           Text(
+                            title,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: Colors.white.withValues(alpha: 0.78),
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.4,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
                             headline,
                             style: theme.textTheme.titleLarge?.copyWith(
                               color: Colors.white,
@@ -358,6 +384,26 @@ class _MusicHeroCard extends StatelessWidget {
                               height: 1.2,
                             ),
                           ),
+                          if ((subtitle ?? '').trim().isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              subtitle!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: Colors.white.withValues(alpha: 0.9),
+                              ),
+                            ),
+                          ],
+                          if ((timestampLabel ?? '').trim().isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              timestampLabel!,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: Colors.white.withValues(alpha: 0.74),
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 10),
                           Text(
                             description,
@@ -615,24 +661,26 @@ class _CompactPlaylistGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: playlists.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
-        childAspectRatio: 0.8,
+    return SizedBox(
+      height: 172,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: playlists.length,
+        padding: EdgeInsets.zero,
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        itemBuilder: (context, index) {
+          final playlist = playlists[index];
+          final cardWidth = (MediaQuery.of(context).size.width - 32 - 24) / 3;
+          return SizedBox(
+            width: cardWidth,
+            child: _PlaylistGridCard(
+              playlist: playlist,
+              isActive: currentPlaylistId == playlist.id,
+              onTap: () => onPlaylistTap(playlist),
+            ),
+          );
+        },
       ),
-      itemBuilder: (context, index) {
-        final playlist = playlists[index];
-        return _PlaylistGridCard(
-          playlist: playlist,
-          isActive: currentPlaylistId == playlist.id,
-          onTap: () => onPlaylistTap(playlist),
-        );
-      },
     );
   }
 }
@@ -884,7 +932,7 @@ class _EmptyMusicState extends StatelessWidget {
   }
 }
 
-class _MiniPlayer extends StatelessWidget {
+class _MiniPlayer extends StatefulWidget {
   const _MiniPlayer({
     required this.track,
     required this.isPlaying,
@@ -898,9 +946,45 @@ class _MiniPlayer extends StatelessWidget {
   final VoidCallback onPlayPause;
 
   @override
+  State<_MiniPlayer> createState() => _MiniPlayerState();
+}
+
+class _MiniPlayerState extends State<_MiniPlayer>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 12),
+    );
+    if (widget.isPlaying) {
+      _controller.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _MiniPlayer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isPlaying && !_controller.isAnimating) {
+      _controller.repeat();
+    } else if (!widget.isPlaying && _controller.isAnimating) {
+      _controller.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final palette = paletteForTone(track.artworkTone);
+    final palette = paletteForTone(widget.track.artworkTone);
     return ClipRRect(
       borderRadius: BorderRadius.circular(32),
       child: BackdropFilter(
@@ -909,7 +993,7 @@ class _MiniPlayer extends StatelessWidget {
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(32),
-            onTap: onTap,
+            onTap: widget.onTap,
             child: Ink(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
               decoration: BoxDecoration(
@@ -926,11 +1010,17 @@ class _MiniPlayer extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  MusicArtwork(
-                    track: track,
-                    size: 56,
-                    showMeta: false,
-                    heroTag: 'music-artwork-${track.id}',
+                  RotationTransition(
+                    turns: _controller,
+                    child: ClipOval(
+                      child: MusicArtwork(
+                        track: widget.track,
+                        size: 56,
+                        circular: true,
+                        showMeta: false,
+                        heroTag: 'music-artwork-${widget.track.id}',
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -938,14 +1028,14 @@ class _MiniPlayer extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          track.title,
+                          widget.track.title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.titleMedium,
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          track.artist,
+                          widget.track.artist,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall,
@@ -961,9 +1051,9 @@ class _MiniPlayer extends StatelessWidget {
                       shape: BoxShape.circle,
                     ),
                     child: IconButton(
-                      onPressed: onPlayPause,
+                      onPressed: widget.onPlayPause,
                       icon: Icon(
-                        isPlaying
+                        widget.isPlaying
                             ? Icons.pause_rounded
                             : Icons.play_arrow_rounded,
                         color: Colors.white,
