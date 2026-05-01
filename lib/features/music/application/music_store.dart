@@ -91,6 +91,7 @@ class MusicStore extends ChangeNotifier {
   List<MusicTrack> _recentTracks = const [];
   List<MusicPlaylist> _recentPlaylists = const [];
   List<MusicTrack> _likedTracks = const <MusicTrack>[];
+  List<CustomMusicPlaylist> _customPlaylists = const <CustomMusicPlaylist>[];
   List<MusicAiPlaylistDraft> _aiPlaylistHistory = const [];
   MusicAiPlaylistDraft? _latestAiPlaylist;
   final Map<String, List<MusicTrack>> _playlistTracksCache =
@@ -119,12 +120,17 @@ class MusicStore extends ChangeNotifier {
   MusicTrack get currentTrack => _currentTrack;
   List<PlaybackQueueItem> get queue => _queue;
   List<MusicPlaylist> get playlists => _playlists;
-  List<MusicPlaylist> get libraryPlaylists {
-    final ordered = <MusicPlaylist>[likedPlaylist];
-    final seen = <String>{likedPlaylist.id};
+  List<MusicPlaylist> get customPlaylistCards => List<MusicPlaylist>.unmodifiable(
+        _customPlaylists.map((item) => item.asPlaylist).toList(growable: false),
+      );
+
+  List<MusicPlaylist> get remotePlaylists {
+    final ordered = <MusicPlaylist>[];
+    final seen = <String>{};
     for (final item in _playlists) {
       if (_isSystemPlaylist(item)) continue;
       if (_isRemoteLikedPlaylist(item)) continue;
+      if (_isCustomPlaylist(item.id)) continue;
       if (seen.add(item.id)) {
         ordered.add(item);
       }
@@ -135,6 +141,7 @@ class MusicStore extends ChangeNotifier {
   List<MusicTrack> get recentTracks => _recentTracks;
   List<MusicPlaylist> get recentPlaylists => _recentPlaylists;
   List<MusicTrack> get likedTracks => _likedTracks;
+  List<CustomMusicPlaylist> get customPlaylists => _customPlaylists;
   List<MusicAiPlaylistDraft> get aiPlaylistHistory => _aiPlaylistHistory;
   MusicAiPlaylistDraft? get latestAiPlaylist => _latestAiPlaylist;
   bool get isSearching => _isSearching;
@@ -154,6 +161,9 @@ class MusicStore extends ChangeNotifier {
     if (playlistId == likedPlaylist.id) return likedPlaylist;
     if (_latestAiPlaylist != null && _latestAiPlaylist!.id == playlistId) {
       return _latestAiPlaylist!.asPlaylist;
+    }
+    for (final item in _customPlaylists) {
+      if (item.id == playlistId) return item.asPlaylist;
     }
     for (final item in _aiPlaylistHistory) {
       if (item.id == playlistId) return item.asPlaylist;
@@ -253,6 +263,7 @@ class MusicStore extends ChangeNotifier {
       _likedTracks = List<MusicTrack>.unmodifiable(state.likedTracks);
       _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
       _recentPlaylists = _normalizeRecentPlaylists(state.recentPlaylists);
+      _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(state.customPlaylists);
       _currentPlaylistId = _normalizePlaylistId(state.currentPlaylistId);
       try {
         _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
@@ -321,6 +332,7 @@ class MusicStore extends ChangeNotifier {
       _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
       _recentPlaylists = _normalizeRecentPlaylists(state.recentPlaylists);
       _likedTracks = List<MusicTrack>.unmodifiable(state.likedTracks);
+      _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(state.customPlaylists);
       _currentPlaylistId = _normalizePlaylistId(state.currentPlaylistId);
       _currentTrack = _currentTrack.copyWith(
         isFavorite: isTrackLiked(_currentTrack.id),
@@ -476,6 +488,125 @@ class MusicStore extends ChangeNotifier {
 
   Future<MusicPlaylist> getLikedPlaylist() async => likedPlaylist;
 
+  bool isCustomPlaylist(String playlistId) => _isCustomPlaylist(playlistId);
+
+  CustomMusicPlaylist? customPlaylistById(String playlistId) {
+    for (final item in _customPlaylists) {
+      if (item.id == playlistId) return item;
+    }
+    return null;
+  }
+
+  Future<void> createCustomPlaylist({
+    required String title,
+    String subtitle = '',
+    String description = '',
+  }) async {
+    final now = DateTime.now();
+    final playlist = CustomMusicPlaylist(
+      id: 'custom-playlist:${now.millisecondsSinceEpoch}',
+      title: title.trim(),
+      subtitle: subtitle.trim(),
+      description: description.trim(),
+      createdAt: now,
+      updatedAt: now,
+    );
+    _customPlaylists = List<CustomMusicPlaylist>.unmodifiable([
+      playlist,
+      ..._customPlaylists,
+    ]);
+    _rebuildPlaylists(basePlaylists: _playlists);
+    notifyListeners();
+    await _repository.saveCustomPlaylists(_customPlaylists);
+    unawaited(_savePlaybackSnapshot());
+  }
+
+  Future<void> renameCustomPlaylist(
+    String playlistId, {
+    required String title,
+    String? subtitle,
+    String? description,
+  }) async {
+    final now = DateTime.now();
+    _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(
+      _customPlaylists.map((item) {
+        if (item.id != playlistId) return item;
+        return item.copyWith(
+          title: title.trim(),
+          subtitle: subtitle ?? item.subtitle,
+          description: description ?? item.description,
+          updatedAt: now,
+        );
+      }).toList(growable: false),
+    );
+    _rebuildPlaylists(basePlaylists: _playlists);
+    notifyListeners();
+    await _repository.saveCustomPlaylists(_customPlaylists);
+    unawaited(_savePlaybackSnapshot());
+  }
+
+  Future<void> deleteCustomPlaylist(String playlistId) async {
+    _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(
+      _customPlaylists.where((item) => item.id != playlistId).toList(growable: false),
+    );
+    _recentPlaylists = List<MusicPlaylist>.unmodifiable(
+      _recentPlaylists.where((item) => item.id != playlistId).toList(growable: false),
+    );
+    if (_currentPlaylistId == playlistId) {
+      _currentPlaylistId = null;
+    }
+    _playlistTracksCache.remove(playlistId);
+    _rebuildPlaylists(basePlaylists: _playlists);
+    notifyListeners();
+    await _repository.saveCustomPlaylists(_customPlaylists);
+    unawaited(_savePlaybackSnapshot());
+  }
+
+  Future<bool> addTrackToCustomPlaylist(String playlistId, MusicTrack track) async {
+    final now = DateTime.now();
+    var added = false;
+    _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(
+      _customPlaylists.map((item) {
+        if (item.id != playlistId) return item;
+        if (item.tracks.any((existing) => existing.id == track.id)) {
+          return item;
+        }
+        added = true;
+        final nextTracks = List<MusicTrack>.unmodifiable([
+          track.copyWith(isFavorite: isTrackLiked(track.id)),
+          ...item.tracks,
+        ]);
+        _playlistTracksCache[playlistId] = nextTracks;
+        return item.copyWith(tracks: nextTracks, updatedAt: now);
+      }).toList(growable: false),
+    );
+    if (added) {
+      _rebuildPlaylists(basePlaylists: _playlists);
+      notifyListeners();
+      await _repository.saveCustomPlaylists(_customPlaylists);
+      unawaited(_savePlaybackSnapshot());
+    }
+    return added;
+  }
+
+  Future<void> removeTrackFromCustomPlaylist(String playlistId, String trackId) async {
+    final now = DateTime.now();
+    _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(
+      _customPlaylists.map((item) {
+        if (item.id != playlistId) return item;
+        final nextTracks = List<MusicTrack>.unmodifiable(
+          item.tracks.where((track) => track.id != trackId).toList(growable: false),
+        );
+        _playlistTracksCache[playlistId] = nextTracks;
+        return item.copyWith(tracks: nextTracks, updatedAt: now);
+      }).toList(growable: false),
+    );
+    _rebuildPlaylists(basePlaylists: _playlists);
+    notifyListeners();
+    await _repository.saveCustomPlaylists(_customPlaylists);
+    unawaited(_savePlaybackSnapshot());
+  }
+
   Future<List<MusicTrack>> loadPlaylistTracks(MusicPlaylist playlist) async {
     await ensureReady();
     if (playlist.id == likedPlaylist.id) {
@@ -484,6 +615,11 @@ class MusicStore extends ChangeNotifier {
             .map((track) => track.copyWith(isFavorite: true))
             .toList(growable: false),
       );
+    }
+    final customPlaylist = customPlaylistById(playlist.id);
+    if (customPlaylist != null) {
+      _cacheTracksForPlaylist(playlist.id, customPlaylist.tracks);
+      return _withFavoriteFlags(customPlaylist.tracks);
     }
     final inMemoryTracks = _knownAiPlaylistTracks(playlist.id);
     if (inMemoryTracks != null) {
@@ -1115,8 +1251,15 @@ class MusicStore extends ChangeNotifier {
       final normalized = _normalizeAiPlaylistRef(item);
       if (_isSystemPlaylist(normalized)) continue;
       if (_isRemoteLikedPlaylist(normalized)) continue;
+      if (_isCustomPlaylist(normalized.id)) continue;
       if (seen.add(normalized.id)) {
         merged.add(normalized);
+      }
+    }
+    for (final item in _customPlaylists) {
+      final playlist = item.asPlaylist;
+      if (seen.add(playlist.id)) {
+        merged.add(playlist);
       }
     }
     _playlists = List<MusicPlaylist>.unmodifiable(merged);
@@ -1124,6 +1267,9 @@ class MusicStore extends ChangeNotifier {
 
   bool _isRemoteLikedPlaylist(MusicPlaylist playlist) =>
       playlist.id != likedPlaylist.id && playlist.tag == 'LIKED';
+
+  bool _isCustomPlaylist(String playlistId) =>
+      playlistId.startsWith('custom-playlist:');
 
   bool _isSystemPlaylist(MusicPlaylist playlist) {
     return playlist.id == likedPlaylist.id ||
@@ -1301,6 +1447,7 @@ class MusicStore extends ChangeNotifier {
       position: _position,
       likedTracks: _likedTracks,
       recentPlaylists: _recentPlaylists,
+      customPlaylists: _customPlaylists,
       currentPlaylistId: _currentPlaylistId,
     );
   }
@@ -1331,6 +1478,10 @@ class MusicStore extends ChangeNotifier {
   List<MusicTrack>? _knownAiPlaylistTracks(String playlistId) {
     if (_latestAiPlaylist != null && _latestAiPlaylist!.id == playlistId) {
       return _latestAiPlaylist!.tracks;
+    }
+    final customPlaylist = customPlaylistById(playlistId);
+    if (customPlaylist != null) {
+      return customPlaylist.tracks;
     }
     for (final item in _aiPlaylistHistory) {
       if (item.id == playlistId) {
@@ -1410,6 +1561,7 @@ class MusicStateSnapshot {
     this.recentTracks = const [],
     this.likedTracks = const [],
     this.recentPlaylists = const [],
+    this.customPlaylists = const [],
     this.currentPlaylistId,
     this.isPlaying = false,
     this.position = Duration.zero,
@@ -1421,6 +1573,7 @@ class MusicStateSnapshot {
   final List<MusicTrack> recentTracks;
   final List<MusicTrack> likedTracks;
   final List<MusicPlaylist> recentPlaylists;
+  final List<CustomMusicPlaylist> customPlaylists;
   final String? currentPlaylistId;
   final bool isPlaying;
   final Duration position;

@@ -118,24 +118,26 @@ class MusicPlayerScreen extends StatelessWidget {
                                 isBuffering: store.isBuffering,
                               ),
                               const SizedBox(height: 28),
-                              Container(
-                                padding: const EdgeInsets.all(22),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.72),
-                                  borderRadius: BorderRadius.circular(30),
-                                  border: Border.all(
+                              GestureDetector(
+                                onLongPress: () => _showCollectToPlaylistSheet(context, store, currentTrack),
+                                child: Container(
+                                  padding: const EdgeInsets.all(22),
+                                  decoration: BoxDecoration(
                                     color: Colors.white.withValues(alpha: 0.72),
-                                  ),
-                                  boxShadow: const [
-                                    BoxShadow(
-                                      color: Color(0x140B1220),
-                                      blurRadius: 20,
-                                      offset: Offset(0, 12),
+                                    borderRadius: BorderRadius.circular(30),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(alpha: 0.72),
                                     ),
-                                  ],
-                                ),
-                                child: Column(
-                                  children: [
+                                    boxShadow: const [
+                                      BoxShadow(
+                                        color: Color(0x140B1220),
+                                        blurRadius: 20,
+                                        offset: Offset(0, 12),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Column(
+                                    children: [
                                     Row(
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
@@ -231,7 +233,8 @@ class MusicPlayerScreen extends StatelessWidget {
                                       onToggleShuffle: store.toggleShuffle,
                                       onCycleRepeat: store.cycleRepeatMode,
                                     ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
                               const SizedBox(height: 22),
@@ -302,6 +305,119 @@ class MusicPlayerScreen extends StatelessWidget {
       },
     );
   }
+}
+
+Future<void> _showCollectToPlaylistSheet(
+  BuildContext context,
+  MusicStore store,
+  MusicTrack track,
+) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) {
+      final playlists = store.customPlaylists;
+      return SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              title: Text('收藏到歌单'),
+              subtitle: Text('“喜欢”仍然由右上角红心单独管理'),
+            ),
+            if (playlists.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(20),
+                child: Text('你还没有自建歌单，先去首页创建一个吧。'),
+              )
+            else
+              ...playlists.map(
+                (playlist) => ListTile(
+                  leading: const Icon(Icons.queue_music_rounded),
+                  title: Text(playlist.title),
+                  subtitle: Text('${playlist.tracks.length} 首歌曲'),
+                  trailing: playlist.tracks.any((item) => item.id == track.id)
+                      ? const Icon(Icons.check_rounded, color: Colors.green)
+                      : null,
+                  onTap: () async {
+                    final added = await store.addTrackToCustomPlaylist(
+                      playlist.id,
+                      track,
+                    );
+                    if (!sheetContext.mounted) return;
+                    Navigator.of(sheetContext).pop();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          added ? '已收藏到 ${playlist.title}' : '这首歌已经在 ${playlist.title} 里了',
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ListTile(
+              leading: const Icon(Icons.add_rounded),
+              title: const Text('新建歌单并收藏'),
+              onTap: () async {
+                Navigator.of(sheetContext).pop();
+                await _showCreateAndCollectSheet(context, store, track);
+              },
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+Future<void> _showCreateAndCollectSheet(
+  BuildContext context,
+  MusicStore store,
+  MusicTrack track,
+) async {
+  final controller = TextEditingController();
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (sheetContext) {
+      final bottomInset = MediaQuery.of(sheetContext).viewInsets.bottom;
+      return Padding(
+        padding: EdgeInsets.fromLTRB(20, 8, 20, bottomInset + 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: '新歌单名称'),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () async {
+                  final title = controller.text.trim();
+                  if (title.isEmpty) return;
+                  await store.createCustomPlaylist(title: title);
+                  final created = store.customPlaylists.isEmpty
+                      ? null
+                      : store.customPlaylists.first;
+                  if (created != null) {
+                    await store.addTrackToCustomPlaylist(created.id, track);
+                  }
+                  if (!sheetContext.mounted) return;
+                  Navigator.of(sheetContext).pop();
+                },
+                child: const Text('创建并收藏'),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
 }
 
 class _DiscStage extends StatefulWidget {

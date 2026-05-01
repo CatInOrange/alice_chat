@@ -369,6 +369,111 @@ class MusicAiPlaylistDraft {
   }
 }
 
+class CustomMusicPlaylist {
+  const CustomMusicPlaylist({
+    required this.id,
+    required this.title,
+    this.subtitle = '',
+    this.description = '',
+    this.tag = '我的歌单',
+    this.artworkTone = MusicArtworkTone.sunset,
+    this.tracks = const [],
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String title;
+  final String subtitle;
+  final String description;
+  final String tag;
+  final MusicArtworkTone artworkTone;
+  final List<MusicTrack> tracks;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  MusicPlaylist get asPlaylist => MusicPlaylist(
+        id: id,
+        title: title,
+        subtitle: subtitle.isNotEmpty
+            ? subtitle
+            : (description.isNotEmpty ? description : '手动整理的收藏歌单'),
+        tag: tag,
+        trackCount: tracks.length,
+        artworkTone: artworkTone,
+      );
+
+  CustomMusicPlaylist copyWith({
+    String? id,
+    String? title,
+    String? subtitle,
+    String? description,
+    String? tag,
+    MusicArtworkTone? artworkTone,
+    List<MusicTrack>? tracks,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return CustomMusicPlaylist(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      subtitle: subtitle ?? this.subtitle,
+      description: description ?? this.description,
+      tag: tag ?? this.tag,
+      artworkTone: artworkTone ?? this.artworkTone,
+      tracks: tracks ?? this.tracks,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'title': title,
+      'subtitle': subtitle,
+      'description': description,
+      'tag': tag,
+      'artworkTone': artworkTone.name,
+      'tracks': tracks.map((item) => item.toMap()).toList(growable: false),
+      if (createdAt != null) 'createdAt': createdAt!.millisecondsSinceEpoch / 1000,
+      if (updatedAt != null) 'updatedAt': updatedAt!.millisecondsSinceEpoch / 1000,
+    };
+  }
+
+  factory CustomMusicPlaylist.fromMap(Map<String, dynamic> map) {
+    DateTime? parseTs(dynamic raw) {
+      if (raw is num) {
+        return DateTime.fromMillisecondsSinceEpoch((raw * 1000).round());
+      }
+      final parsed = double.tryParse('$raw');
+      if (parsed == null) return null;
+      return DateTime.fromMillisecondsSinceEpoch((parsed * 1000).round());
+    }
+
+    return CustomMusicPlaylist(
+      id: (map['id'] ?? '').toString(),
+      title: (map['title'] ?? '').toString(),
+      subtitle: (map['subtitle'] ?? '').toString(),
+      description: (map['description'] ?? '').toString(),
+      tag: (map['tag'] ?? '我的歌单').toString(),
+      artworkTone: musicArtworkToneFromName(
+        (map['artworkTone'] ?? MusicArtworkTone.sunset.name).toString(),
+      ),
+      tracks: ((map['tracks'] as List<dynamic>?) ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) => MusicTrack.fromMap(
+              Map<String, dynamic>.from(item.cast<String, dynamic>()),
+            ),
+          )
+          .toList(growable: false),
+      createdAt: parseTs(map['createdAt']),
+      updatedAt: parseTs(map['updatedAt']),
+    );
+  }
+}
+
 class MusicCatalogData {
   const MusicCatalogData({
     required this.featuredTrack,

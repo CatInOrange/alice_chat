@@ -15,6 +15,10 @@ abstract class MusicRepository {
 
   Future<List<MusicTrack>> loadLikedTracks();
 
+  Future<List<CustomMusicPlaylist>> loadCustomPlaylists();
+
+  Future<void> saveCustomPlaylists(List<CustomMusicPlaylist> playlists);
+
   Future<void> setTrackLiked(MusicTrack track, bool liked);
 
   Future<List<MusicTrack>> loadPlaylistTracks(MusicPlaylist playlist);
@@ -26,6 +30,7 @@ abstract class MusicRepository {
     required Duration position,
     List<MusicTrack>? likedTracks,
     List<MusicPlaylist>? recentPlaylists,
+    List<CustomMusicPlaylist>? customPlaylists,
     String? currentPlaylistId,
   });
 }

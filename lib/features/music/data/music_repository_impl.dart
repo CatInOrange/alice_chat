@@ -64,6 +64,14 @@ class MusicRepositoryImpl implements MusicRepository {
             ),
           )
           .toList(growable: false);
+      final customPlaylists = ((response['customPlaylists'] as List<dynamic>?) ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) => CustomMusicPlaylist.fromMap(
+              Map<String, dynamic>.from(item.cast<String, dynamic>()),
+            ),
+          )
+          .toList(growable: false);
       final currentPlaylistId = (response['currentPlaylistId'] ?? '').toString().trim();
       final positionMsRaw = response['positionMs'] ?? 0;
       return MusicStateSnapshot(
@@ -74,6 +82,7 @@ class MusicRepositoryImpl implements MusicRepository {
         recentTracks: recentTracks,
         likedTracks: likedTracks,
         recentPlaylists: recentPlaylists,
+        customPlaylists: customPlaylists,
         currentPlaylistId: currentPlaylistId.isEmpty ? null : currentPlaylistId,
         isPlaying: response['isPlaying'] == true,
         position: Duration(
@@ -209,6 +218,28 @@ class MusicRepositoryImpl implements MusicRepository {
   }
 
   @override
+  Future<List<CustomMusicPlaylist>> loadCustomPlaylists() async {
+    final response = await _client.getMusicState();
+    return ((response['customPlaylists'] as List<dynamic>?) ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => CustomMusicPlaylist.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  @override
+  Future<void> saveCustomPlaylists(List<CustomMusicPlaylist> playlists) async {
+    await _client.saveMusicState(
+      payload: {
+        'customPlaylists': playlists.map((item) => item.toMap()).toList(growable: false),
+      },
+    );
+  }
+
+  @override
   Future<void> setTrackLiked(MusicTrack track, bool liked) async {
     final current = await loadLikedTracks();
     final filtered = current.where((item) => item.id != track.id).toList(growable: true);
@@ -288,6 +319,7 @@ class MusicRepositoryImpl implements MusicRepository {
     required Duration position,
     List<MusicTrack>? likedTracks,
     List<MusicPlaylist>? recentPlaylists,
+    List<CustomMusicPlaylist>? customPlaylists,
     String? currentPlaylistId,
   }) async {
     try {
@@ -301,6 +333,8 @@ class MusicRepositoryImpl implements MusicRepository {
             'likedTracks': likedTracks.map((item) => item.toMap()).toList(),
           if (recentPlaylists != null)
             'recentPlaylists': recentPlaylists.map((item) => item.toMap()).toList(),
+          if (customPlaylists != null)
+            'customPlaylists': customPlaylists.map((item) => item.toMap()).toList(),
           if (currentPlaylistId != null) 'currentPlaylistId': currentPlaylistId,
         },
       );

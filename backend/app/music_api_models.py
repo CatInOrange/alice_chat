@@ -129,6 +129,18 @@ class MusicAiPlaylistDraftDto(MusicApiModel):
     updatedAt: float | None = None
 
 
+class CustomMusicPlaylistDto(MusicApiModel):
+    id: str = ''
+    title: str = ''
+    subtitle: str = ''
+    description: str = ''
+    tag: str = '我的歌单'
+    artworkTone: str = 'sunset'
+    tracks: list[MusicTrackDto] = Field(default_factory=list)
+    createdAt: float | None = None
+    updatedAt: float | None = None
+
+
 class MusicStateDto(MusicApiModel):
     currentTrack: MusicTrackDto | None = None
     queue: list[PlaybackQueueItemDto] = Field(default_factory=list)
@@ -136,6 +148,7 @@ class MusicStateDto(MusicApiModel):
     recentTracks: list[MusicTrackDto] = Field(default_factory=list)
     recentPlaylists: list[MusicPlaylistDto] = Field(default_factory=list)
     likedTracks: list[MusicTrackDto] = Field(default_factory=list)
+    customPlaylists: list[CustomMusicPlaylistDto] = Field(default_factory=list)
     latestAiPlaylist: MusicAiPlaylistDraftDto | None = None
     aiPlaylistHistory: list[MusicAiPlaylistDraftDto] = Field(default_factory=list)
     isPlaying: bool = False
@@ -151,6 +164,7 @@ class MusicStatePatchDto(MusicApiModel):
     recentTracks: list[MusicTrackDto] | None = None
     recentPlaylists: list[MusicPlaylistDto] | None = None
     likedTracks: list[MusicTrackDto] | None = None
+    customPlaylists: list[CustomMusicPlaylistDto] | None = None
     latestAiPlaylist: MusicAiPlaylistDraftDto | None = None
     aiPlaylistHistory: list[MusicAiPlaylistDraftDto] | None = None
     isPlaying: bool | None = None

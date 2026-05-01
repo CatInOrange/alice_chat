@@ -176,6 +176,197 @@ class _MusicScreenState extends State<MusicScreen>
     }
   }
 
+  Future<void> _showCreatePlaylistSheet(BuildContext context, MusicStore store) async {
+    final nameController = TextEditingController();
+    final subtitleController = TextEditingController();
+    final descriptionController = TextEditingController();
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final bottomInset = MediaQuery.of(sheetContext).viewInsets.bottom;
+        return Padding(
+          padding: EdgeInsets.fromLTRB(20, 8, 20, bottomInset + 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('新建歌单', style: Theme.of(sheetContext).textTheme.titleLarge),
+              const SizedBox(height: 16),
+              TextField(
+                controller: nameController,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: '歌单名称',
+                  hintText: '例如：睡前循环 / 周末开车',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: subtitleController,
+                decoration: const InputDecoration(
+                  labelText: '副标题（选填）',
+                  hintText: '一句描述这份歌单',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: descriptionController,
+                maxLines: 2,
+                decoration: const InputDecoration(
+                  labelText: '简介（选填）',
+                  hintText: '比如：适合夜里安静听的民谣',
+                ),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () async {
+                    final title = nameController.text.trim();
+                    if (title.isEmpty) return;
+                    await store.createCustomPlaylist(
+                      title: title,
+                      subtitle: subtitleController.text,
+                      description: descriptionController.text,
+                    );
+                    if (!sheetContext.mounted) return;
+                    Navigator.of(sheetContext).pop();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('已创建歌单：$title')),
+                    );
+                  },
+                  child: const Text('创建歌单'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showRenamePlaylistSheet(
+    BuildContext context,
+    MusicStore store,
+    MusicPlaylist playlist,
+  ) async {
+    final custom = store.customPlaylistById(playlist.id);
+    if (custom == null) return;
+    final nameController = TextEditingController(text: custom.title);
+    final subtitleController = TextEditingController(text: custom.subtitle);
+    final descriptionController = TextEditingController(text: custom.description);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final bottomInset = MediaQuery.of(sheetContext).viewInsets.bottom;
+        return Padding(
+          padding: EdgeInsets.fromLTRB(20, 8, 20, bottomInset + 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('编辑歌单', style: Theme.of(sheetContext).textTheme.titleLarge),
+              const SizedBox(height: 16),
+              TextField(controller: nameController, decoration: const InputDecoration(labelText: '歌单名称')),
+              const SizedBox(height: 12),
+              TextField(controller: subtitleController, decoration: const InputDecoration(labelText: '副标题（选填）')),
+              const SizedBox(height: 12),
+              TextField(controller: descriptionController, maxLines: 2, decoration: const InputDecoration(labelText: '简介（选填）')),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () async {
+                    final title = nameController.text.trim();
+                    if (title.isEmpty) return;
+                    await store.renameCustomPlaylist(
+                      playlist.id,
+                      title: title,
+                      subtitle: subtitleController.text.trim(),
+                      description: descriptionController.text.trim(),
+                    );
+                    if (!sheetContext.mounted) return;
+                    Navigator.of(sheetContext).pop();
+                  },
+                  child: const Text('保存修改'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showCustomPlaylistActions(
+    BuildContext context,
+    MusicStore store,
+    MusicPlaylist playlist,
+  ) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.play_arrow_rounded),
+                title: const Text('播放歌单'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _playPlaylist(store, playlist);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.queue_music_rounded),
+                title: const Text('查看详情'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _openPlaylistDetail(store, playlist);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.edit_rounded),
+                title: const Text('编辑歌单'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _showRenamePlaylistSheet(context, store, playlist);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                title: const Text('删除歌单', style: TextStyle(color: Colors.redAccent)),
+                onTap: () async {
+                  Navigator.of(sheetContext).pop();
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder: (dialogContext) => AlertDialog(
+                      title: const Text('删除歌单？'),
+                      content: const Text('删除后歌单里的歌曲不会被删除，只会移除这个歌单。'),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('取消')),
+                        FilledButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('删除')),
+                      ],
+                    ),
+                  );
+                  if (confirmed == true) {
+                    await store.deleteCustomPlaylist(playlist.id);
+                  }
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _openSearch(BuildContext context, MusicStore store) async {
     if (_isOpeningSearch) return;
     _isOpeningSearch = true;
@@ -268,7 +459,30 @@ class _MusicScreenState extends State<MusicScreen>
                   const SizedBox(height: 28),
                   _SectionHeader(
                     title: '我的歌单',
-                    subtitle: '你的收藏和平台歌单都在这里，当前播放会高亮显示',
+                    subtitle: '你自己整理的歌单会在这里，长按可管理',
+                    actionLabel: '添加',
+                    isBusy: false,
+                    onActionTap: () {
+                      _showCreatePlaylistSheet(context, store);
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                  if (store.customPlaylistCards.isEmpty)
+                    _SectionPlaceholder(
+                      title: '你还没有创建歌单',
+                      subtitle: '点右上角“添加”，就能新建自己的歌单',
+                    )
+                  else
+                    _CompactPlaylistGrid(
+                      playlists: store.customPlaylistCards,
+                      currentPlaylistId: store.currentPlaylistId,
+                      onPlaylistTap: (playlist) => _openPlaylistDetail(store, playlist),
+                      onPlaylistLongPress: (playlist) => _showCustomPlaylistActions(context, store, playlist),
+                    ),
+                  const SizedBox(height: 28),
+                  _SectionHeader(
+                    title: '平台歌单',
+                    subtitle: '网易云等平台同步过来的歌单会显示在这里',
                     actionLabel: '刷新',
                     isBusy: store.isLoading,
                     onActionTap: () {
@@ -276,11 +490,17 @@ class _MusicScreenState extends State<MusicScreen>
                     },
                   ),
                   const SizedBox(height: 14),
-                  _CompactPlaylistGrid(
-                    playlists: store.libraryPlaylists,
-                    currentPlaylistId: store.currentPlaylistId,
-                    onPlaylistTap: (playlist) => _openPlaylistDetail(store, playlist),
-                  ),
+                  if (store.remotePlaylists.isEmpty)
+                    const _SectionPlaceholder(
+                      title: '暂时还没有同步到平台歌单',
+                      subtitle: '检查登录状态后重新刷新，平台歌单会出现在这里',
+                    )
+                  else
+                    _CompactPlaylistGrid(
+                      playlists: store.remotePlaylists,
+                      currentPlaylistId: store.currentPlaylistId,
+                      onPlaylistTap: (playlist) => _openPlaylistDetail(store, playlist),
+                    ),
                   if ((store.error ?? '').trim().isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 20, bottom: 12),
@@ -847,11 +1067,13 @@ class _CompactPlaylistGrid extends StatelessWidget {
     required this.playlists,
     required this.currentPlaylistId,
     required this.onPlaylistTap,
+    this.onPlaylistLongPress,
   });
 
   final List<MusicPlaylist> playlists;
   final String? currentPlaylistId;
   final ValueChanged<MusicPlaylist> onPlaylistTap;
+  final ValueChanged<MusicPlaylist>? onPlaylistLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -871,6 +1093,7 @@ class _CompactPlaylistGrid extends StatelessWidget {
               playlist: playlist,
               isActive: currentPlaylistId == playlist.id,
               onTap: () => onPlaylistTap(playlist),
+              onLongPress: onPlaylistLongPress == null ? null : () => onPlaylistLongPress!(playlist),
             ),
           );
         },
@@ -883,11 +1106,13 @@ class _PlaylistGridCard extends StatelessWidget {
   const _PlaylistGridCard({
     required this.playlist,
     required this.onTap,
+    this.onLongPress,
     this.isActive = false,
   });
 
   final MusicPlaylist playlist;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   final bool isActive;
 
   @override
@@ -900,6 +1125,7 @@ class _PlaylistGridCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(26),
         onTap: onTap,
+        onLongPress: onLongPress,
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
@@ -1408,6 +1634,57 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
   bool _isPlayingAll = false;
   final Set<int> _pendingTrackIndexes = <int>{};
 
+  Future<void> _showTrackActions(
+    BuildContext context,
+    MusicStore store,
+    MusicPlaylist playlist,
+    MusicTrack track,
+  ) async {
+    if (!store.isCustomPlaylist(playlist.id)) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.play_arrow_rounded),
+              title: const Text('播放这首歌'),
+              onTap: () async {
+                Navigator.of(sheetContext).pop();
+                await store.playLoadedPlaylist(playlist, widget.tracks, startIndex: widget.tracks.indexWhere((item) => item.id == track.id));
+                if (!context.mounted) return;
+                await _openPlayer(context, store);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.playlist_remove_rounded, color: Colors.redAccent),
+              title: const Text('从歌单移除', style: TextStyle(color: Colors.redAccent)),
+              onTap: () async {
+                Navigator.of(sheetContext).pop();
+                await store.removeTrackFromCustomPlaylist(playlist.id, track.id);
+                if (!context.mounted) return;
+                Navigator.of(context).pop();
+                final updatedPlaylist = store.customPlaylistById(playlist.id)?.asPlaylist ?? playlist;
+                final updatedTracks = await store.loadPlaylistTracks(updatedPlaylist);
+                if (!context.mounted) return;
+                await Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ChangeNotifierProvider.value(
+                      value: store,
+                      child: _PlaylistDetailScreen(playlist: updatedPlaylist, tracks: updatedTracks),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _openPlayer(BuildContext context, MusicStore store) async {
     if (!mounted) return;
     await Navigator.of(context).push(
@@ -1427,7 +1704,17 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
         final playlist = widget.playlist;
         final tracks = widget.tracks;
         return Scaffold(
-          appBar: AppBar(title: Text(playlist.title)),
+          appBar: AppBar(
+            title: Text(playlist.title),
+            actions: store.isCustomPlaylist(playlist.id)
+                ? [
+                    IconButton(
+                      onPressed: () => _showCustomPlaylistDetailActions(context, store, playlist),
+                      icon: const Icon(Icons.more_horiz_rounded),
+                    ),
+                  ]
+                : null,
+          ),
           body: Column(
             children: [
               Padding(
@@ -1483,7 +1770,14 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
               const Divider(height: 1),
               Expanded(
                 child: tracks.isEmpty
-                    ? const Center(child: Text('这个歌单暂时没有可播放的歌曲'))
+                    ? Center(
+                        child: Text(
+                          store.isCustomPlaylist(playlist.id)
+                              ? '这个歌单还没有歌曲\n去播放器长按当前歌曲，就能收藏到这里'
+                              : '这个歌单暂时没有可播放的歌曲',
+                          textAlign: TextAlign.center,
+                        ),
+                      )
                     : ListView.separated(
                         itemCount: tracks.length,
                         separatorBuilder: (_, _) => const Divider(height: 1),
@@ -1493,6 +1787,9 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                           );
                           return ListTile(
                             enabled: !_pendingTrackIndexes.contains(index),
+                            onLongPress: store.isCustomPlaylist(playlist.id)
+                                ? () => _showTrackActions(context, store, playlist, track)
+                                : null,
                             onTap: _pendingTrackIndexes.contains(index)
                                 ? null
                                 : () async {
@@ -1547,6 +1844,106 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
       },
     );
   }
+}
+
+Future<void> _showEditPlaylistSheetFromDetail(
+  BuildContext context,
+  MusicStore store,
+  MusicPlaylist playlist,
+) async {
+  final custom = store.customPlaylistById(playlist.id);
+  if (custom == null) return;
+  final nameController = TextEditingController(text: custom.title);
+  final subtitleController = TextEditingController(text: custom.subtitle);
+  final descriptionController = TextEditingController(text: custom.description);
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (sheetContext) {
+      final bottomInset = MediaQuery.of(sheetContext).viewInsets.bottom;
+      return Padding(
+        padding: EdgeInsets.fromLTRB(20, 8, 20, bottomInset + 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: nameController, decoration: const InputDecoration(labelText: '歌单名称')),
+            const SizedBox(height: 12),
+            TextField(controller: subtitleController, decoration: const InputDecoration(labelText: '副标题（选填）')),
+            const SizedBox(height: 12),
+            TextField(controller: descriptionController, maxLines: 2, decoration: const InputDecoration(labelText: '简介（选填）')),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () async {
+                  final title = nameController.text.trim();
+                  if (title.isEmpty) return;
+                  await store.renameCustomPlaylist(
+                    playlist.id,
+                    title: title,
+                    subtitle: subtitleController.text.trim(),
+                    description: descriptionController.text.trim(),
+                  );
+                  if (!sheetContext.mounted) return;
+                  Navigator.of(sheetContext).pop();
+                },
+                child: const Text('保存修改'),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+Future<void> _showCustomPlaylistDetailActions(
+  BuildContext context,
+  MusicStore store,
+  MusicPlaylist playlist,
+) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.edit_rounded),
+            title: const Text('编辑歌单'),
+            onTap: () {
+              Navigator.of(sheetContext).pop();
+              _showEditPlaylistSheetFromDetail(context, store, playlist);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+            title: const Text('删除歌单', style: TextStyle(color: Colors.redAccent)),
+            onTap: () async {
+              Navigator.of(sheetContext).pop();
+              final confirmed = await showDialog<bool>(
+                context: context,
+                builder: (dialogContext) => AlertDialog(
+                  title: const Text('删除歌单？'),
+                  content: const Text('删除后歌单里的歌曲不会被删除，只会移除这个歌单。'),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('取消')),
+                    FilledButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('删除')),
+                  ],
+                ),
+              );
+              if (confirmed == true) {
+                await store.deleteCustomPlaylist(playlist.id);
+                if (context.mounted) Navigator.of(context).pop();
+              }
+            },
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _MusicSearchSheet extends StatefulWidget {
