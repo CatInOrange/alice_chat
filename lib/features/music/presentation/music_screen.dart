@@ -53,6 +53,23 @@ class _MusicScreenState extends State<MusicScreen>
     }
   }
 
+  Future<void> _openPlaylistDetail(MusicStore store, MusicPlaylist playlist) async {
+    try {
+      final tracks = await store.loadPlaylistTracks(playlist);
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ChangeNotifierProvider.value(
+            value: store,
+            child: _PlaylistDetailScreen(playlist: playlist, tracks: tracks),
+          ),
+        ),
+      );
+    } catch (_) {
+      // store.error already updated; keep user on current screen
+    }
+  }
+
   Future<void> _openSearch(BuildContext context, MusicStore store) async {
     await showModalBottomSheet<void>(
       context: context,
@@ -133,8 +150,8 @@ class _MusicScreenState extends State<MusicScreen>
                   ),
                   const SizedBox(height: 14),
                   _CompactPlaylistGrid(
-                    playlists: playlists,
-                    onPlaylistTap: (playlist) => _openPlaylist(store, playlist),
+                    playlists: store.libraryPlaylists,
+                    onPlaylistTap: (playlist) => _openPlaylistDetail(store, playlist),
                   ),
                   const SizedBox(height: 28),
                   _SectionHeader(
@@ -431,95 +448,102 @@ class _FavoritePlaylistCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final palette = paletteForTone(playlist.artworkTone);
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.78),
+    return Material(
+      color: Colors.white.withValues(alpha: 0.78),
+      borderRadius: BorderRadius.circular(30),
+      child: InkWell(
         borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.78)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x120B1220),
-            blurRadius: 18,
-            offset: Offset(0, 10),
+        onTap: isLoading ? null : onTap,
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.78)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x120B1220),
+                blurRadius: 18,
+                offset: Offset(0, 10),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 76,
-            height: 76,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(colors: palette.gradient),
-              borderRadius: BorderRadius.circular(24),
-              boxShadow: [
-                BoxShadow(
-                  color: palette.glowColor.withValues(alpha: 0.45),
-                  blurRadius: 18,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: const Icon(
-              Icons.favorite_rounded,
-              color: Colors.white,
-              size: 30,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '我喜欢的歌单',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.4,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(playlist.title, style: theme.textTheme.titleLarge),
-                const SizedBox(height: 4),
-                Text(
-                  '${playlist.trackCount} 首 · AliceChat 本地收藏',
-                  style: theme.textTheme.bodySmall,
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  '上次停在：${currentTrack.title}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF7D879A),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          FilledButton(
-            onPressed: isLoading ? null : onTap,
-            style: FilledButton.styleFrom(
-              backgroundColor: palette.gradient.first,
-              foregroundColor: Colors.white,
-              minimumSize: const Size(56, 56),
-              shape: const CircleBorder(),
-              padding: EdgeInsets.zero,
-            ),
-            child: isLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+          child: Row(
+            children: [
+              Container(
+                width: 76,
+                height: 76,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: palette.gradient),
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: palette.glowColor.withValues(alpha: 0.45),
+                      blurRadius: 18,
+                      offset: const Offset(0, 10),
                     ),
-                  )
-                : const Icon(Icons.play_arrow_rounded),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.favorite_rounded,
+                  color: Colors.white,
+                  size: 30,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '我喜欢的歌单',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(playlist.title, style: theme.textTheme.titleLarge),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${playlist.trackCount} 首 · AliceChat 本地收藏',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '上次停在：${currentTrack.title}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF7D879A),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              FilledButton(
+                onPressed: isLoading ? null : onTap,
+                style: FilledButton.styleFrom(
+                  backgroundColor: palette.gradient.first,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(56, 56),
+                  shape: const CircleBorder(),
+                  padding: EdgeInsets.zero,
+                ),
+                child: isLoading
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
+                    : const Icon(Icons.play_arrow_rounded),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -925,6 +949,122 @@ class _MiniPlayer extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+
+class _PlaylistDetailScreen extends StatelessWidget {
+  const _PlaylistDetailScreen({
+    required this.playlist,
+    required this.tracks,
+  });
+
+  final MusicPlaylist playlist;
+  final List<MusicTrack> tracks;
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<MusicStore>(
+      builder: (context, store, _) {
+        return Scaffold(
+          appBar: AppBar(title: Text(playlist.title)),
+          body: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(playlist.subtitle),
+                          const SizedBox(height: 6),
+                          Text(
+                            '${tracks.length} 首歌曲',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                    FilledButton.icon(
+                      onPressed: tracks.isEmpty || store.isLoadingPlaylist
+                          ? null
+                          : () async {
+                              await store.playLoadedPlaylist(playlist, tracks);
+                              if (!context.mounted) return;
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => MusicPlayerScreen(
+                                    track: store.currentTrack,
+                                    queue: store.queue
+                                        .map((item) => item.track)
+                                        .toList(growable: false),
+                                  ),
+                                ),
+                              );
+                            },
+                      icon: const Icon(Icons.play_arrow_rounded),
+                      label: const Text('播放全部'),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: tracks.isEmpty
+                    ? const Center(child: Text('这个歌单暂时没有可播放的歌曲'))
+                    : ListView.separated(
+                        itemCount: tracks.length,
+                        separatorBuilder: (_, _) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          final track = tracks[index].copyWith(
+                            isFavorite: store.isTrackLiked(tracks[index].id),
+                          );
+                          return ListTile(
+                            onTap: () async {
+                              await store.playLoadedPlaylist(
+                                playlist,
+                                tracks,
+                                startIndex: index,
+                              );
+                              if (!context.mounted) return;
+                              Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => MusicPlayerScreen(
+                                    track: store.currentTrack,
+                                    queue: store.queue
+                                        .map((item) => item.track)
+                                        .toList(growable: false),
+                                  ),
+                                ),
+                              );
+                            },
+                            leading: MusicArtwork(
+                              track: track,
+                              size: 52,
+                              showMeta: false,
+                            ),
+                            title: Text(
+                              track.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              '${track.artist} · ${track.album}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            trailing: Text(track.durationLabel),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

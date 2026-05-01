@@ -587,25 +587,25 @@ class MusicPlatformStore extends ChangeNotifier {
     }
     try {
       final response = await _neteaseGet(
-        '/api/w/nuser/account/get',
+        '/api/nuser/account/get',
         cookieHeader: cookie,
       );
       final payload = _decodeJsonMap(response.body);
       final account = (payload['account'] as Map?)?.cast<String, dynamic>();
       final profile = (payload['profile'] as Map?)?.cast<String, dynamic>();
-      if (account == null || profile == null) {
+      if (account == null && profile == null) {
         return MusicPlatformLocalState(
           provider: baseState.provider,
-          authState: MusicPlatformAuthStateKind.suspicious,
-          statusLabel: '待校验',
-          summary: 'Cookie 已保存，但未确认登录成功',
-          detail: '真实登录态校验没有拿到账号信息，当前更像游客态、失效态，或者 Cookie 不完整。',
+          authState: MusicPlatformAuthStateKind.imported,
+          statusLabel: '已导入',
+          summary: 'Cookie 已保存，但账号信息暂未校验通过',
+          detail: '当前已经检测到网易云核心登录 Cookie，但账号接口还没返回完整资料。更像是 Cookie 不完整、接口校验偏严，或需要稍后再次确认。',
           detectedKeys: baseState.detectedKeys,
           rawCookie: baseState.rawCookie,
         );
       }
-      final nickname = (profile['nickname'] ?? '').toString().trim();
-      final accountId = (account['id'] ?? profile['userId'] ?? '').toString().trim();
+      final nickname = (profile?['nickname'] ?? '').toString().trim();
+      final accountId = (account?['id'] ?? profile?['userId'] ?? '').toString().trim();
       return MusicPlatformLocalState(
         provider: baseState.provider,
         authState: MusicPlatformAuthStateKind.imported,
@@ -623,10 +623,10 @@ class MusicPlatformStore extends ChangeNotifier {
     } catch (error) {
       return MusicPlatformLocalState(
         provider: baseState.provider,
-        authState: MusicPlatformAuthStateKind.suspicious,
-        statusLabel: '校验失败',
-        summary: '本地 Cookie 已保存，但真实登录态校验失败',
-        detail: '网易云账号校验接口返回异常：$error',
+        authState: MusicPlatformAuthStateKind.imported,
+        statusLabel: '已导入',
+        summary: 'Cookie 已保存，但实时校验暂时失败',
+        detail: '网易云账号校验接口当前返回异常：$error。先保留已导入状态，后续可继续尝试刷新或重新扫码。',
         detectedKeys: baseState.detectedKeys,
         rawCookie: baseState.rawCookie,
       );

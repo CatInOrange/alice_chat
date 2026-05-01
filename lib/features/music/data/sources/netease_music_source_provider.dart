@@ -133,12 +133,14 @@ class NeteaseMusicSourceProvider implements MusicSourceProvider {
     }
 
     final accountPayload = await _getJson(
-      '/api/w/nuser/account/get',
+      '/api/nuser/account/get',
       cookieHeader: cookie,
     );
+    final account = (accountPayload['account'] as Map?)?.cast<String, dynamic>() ??
+        const <String, dynamic>{};
     final profile = (accountPayload['profile'] as Map?)?.cast<String, dynamic>() ??
         const <String, dynamic>{};
-    final userId = (profile['userId'] ?? '').toString().trim();
+    final userId = (profile['userId'] ?? account['id'] ?? '').toString().trim();
     if (userId.isEmpty) {
       return const <MusicPlaylist>[];
     }

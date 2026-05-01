@@ -62,11 +62,11 @@ class MusicStore extends ChangeNotifier {
     _configReady = reloadConfig();
   }
 
-  final OpenClawClient _client;
+  OpenClawClient _client;
   late OpenClawClient _eventClient;
   late final MusicSourceResolver _resolver;
   late PlaybackAdapter _playbackAdapter;
-  late final MusicRepository _repository;
+  late MusicRepository _repository;
   late Future<void> _configReady;
   Future<void>? _ensureReadyTask;
   StreamSubscription<Map<String, dynamic>>? _eventsSub;
@@ -106,6 +106,9 @@ class MusicStore extends ChangeNotifier {
   MusicTrack get currentTrack => _currentTrack;
   List<PlaybackQueueItem> get queue => _queue;
   List<MusicPlaylist> get playlists => _playlists;
+  List<MusicPlaylist> get libraryPlaylists => _playlists
+      .where((item) => !_isSystemPlaylist(item))
+      .toList(growable: false);
   List<MusicTrack> get recentTracks => _recentTracks;
   List<MusicPlaylist> get recentPlaylists => _recentPlaylists;
   List<MusicTrack> get likedTracks => _likedTracks;
@@ -127,7 +130,9 @@ class MusicStore extends ChangeNotifier {
 
   Future<void> reloadConfig() async {
     final config = await OpenClawSettingsStore.load();
-    _eventClient = OpenClawHttpClient(config);
+    _client = OpenClawHttpClient(config);
+    _repository = MusicRepositoryImpl(client: _client, resolver: _resolver);
+    _eventClient = _client;
     await _eventsSub?.cancel();
     _eventsSub = null;
     _isReady = false;
@@ -294,22 +299,7 @@ class MusicStore extends ChangeNotifier {
         'firstPreferredSourceId': tracks.isEmpty ? null : tracks.first.preferredSourceId,
         'firstSourceTrackId': tracks.isEmpty ? null : tracks.first.sourceTrackId,
       });
-      if (tracks.isEmpty) {
-        throw StateError('这个歌单暂时没有可播放的歌曲');
-      }
-      _recentPlaylists = List<MusicPlaylist>.unmodifiable([
-        playlist,
-        ..._recentPlaylists.where((item) => item.id != playlist.id),
-      ].take(6));
-      await handleCommand(
-        MusicCommand(
-          type: MusicCommandType.replaceQueue,
-          source: MusicCommandSource.manual,
-          queue: tracks
-              .map((track) => PlaybackQueueItem(track: track))
-              .toList(growable: false),
-        ),
-      );
+      await playLoadedPlaylist(playlist, tracks);
       _debugState('playlist.open.playing', extra: {
         'playlistId': playlist.id,
         'currentTrackId': _currentTrack.id,
@@ -352,6 +342,44 @@ class MusicStore extends ChangeNotifier {
   );
 
   Future<MusicPlaylist> getLikedPlaylist() async => likedPlaylist;
+
+  Future<List<MusicTrack>> loadPlaylistTracks(MusicPlaylist playlist) async {
+    await ensureReady();
+    final tracks = await _repository.loadPlaylistTracks(playlist);
+    return tracks
+        .map((track) => track.copyWith(isFavorite: isTrackLiked(track.id)))
+        .toList(growable: false);
+  }
+
+  Future<void> playLoadedPlaylist(
+    MusicPlaylist playlist,
+    List<MusicTrack> tracks, {
+    int startIndex = 0,
+  }) async {
+    if (tracks.isEmpty) {
+      throw StateError('这个歌单暂时没有可播放的歌曲');
+    }
+    final safeIndex = startIndex.clamp(0, tracks.length - 1);
+    final orderedTracks = <MusicTrack>[
+      ...tracks.skip(safeIndex),
+      ...tracks.take(safeIndex),
+    ]
+        .map((track) => track.copyWith(isFavorite: isTrackLiked(track.id)))
+        .toList(growable: false);
+    _recentPlaylists = List<MusicPlaylist>.unmodifiable([
+      playlist,
+      ..._recentPlaylists.where((item) => item.id != playlist.id),
+    ].take(6));
+    await handleCommand(
+      MusicCommand(
+        type: MusicCommandType.replaceQueue,
+        source: MusicCommandSource.manual,
+        queue: orderedTracks
+            .map((track) => PlaybackQueueItem(track: track))
+            .toList(growable: false),
+      ),
+    );
+  }
 
   bool isTrackLiked(String trackId) =>
       _likedTracks.any((item) => item.id == trackId);
@@ -900,10 +928,14 @@ class MusicStore extends ChangeNotifier {
     _playlists = List<MusicPlaylist>.unmodifiable([
       if (_latestAiPlaylist != null) _latestAiPlaylist!.asPlaylist,
       likedPlaylist,
-      ...source.where(
-        (item) => item.id != likedPlaylist.id && item.id != _latestAiPlaylist?.id,
-      ),
+      ...source.where((item) => !_isSystemPlaylist(item)),
     ]);
+  }
+
+  bool _isSystemPlaylist(MusicPlaylist playlist) {
+    return playlist.id == likedPlaylist.id ||
+        playlist.isAiGenerated ||
+        playlist.id.startsWith('ai-playlist:');
   }
 
   Future<void> _playCurrentQueueHead({
