@@ -108,6 +108,7 @@ class _MusicScreenState extends State<MusicScreen>
         final recentPlaylists = store.recentPlaylists;
         final likedPlaylist = store.likedPlaylist;
         final latestAiPlaylist = store.latestAiPlaylist;
+        final aiPlaylistHistory = store.aiPlaylistHistory;
 
         return Scaffold(
           appBar: AppBar(
@@ -180,6 +181,29 @@ class _MusicScreenState extends State<MusicScreen>
                     },
                   ),
                   const SizedBox(height: 14),
+                  if (aiPlaylistHistory.isNotEmpty) ...[
+                    _SectionHeader(
+                      title: 'AI 历史歌单',
+                      subtitle: '保留最新推荐，也能回看之前生成的版本',
+                      actionLabel: '刷新',
+                      onActionTap: () {
+                        store.refreshLibrary();
+                      },
+                    ),
+                    const SizedBox(height: 14),
+                    ...aiPlaylistHistory.map(
+                      (draft) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _RecentPlaylistTile(
+                          playlist: draft.asPlaylist,
+                          isActive: store.isPlaylistActive(draft.asPlaylist.id),
+                          onTap: () => _openPlaylistDetail(store, draft.asPlaylist),
+                          onPlayTap: () => _openPlaylist(store, draft.asPlaylist),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                   if ((store.error ?? '').trim().isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 16),

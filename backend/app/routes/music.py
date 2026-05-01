@@ -48,6 +48,14 @@ def create_music_router(context: AppContext) -> APIRouter:
             'playlist': None if playlist is None else playlist.model_dump(exclude_none=True),
         }
 
+    @router.get('/api/music/ai-playlists/history')
+    async def get_ai_playlist_history() -> dict:
+        items = context.music_service.load_ai_playlist_history().payload
+        return {
+            'ok': True,
+            'playlists': [item.model_dump(exclude_none=True) for item in items],
+        }
+
     @router.post('/api/music/ai-playlists/latest')
     async def save_latest_ai_playlist(body: MusicAiPlaylistDraftDto) -> dict:
         playlist = context.music_service.save_latest_ai_playlist(body).payload

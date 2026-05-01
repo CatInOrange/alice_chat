@@ -289,6 +289,18 @@ class OpenClawHttpClient implements OpenClawClient {
   }
 
   @override
+  Future<Map<String, dynamic>> getAiPlaylistHistory() async {
+    final response = await _httpClient.get(
+      _uri('/api/music/ai-playlists/history'),
+      headers: _headers,
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('加载 AI 历史歌单失败', response);
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  @override
   Future<Map<String, dynamic>> saveLatestAiPlaylist({
     required Map<String, dynamic> payload,
   }) async {

@@ -17,6 +17,11 @@ class MusicAiPlaylistResult:
     payload: MusicAiPlaylistDraftDto | None
 
 
+@dataclass(slots=True)
+class MusicAiPlaylistHistoryResult:
+    payload: list[MusicAiPlaylistDraftDto]
+
+
 class MusicService:
     def __init__(self, *, store: MusicStore | None = None):
         self.store = store or MusicStore()
@@ -36,17 +41,63 @@ class MusicService:
             payload=MusicAiPlaylistDraftDto.model_validate(payload)
         )
 
+    def load_ai_playlist_history(self) -> MusicAiPlaylistHistoryResult:
+        state = self.store.load_state()
+        raw_items = state.get('aiPlaylistHistory')
+        if not isinstance(raw_items, list):
+            return MusicAiPlaylistHistoryResult(payload=[])
+        items = [
+            MusicAiPlaylistDraftDto.model_validate(item)
+            for item in raw_items
+            if isinstance(item, dict)
+        ]
+        items.sort(
+            key=lambda item: item.updatedAt or item.createdAt or 0,
+            reverse=True,
+        )
+        return MusicAiPlaylistHistoryResult(payload=items)
+
     def save_latest_ai_playlist(self, playlist: MusicAiPlaylistDraftDto) -> MusicAiPlaylistResult:
         now = time()
-        normalized = playlist.model_copy(
+        state = self.store.load_state()
+        latest_payload = state.get('latestAiPlaylist')
+        latest_existing = (
+            MusicAiPlaylistDraftDto.model_validate(latest_payload)
+            if isinstance(latest_payload, dict)
+            else None
+        )
+        history = self.load_ai_playlist_history().payload
+        canonical_latest = playlist.model_copy(
             update={
                 'id': 'ai-playlist:latest',
-                'createdAt': playlist.createdAt or now,
+                'createdAt': latest_existing.createdAt if latest_existing else (playlist.createdAt or now),
                 'updatedAt': playlist.updatedAt or now,
             }
         )
+        history_id = (playlist.id or '').strip() or f'ai-playlist:{int(now * 1000)}'
+        history_created_at = playlist.createdAt or canonical_latest.updatedAt or now
+        history_entry = canonical_latest.model_copy(
+            update={
+                'id': history_id,
+                'createdAt': history_created_at,
+                'updatedAt': canonical_latest.updatedAt or now,
+            }
+        )
+        deduped_history = [
+            history_entry,
+            *[
+                item
+                for item in history
+                if item.id != history_entry.id
+            ],
+        ][:50]
         saved = self.store.save_state(
-            {'latestAiPlaylist': normalized.model_dump(exclude_none=True)}
+            {
+                'latestAiPlaylist': canonical_latest.model_dump(exclude_none=True),
+                'aiPlaylistHistory': [
+                    item.model_dump(exclude_none=True) for item in deduped_history
+                ],
+            }
         )
         payload = saved.get('latestAiPlaylist')
         if not isinstance(payload, dict):

@@ -11,6 +11,8 @@ abstract class MusicRepository {
 
   Future<MusicAiPlaylistDraft?> loadLatestAiPlaylist();
 
+  Future<List<MusicAiPlaylistDraft>> loadAiPlaylistHistory();
+
   Future<List<MusicTrack>> loadLikedTracks();
 
   Future<void> setTrackLiked(MusicTrack track, bool liked);

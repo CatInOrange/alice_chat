@@ -137,6 +137,7 @@ class MusicStateDto(MusicApiModel):
     recentPlaylists: list[MusicPlaylistDto] = Field(default_factory=list)
     likedTracks: list[MusicTrackDto] = Field(default_factory=list)
     latestAiPlaylist: MusicAiPlaylistDraftDto | None = None
+    aiPlaylistHistory: list[MusicAiPlaylistDraftDto] = Field(default_factory=list)
     isPlaying: bool = False
     positionMs: int = 0
     currentPlaylistId: str | None = None
@@ -151,6 +152,7 @@ class MusicStatePatchDto(MusicApiModel):
     recentPlaylists: list[MusicPlaylistDto] | None = None
     likedTracks: list[MusicTrackDto] | None = None
     latestAiPlaylist: MusicAiPlaylistDraftDto | None = None
+    aiPlaylistHistory: list[MusicAiPlaylistDraftDto] | None = None
     isPlaying: bool | None = None
     positionMs: int | None = None
     currentPlaylistId: str | None = None

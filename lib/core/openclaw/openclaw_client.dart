@@ -97,6 +97,8 @@ abstract class OpenClawClient {
 
   Future<Map<String, dynamic>> getLatestAiPlaylist();
 
+  Future<Map<String, dynamic>> getAiPlaylistHistory();
+
   Future<Map<String, dynamic>> saveLatestAiPlaylist({
     required Map<String, dynamic> payload,
   });

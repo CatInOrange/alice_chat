@@ -91,6 +91,7 @@ class MusicStore extends ChangeNotifier {
   List<MusicTrack> _recentTracks = const [];
   List<MusicPlaylist> _recentPlaylists = const [];
   List<MusicTrack> _likedTracks = const <MusicTrack>[];
+  List<MusicAiPlaylistDraft> _aiPlaylistHistory = const [];
   MusicAiPlaylistDraft? _latestAiPlaylist;
   bool _isSearching = false;
   String? _searchError;
@@ -129,6 +130,7 @@ class MusicStore extends ChangeNotifier {
   List<MusicTrack> get recentTracks => _recentTracks;
   List<MusicPlaylist> get recentPlaylists => _recentPlaylists;
   List<MusicTrack> get likedTracks => _likedTracks;
+  List<MusicAiPlaylistDraft> get aiPlaylistHistory => _aiPlaylistHistory;
   MusicAiPlaylistDraft? get latestAiPlaylist => _latestAiPlaylist;
   bool get isSearching => _isSearching;
   String? get searchError => _searchError;
@@ -211,15 +213,11 @@ class MusicStore extends ChangeNotifier {
       final state = await _repository.loadMusicState();
       _likedTracks = List<MusicTrack>.unmodifiable(state.likedTracks);
       _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
-      _recentPlaylists = List<MusicPlaylist>.unmodifiable(state.recentPlaylists);
-      _currentPlaylistId = state.currentPlaylistId;
+      _recentPlaylists = _normalizeRecentPlaylists(state.recentPlaylists);
+      _currentPlaylistId = _normalizePlaylistId(state.currentPlaylistId);
       _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
-      if (_latestAiPlaylist != null) {
-        _recentPlaylists = List<MusicPlaylist>.unmodifiable([
-          _latestAiPlaylist!.asPlaylist,
-          ..._recentPlaylists.where((item) => item.id != _latestAiPlaylist!.id),
-        ].take(6));
-      }
+      _aiPlaylistHistory = await _repository.loadAiPlaylistHistory();
+      _recentPlaylists = _mergeAiHistoryIntoRecentPlaylists(_recentPlaylists);
       final remotePlaylists = await _repository.loadUserPlaylists();
       final basePlaylists = remotePlaylists.isNotEmpty
           ? remotePlaylists
@@ -269,22 +267,19 @@ class MusicStore extends ChangeNotifier {
       _queue = List<PlaybackQueueItem>.unmodifiable(state.queue);
       _playlists = List<MusicPlaylist>.unmodifiable(state.playlists);
       _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
-      _recentPlaylists = List<MusicPlaylist>.unmodifiable(state.recentPlaylists);
+      _recentPlaylists = _normalizeRecentPlaylists(state.recentPlaylists);
       _likedTracks = List<MusicTrack>.unmodifiable(state.likedTracks);
-      _currentPlaylistId = state.currentPlaylistId;
+      _currentPlaylistId = _normalizePlaylistId(state.currentPlaylistId);
       _currentTrack = _currentTrack.copyWith(
         isFavorite: isTrackLiked(_currentTrack.id),
       );
       try {
         _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
-        if (_latestAiPlaylist != null) {
-          _recentPlaylists = List<MusicPlaylist>.unmodifiable([
-            _latestAiPlaylist!.asPlaylist,
-            ..._recentPlaylists.where((item) => item.id != _latestAiPlaylist!.id),
-          ].take(6));
-        }
+        _aiPlaylistHistory = await _repository.loadAiPlaylistHistory();
+        _recentPlaylists = _mergeAiHistoryIntoRecentPlaylists(_recentPlaylists);
       } catch (_) {
         _latestAiPlaylist = null;
+        _aiPlaylistHistory = const [];
       }
       try {
         final remotePlaylists = await _repository.loadUserPlaylists();
@@ -418,10 +413,13 @@ class MusicStore extends ChangeNotifier {
     ]
         .map((track) => track.copyWith(isFavorite: isTrackLiked(track.id)))
         .toList(growable: false);
-    _currentPlaylistId = playlist.id;
-    _recentPlaylists = List<MusicPlaylist>.unmodifiable([
+    final normalizedPlaylist = _normalizeAiPlaylistRef(
       playlist.copyWith(trackCount: tracks.length),
-      ..._recentPlaylists.where((item) => item.id != playlist.id),
+    );
+    _currentPlaylistId = normalizedPlaylist.id;
+    _recentPlaylists = List<MusicPlaylist>.unmodifiable([
+      normalizedPlaylist,
+      ..._recentPlaylists.where((item) => item.id != normalizedPlaylist.id),
     ].take(6));
     await handleCommand(
       MusicCommand(
@@ -747,23 +745,15 @@ class MusicStore extends ChangeNotifier {
 
   Future<void> _refreshLatestAiPlaylist() async {
     try {
-      final previous = _latestAiPlaylist;
-      final next = await _repository.loadLatestAiPlaylist();
-      _latestAiPlaylist = next;
-      if (next != null) {
-        _recentPlaylists = List<MusicPlaylist>.unmodifiable([
-          next.asPlaylist,
-          ..._recentPlaylists.where((item) => item.id != next.id),
-        ].take(6));
-      } else if (previous != null) {
-        _recentPlaylists = List<MusicPlaylist>.unmodifiable(
-          _recentPlaylists.where((item) => item.id != previous.id).toList(growable: false),
-        );
-      }
+      _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
+      _aiPlaylistHistory = await _repository.loadAiPlaylistHistory();
+      _recentPlaylists = _mergeAiHistoryIntoRecentPlaylists(_recentPlaylists);
+      _currentPlaylistId = _normalizePlaylistId(_currentPlaylistId);
       _rebuildPlaylists(basePlaylists: _playlists);
       _debugState('ai_playlist.refresh', extra: {
         'latestAiPlaylistId': _latestAiPlaylist?.id,
         'latestAiTrackCount': _latestAiPlaylist?.tracks.length ?? 0,
+        'aiHistoryCount': _aiPlaylistHistory.length,
       }, force: true);
       unawaited(_savePlaybackSnapshot());
       notifyListeners();
@@ -972,10 +962,11 @@ class MusicStore extends ChangeNotifier {
       merged.add(likedPlaylist);
     }
     for (final item in source) {
-      if (_isSystemPlaylist(item)) continue;
-      if (_isRemoteLikedPlaylist(item)) continue;
-      if (seen.add(item.id)) {
-        merged.add(item);
+      final normalized = _normalizeAiPlaylistRef(item);
+      if (_isSystemPlaylist(normalized)) continue;
+      if (_isRemoteLikedPlaylist(normalized)) continue;
+      if (seen.add(normalized.id)) {
+        merged.add(normalized);
       }
     }
     _playlists = List<MusicPlaylist>.unmodifiable(merged);
@@ -988,6 +979,55 @@ class MusicStore extends ChangeNotifier {
     return playlist.id == likedPlaylist.id ||
         playlist.isAiGenerated ||
         playlist.id.startsWith('ai-playlist:');
+  }
+
+  List<MusicPlaylist> _normalizeRecentPlaylists(List<MusicPlaylist> items) {
+    final normalized = items.map(_normalizeAiPlaylistRef).toList(growable: false);
+    final seen = <String>{};
+    return List<MusicPlaylist>.unmodifiable(
+      normalized.where((item) => seen.add(item.id)).take(6),
+    );
+  }
+
+  List<MusicPlaylist> _mergeAiHistoryIntoRecentPlaylists(List<MusicPlaylist> base) {
+    final merged = <MusicPlaylist>[];
+    final seen = <String>{};
+    for (final draft in _aiPlaylistHistory) {
+      final playlist = draft.asPlaylist;
+      if (seen.add(playlist.id)) {
+        merged.add(playlist);
+      }
+    }
+    for (final item in base.map(_normalizeAiPlaylistRef)) {
+      if (seen.add(item.id)) {
+        merged.add(item);
+      }
+    }
+    return List<MusicPlaylist>.unmodifiable(merged.take(6));
+  }
+
+  MusicPlaylist _normalizeAiPlaylistRef(MusicPlaylist playlist) {
+    if (!playlist.id.startsWith('ai-playlist:')) {
+      return playlist;
+    }
+    if (playlist.id == 'ai-playlist:latest') {
+      return _latestAiPlaylist?.asPlaylist ?? playlist;
+    }
+    for (final item in _aiPlaylistHistory) {
+      if (item.id == playlist.id) {
+        return item.asPlaylist;
+      }
+    }
+    return playlist;
+  }
+
+  String? _normalizePlaylistId(String? playlistId) {
+    final trimmed = playlistId?.trim();
+    if (trimmed == null || trimmed.isEmpty) return null;
+    if (trimmed == 'ai-playlist:latest') {
+      return _latestAiPlaylist?.id ?? trimmed;
+    }
+    return trimmed;
   }
 
   Future<void> _playCurrentQueueHead({

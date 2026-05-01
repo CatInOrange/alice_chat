@@ -160,6 +160,20 @@ class MusicRepositoryImpl implements MusicRepository {
   }
 
   @override
+  Future<List<MusicAiPlaylistDraft>> loadAiPlaylistHistory() async {
+    final response = await _client.getAiPlaylistHistory();
+    final raw = (response['playlists'] as List<dynamic>?) ?? const [];
+    return raw
+        .whereType<Map>()
+        .map(
+          (item) => MusicAiPlaylistDraft.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  @override
   Future<List<MusicTrack>> loadLikedTracks() async {
     final response = await _client.getMusicState();
     final likedTracks = ((response['likedTracks'] as List<dynamic>?) ?? const [])
@@ -215,11 +229,19 @@ class MusicRepositoryImpl implements MusicRepository {
       return loadLikedTracks();
     }
     if (playlist.id.startsWith('ai-playlist:')) {
-      final latest = await loadLatestAiPlaylist();
-      if (latest != null && latest.id == playlist.id) {
-        return latest.tracks;
+      if (playlist.id == 'ai-playlist:latest') {
+        final latest = await loadLatestAiPlaylist();
+        if (latest != null) {
+          return latest.tracks;
+        }
+        return const <MusicTrack>[];
       }
-      return const <MusicTrack>[];
+      final history = await loadAiPlaylistHistory();
+      final matched = history.where((item) => item.id == playlist.id).cast<MusicAiPlaylistDraft?>().firstWhere(
+            (item) => item != null,
+            orElse: () => null,
+          );
+      return matched?.tracks ?? const <MusicTrack>[];
     }
     if (providerId == null) {
       return const <MusicTrack>[];
