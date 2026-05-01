@@ -21,8 +21,8 @@ _PUSH_LISTENER_RECV_IDLE_SECONDS = 90
 _REQUEST_PING_INTERVAL_SECONDS = 60
 _REQUEST_PING_TIMEOUT_SECONDS = 60
 _EMPTY_FINAL_GRACE_SECONDS = 8.0
-_TYPING_IDLE_TIMEOUT_SECONDS = 90.0
-_MAX_TYPING_ONLY_WINDOW_SECONDS = 600.0
+_TYPING_IDLE_TIMEOUT_SECONDS = 300.0
+_MAX_TYPING_ONLY_WINDOW_SECONDS = 1800.0
 _LOG = logging.getLogger(__name__)
 
 
@@ -592,7 +592,13 @@ class OpenClawChannelAgentBackend(AgentBackend):
                             "state": "streaming",
                         })
                 elif ftype == "chat.typing":
-                    last_typing_at = time.monotonic()
+                    now = time.monotonic()
+                    if last_typing_at is None:
+                        last_typing_at = now
+                    else:
+                        idle_since_last_typing = now - last_typing_at
+                        if idle_since_last_typing <= _TYPING_IDLE_TIMEOUT_SECONDS:
+                            last_typing_at = now
                     if emit:
                         emit({
                             "type": "progress",
