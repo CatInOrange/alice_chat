@@ -242,6 +242,18 @@ class MusicRepositoryImpl implements MusicRepository {
   }
 
   @override
+  Future<String?> syncNeteaseFavoritePlaylistEncryptedId() async {
+    try {
+      final response = await _client.syncNeteaseFavoritePlaylist();
+      final playlist = (response['playlist'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+      final encryptedId = (playlist['id'] ?? '').toString().trim();
+      return encryptedId.isEmpty ? null : encryptedId;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
   Future<void> setTrackLiked(MusicTrack track, bool liked) async {
     final current = await loadLikedTracks();
     final filtered = current.where((item) => item.id != track.id).toList(growable: true);
@@ -297,19 +309,16 @@ class MusicRepositoryImpl implements MusicRepository {
     required MusicPlaylist playlist,
     required MusicTrack seedTrack,
     MusicTrack? startTrack,
+    String? fallbackEncryptedPlaylistId,
   }) async {
     final providerId = _providerIdForPlaylist(playlist.id);
     if (providerId != 'netease') {
       return const <MusicTrack>[];
     }
-    final registry = (_resolver as MusicSourceResolverImpl).registry;
-    final provider = registry.providerById('netease');
-    if (provider == null) {
-      return const <MusicTrack>[];
-    }
     final sourceTrackId = (seedTrack.sourceTrackId ?? '').trim();
-    final startSourceTrackId = (startTrack?.sourceTrackId ?? '').trim();
-    if (sourceTrackId.isEmpty) {
+    final encryptedSongId = (seedTrack.encryptedSourceTrackId ?? '').trim();
+    final encryptedPlaylistId = _encryptedPlaylistIdFor(playlist.id);
+    if (sourceTrackId.isEmpty && encryptedSongId.isEmpty) {
       return const <MusicTrack>[];
     }
     try {
@@ -318,28 +327,59 @@ class MusicRepositoryImpl implements MusicRepository {
         'playlistId': playlist.id,
         'seedTrackId': seedTrack.id,
         'songId': sourceTrackId,
-        'startTrackId': startSourceTrackId.isEmpty ? null : startSourceTrackId,
+        'encryptedSongId': encryptedSongId,
+        'encryptedPlaylistId': encryptedPlaylistId,
+        'fallbackEncryptedPlaylistId': fallbackEncryptedPlaylistId,
       });
-      final tracks = await provider.loadIntelligenceTracks(
-        playlistId: playlist.id,
-        songId: sourceTrackId,
-        startTrackId: startSourceTrackId.isEmpty ? null : startSourceTrackId,
+      final response = await _client.requestNeteaseIntelligence(
+        payload: {
+          'song': {
+            'providerId': 'netease',
+            'trackId': seedTrack.id,
+            'title': seedTrack.title,
+            'artist': seedTrack.artist,
+            if (sourceTrackId.isNotEmpty) 'sourceTrackId': sourceTrackId,
+            if (encryptedSongId.isNotEmpty)
+              'encryptedSourceTrackId': encryptedSongId,
+          },
+          'playlist': {
+            'providerId': 'netease',
+            'playlistId': playlist.id,
+            'title': playlist.title,
+            if (_playlistOriginalIdFor(playlist.id).isNotEmpty)
+              'sourcePlaylistId': _playlistOriginalIdFor(playlist.id),
+            if (encryptedPlaylistId.isNotEmpty)
+              'encryptedPlaylistId': encryptedPlaylistId,
+          },
+          'count': 20,
+          'mode': 'fromPlayAll',
+        },
       );
+      final rawTracks = (response['tracks'] as List<dynamic>? ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) => MusicTrack.fromMap(
+              Map<String, dynamic>.from(item.cast<String, dynamic>()),
+            ),
+          )
+          .toList(growable: false);
+      final context = (response['context'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
       await _debugLog('repository.loadIntelligenceTracks.done', {
         'providerId': providerId,
         'playlistId': playlist.id,
         'seedTrackId': seedTrack.id,
-        'songId': sourceTrackId,
-        'trackCount': tracks.length,
+        'trackCount': rawTracks.length,
+        'fallbackUsed': context['fallbackUsed'],
+        'contextPlaylistEncryptedId': context['playlistEncryptedId'],
       });
-      return tracks;
+      return rawTracks;
     } catch (error) {
       await _debugLog('repository.loadIntelligenceTracks.error', {
         'providerId': providerId,
         'playlistId': playlist.id,
         'seedTrackId': seedTrack.id,
         'songId': sourceTrackId,
-        'startTrackId': startSourceTrackId.isEmpty ? null : startSourceTrackId,
+        'encryptedSongId': encryptedSongId,
         'error': error.toString(),
       });
       return const <MusicTrack>[];
@@ -394,6 +434,7 @@ class MusicRepositoryImpl implements MusicRepository {
     List<CustomMusicPlaylist>? customPlaylists,
     String? currentPlaylistId,
     String? neteaseLikedPlaylistId,
+    String? neteaseLikedPlaylistEncryptedId,
   }) async {
     try {
       await _client.saveMusicState(
@@ -411,6 +452,8 @@ class MusicRepositoryImpl implements MusicRepository {
           if (currentPlaylistId != null) 'currentPlaylistId': currentPlaylistId,
           if (neteaseLikedPlaylistId != null)
             'neteaseLikedPlaylistId': neteaseLikedPlaylistId,
+          if (neteaseLikedPlaylistEncryptedId != null)
+            'neteaseLikedPlaylistEncryptedId': neteaseLikedPlaylistEncryptedId,
         },
       );
     } catch (_) {
@@ -434,6 +477,23 @@ class MusicRepositoryImpl implements MusicRepository {
     if (playlistId.startsWith('netease-playlist:')) return 'netease';
     if (playlistId.startsWith('migu-playlist:')) return 'migu';
     return null;
+  }
+
+  String _playlistOriginalIdFor(String playlistId) {
+    if (playlistId.startsWith('netease-playlist:enc:')) {
+      return '';
+    }
+    if (playlistId.startsWith('netease-playlist:')) {
+      return playlistId.substring('netease-playlist:'.length).trim();
+    }
+    return '';
+  }
+
+  String _encryptedPlaylistIdFor(String playlistId) {
+    if (playlistId.startsWith('netease-playlist:enc:')) {
+      return playlistId.substring('netease-playlist:enc:'.length).trim();
+    }
+    return '';
   }
 
   Future<void> _debugLog(String tag, Map<String, dynamic> payload) async {

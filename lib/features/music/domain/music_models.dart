@@ -88,6 +88,7 @@ class MusicTrack {
     this.artworkUrl,
     this.preferredSourceId,
     this.sourceTrackId,
+    this.encryptedSourceTrackId,
     this.cachedPlayback,
   });
 
@@ -103,6 +104,7 @@ class MusicTrack {
   final String? artworkUrl;
   final String? preferredSourceId;
   final String? sourceTrackId;
+  final String? encryptedSourceTrackId;
   final CachedPlaybackSource? cachedPlayback;
 
   String get durationLabel {
@@ -127,6 +129,8 @@ class MusicTrack {
         'preferredSourceId': preferredSourceId,
       if (sourceTrackId != null && sourceTrackId!.isNotEmpty)
         'sourceTrackId': sourceTrackId,
+      if (encryptedSourceTrackId != null && encryptedSourceTrackId!.isNotEmpty)
+        'encryptedSourceTrackId': encryptedSourceTrackId,
       if (cachedPlayback != null) 'cachedPlayback': cachedPlayback!.toMap(),
     };
   }
@@ -158,6 +162,10 @@ class MusicTrack {
       sourceTrackId: (map['sourceTrackId'] ?? '').toString().trim().isEmpty
           ? null
           : (map['sourceTrackId'] ?? '').toString(),
+      encryptedSourceTrackId:
+          (map['encryptedSourceTrackId'] ?? '').toString().trim().isEmpty
+              ? null
+              : (map['encryptedSourceTrackId'] ?? '').toString(),
       cachedPlayback: map['cachedPlayback'] is Map
           ? CachedPlaybackSource.fromMap(
               Map<String, dynamic>.from(
@@ -181,6 +189,7 @@ class MusicTrack {
     String? artworkUrl,
     String? preferredSourceId,
     String? sourceTrackId,
+    String? encryptedSourceTrackId,
     CachedPlaybackSource? cachedPlayback,
   }) {
     return MusicTrack(
@@ -196,6 +205,8 @@ class MusicTrack {
       artworkUrl: artworkUrl ?? this.artworkUrl,
       preferredSourceId: preferredSourceId ?? this.preferredSourceId,
       sourceTrackId: sourceTrackId ?? this.sourceTrackId,
+      encryptedSourceTrackId:
+          encryptedSourceTrackId ?? this.encryptedSourceTrackId,
       cachedPlayback: cachedPlayback ?? this.cachedPlayback,
     );
   }

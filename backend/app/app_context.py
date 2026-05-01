@@ -29,7 +29,7 @@ def create_app_context(*, uploads_dir: Path) -> AppContext:
     music_store = MusicStore()
     events_bus = EventsBus()
     chat_service = ChatService(sessions=session_store, messages=message_store)
-    music_service = MusicService(store=music_store)
+    music_service = MusicService(store=music_store, config=load_config())
     request_deduper = RequestDeduper()
     push_device_store = PushDeviceStore()
 

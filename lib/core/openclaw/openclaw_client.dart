@@ -103,5 +103,11 @@ abstract class OpenClawClient {
     required Map<String, dynamic> payload,
   });
 
+  Future<Map<String, dynamic>> requestNeteaseIntelligence({
+    required Map<String, dynamic> payload,
+  });
+
+  Future<Map<String, dynamic>> syncNeteaseFavoritePlaylist();
+
   Future<Map<String, dynamic>> saveMusicState({required Map<String, dynamic> payload});
 }

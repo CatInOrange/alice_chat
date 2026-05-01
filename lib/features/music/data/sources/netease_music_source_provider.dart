@@ -190,10 +190,11 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
       'id': normalizedSongId,
       if (normalizedStartTrackId.isNotEmpty) 'sid': normalizedStartTrackId,
     };
-    final payload = await _getJson(
+    final payload = await _postJsonForm(
       '/api/playmode/intelligence/list',
-      query: query,
+      form: query,
       cookieHeader: seededCookie,
+      fallbackToGet: true,
     );
     final rawCode = payload['code'];
     final code = rawCode is num ? rawCode.toInt() : int.tryParse('$rawCode');
@@ -228,9 +229,10 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
     }
 
     final seededCookie = _seedCookieHeader(cookie);
-    final accountPayload = await _getJson(
+    final accountPayload = await _postJsonForm(
       '/api/nuser/account/get',
       cookieHeader: seededCookie,
+      fallbackToGet: true,
     );
     final account = (accountPayload['account'] as Map?)?.cast<String, dynamic>() ??
         const <String, dynamic>{};
@@ -241,15 +243,16 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
       return const <MusicPlaylist>[];
     }
 
-    final playlistPayload = await _getJson(
+    final playlistPayload = await _postJsonForm(
       '/api/user/playlist',
-      query: <String, String>{
+      form: <String, String>{
         'uid': userId,
         'limit': '100',
         'offset': '0',
         'includeVideo': 'false',
       },
       cookieHeader: seededCookie,
+      fallbackToGet: true,
     );
     final playlists = ((playlistPayload['playlist'] as List?) ?? const <dynamic>[])
         .whereType<Map>()
@@ -312,12 +315,11 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
     if (sourceTrackId.isEmpty) {
       return false;
     }
-    final payload = await _getJson(
+    final payload = await _postJsonForm(
       '/api/song/like',
-      query: <String, String>{
-        'id': sourceTrackId,
+      form: <String, String>{
+        'trackId': sourceTrackId,
         'like': liked ? 'true' : 'false',
-        'alg': 'itembased',
         'time': '3',
         'csrf_token': csrf!,
       },
@@ -329,9 +331,10 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
   }
 
   SourceCandidate? _candidateFromSong(Map<String, dynamic> song) {
-    final sourceTrackId = (song['id'] ?? '').toString().trim();
+    final encryptedTrackId = (song['id'] ?? '').toString().trim();
+    final originalTrackId = (song['originalId'] ?? song['id'] ?? '').toString().trim();
     final title = (song['name'] ?? '').toString().trim();
-    if (sourceTrackId.isEmpty || title.isEmpty) {
+    if (encryptedTrackId.isEmpty || title.isEmpty) {
       return null;
     }
 
@@ -351,22 +354,23 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
         : int.tryParse('$durationRaw') ?? 0;
 
     final track = MusicTrack(
-      id: 'netease:$sourceTrackId',
+      id: 'netease:$originalTrackId',
       title: title,
       artist: artists.isEmpty ? '未知歌手' : artists.join(' / '),
       album: albumTitle.isEmpty ? '网易云音乐' : albumTitle,
       duration: Duration(milliseconds: durationMs),
       category: '网易云音乐',
       description: albumTitle.isEmpty ? '来自网易云音乐搜索结果' : '专辑：$albumTitle',
-      artworkTone: _toneForSeed(sourceTrackId),
+      artworkTone: _toneForSeed(originalTrackId),
       artworkUrl: artworkUrl.isEmpty ? null : artworkUrl,
       preferredSourceId: id,
-      sourceTrackId: sourceTrackId,
+      sourceTrackId: originalTrackId,
+      encryptedSourceTrackId: encryptedTrackId,
     );
 
     return SourceCandidate(
       providerId: id,
-      sourceTrackId: sourceTrackId,
+      sourceTrackId: originalTrackId,
       track: CanonicalTrack.fromMusicTrack(track),
     );
   }
@@ -386,7 +390,7 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
         title.contains('喜欢') ||
         title.contains('收藏');
     return MusicPlaylist(
-      id: '$_playlistPrefix$rawId',
+      id: '${_playlistPrefix}enc:$rawId',
       title: isLiked ? '喜欢' : title,
       subtitle: description.isEmpty
           ? (isLiked ? '网易云喜欢的歌曲' : '来自网易云音乐')
@@ -536,26 +540,63 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
     final client = HttpClient();
     try {
       final request = await client.getUrl(Uri.https('music.163.com', path, query));
-      request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
-      request.headers.set(HttpHeaders.acceptHeader, 'application/json, text/plain, */*');
-      request.headers.set(HttpHeaders.refererHeader, 'https://music.163.com/');
-      request.headers.set('origin', 'https://music.163.com');
-      final normalizedCookie = (cookieHeader ?? '').trim();
-      if (normalizedCookie.isNotEmpty) {
-        request.headers.set(HttpHeaders.cookieHeader, normalizedCookie);
-      }
-      final response = await request.close();
-      final body = await response.transform(utf8.decoder).join();
-      final decoded = jsonDecode(body);
-      if (decoded is Map<String, dynamic>) {
-        return decoded;
-      }
-      if (decoded is Map) {
-        return Map<String, dynamic>.from(decoded);
-      }
-      return <String, dynamic>{'raw': body};
+      _applyCommonHeaders(request, cookieHeader: cookieHeader);
+      return await _decodeResponse(await request.close());
     } finally {
       client.close(force: true);
     }
+  }
+
+  Future<Map<String, dynamic>> _postJsonForm(
+    String path, {
+    Map<String, String> form = const <String, String>{},
+    String? cookieHeader,
+    bool fallbackToGet = false,
+  }) async {
+    final client = HttpClient();
+    try {
+      final request = await client.postUrl(Uri.https('music.163.com', path));
+      _applyCommonHeaders(request, cookieHeader: cookieHeader);
+      request.headers.set(
+        HttpHeaders.contentTypeHeader,
+        'application/x-www-form-urlencoded',
+      );
+      final body = Uri(queryParameters: form).query;
+      if (body.isNotEmpty) {
+        request.write(body);
+      }
+      final decoded = await _decodeResponse(await request.close());
+      final rawCode = decoded['code'];
+      final code = rawCode is num ? rawCode.toInt() : int.tryParse('$rawCode');
+      if (!fallbackToGet || code == 200) {
+        return decoded;
+      }
+      return await _getJson(path, query: form, cookieHeader: cookieHeader);
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  void _applyCommonHeaders(HttpClientRequest request, {String? cookieHeader}) {
+    request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
+    request.headers.set(HttpHeaders.acceptHeader, 'application/json, text/plain, */*');
+    request.headers.set(HttpHeaders.refererHeader, 'https://music.163.com/');
+    request.headers.set('origin', 'https://music.163.com');
+    final normalizedCookie = (cookieHeader ?? '').trim();
+    if (normalizedCookie.isNotEmpty) {
+      request.headers.set(HttpHeaders.cookieHeader, normalizedCookie);
+    }
+  }
+
+  Future<Map<String, dynamic>> _decodeResponse(HttpClientResponse response) async {
+    final body = await response.transform(utf8.decoder).join();
+    final decoded = jsonDecode(body);
+    if (decoded is Map<String, dynamic>) {
+      return decoded;
+    }
+    if (decoded is Map) {
+      return Map<String, dynamic>.from(decoded);
+    }
+    return <String, dynamic>{'raw': body};
   }
 }

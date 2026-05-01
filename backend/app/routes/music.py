@@ -4,7 +4,15 @@ from fastapi import APIRouter, Depends
 
 from ..app_context import AppContext
 from ..auth import verify_app_password
-from ..music_api_models import MusicAiPlaylistDraftDto, MusicCommandRequest, MusicStatePatchDto
+from fastapi import HTTPException
+
+from ..music_api_models import (
+    MusicAiPlaylistDraftDto,
+    MusicCommandRequest,
+    MusicIntelligenceRequestDto,
+    MusicStatePatchDto,
+)
+from ..services.netease_openapi_service import NeteaseOpenApiError
 
 
 def create_music_router(context: AppContext) -> APIRouter:
@@ -69,6 +77,33 @@ def create_music_router(context: AppContext) -> APIRouter:
         return {
             'ok': True,
             'playlist': payload,
+        }
+
+    @router.post('/api/music/netease/intelligence')
+    async def get_netease_intelligence(body: MusicIntelligenceRequestDto) -> dict:
+        try:
+            result = context.music_service.load_netease_intelligence(body)
+        except NeteaseOpenApiError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            'ok': True,
+            'tracks': [item.model_dump(exclude_none=True) for item in result.tracks],
+            'context': {
+                'playlistEncryptedId': result.playlist_encrypted_id,
+                'songEncryptedId': result.song_encrypted_id,
+                'fallbackUsed': result.fallback_used,
+            },
+        }
+
+    @router.post('/api/music/netease/favorite/sync')
+    async def sync_netease_favorite_playlist() -> dict:
+        try:
+            playlist = context.music_service.sync_netease_favorite_playlist()
+        except NeteaseOpenApiError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            'ok': True,
+            'playlist': playlist,
         }
 
     @router.post('/api/music/commands')

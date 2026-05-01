@@ -3,8 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from time import time
 
-from ..music_api_models import MusicAiPlaylistDraftDto, MusicCommandRequest, MusicProviderDto, MusicStateDto, MusicStatePatchDto
+from ..music_api_models import (
+    MusicAiPlaylistDraftDto,
+    MusicCommandRequest,
+    MusicIntelligenceRequestDto,
+    MusicProviderDto,
+    MusicStateDto,
+    MusicStatePatchDto,
+)
 from ..store import MusicStore
+from .netease_openapi_service import NeteaseOpenApiError, NeteaseOpenApiResult, NeteaseOpenApiService
 
 
 @dataclass(slots=True)
@@ -23,8 +31,9 @@ class MusicAiPlaylistHistoryResult:
 
 
 class MusicService:
-    def __init__(self, *, store: MusicStore | None = None):
+    def __init__(self, *, store: MusicStore | None = None, config: dict | None = None):
         self.store = store or MusicStore()
+        self.netease_openapi = NeteaseOpenApiService(config or {})
 
     def load_state(self) -> MusicStateResult:
         return MusicStateResult(payload=MusicStateDto.model_validate(self.store.load_state()))
@@ -108,6 +117,36 @@ class MusicService:
 
     def build_command_event(self, command: MusicCommandRequest) -> dict:
         return command.model_dump(exclude_none=True)
+
+    def load_netease_intelligence(self, request: MusicIntelligenceRequestDto) -> NeteaseOpenApiResult:
+        state = self.store.load_state()
+        fallback_playlist_id = str(state.get('neteaseLikedPlaylistEncryptedId') or '').strip()
+        result = self.netease_openapi.get_intelligence_tracks(
+            song=request.song.model_dump(exclude_none=True),
+            playlist=None if request.playlist is None else request.playlist.model_dump(exclude_none=True),
+            fallback_playlist_id=fallback_playlist_id or None,
+            count=request.count,
+            mode=request.mode,
+        )
+        patch: dict[str, object] = {}
+        if result.playlist_encrypted_id and result.playlist_encrypted_id != fallback_playlist_id:
+            patch['neteaseLikedPlaylistEncryptedId'] = result.playlist_encrypted_id
+        if patch:
+            self.store.save_state(patch)
+        return result
+
+    def sync_netease_favorite_playlist(self) -> dict:
+        playlist = self.netease_openapi.get_favorite_playlist()
+        encrypted_id = str(playlist.get('id') or '').strip()
+        original_id = str(playlist.get('originalId') or '').strip()
+        patch = {}
+        if encrypted_id:
+            patch['neteaseLikedPlaylistEncryptedId'] = encrypted_id
+        if original_id:
+            patch['neteaseLikedPlaylistOriginalId'] = original_id
+        if patch:
+            self.store.save_state(patch)
+        return playlist
 
     def list_providers(self) -> list[MusicProviderDto]:
         return [

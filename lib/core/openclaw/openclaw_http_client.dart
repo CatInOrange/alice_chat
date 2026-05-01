@@ -316,6 +316,34 @@ class OpenClawHttpClient implements OpenClawClient {
   }
 
   @override
+  Future<Map<String, dynamic>> requestNeteaseIntelligence({
+    required Map<String, dynamic> payload,
+  }) async {
+    final response = await _httpClient.post(
+      _uri('/api/music/netease/intelligence'),
+      headers: _headers,
+      body: jsonEncode(payload),
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('加载网易云心动模式失败', response);
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  @override
+  Future<Map<String, dynamic>> syncNeteaseFavoritePlaylist() async {
+    final response = await _httpClient.post(
+      _uri('/api/music/netease/favorite/sync'),
+      headers: _headers,
+      body: jsonEncode(const {}),
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('同步网易云喜欢歌单失败', response);
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  @override
   Future<Map<String, dynamic>> saveMusicState({
     required Map<String, dynamic> payload,
   }) async {

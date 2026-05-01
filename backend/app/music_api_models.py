@@ -33,6 +33,7 @@ class MusicTrackDto(MusicApiModel):
     artworkUrl: str | None = None
     preferredSourceId: str | None = None
     sourceTrackId: str | None = None
+    encryptedSourceTrackId: str | None = None
     cachedPlayback: CachedPlaybackSourceDto | None = None
 
 
@@ -154,6 +155,8 @@ class MusicStateDto(MusicApiModel):
     isPlaying: bool = False
     positionMs: int = 0
     currentPlaylistId: str | None = None
+    neteaseLikedPlaylistId: str | None = None
+    neteaseLikedPlaylistEncryptedId: str | None = None
     updatedAt: float | None = None
 
 
@@ -170,6 +173,8 @@ class MusicStatePatchDto(MusicApiModel):
     isPlaying: bool | None = None
     positionMs: int | None = None
     currentPlaylistId: str | None = None
+    neteaseLikedPlaylistId: str | None = None
+    neteaseLikedPlaylistEncryptedId: str | None = None
 
 
 class MusicProviderDto(MusicApiModel):
@@ -183,3 +188,27 @@ class MusicProviderDto(MusicApiModel):
     supportsPlaylistLookup: bool = False
     supportsUserLibrary: bool = False
     notes: str = ''
+
+
+class MusicIntelligenceTrackRefDto(MusicApiModel):
+    providerId: str | None = None
+    trackId: str | None = None
+    title: str | None = None
+    artist: str | None = None
+    sourceTrackId: str | None = None
+    encryptedSourceTrackId: str | None = None
+
+
+class MusicIntelligencePlaylistRefDto(MusicApiModel):
+    providerId: str | None = None
+    playlistId: str | None = None
+    title: str | None = None
+    sourcePlaylistId: str | None = None
+    encryptedPlaylistId: str | None = None
+
+
+class MusicIntelligenceRequestDto(MusicApiModel):
+    song: MusicIntelligenceTrackRefDto = Field(default_factory=MusicIntelligenceTrackRefDto)
+    playlist: MusicIntelligencePlaylistRefDto | None = None
+    count: int = 20
+    mode: str = 'fromPlayAll'
