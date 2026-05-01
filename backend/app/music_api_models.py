@@ -9,6 +9,17 @@ class MusicApiModel(BaseModel):
     model_config = ConfigDict(extra='allow')
 
 
+class CachedPlaybackSourceDto(MusicApiModel):
+    providerId: str = ''
+    sourceTrackId: str = ''
+    streamUrl: str = ''
+    artworkUrl: str | None = None
+    mimeType: str | None = None
+    headers: dict[str, str] = Field(default_factory=dict)
+    expiresAt: str | None = None
+    resolvedAt: str | None = None
+
+
 class MusicTrackDto(MusicApiModel):
     id: str = ''
     title: str = ''
@@ -22,6 +33,7 @@ class MusicTrackDto(MusicApiModel):
     artworkUrl: str | None = None
     preferredSourceId: str | None = None
     sourceTrackId: str | None = None
+    cachedPlayback: CachedPlaybackSourceDto | None = None
 
 
 class MusicPlaylistDto(MusicApiModel):

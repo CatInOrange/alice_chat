@@ -13,13 +13,19 @@ class MusicSourceResolverImpl implements MusicSourceResolver {
   MusicSourceRegistry get registry => _registry;
 
   @override
-  Future<PlaybackQueueItem> resolveTrack(MusicTrack track) async {
+  Future<PlaybackQueueItem> resolveTrack(
+    MusicTrack track, {
+    bool allowFallback = true,
+  }) async {
     final preferredProviderId = track.preferredSourceId;
-    final providers = <MusicSourceProvider>[
+    final allProviders = <MusicSourceProvider>[
       if (preferredProviderId != null)
         ..._registry.providers.where((item) => item.id == preferredProviderId),
       ..._registry.providers.where((item) => item.id != preferredProviderId),
     ];
+    final providers = allowFallback
+        ? allProviders
+        : allProviders.where((item) => item.id != 'mock').toList(growable: false);
 
     for (final provider in providers) {
       final candidate = await provider.matchTrack(track);
@@ -32,6 +38,16 @@ class MusicSourceResolverImpl implements MusicSourceResolver {
           track: track.copyWith(
             preferredSourceId: provider.id,
             sourceTrackId: candidate.sourceTrackId,
+            cachedPlayback: CachedPlaybackSource(
+              providerId: resolved.providerId,
+              sourceTrackId: resolved.sourceTrackId,
+              streamUrl: resolved.streamUrl,
+              artworkUrl: resolved.artworkUrl,
+              mimeType: resolved.mimeType,
+              headers: resolved.headers,
+              expiresAt: resolved.expiresAt,
+              resolvedAt: DateTime.now(),
+            ),
           ),
           candidate: candidate,
           resolvedSource: resolved,
@@ -39,14 +55,18 @@ class MusicSourceResolverImpl implements MusicSourceResolver {
       }
     }
 
-    return PlaybackQueueItem(
-      track: track,
-      resolvedSource: ResolvedPlaybackSource(
-        providerId: preferredProviderId ?? 'unresolved',
-        sourceTrackId: track.sourceTrackId ?? track.id,
-        streamUrl: 'mock://${track.id}',
-        artworkUrl: track.artworkUrl,
-      ),
-    );
+    if (allowFallback) {
+      return PlaybackQueueItem(
+        track: track,
+        resolvedSource: ResolvedPlaybackSource(
+          providerId: preferredProviderId ?? 'unresolved',
+          sourceTrackId: track.sourceTrackId ?? track.id,
+          streamUrl: 'mock://${track.id}',
+          artworkUrl: track.artworkUrl,
+        ),
+      );
+    }
+
+    throw StateError('未能为《${track.title} - ${track.artist}》解析可播放音源');
   }
 }

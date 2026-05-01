@@ -58,6 +58,7 @@ class MusicStore extends ChangeNotifier {
   late PlaybackAdapter _playbackAdapter;
   late final MusicRepository _repository;
   late Future<void> _configReady;
+  Future<void>? _ensureReadyTask;
   StreamSubscription<Map<String, dynamic>>? _eventsSub;
   StreamSubscription<PlaybackAdapterState>? _playbackStateSub;
 
@@ -105,6 +106,7 @@ class MusicStore extends ChangeNotifier {
     await _eventsSub?.cancel();
     _eventsSub = null;
     _isReady = false;
+    _ensureReadyTask = null;
     _error = null;
     await _playbackStateSub?.cancel();
     _playbackStateSub = null;
@@ -121,7 +123,26 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> ensureReady() async {
-    if (_isReady || _isLoading) return;
+    if (_isReady) return;
+    final existingTask = _ensureReadyTask;
+    if (existingTask != null) {
+      await existingTask;
+      return;
+    }
+
+    final task = _performEnsureReady();
+    _ensureReadyTask = task;
+    try {
+      await task;
+    } finally {
+      if (identical(_ensureReadyTask, task)) {
+        _ensureReadyTask = null;
+      }
+    }
+  }
+
+  Future<void> _performEnsureReady() async {
+    if (_isReady) return;
     _isLoading = true;
     _error = null;
     notifyListeners();
@@ -253,20 +274,44 @@ class MusicStore extends ChangeNotifier {
 
   Future<void> toggleTrackLiked(MusicTrack track) async {
     final liked = !isTrackLiked(track.id);
-    final nextTrack = track.copyWith(isFavorite: liked);
+    final playbackState = _playbackAdapter.state;
+    final cachedPlayback = _currentTrack.id == track.id &&
+            playbackState.currentSource != null
+        ? CachedPlaybackSource(
+            providerId: playbackState.currentSource!.providerId,
+            sourceTrackId: playbackState.currentSource!.sourceTrackId,
+            streamUrl: playbackState.currentSource!.streamUrl,
+            artworkUrl: playbackState.currentSource!.artworkUrl,
+            mimeType: playbackState.currentSource!.mimeType,
+            headers: playbackState.currentSource!.headers,
+            expiresAt: playbackState.currentSource!.expiresAt,
+            resolvedAt: DateTime.now(),
+          )
+        : track.cachedPlayback;
+    final nextTrack = track.copyWith(
+      isFavorite: liked,
+      cachedPlayback: cachedPlayback,
+    );
     final nextLikedTracks = liked
         ? <MusicTrack>[nextTrack, ..._likedTracks.where((item) => item.id != track.id)]
         : _likedTracks.where((item) => item.id != track.id).toList(growable: false);
     _likedTracks = List<MusicTrack>.unmodifiable(nextLikedTracks);
     _currentTrack = _currentTrack.id == track.id
-        ? _currentTrack.copyWith(isFavorite: liked)
+        ? _currentTrack.copyWith(
+            isFavorite: liked,
+            cachedPlayback: cachedPlayback,
+          )
         : _currentTrack;
     _queue = List<PlaybackQueueItem>.unmodifiable(
       _queue
           .map(
             (item) => item.track.id == track.id
                 ? PlaybackQueueItem(
-                    track: item.track.copyWith(isFavorite: liked),
+                    track: item.track.copyWith(
+                      isFavorite: liked,
+                      cachedPlayback:
+                          item.track.id == track.id ? cachedPlayback : item.track.cachedPlayback,
+                    ),
                     candidate: item.candidate,
                     resolvedSource: item.resolvedSource,
                     requestedBy: item.requestedBy,
@@ -277,7 +322,14 @@ class MusicStore extends ChangeNotifier {
     );
     _recentTracks = List<MusicTrack>.unmodifiable(
       _recentTracks
-          .map((item) => item.id == track.id ? item.copyWith(isFavorite: liked) : item)
+          .map(
+            (item) => item.id == track.id
+                ? item.copyWith(
+                    isFavorite: liked,
+                    cachedPlayback: cachedPlayback,
+                  )
+                : item,
+          )
           .toList(growable: false),
     );
     _playlists = List<MusicPlaylist>.unmodifiable([
@@ -410,8 +462,14 @@ class MusicStore extends ChangeNotifier {
     ]);
     _currentTrack = previousTrack;
     _duration = previousTrack.duration;
-    final resolved = await _repository.resolveTrack(previousTrack);
-    await _playbackAdapter.play(track: previousTrack, source: resolved);
+    final queueItem = await _preparePlayback(previousTrack);
+    final resolved = queueItem.resolvedSource!;
+    _currentTrack = queueItem.track.copyWith(isFavorite: isTrackLiked(queueItem.track.id));
+    _queue = List<PlaybackQueueItem>.unmodifiable([
+      queueItem,
+      ..._queue.skip(1),
+    ]);
+    await _playbackAdapter.play(track: _currentTrack, source: resolved);
     _isPlaying = true;
     _position = Duration.zero;
     _error = null;
@@ -435,27 +493,58 @@ class MusicStore extends ChangeNotifier {
         final incomingQueue = command.queue;
         if (incomingQueue.isNotEmpty) {
           _queue = List<PlaybackQueueItem>.unmodifiable(
-          incomingQueue
-              .map(
-                (item) => PlaybackQueueItem(
-                  track: item.track.copyWith(
-                    isFavorite: isTrackLiked(item.track.id),
+            incomingQueue
+                .map(
+                  (item) => PlaybackQueueItem(
+                    track: item.track.copyWith(
+                      isFavorite: isTrackLiked(item.track.id),
+                    ),
+                    candidate: item.candidate,
+                    resolvedSource: item.resolvedSource,
+                    requestedBy: item.requestedBy,
                   ),
-                  candidate: item.candidate,
-                  resolvedSource: item.resolvedSource,
-                  requestedBy: item.requestedBy,
-                ),
-              )
-              .toList(growable: false),
-        );
+                )
+                .toList(growable: false),
+          );
           _currentTrack = _queue.first.track;
           _playbackHistory.clear();
         }
-        final resolved = await _repository.resolveTrack(_currentTrack);
-        await _playbackAdapter.play(
-          track: _currentTrack,
-          source: resolved,
+        final prepared = await _preparePlayback(_currentTrack);
+        final preparedTrack = prepared.track.copyWith(
+          isFavorite: isTrackLiked(prepared.track.id),
         );
+        _currentTrack = preparedTrack;
+        if (_queue.isNotEmpty) {
+          _queue = List<PlaybackQueueItem>.unmodifiable([
+            prepared.copyWith(track: preparedTrack),
+            ..._queue.skip(1),
+          ]);
+        }
+        try {
+          await _playbackAdapter.play(
+            track: _currentTrack,
+            source: prepared.resolvedSource!,
+          );
+        } catch (_) {
+          final refreshed = await _repository.resolveTrack(
+            _currentTrack.copyWith(cachedPlayback: null),
+            allowFallback: false,
+          );
+          final refreshedTrack = refreshed.track.copyWith(
+            isFavorite: isTrackLiked(refreshed.track.id),
+          );
+          _currentTrack = refreshedTrack;
+          if (_queue.isNotEmpty) {
+            _queue = List<PlaybackQueueItem>.unmodifiable([
+              refreshed.copyWith(track: refreshedTrack),
+              ..._queue.skip(1),
+            ]);
+          }
+          await _playbackAdapter.play(
+            track: _currentTrack,
+            source: refreshed.resolvedSource!,
+          );
+        }
         _isPlaying = true;
         _duration = _currentTrack.duration;
         _position = Duration.zero;
@@ -590,14 +679,73 @@ class MusicStore extends ChangeNotifier {
         isFavorite: isTrackLiked(nextQueue.first.track.id),
       );
       _duration = _currentTrack.duration;
-      final resolved = await _repository.resolveTrack(_currentTrack);
-      await _playbackAdapter.play(track: _currentTrack, source: resolved);
+      final prepared = await _preparePlayback(_currentTrack);
+      _currentTrack = prepared.track.copyWith(
+        isFavorite: isTrackLiked(prepared.track.id),
+      );
+      _queue = List<PlaybackQueueItem>.unmodifiable([
+        prepared.copyWith(track: _currentTrack),
+        ...nextQueue.skip(1),
+      ]);
+      try {
+        await _playbackAdapter.play(
+          track: _currentTrack,
+          source: prepared.resolvedSource!,
+        );
+      } catch (_) {
+        final refreshed = await _repository.resolveTrack(
+          _currentTrack.copyWith(cachedPlayback: null),
+          allowFallback: false,
+        );
+        _currentTrack = refreshed.track.copyWith(
+          isFavorite: isTrackLiked(refreshed.track.id),
+        );
+        _queue = List<PlaybackQueueItem>.unmodifiable([
+          refreshed.copyWith(track: _currentTrack),
+          ...nextQueue.skip(1),
+        ]);
+        await _playbackAdapter.play(
+          track: _currentTrack,
+          source: refreshed.resolvedSource!,
+        );
+      }
       _isPlaying = true;
       _position = Duration.zero;
       _error = null;
     } finally {
       _isAdvancingQueue = false;
     }
+  }
+
+  Future<PlaybackQueueItem> _preparePlayback(MusicTrack track) async {
+    final cached = track.cachedPlayback;
+    if (cached != null &&
+        cached.streamUrl.trim().isNotEmpty &&
+        !cached.isExpired) {
+      return PlaybackQueueItem(
+        track: track.copyWith(
+          preferredSourceId: track.preferredSourceId ?? cached.providerId,
+          sourceTrackId: track.sourceTrackId ?? cached.sourceTrackId,
+          cachedPlayback: cached,
+        ),
+        resolvedSource: ResolvedPlaybackSource(
+          providerId: cached.providerId,
+          sourceTrackId: cached.sourceTrackId,
+          streamUrl: cached.streamUrl,
+          artworkUrl: cached.artworkUrl,
+          mimeType: cached.mimeType,
+          headers: cached.headers,
+          expiresAt: cached.expiresAt,
+        ),
+      );
+    }
+
+    final resolved = await _repository.resolveTrack(track, allowFallback: false);
+    return resolved.copyWith(
+      track: resolved.track.copyWith(
+        isFavorite: isTrackLiked(resolved.track.id),
+      ),
+    );
   }
 
   @override

@@ -83,18 +83,11 @@ class MusicRepositoryImpl implements MusicRepository {
   }
 
   @override
-  Future<ResolvedPlaybackSource> resolveTrack(MusicTrack track) async {
-    final candidate = await _resolver.resolveTrack(track);
-    return candidate.resolvedSource ??
-        ResolvedPlaybackSource(
-          providerId: track.preferredSourceId ?? 'mock',
-          sourceTrackId: track.sourceTrackId ?? track.id,
-          streamUrl:
-              candidate.candidate?.sourceUrl ??
-              candidate.resolvedSource?.streamUrl ??
-              'mock://${track.id}',
-          artworkUrl: track.artworkUrl,
-        );
+  Future<PlaybackQueueItem> resolveTrack(
+    MusicTrack track, {
+    bool allowFallback = true,
+  }) async {
+    return _resolver.resolveTrack(track, allowFallback: allowFallback);
   }
 
   @override
