@@ -17,6 +17,9 @@ class MusicScreen extends StatefulWidget {
 
 class _MusicScreenState extends State<MusicScreen>
     with AutomaticKeepAliveClientMixin {
+  bool _isNavigatingToPlayer = false;
+  final Set<String> _pendingPlaylistActions = <String>{};
+
   String _friendlyHomeError(String raw) {
     final text = raw.trim();
     if (text.isEmpty) return '出了点小问题，请稍后再试';
@@ -47,7 +50,7 @@ class _MusicScreenState extends State<MusicScreen>
   String _primaryActionLabelForError(String raw) {
     final lower = raw.toLowerCase();
     if (lower.contains('baseurl') || lower.contains('no host specified')) {
-      return '去设置页';
+      return '查看提示';
     }
     if (raw.contains('401') || raw.contains('403') || raw.contains('登录')) {
       return '重新加载';
@@ -63,8 +66,12 @@ class _MusicScreenState extends State<MusicScreen>
     final lower = raw.toLowerCase();
     if (lower.contains('baseurl') || lower.contains('no host specified')) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请前往设置页检查后端地址与桥接配置')),
+        const SnackBar(content: Text('请到设置里检查后端地址、桥接地址和登录状态')),
       );
+      return;
+    }
+    if (raw.contains('没有可播放') || lower.contains('source') || raw.contains('播放')) {
+      await store.retryCurrentTrack();
       return;
     }
     await store.retryCurrentPlaylist();
@@ -92,31 +99,64 @@ class _MusicScreenState extends State<MusicScreen>
   }
 
   Future<void> _openPlayer(MusicStore store, [MusicTrack? track]) async {
-    if (track != null) {
-      await store.selectTrack(track, autoplay: true);
-    }
-    if (!mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => MusicPlayerScreen(
-          track: track ?? store.currentTrack,
-          queue: store.queue.map((item) => item.track).toList(growable: false),
+    if (_isNavigatingToPlayer) return;
+    _isNavigatingToPlayer = true;
+    try {
+      if (track != null) {
+        await store.selectTrack(track, autoplay: true);
+      }
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => MusicPlayerScreen(
+            track: track ?? store.currentTrack,
+            queue: store.queue.map((item) => item.track).toList(growable: false),
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      _isNavigatingToPlayer = false;
+    }
+  }
+
+  bool _beginPlaylistAction(String playlistId) {
+    if (playlistId.trim().isEmpty) return false;
+    if (_pendingPlaylistActions.contains(playlistId)) {
+      return false;
+    }
+    setState(() {
+      _pendingPlaylistActions.add(playlistId);
+    });
+    return true;
+  }
+
+  void _endPlaylistAction(String playlistId) {
+    if (!mounted) return;
+    if (!_pendingPlaylistActions.contains(playlistId)) return;
+    setState(() {
+      _pendingPlaylistActions.remove(playlistId);
+    });
+  }
+
+  bool _isPlaylistActionPending(String playlistId) {
+    return _pendingPlaylistActions.contains(playlistId);
   }
 
   Future<void> _playPlaylist(MusicStore store, MusicPlaylist playlist) async {
+    if (!_beginPlaylistAction(playlist.id)) return;
     try {
       await store.playPlaylist(playlist);
       if (!mounted) return;
-      _openPlayer(store);
+      await _openPlayer(store);
     } catch (_) {
       // store.error already updated; keep user on current screen
+    } finally {
+      _endPlaylistAction(playlist.id);
     }
   }
 
   Future<void> _openPlaylistDetail(MusicStore store, MusicPlaylist playlist) async {
+    if (!_beginPlaylistAction(playlist.id)) return;
     try {
       final tracks = await store.loadPlaylistTracks(playlist);
       if (!mounted) return;
@@ -130,6 +170,8 @@ class _MusicScreenState extends State<MusicScreen>
       );
     } catch (_) {
       // store.error already updated; keep user on current screen
+    } finally {
+      _endPlaylistAction(playlist.id);
     }
   }
 
@@ -162,6 +204,8 @@ class _MusicScreenState extends State<MusicScreen>
         final latestAiPlaylist = store.latestAiPlaylist;
         final aiPlaylistHistory = store.aiPlaylistHistory;
         final currentPlaybackSourceLabel = store.currentPlaybackSourceLabel;
+        final latestAiPlaylistActionPending = latestAiPlaylist != null &&
+            _isPlaylistActionPending(latestAiPlaylist.id);
 
         return Scaffold(
           appBar: AppBar(
@@ -189,6 +233,7 @@ class _MusicScreenState extends State<MusicScreen>
                     buttonLabel: latestAiPlaylist != null ? '播放歌单' : '播放',
                     badgeLabel: latestAiPlaylist != null ? 'AI 最新歌单' : '今晚推荐',
                     timestampLabel: _formatAiPlaylistTime(latestAiPlaylist),
+                    isBusy: latestAiPlaylistActionPending,
                     onPlayTap: () async {
                       if (latestAiPlaylist != null) {
                         await _playPlaylist(store, latestAiPlaylist.asPlaylist);
@@ -206,7 +251,8 @@ class _MusicScreenState extends State<MusicScreen>
                     currentTrack: store.likedTracks.isNotEmpty
                         ? store.likedTracks.first
                         : currentTrack,
-                    isLoading: store.isPlaylistLoading(likedPlaylist.id),
+                    isLoading: store.isPlaylistLoading(likedPlaylist.id) ||
+                        _isPlaylistActionPending(likedPlaylist.id),
                     isActive: store.isPlaylistActive(likedPlaylist.id),
                     isPlaying: store.isPlaylistPlaying(likedPlaylist.id),
                     onTap: () => _openPlaylistDetail(store, likedPlaylist),
@@ -217,6 +263,7 @@ class _MusicScreenState extends State<MusicScreen>
                     title: '我的歌单',
                     subtitle: '你的收藏和平台歌单都在这里，当前播放会高亮显示',
                     actionLabel: '刷新',
+                    isBusy: store.isLoading,
                     onActionTap: () {
                       store.refreshLibrary();
                     },
@@ -244,6 +291,7 @@ class _MusicScreenState extends State<MusicScreen>
                       title: '最近播放',
                       subtitle: '按歌单回到你最近听过的氛围',
                       actionLabel: '刷新',
+                      isBusy: store.isLoading,
                       onActionTap: () {
                         store.refreshLibrary();
                       },
@@ -255,6 +303,7 @@ class _MusicScreenState extends State<MusicScreen>
                         child: _RecentPlaylistTile(
                           playlist: playlist,
                           isActive: store.isPlaylistActive(playlist.id),
+                          isBusy: _isPlaylistActionPending(playlist.id),
                           onTap: () => _openPlaylistDetail(store, playlist),
                           onPlayTap: () => _playPlaylist(store, playlist),
                         ),
@@ -267,6 +316,7 @@ class _MusicScreenState extends State<MusicScreen>
                       title: 'AI 历史歌单',
                       subtitle: '保留最新推荐，也能回看之前生成的版本',
                       actionLabel: '刷新',
+                      isBusy: store.isLoading,
                       onActionTap: () {
                         store.refreshLibrary();
                       },
@@ -278,6 +328,7 @@ class _MusicScreenState extends State<MusicScreen>
                         child: _RecentPlaylistTile(
                           playlist: draft.asPlaylist,
                           isActive: store.isPlaylistActive(draft.asPlaylist.id),
+                          isBusy: _isPlaylistActionPending(draft.asPlaylist.id),
                           metaLabel: _formatAiPlaylistTime(draft),
                           onTap: () => _openPlaylistDetail(store, draft.asPlaylist),
                           onPlayTap: () => _playPlaylist(store, draft.asPlaylist),
@@ -389,6 +440,7 @@ class _MusicHeroCard extends StatelessWidget {
     this.subtitle,
     this.timestampLabel,
     this.onDetailTap,
+    this.isBusy = false,
   });
 
   final MusicTrack track;
@@ -401,6 +453,7 @@ class _MusicHeroCard extends StatelessWidget {
   final String? subtitle;
   final String? timestampLabel;
   final VoidCallback? onDetailTap;
+  final bool isBusy;
 
   @override
   Widget build(BuildContext context) {
@@ -559,7 +612,7 @@ class _MusicHeroCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           FilledButton.tonalIcon(
-                            onPressed: onPlayTap,
+                            onPressed: isBusy ? null : onPlayTap,
                             style: FilledButton.styleFrom(
                               backgroundColor: Colors.white,
                               foregroundColor: palette.gradient.first,
@@ -568,8 +621,19 @@ class _MusicHeroCard extends StatelessWidget {
                                 vertical: 14,
                               ),
                             ),
-                            icon: const Icon(Icons.play_arrow_rounded),
-                            label: Text(buttonLabel),
+                            icon: isBusy
+                                ? SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        palette.gradient.first,
+                                      ),
+                                    ),
+                                  )
+                                : const Icon(Icons.play_arrow_rounded),
+                            label: Text(isBusy ? '处理中...' : buttonLabel),
                           ),
                           if (onDetailTap != null) ...[
                             const SizedBox(height: 8),
@@ -731,12 +795,14 @@ class _SectionHeader extends StatelessWidget {
     required this.subtitle,
     required this.actionLabel,
     required this.onActionTap,
+    this.isBusy = false,
   });
 
   final String title;
   final String subtitle;
   final String actionLabel;
   final VoidCallback onActionTap;
+  final bool isBusy;
 
   @override
   Widget build(BuildContext context) {
@@ -754,7 +820,16 @@ class _SectionHeader extends StatelessWidget {
             ],
           ),
         ),
-        TextButton(onPressed: onActionTap, child: Text(actionLabel)),
+        TextButton(
+          onPressed: isBusy ? null : onActionTap,
+          child: isBusy
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text(actionLabel),
+        ),
       ],
     );
   }
@@ -887,6 +962,7 @@ class _RecentPlaylistTile extends StatelessWidget {
     required this.onTap,
     required this.onPlayTap,
     this.isActive = false,
+    this.isBusy = false,
     this.metaLabel,
   });
 
@@ -894,6 +970,7 @@ class _RecentPlaylistTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onPlayTap;
   final bool isActive;
+  final bool isBusy;
   final String? metaLabel;
 
   @override
@@ -979,18 +1056,33 @@ class _RecentPlaylistTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 12),
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(colors: palette.gradient),
-                ),
-                child: IconButton(
-                  onPressed: onPlayTap,
-                  icon: const Icon(
-                    Icons.play_arrow_rounded,
-                    color: Colors.white,
+              SizedBox(
+                width: 56,
+                height: 56,
+                child: Material(
+                  color: Colors.transparent,
+                  shape: const CircleBorder(),
+                  child: Ink(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(colors: palette.gradient),
+                    ),
+                    child: IconButton(
+                      onPressed: isBusy ? null : onPlayTap,
+                      icon: isBusy
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                          : const Icon(
+                              Icons.play_arrow_rounded,
+                              color: Colors.white,
+                            ),
+                    ),
                   ),
                 ),
               ),
@@ -1255,20 +1347,29 @@ class _MiniPlayerState extends State<_MiniPlayer>
                       ],
                     ),
                   ),
-                  Container(
-                    width: 46,
-                    height: 46,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(colors: palette.gradient),
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      onPressed: widget.onPlayPause,
-                      icon: Icon(
-                        widget.isPlaying
-                            ? Icons.pause_rounded
-                            : Icons.play_arrow_rounded,
-                        color: Colors.white,
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: widget.onPlayPause,
+                    child: SizedBox(
+                      width: 60,
+                      height: 60,
+                      child: Center(
+                        child: Container(
+                          width: 46,
+                          height: 46,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(colors: palette.gradient),
+                            shape: BoxShape.circle,
+                          ),
+                          child: IgnorePointer(
+                            child: Icon(
+                              widget.isPlaying
+                                  ? Icons.pause_rounded
+                                  : Icons.play_arrow_rounded,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -1283,7 +1384,7 @@ class _MiniPlayerState extends State<_MiniPlayer>
 }
 
 
-class _PlaylistDetailScreen extends StatelessWidget {
+class _PlaylistDetailScreen extends StatefulWidget {
   const _PlaylistDetailScreen({
     required this.playlist,
     required this.tracks,
@@ -1293,9 +1394,31 @@ class _PlaylistDetailScreen extends StatelessWidget {
   final List<MusicTrack> tracks;
 
   @override
+  State<_PlaylistDetailScreen> createState() => _PlaylistDetailScreenState();
+}
+
+class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
+  bool _isPlayingAll = false;
+  final Set<int> _pendingTrackIndexes = <int>{};
+
+  Future<void> _openPlayer(BuildContext context, MusicStore store) async {
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => MusicPlayerScreen(
+          track: store.currentTrack,
+          queue: store.queue.map((item) => item.track).toList(growable: false),
+        ),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Consumer<MusicStore>(
       builder: (context, store, _) {
+        final playlist = widget.playlist;
+        final tracks = widget.tracks;
         return Scaffold(
           appBar: AppBar(title: Text(playlist.title)),
           body: Column(
@@ -1318,24 +1441,34 @@ class _PlaylistDetailScreen extends StatelessWidget {
                       ),
                     ),
                     FilledButton.icon(
-                      onPressed: tracks.isEmpty || store.isPlaylistLoading(playlist.id)
+                      onPressed: tracks.isEmpty ||
+                              store.isPlaylistLoading(playlist.id) ||
+                              _isPlayingAll
                           ? null
                           : () async {
-                              await store.playLoadedPlaylist(playlist, tracks);
-                              if (!context.mounted) return;
-                              Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => MusicPlayerScreen(
-                                    track: store.currentTrack,
-                                    queue: store.queue
-                                        .map((item) => item.track)
-                                        .toList(growable: false),
-                                  ),
-                                ),
-                              );
+                              setState(() {
+                                _isPlayingAll = true;
+                              });
+                              try {
+                                await store.playLoadedPlaylist(playlist, tracks);
+                                if (!context.mounted) return;
+                                await _openPlayer(context, store);
+                              } finally {
+                                if (mounted) {
+                                  setState(() {
+                                    _isPlayingAll = false;
+                                  });
+                                }
+                              }
                             },
-                      icon: const Icon(Icons.play_arrow_rounded),
-                      label: const Text('播放全部'),
+                      icon: _isPlayingAll
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.play_arrow_rounded),
+                      label: Text(_isPlayingAll ? '处理中...' : '播放全部'),
                     ),
                   ],
                 ),
@@ -1352,24 +1485,29 @@ class _PlaylistDetailScreen extends StatelessWidget {
                             isFavorite: store.isTrackLiked(tracks[index].id),
                           );
                           return ListTile(
-                            onTap: () async {
-                              await store.playLoadedPlaylist(
-                                playlist,
-                                tracks,
-                                startIndex: index,
-                              );
-                              if (!context.mounted) return;
-                              Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => MusicPlayerScreen(
-                                    track: store.currentTrack,
-                                    queue: store.queue
-                                        .map((item) => item.track)
-                                        .toList(growable: false),
-                                  ),
-                                ),
-                              );
-                            },
+                            enabled: !_pendingTrackIndexes.contains(index),
+                            onTap: _pendingTrackIndexes.contains(index)
+                                ? null
+                                : () async {
+                                    setState(() {
+                                      _pendingTrackIndexes.add(index);
+                                    });
+                                    try {
+                                      await store.playLoadedPlaylist(
+                                        playlist,
+                                        tracks,
+                                        startIndex: index,
+                                      );
+                                      if (!context.mounted) return;
+                                      await _openPlayer(context, store);
+                                    } finally {
+                                      if (mounted) {
+                                        setState(() {
+                                          _pendingTrackIndexes.remove(index);
+                                        });
+                                      }
+                                    }
+                                  },
                             leading: MusicArtwork(
                               track: track,
                               size: 52,
@@ -1385,7 +1523,13 @@ class _PlaylistDetailScreen extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
-                            trailing: Text(track.durationLabel),
+                            trailing: _pendingTrackIndexes.contains(index)
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : Text(track.durationLabel),
                           );
                         },
                       ),
@@ -1407,20 +1551,33 @@ class _MusicSearchSheet extends StatefulWidget {
 
 class _MusicSearchSheetState extends State<_MusicSearchSheet> {
   late final TextEditingController _controller;
+  String? _pendingTrackId;
 
   Future<void> _playSearchTrack(BuildContext context, MusicTrack track) async {
+    if (_pendingTrackId == track.id) return;
+    setState(() {
+      _pendingTrackId = track.id;
+    });
     final store = context.read<MusicStore>();
-    await store.selectTrack(track);
-    if (!context.mounted) return;
-    Navigator.of(context).pop();
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => MusicPlayerScreen(
-          track: track,
-          queue: store.queue.map((item) => item.track).toList(growable: false),
+    try {
+      await store.selectTrack(track);
+      if (!context.mounted) return;
+      Navigator.of(context).pop();
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => MusicPlayerScreen(
+            track: track,
+            queue: store.queue.map((item) => item.track).toList(growable: false),
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _pendingTrackId = null;
+        });
+      }
+    }
   }
 
   @override
@@ -1549,8 +1706,9 @@ class _MusicSearchSheetState extends State<_MusicSearchSheet> {
                         final track = store.searchResults[index];
                         return _SearchResultTile(
                           track: track,
+                          isBusy: _pendingTrackId == track.id,
                           onOpen: () async {
-                            await _showSearchTrackPreview(context, track);
+                            await _showSearchTrackPreview(context, track, _playSearchTrack);
                           },
                           onPlay: () async {
                             await _playSearchTrack(context, track);
@@ -1566,7 +1724,11 @@ class _MusicSearchSheetState extends State<_MusicSearchSheet> {
   }
 }
 
-Future<void> _showSearchTrackPreview(BuildContext context, MusicTrack track) async {
+Future<void> _showSearchTrackPreview(
+  BuildContext context,
+  MusicTrack track,
+  Future<void> Function(BuildContext context, MusicTrack track) playTrack,
+) async {
   final theme = Theme.of(context);
   await showModalBottomSheet<void>(
     context: context,
@@ -1605,18 +1767,7 @@ Future<void> _showSearchTrackPreview(BuildContext context, MusicTrack track) asy
               child: FilledButton.icon(
                 onPressed: () async {
                   Navigator.of(sheetContext).pop();
-                  final store = context.read<MusicStore>();
-                  await store.selectTrack(track);
-                  if (!context.mounted) return;
-                  Navigator.of(context).pop();
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => MusicPlayerScreen(
-                        track: track,
-                        queue: store.queue.map((item) => item.track).toList(growable: false),
-                      ),
-                    ),
-                  );
+                  await playTrack(context, track);
                 },
                 icon: const Icon(Icons.play_arrow_rounded),
                 label: const Text('立即播放'),
@@ -1634,11 +1785,13 @@ class _SearchResultTile extends StatelessWidget {
     required this.track,
     required this.onOpen,
     required this.onPlay,
+    this.isBusy = false,
   });
 
   final MusicTrack track;
   final VoidCallback onOpen;
   final VoidCallback onPlay;
+  final bool isBusy;
 
   @override
   Widget build(BuildContext context) {
@@ -1725,11 +1878,20 @@ class _SearchResultTile extends StatelessWidget {
               ),
               const SizedBox(width: 12),
               IconButton(
-                onPressed: onPlay,
-                icon: Icon(
-                  Icons.play_circle_fill_rounded,
-                  color: palette.gradient.first,
-                ),
+                onPressed: isBusy ? null : onPlay,
+                icon: isBusy
+                    ? SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(palette.gradient.first),
+                        ),
+                      )
+                    : Icon(
+                        Icons.play_circle_fill_rounded,
+                        color: palette.gradient.first,
+                      ),
               ),
             ],
           ),

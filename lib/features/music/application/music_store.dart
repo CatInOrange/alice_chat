@@ -93,6 +93,9 @@ class MusicStore extends ChangeNotifier {
   List<MusicTrack> _likedTracks = const <MusicTrack>[];
   List<MusicAiPlaylistDraft> _aiPlaylistHistory = const [];
   MusicAiPlaylistDraft? _latestAiPlaylist;
+  final Map<String, List<MusicTrack>> _playlistTracksCache =
+      <String, List<MusicTrack>>{};
+  int _searchRequestSerial = 0;
   bool _isSearching = false;
   String? _searchError;
   List<MusicTrack> _searchResults = const [];
@@ -252,7 +255,7 @@ class MusicStore extends ChangeNotifier {
       _currentPlaylistId = _normalizePlaylistId(state.currentPlaylistId);
       _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
       _aiPlaylistHistory = await _repository.loadAiPlaylistHistory();
-      _recentPlaylists = _mergeAiHistoryIntoRecentPlaylists(_recentPlaylists);
+      _cacheKnownAiPlaylistTracks();
       final remotePlaylists = await _repository.loadUserPlaylists();
       final basePlaylists = remotePlaylists.isNotEmpty
           ? remotePlaylists
@@ -311,7 +314,7 @@ class MusicStore extends ChangeNotifier {
       try {
         _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
         _aiPlaylistHistory = await _repository.loadAiPlaylistHistory();
-        _recentPlaylists = _mergeAiHistoryIntoRecentPlaylists(_recentPlaylists);
+        _cacheKnownAiPlaylistTracks();
       } catch (_) {
         _latestAiPlaylist = null;
         _aiPlaylistHistory = const [];
@@ -356,10 +359,37 @@ class MusicStore extends ChangeNotifier {
   Future<void> retryCurrentPlaylist() async {
     final playlist = currentPlaylist;
     if (playlist == null) {
+      if (_queue.isNotEmpty || _currentTrack.id.trim().isNotEmpty) {
+        await retryCurrentTrack();
+        return;
+      }
       await refreshLibrary();
       return;
     }
     await playPlaylist(playlist);
+  }
+
+  Future<void> retryCurrentTrack() async {
+    await ensureReady();
+    _error = null;
+    notifyListeners();
+    if (_queue.isEmpty) {
+      if (_currentTrack.id.trim().isEmpty) {
+        _error = '当前没有可重试的歌曲';
+        notifyListeners();
+        return;
+      }
+      await handleCommand(
+        MusicCommand.play(
+          queue: [PlaybackQueueItem(track: _currentTrack)],
+          source: MusicCommandSource.manual,
+        ),
+      );
+      return;
+    }
+    await _playCurrentQueueHead(resetPosition: false);
+    notifyListeners();
+    unawaited(_savePlaybackSnapshot());
   }
 
   Future<void> playPlaylist(MusicPlaylist playlist) async {
@@ -432,14 +462,34 @@ class MusicStore extends ChangeNotifier {
   Future<List<MusicTrack>> loadPlaylistTracks(MusicPlaylist playlist) async {
     await ensureReady();
     if (playlist.id == likedPlaylist.id) {
-      return _likedTracks
-          .map((track) => track.copyWith(isFavorite: true))
-          .toList(growable: false);
+      return _withFavoriteFlags(
+        _likedTracks
+            .map((track) => track.copyWith(isFavorite: true))
+            .toList(growable: false),
+      );
     }
-    final tracks = await _repository.loadPlaylistTracks(playlist);
-    return tracks
-        .map((track) => track.copyWith(isFavorite: isTrackLiked(track.id)))
-        .toList(growable: false);
+    final inMemoryTracks = _knownAiPlaylistTracks(playlist.id);
+    if (inMemoryTracks != null) {
+      _cacheTracksForPlaylist(playlist.id, inMemoryTracks);
+      return _withFavoriteFlags(inMemoryTracks);
+    }
+    try {
+      final tracks = await _repository.loadPlaylistTracks(playlist);
+      _cacheTracksForPlaylist(playlist.id, tracks);
+      return _withFavoriteFlags(tracks);
+    } catch (error) {
+      final cachedTracks = _playlistTracksCache[playlist.id];
+      if (cachedTracks != null && cachedTracks.isNotEmpty) {
+        _debugState('playlist.load.cached_fallback', extra: {
+          'playlistId': playlist.id,
+          'playlistTitle': playlist.title,
+          'trackCount': cachedTracks.length,
+          'error': error.toString(),
+        });
+        return _withFavoriteFlags(cachedTracks);
+      }
+      rethrow;
+    }
   }
 
   Future<void> playLoadedPlaylist(
@@ -460,6 +510,7 @@ class MusicStore extends ChangeNotifier {
     final normalizedPlaylist = _normalizeAiPlaylistRef(
       playlist.copyWith(trackCount: tracks.length),
     );
+    _cacheTracksForPlaylist(normalizedPlaylist.id, tracks);
     _currentPlaylistId = normalizedPlaylist.id;
     _recentPlaylists = List<MusicPlaylist>.unmodifiable([
       normalizedPlaylist,
@@ -553,6 +604,7 @@ class MusicStore extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    final requestSerial = ++_searchRequestSerial;
     _recentSearches = List<String>.unmodifiable([
       keyword,
       ..._recentSearches.where((item) => item != keyword),
@@ -566,6 +618,9 @@ class MusicStore extends ChangeNotifier {
       final migu = registry.providerById('migu');
       final neteaseCandidates = await netease?.searchTracks(keyword) ?? const [];
       final miguCandidates = await migu?.searchTracks(keyword) ?? const [];
+      if (requestSerial != _searchRequestSerial) {
+        return;
+      }
       final results = <MusicTrack>[];
       final seen = <String>{};
       for (final item in neteaseCandidates) {
@@ -590,6 +645,9 @@ class MusicStore extends ChangeNotifier {
         'resultCount': _searchResults.length,
       });
     } catch (error) {
+      if (requestSerial != _searchRequestSerial) {
+        return;
+      }
       _searchError = error.toString();
       _searchResults = const [];
       _debugState('search.error', extra: {
@@ -597,8 +655,10 @@ class MusicStore extends ChangeNotifier {
         'error': error.toString(),
       }, force: true, level: 'ERROR');
     } finally {
-      _isSearching = false;
-      notifyListeners();
+      if (requestSerial == _searchRequestSerial) {
+        _isSearching = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -800,7 +860,7 @@ class MusicStore extends ChangeNotifier {
     try {
       _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
       _aiPlaylistHistory = await _repository.loadAiPlaylistHistory();
-      _recentPlaylists = _mergeAiHistoryIntoRecentPlaylists(_recentPlaylists);
+      _cacheKnownAiPlaylistTracks();
       _currentPlaylistId = _normalizePlaylistId(_currentPlaylistId);
       _rebuildPlaylists(basePlaylists: _playlists);
       _debugState('ai_playlist.refresh', extra: {
@@ -1042,23 +1102,6 @@ class MusicStore extends ChangeNotifier {
     );
   }
 
-  List<MusicPlaylist> _mergeAiHistoryIntoRecentPlaylists(List<MusicPlaylist> base) {
-    final merged = <MusicPlaylist>[];
-    final seen = <String>{};
-    for (final draft in _aiPlaylistHistory) {
-      final playlist = draft.asPlaylist;
-      if (seen.add(playlist.id)) {
-        merged.add(playlist);
-      }
-    }
-    for (final item in base.map(_normalizeAiPlaylistRef)) {
-      if (seen.add(item.id)) {
-        merged.add(item);
-      }
-    }
-    return List<MusicPlaylist>.unmodifiable(merged.take(6));
-  }
-
   MusicPlaylist _normalizeAiPlaylistRef(MusicPlaylist playlist) {
     if (!playlist.id.startsWith('ai-playlist:')) {
       return playlist;
@@ -1177,6 +1220,46 @@ class MusicStore extends ChangeNotifier {
     final hh = local.hour.toString().padLeft(2, '0');
     final min = local.minute.toString().padLeft(2, '0');
     return '$mm-$dd $hh:$min';
+  }
+
+  List<MusicTrack> _withFavoriteFlags(List<MusicTrack> tracks) {
+    return List<MusicTrack>.unmodifiable(
+      tracks
+          .map((track) => track.copyWith(isFavorite: isTrackLiked(track.id)))
+          .toList(growable: false),
+    );
+  }
+
+  List<MusicTrack>? _knownAiPlaylistTracks(String playlistId) {
+    if (_latestAiPlaylist != null && _latestAiPlaylist!.id == playlistId) {
+      return _latestAiPlaylist!.tracks;
+    }
+    for (final item in _aiPlaylistHistory) {
+      if (item.id == playlistId) {
+        return item.tracks;
+      }
+    }
+    return null;
+  }
+
+  void _cacheTracksForPlaylist(String playlistId, List<MusicTrack> tracks) {
+    if (playlistId.trim().isEmpty || tracks.isEmpty) {
+      return;
+    }
+    _playlistTracksCache[playlistId] = List<MusicTrack>.unmodifiable(
+      tracks.map((track) => track.copyWith()).toList(growable: false),
+    );
+  }
+
+  void _cacheKnownAiPlaylistTracks() {
+    if (_latestAiPlaylist != null && _latestAiPlaylist!.tracks.isNotEmpty) {
+      _cacheTracksForPlaylist(_latestAiPlaylist!.id, _latestAiPlaylist!.tracks);
+    }
+    for (final item in _aiPlaylistHistory) {
+      if (item.tracks.isNotEmpty) {
+        _cacheTracksForPlaylist(item.id, item.tracks);
+      }
+    }
   }
 
   void _debugState(
