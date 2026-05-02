@@ -9,6 +9,7 @@ class CompanionPanel extends StatelessWidget {
     required this.session,
     required this.state,
     this.compact = false,
+    this.live2dVisible = false,
     this.onOpenLive2d,
     this.onOpenMusic,
   });
@@ -16,6 +17,7 @@ class CompanionPanel extends StatelessWidget {
   final ChatSession? session;
   final ChatViewState? state;
   final bool compact;
+  final bool live2dVisible;
   final VoidCallback? onOpenLive2d;
   final VoidCallback? onOpenMusic;
 
@@ -68,8 +70,11 @@ class CompanionPanel extends StatelessWidget {
                 runSpacing: 10,
                 children: [
                   _QuickActionChip(
-                    icon: Icons.auto_awesome_outlined,
-                    label: '陪伴页',
+                    icon:
+                        live2dVisible
+                            ? Icons.auto_awesome
+                            : Icons.auto_awesome_outlined,
+                    label: live2dVisible ? '收起 Live2D' : '打开 Live2D',
                     onTap: onOpenLive2d,
                   ),
                   _QuickActionChip(

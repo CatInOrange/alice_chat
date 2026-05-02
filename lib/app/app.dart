@@ -56,6 +56,7 @@ class _MainScaffoldState extends State<_MainScaffold>
   );
 
   int _currentIndex = 0;
+  bool _desktopLive2dVisible = false;
   ChatSession? _activeChatSession;
   StreamSubscription<NotificationOpenData>? _notificationOpenSub;
   String _lastConsumedNotificationKey = '';
@@ -440,11 +441,14 @@ class _MainScaffoldState extends State<_MainScaffold>
       session: _activeChatSession,
       state: activeState,
       compact: !isDesktop,
+      live2dVisible: _desktopLive2dVisible,
       onOpenLive2d: () {
-        setState(() => _currentIndex = 1);
+        setState(() {
+          _desktopLive2dVisible = !_desktopLive2dVisible;
+        });
       },
       onOpenMusic: () {
-        setState(() => _currentIndex = 2);
+        setState(() => _currentIndex = 1);
       },
     );
 
@@ -463,12 +467,18 @@ class _MainScaffoldState extends State<_MainScaffold>
                 _PrimaryNavRail(
                   currentIndex: _currentIndex,
                   activeChatSession: _activeChatSession,
+                  live2dVisible: _desktopLive2dVisible,
                   onSelected: (index) {
                     setState(() {
                       _currentIndex = index;
                       if (index != 0) {
                         _activeChatSession = null;
                       }
+                    });
+                  },
+                  onToggleLive2d: () {
+                    setState(() {
+                      _desktopLive2dVisible = !_desktopLive2dVisible;
                     });
                   },
                 ),
@@ -542,12 +552,27 @@ class _MainScaffoldState extends State<_MainScaffold>
                     ),
                   ),
                 ),
-                if (isDesktop) ...[
+                Container(width: 1, color: const Color(0xFFE1E6F0)),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  width: isDesktop ? 340 : 280,
+                  child: companion,
+                ),
+                if (_desktopLive2dVisible) ...[
                   Container(width: 1, color: const Color(0xFFE1E6F0)),
-                  SizedBox(width: 340, child: companion),
-                ] else ...[
-                  Container(width: 1, color: const Color(0xFFE1E6F0)),
-                  SizedBox(width: 280, child: companion),
+                  SizedBox(
+                    width: isDesktop ? 260 : 220,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: _WorkbenchPlaceholderCard(
+                        child: WebviewScreen(
+                          key: const ValueKey('webview-live2d-sidecar'),
+                          active: _desktopLive2dVisible,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -581,13 +606,8 @@ class _MainScaffoldState extends State<_MainScaffold>
   Widget _buildWorkbenchPage() {
     switch (_currentIndex) {
       case 1:
-        return WebviewScreen(
-          key: const ValueKey('webview-desktop'),
-          active: _activeChatSession == null,
-        );
-      case 2:
         return const MusicScreen();
-      case 3:
+      case 2:
       default:
         return const SettingsScreen();
     }
@@ -635,10 +655,8 @@ class _MainScaffoldState extends State<_MainScaffold>
   String _navTitle(int index) {
     switch (index) {
       case 1:
-        return '网页陪伴';
-      case 2:
         return '音乐';
-      case 3:
+      case 2:
         return '设置';
       default:
         return '消息';
@@ -648,10 +666,8 @@ class _MainScaffoldState extends State<_MainScaffold>
   IconData _navIcon(int index) {
     switch (index) {
       case 1:
-        return Icons.web_rounded;
-      case 2:
         return Icons.library_music_rounded;
-      case 3:
+      case 2:
         return Icons.settings_rounded;
       default:
         return Icons.chat_bubble_rounded;
@@ -663,18 +679,21 @@ class _PrimaryNavRail extends StatelessWidget {
   const _PrimaryNavRail({
     required this.currentIndex,
     required this.activeChatSession,
+    required this.live2dVisible,
     required this.onSelected,
+    required this.onToggleLive2d,
   });
 
   final int currentIndex;
   final ChatSession? activeChatSession;
+  final bool live2dVisible;
   final ValueChanged<int> onSelected;
+  final VoidCallback onToggleLive2d;
 
   @override
   Widget build(BuildContext context) {
     final items = <({IconData icon, String label})>[
       (icon: Icons.chat_bubble_outline_rounded, label: '聊天'),
-      (icon: Icons.web_asset_outlined, label: '网页'),
       (icon: Icons.library_music_outlined, label: '音乐'),
       (icon: Icons.settings_outlined, label: '设置'),
     ];
@@ -751,6 +770,50 @@ class _PrimaryNavRail extends StatelessWidget {
             );
           }),
           const Spacer(),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: InkWell(
+              onTap: onToggleLive2d,
+              borderRadius: BorderRadius.circular(16),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: 56,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color:
+                      live2dVisible
+                          ? const Color(0xFFEFE8FF)
+                          : const Color(0xFFF3F5FA),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  children: [
+                    Icon(
+                      live2dVisible
+                          ? Icons.auto_awesome
+                          : Icons.auto_awesome_outlined,
+                      color:
+                          live2dVisible
+                              ? const Color(0xFF7C4DFF)
+                              : const Color(0xFF7B8496),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Live2D',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color:
+                            live2dVisible
+                                ? const Color(0xFF7C4DFF)
+                                : const Color(0xFF7B8496),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
           Container(
             width: 40,
             height: 40,
