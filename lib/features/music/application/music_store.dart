@@ -60,7 +60,7 @@ class MusicStore extends ChangeNotifier {
       album: '等待你的下一首歌',
       duration: Duration.zero,
       category: '未开始播放',
-      description: '登录音乐平台、点开歌单，或者让 AI 先为你生成一份歌单。',
+      description: '连上你的音乐 或者先从 AI 给你的推荐开始',
       artworkTone: MusicArtworkTone.twilight,
     );
     _duration = _currentTrack.duration;
@@ -230,15 +230,15 @@ class MusicStore extends ChangeNotifier {
       if (isIntelligenceMode && _intelligenceSourcePlaylist != null) {
         return '心动模式 · 基于 ${_intelligenceSourcePlaylist!.title}';
       }
-      if (playlist.id == likedPlaylist.id) return '来自 我喜欢的';
+      if (playlist.id == likedPlaylist.id) return '喜欢过的歌 都收在这里';
       if (playlist.isAiGenerated) return '来自 ${playlist.title}';
       return '来自 ${playlist.title}';
     }
     if (_latestAiPlaylist != null && _currentTrack.id == heroTrack.id) {
-      return '来自 AI 最新歌单';
+      return '来自刚为你整理的歌单';
     }
-    if (_queue.isNotEmpty) return '来自当前播放队列';
-    return '还没有播放来源';
+    if (_queue.isNotEmpty) return '从刚刚的播放里接着来';
+    return '这首歌 还没接上正在听的那段感觉';
   }
 
   bool get hasPreviousTrack =>

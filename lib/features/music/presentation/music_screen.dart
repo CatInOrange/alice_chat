@@ -541,7 +541,7 @@ class _MusicScreenState extends State<MusicScreen>
                   const SizedBox(height: 28),
                   _SectionHeader(
                     title: '我的歌单',
-                    subtitle: '你自己整理的歌单会在这里，长按可管理',
+                    subtitle: '你慢慢收下的歌 都在这里',
                     actionLabel: '添加',
                     isBusy: false,
                     onActionTap: () {
@@ -589,7 +589,7 @@ class _MusicScreenState extends State<MusicScreen>
                     const SizedBox(height: 28),
                     _SectionHeader(
                       title: '最近播放',
-                      subtitle: '按歌单回到你最近听过的氛围',
+                      subtitle: '刚刚听过的感觉 还能从这里回去',
                       actionLabel: '刷新',
                       isBusy: store.isLoading,
                       onActionTap: () {
@@ -614,7 +614,7 @@ class _MusicScreenState extends State<MusicScreen>
                     const SizedBox(height: 28),
                     _SectionHeader(
                       title: 'AI 历史歌单',
-                      subtitle: '保留最新推荐，也能回看之前生成的版本',
+                      subtitle: '这次为你整理的在 之前的也还留着',
                       actionLabel: '刷新',
                       isBusy: store.isLoading,
                       onActionTap: () {
@@ -647,7 +647,7 @@ class _MusicScreenState extends State<MusicScreen>
                     Padding(
                       padding: const EdgeInsets.only(top: 24),
                       child: _SectionPlaceholder(
-                        title: '还没有最近播放记录',
+                        title: '等你听过几首 这里就会慢慢热闹起来',
                         subtitle: currentPlaybackSourceLabel,
                       ),
                     ),
@@ -1300,7 +1300,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            isActive ? '当前正在播放的收藏歌单' : '我喜欢的 · 跨平台收藏',
+                            isActive ? '当前正在播放的收藏歌单' : '喜欢过的歌 都收在这里',
                             style: theme.textTheme.bodySmall?.copyWith(
                               fontWeight: FontWeight.w700,
                               letterSpacing: 0.35,
@@ -1339,7 +1339,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${playlist.trackCount} 首 · ${isActive ? '正在使用这份收藏' : '点进来浏览，点右侧直接继续播放'}',
+                      '${playlist.trackCount} 首 · ${isActive ? '这一刻正从这里继续' : '想听的时候 随时都能回来'}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
@@ -1348,7 +1348,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '收藏入口 · 最近可从 ${currentTrack.title} 继续',
+                      '想接着听的话 就从《${currentTrack.title}》继续',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
@@ -1703,7 +1703,7 @@ class _RecentPlaylistTile extends StatelessWidget {
                     Text(
                       metaLabel?.trim().isNotEmpty == true
                           ? '${playlist.trackCount} 首歌 · ${metaLabel!}'
-                          : '${playlist.trackCount} 首歌 · 点左侧看详情，点右侧直接播放',
+                          : '${playlist.trackCount} 首歌 · 想听的时候 就从这里开始',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
@@ -1891,10 +1891,10 @@ class _EmptyMusicState extends StatelessWidget {
             color: Color(0xFF7D879A),
           ),
           const SizedBox(height: 12),
-          Text('还没有可展示的音乐内容', style: theme.textTheme.titleMedium),
+          Text('这里还安静着', style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
           Text(
-            '先去设置页登录网易云，或者让 AI 生成一份歌单。',
+            '先连上你的音乐 或者让 AI 先为你排一份歌单',
             textAlign: TextAlign.center,
             style: theme.textTheme.bodySmall,
           ),
@@ -2647,7 +2647,7 @@ class _MusicSearchSheetState extends State<_MusicSearchSheet> {
             Text('搜索音乐', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
             Text(
-              '优先搜索网易云，再补咪咕结果。点卡片看信息，点右侧播放按钮立即尝试播放。',
+              '先帮你把想听的歌找回来',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 16),
@@ -2739,10 +2739,10 @@ class _MusicSearchSheetState extends State<_MusicSearchSheet> {
                       ? Center(
                         child: Text(
                           _controller.text.trim().isEmpty
-                              ? '输入歌名、歌手或情绪关键词开始搜索'
+                              ? '写下一首歌 一个名字 或者一种心情'
                               : ((store.searchError ?? '').trim().isNotEmpty
-                                  ? '搜索暂时失败，换个关键词试试'
-                                  : '没有找到结果，试试更短的关键词'),
+                                  ? '刚刚没替你找到 换个词再试试'
+                                  : '还没找到想听的 试试更短一点的词'),
                           style: Theme.of(context).textTheme.bodyMedium,
                           textAlign: TextAlign.center,
                         ),

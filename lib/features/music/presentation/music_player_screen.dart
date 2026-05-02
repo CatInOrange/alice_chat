@@ -336,7 +336,7 @@ class MusicPlayerScreen extends StatelessWidget {
                                         const SizedBox(height: 14),
                                         if (nextTracks.isEmpty)
                                           Text(
-                                            '当前队列里没有下一首了',
+                                            '这一轮 先听到这里',
                                             style: theme.textTheme.bodySmall,
                                           )
                                         else
@@ -394,12 +394,12 @@ Future<void> _showCollectToPlaylistSheet(
           children: [
             const ListTile(
               title: Text('收藏到歌单'),
-              subtitle: Text('“喜欢”仍然由右上角红心单独管理'),
+              subtitle: Text('喜欢过的歌 还是交给右上角那颗红心'),
             ),
             if (playlists.isEmpty)
               const Padding(
                 padding: EdgeInsets.all(20),
-                child: Text('你还没有自建歌单，先去首页创建一个吧。'),
+                child: Text('你还没有自己的歌单 先去首页留一份吧'),
               )
             else
               ...playlists.map(
@@ -538,7 +538,7 @@ class _LyricsPreviewCard extends StatelessWidget {
                   child: LinearProgressIndicator(minHeight: 3),
                 )
               else if (!hasCurrent)
-                Text('这首歌暂时还没有可用歌词', style: theme.textTheme.bodyMedium)
+                Text('这首歌的歌词 这会儿还没来', style: theme.textTheme.bodyMedium)
               else ...[
                 Text(
                   currentLyric!.replaceAll('\n', ' · '),
