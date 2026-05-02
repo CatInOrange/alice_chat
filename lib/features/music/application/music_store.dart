@@ -252,10 +252,23 @@ class MusicStore extends ChangeNotifier {
 
   bool isPlaylistLoading(String playlistId) => _loadingPlaylistId == playlistId;
 
-  bool isPlaylistActive(String playlistId) => _currentPlaylistId == playlistId;
+  bool isPlaylistActive(String playlistId) {
+    final normalized = playlistId.trim();
+    if (normalized.isEmpty) return false;
+    if (normalized == 'liked-local') {
+      return _currentPlaylistId == normalized;
+    }
+    return _currentPlaylistId == normalized;
+  }
 
-  bool isPlaylistPlaying(String playlistId) =>
-      _currentPlaylistId == playlistId && (_isPlaying || _isLoadingPlaylist);
+  bool isPlaylistPlaying(String playlistId) {
+    final normalized = playlistId.trim();
+    if (normalized.isEmpty) return false;
+    if (normalized == 'liked-local') {
+      return _currentPlaylistId == normalized && _isPlaying;
+    }
+    return _currentPlaylistId == normalized && _isPlaying;
+  }
 
   Future<void> reloadConfig() async {
     final config = await OpenClawSettingsStore.load();
@@ -1388,7 +1401,7 @@ class MusicStore extends ChangeNotifier {
         filtered.add(track.copyWith(isFavorite: isTrackLiked(track.id)));
       }
       if (filtered.isEmpty) {
-        _error = '心动模式暂时没有拿到新的推荐歌曲';
+        _error = '心动模式暂时没有拿到新的推荐歌曲，我会继续再试几次';
         _debugState(
           'intelligence.queue.empty',
           extra: {
@@ -1396,15 +1409,12 @@ class MusicStore extends ChangeNotifier {
             'rawCount': tracks.length,
             'queueLength': _queue.length,
             'recentIntelligenceCount': _recentIntelligenceTrackIds.length,
+            'currentTrackId': _currentTrack.id,
+            'currentTrackTitle': _currentTrack.title,
           },
           force: true,
           level: 'ERROR',
         );
-        _repeatMode = MusicRepeatMode.one;
-        _intelligenceSourcePlaylist = null;
-        _intelligenceLastAnchorTrackId = null;
-        _isLoadingIntelligenceBatch = false;
-        _recentIntelligenceTrackIds.clear();
         notifyListeners();
         return;
       }
@@ -1453,8 +1463,8 @@ class MusicStore extends ChangeNotifier {
       final message = error.toString();
       final friendlyMessage =
           message.contains('网易云心动模式请求失败')
-              ? '网易云官方心动模式请求失败了，我已经重试过一次，你稍后再试一下'
-              : '心动模式加载失败，已退回单曲循环';
+              ? '网易云官方心动模式这次没接上，我会在这首歌结束前继续尝试'
+              : '心动模式加载失败，这首歌结束前我还会继续尝试';
       _debugState(
         'intelligence.queue.error',
         extra: {
@@ -1463,15 +1473,14 @@ class MusicStore extends ChangeNotifier {
           'seedSourceTrackId': startTrack.sourceTrackId,
           'error': message,
           'friendlyMessage': friendlyMessage,
+          'currentTrackId': _currentTrack.id,
+          'currentTrackTitle': _currentTrack.title,
+          'queueLength': _queue.length,
         },
         force: true,
         level: 'ERROR',
       );
       _error = friendlyMessage;
-      _repeatMode = MusicRepeatMode.one;
-      _intelligenceSourcePlaylist = null;
-      _intelligenceLastAnchorTrackId = null;
-      _recentIntelligenceTrackIds.clear();
       notifyListeners();
     } finally {
       _isLoadingIntelligenceBatch = false;

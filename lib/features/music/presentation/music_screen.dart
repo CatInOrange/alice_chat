@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -160,7 +161,7 @@ class _MusicScreenState extends State<MusicScreen>
     try {
       await store.playPlaylist(playlist);
       if (!mounted) return;
-      await _openPlayer(store);
+      unawaited(_openPlayer(store));
     } catch (_) {
       // store.error already updated; keep user on current screen
     } finally {
@@ -176,16 +177,18 @@ class _MusicScreenState extends State<MusicScreen>
     try {
       final tracks = await store.loadPlaylistTracks(playlist);
       if (!mounted) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder:
-              (_) => ChangeNotifierProvider.value(
-                value: store,
-                child: _PlaylistDetailScreen(
-                  playlist: playlist,
-                  tracks: tracks,
+      unawaited(
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder:
+                (_) => ChangeNotifierProvider.value(
+                  value: store,
+                  child: _PlaylistDetailScreen(
+                    playlist: playlist,
+                    tracks: tracks,
+                  ),
                 ),
-              ),
+          ),
         ),
       );
     } catch (_) {
@@ -2261,7 +2264,7 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                                     tracks,
                                   );
                                   if (!context.mounted) return;
-                                  await _openPlayer(context, store);
+                                  unawaited(_openPlayer(context, store));
                                 } finally {
                                   if (mounted) {
                                     setState(() {
@@ -2361,7 +2364,7 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                                             startIndex: index,
                                           );
                                           if (!context.mounted) return;
-                                          await _openPlayer(context, store);
+                                          unawaited(_openPlayer(context, store));
                                         } finally {
                                           if (mounted) {
                                             setState(() {

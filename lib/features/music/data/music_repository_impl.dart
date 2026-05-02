@@ -577,7 +577,7 @@ class MusicRepositoryImpl implements MusicRepository {
     }
 
     Object? lastError;
-    for (var attemptIndex = 1; attemptIndex <= 2; attemptIndex++) {
+    for (var attemptIndex = 1; attemptIndex <= 1; attemptIndex++) {
       try {
         return await attempt(attemptIndex);
       } catch (error) {
@@ -589,13 +589,9 @@ class MusicRepositoryImpl implements MusicRepository {
           'songId': sourceTrackId,
           'encryptedSongId': encryptedSongId,
           'attempt': attemptIndex,
-          'willRetry': attemptIndex < 2,
+          'willRetry': false,
           'error': error.toString(),
         });
-        if (attemptIndex < 2) {
-          await Future<void>.delayed(const Duration(milliseconds: 450));
-          continue;
-        }
       }
     }
 

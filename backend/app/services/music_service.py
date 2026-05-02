@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
-from time import time
+from time import sleep, time
 
 from ..music_api_models import (
     MusicAiPlaylistDraftDto,
@@ -13,6 +14,8 @@ from ..music_api_models import (
 )
 from ..store import MusicStore
 from .netease_openapi_service import NeteaseOpenApiError, NeteaseOpenApiResult, NeteaseOpenApiService
+
+_LOG = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -124,19 +127,66 @@ class MusicService:
     def load_netease_intelligence(self, request: MusicIntelligenceRequestDto) -> NeteaseOpenApiResult:
         state = self.store.load_state()
         fallback_playlist_id = str(state.get('neteaseLikedPlaylistEncryptedId') or '').strip()
-        result = self.netease_openapi.get_intelligence_tracks(
-            song=request.song.model_dump(exclude_none=True),
-            playlist=None if request.playlist is None else request.playlist.model_dump(exclude_none=True),
-            fallback_playlist_id=fallback_playlist_id or None,
-            count=request.count,
-            mode=request.mode,
-        )
-        patch: dict[str, object] = {}
-        if result.playlist_encrypted_id and result.playlist_encrypted_id != fallback_playlist_id:
-            patch['neteaseLikedPlaylistEncryptedId'] = result.playlist_encrypted_id
-        if patch:
-            self.store.save_state(patch)
-        return result
+        song_payload = request.song.model_dump(exclude_none=True)
+        playlist_payload = None if request.playlist is None else request.playlist.model_dump(exclude_none=True)
+        last_error: Exception | None = None
+        max_attempts = 4
+        for attempt in range(1, max_attempts + 1):
+            try:
+                _LOG.info(
+                    '[music.intelligence.request] attempt=%s/%s song=%s sourceTrackId=%s encryptedSongId=%s playlistId=%s fallbackPlaylistId=%s mode=%s count=%s',
+                    attempt,
+                    max_attempts,
+                    song_payload.get('trackId') or song_payload.get('id'),
+                    song_payload.get('sourceTrackId'),
+                    song_payload.get('encryptedSourceTrackId') or song_payload.get('encryptedTrackId'),
+                    None if playlist_payload is None else playlist_payload.get('playlistId'),
+                    fallback_playlist_id or None,
+                    request.mode,
+                    request.count,
+                )
+                result = self.netease_openapi.get_intelligence_tracks(
+                    song=song_payload,
+                    playlist=playlist_payload,
+                    fallback_playlist_id=fallback_playlist_id or None,
+                    count=request.count,
+                    mode=request.mode,
+                )
+                _LOG.info(
+                    '[music.intelligence.success] attempt=%s/%s trackCount=%s playlistEncryptedId=%s songEncryptedId=%s fallbackUsed=%s',
+                    attempt,
+                    max_attempts,
+                    len(result.tracks),
+                    result.playlist_encrypted_id,
+                    result.song_encrypted_id,
+                    result.fallback_used,
+                )
+                patch: dict[str, object] = {}
+                if result.playlist_encrypted_id and result.playlist_encrypted_id != fallback_playlist_id:
+                    patch['neteaseLikedPlaylistEncryptedId'] = result.playlist_encrypted_id
+                if patch:
+                    self.store.save_state(patch)
+                return result
+            except NeteaseOpenApiError as exc:
+                last_error = exc
+                will_retry = attempt < max_attempts
+                _LOG.warning(
+                    '[music.intelligence.failure] attempt=%s/%s willRetry=%s song=%s sourceTrackId=%s encryptedSongId=%s playlistId=%s fallbackPlaylistId=%s error=%s',
+                    attempt,
+                    max_attempts,
+                    will_retry,
+                    song_payload.get('trackId') or song_payload.get('id'),
+                    song_payload.get('sourceTrackId'),
+                    song_payload.get('encryptedSourceTrackId') or song_payload.get('encryptedTrackId'),
+                    None if playlist_payload is None else playlist_payload.get('playlistId'),
+                    fallback_playlist_id or None,
+                    str(exc),
+                )
+                if not will_retry:
+                    break
+                sleep(0.6)
+        assert last_error is not None
+        raise last_error
 
     def sync_netease_favorite_playlist(self) -> dict:
         playlist = self.netease_openapi.get_favorite_playlist()
