@@ -318,6 +318,9 @@ class MusicRepositoryImpl implements MusicRepository {
     final sourceTrackId = (seedTrack.sourceTrackId ?? '').trim();
     final encryptedSongId = (seedTrack.encryptedSourceTrackId ?? '').trim();
     final encryptedPlaylistId = _encryptedPlaylistIdFor(playlist.id);
+    final effectiveEncryptedPlaylistId = fallbackEncryptedPlaylistId?.trim().isNotEmpty == true
+        ? fallbackEncryptedPlaylistId!.trim()
+        : encryptedPlaylistId;
     if (sourceTrackId.isEmpty && encryptedSongId.isEmpty) {
       return const <MusicTrack>[];
     }
@@ -329,6 +332,7 @@ class MusicRepositoryImpl implements MusicRepository {
         'songId': sourceTrackId,
         'encryptedSongId': encryptedSongId,
         'encryptedPlaylistId': encryptedPlaylistId,
+        'effectiveEncryptedPlaylistId': effectiveEncryptedPlaylistId,
         'fallbackEncryptedPlaylistId': fallbackEncryptedPlaylistId,
       });
       final response = await _client.requestNeteaseIntelligence(
@@ -348,8 +352,8 @@ class MusicRepositoryImpl implements MusicRepository {
             'title': playlist.title,
             if (_playlistOriginalIdFor(playlist.id).isNotEmpty)
               'sourcePlaylistId': _playlistOriginalIdFor(playlist.id),
-            if (encryptedPlaylistId.isNotEmpty)
-              'encryptedPlaylistId': encryptedPlaylistId,
+            if (effectiveEncryptedPlaylistId.isNotEmpty)
+              'encryptedPlaylistId': effectiveEncryptedPlaylistId,
           },
           'count': 20,
           'mode': 'fromPlayAll',
@@ -490,10 +494,14 @@ class MusicRepositoryImpl implements MusicRepository {
   }
 
   String _encryptedPlaylistIdFor(String playlistId) {
-    if (playlistId.startsWith('netease-playlist:enc:')) {
-      return playlistId.substring('netease-playlist:enc:'.length).trim();
+    if (!playlistId.startsWith('netease-playlist:enc:')) {
+      return '';
     }
-    return '';
+    final raw = playlistId.substring('netease-playlist:enc:'.length).trim();
+    final looksEncrypted = raw.length >= 16 &&
+        RegExp(r'^[0-9A-Fa-f]+$').hasMatch(raw) &&
+        !RegExp(r'^\d+$').hasMatch(raw);
+    return looksEncrypted ? raw.toUpperCase() : '';
   }
 
   Future<void> _debugLog(String tag, Map<String, dynamic> payload) async {

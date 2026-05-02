@@ -1003,7 +1003,9 @@ class MusicStore extends ChangeNotifier {
       'title': _currentTrack.title,
       'providerId': _currentTrackProviderId(),
       'sourceTrackId': sourceTrackId,
+      'encryptedSourceTrackId': _currentTrack.encryptedSourceTrackId,
       'neteaseLikedPlaylistId': _neteaseLikedPlaylistId,
+      'neteaseLikedPlaylistEncryptedId': _neteaseLikedPlaylistEncryptedId,
     }, force: true);
     if (!canAttemptIntelligenceMode || sourceTrackId.isEmpty) {
       _error = '当前歌曲还没有网易云音源，暂时无法开启心动模式';
@@ -1019,7 +1021,9 @@ class MusicStore extends ChangeNotifier {
       _error = '当前歌曲有网易云音源，但还缺少网易云歌单上下文，暂时无法开启心动模式';
       _debugState('intelligence.enable.blocked_no_context', extra: {
         'sourceTrackId': sourceTrackId,
+        'encryptedSourceTrackId': _currentTrack.encryptedSourceTrackId,
         'neteaseLikedPlaylistId': _neteaseLikedPlaylistId,
+        'neteaseLikedPlaylistEncryptedId': _neteaseLikedPlaylistEncryptedId,
       }, force: true, level: 'ERROR');
       notifyListeners();
       return;
@@ -1032,9 +1036,11 @@ class MusicStore extends ChangeNotifier {
     _repeatMode = MusicRepeatMode.intelligence;
     _debugState('intelligence.enable.ready', extra: {
       'sourceTrackId': sourceTrackId,
+      'encryptedSourceTrackId': _currentTrack.encryptedSourceTrackId,
       'playlistId': playlist.id,
       'playlistTitle': playlist.title,
       'playlistTag': playlist.tag,
+      'neteaseLikedPlaylistEncryptedId': _neteaseLikedPlaylistEncryptedId,
     }, force: true);
     notifyListeners();
     await _refreshIntelligenceQueue(startTrack: _currentTrack, keepCurrentTrack: true);

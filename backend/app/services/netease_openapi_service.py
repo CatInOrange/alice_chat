@@ -23,15 +23,18 @@ class NeteaseOpenApiResult:
 
 
 class NeteaseOpenApiService:
+    DEFAULT_CLI_HOME = Path('/root/.openclaw/AliceChat/data/netease-openapi')
+    DEFAULT_CLI_PACKAGE_DIR = Path('/root/.openclaw/AliceChat/tools/ncm-cli/package')
+
     def __init__(self, config: dict):
         self._config = config or {}
-        root = Path(__file__).resolve().parents[3]
         self._cli_home = Path(
-            os.environ.get('ALICECHAT_NETEASE_OPENAPI_HOME') or (root / 'data' / 'netease-openapi')
+            os.environ.get('ALICECHAT_NETEASE_OPENAPI_HOME') or self.DEFAULT_CLI_HOME
         ).expanduser()
         self._cli_package_dir = Path(
-            os.environ.get('ALICECHAT_NETEASE_OPENAPI_CLI_DIR') or '/tmp/ncm-cli-inspect/pkg/package'
+            os.environ.get('ALICECHAT_NETEASE_OPENAPI_CLI_DIR') or self.DEFAULT_CLI_PACKAGE_DIR
         ).expanduser()
+        self._cli_entry = self._cli_package_dir / 'dist' / 'index.js'
 
     def get_intelligence_tracks(
         self,
@@ -43,12 +46,11 @@ class NeteaseOpenApiService:
         mode: str,
     ) -> NeteaseOpenApiResult:
         self._ensure_ready()
-        encrypted_song_id = self._resolve_song_encrypted_id(song)
-        encrypted_playlist_id = self._resolve_playlist_encrypted_id(playlist)
-        fallback_used = False
-        if not encrypted_playlist_id:
-            encrypted_playlist_id = (fallback_playlist_id or '').strip()
-            fallback_used = bool(encrypted_playlist_id)
+        encrypted_playlist_id, fallback_used = self._resolve_effective_playlist_encrypted_id(
+            playlist,
+            fallback_playlist_id,
+        )
+        encrypted_song_id = self._resolve_song_encrypted_id(song, encrypted_playlist_id)
         if not encrypted_song_id:
             raise NeteaseOpenApiError('当前歌曲缺少网易云官方加密ID')
         if not encrypted_playlist_id:
@@ -87,26 +89,87 @@ class NeteaseOpenApiService:
             raise NeteaseOpenApiError('未获取到网易云喜欢歌单')
         return data
 
-    def _resolve_song_encrypted_id(self, song: dict[str, Any]) -> str:
-        encrypted = self._first_non_empty(
-            song.get('encryptedSourceTrackId'),
-            song.get('encryptedTrackId'),
-            song.get('sourceEncryptedId'),
+    def _resolve_song_encrypted_id(self, song: dict[str, Any], playlist_encrypted_id: str) -> str:
+        encrypted = self._normalize_encrypted_id(
+            self._first_non_empty(
+                song.get('encryptedSourceTrackId'),
+                song.get('encryptedTrackId'),
+                song.get('sourceEncryptedId'),
+            )
         )
         if encrypted:
             return encrypted
         provider = str(song.get('providerId') or '').strip()
         if provider and provider != 'netease':
             raise NeteaseOpenApiError('当前歌曲不是网易云来源，无法开启官方心动模式')
+        source_track_id = self._first_non_empty(
+            song.get('sourceTrackId'),
+            song.get('trackId'),
+            song.get('id'),
+        )
+        if source_track_id and playlist_encrypted_id:
+            encrypted = self._lookup_song_encrypted_id(
+                playlist_encrypted_id=playlist_encrypted_id,
+                source_track_id=source_track_id,
+            )
+            if encrypted:
+                return encrypted
         raise NeteaseOpenApiError('当前歌曲还没有网易云官方加密ID')
+
+    def _resolve_effective_playlist_encrypted_id(
+        self,
+        playlist: dict[str, Any] | None,
+        fallback_playlist_id: str | None,
+    ) -> tuple[str, bool]:
+        playlist_encrypted_id = self._resolve_playlist_encrypted_id(playlist)
+        if playlist_encrypted_id:
+            return playlist_encrypted_id, False
+        fallback_encrypted_id = self._normalize_encrypted_id(fallback_playlist_id)
+        if fallback_encrypted_id:
+            return fallback_encrypted_id, True
+        return '', False
 
     def _resolve_playlist_encrypted_id(self, playlist: dict[str, Any] | None) -> str:
         if not isinstance(playlist, dict):
             return ''
-        return self._first_non_empty(
-            playlist.get('encryptedPlaylistId'),
-            playlist.get('encryptedSourcePlaylistId'),
+        encrypted = self._normalize_encrypted_id(
+            self._first_non_empty(
+                playlist.get('encryptedPlaylistId'),
+                playlist.get('encryptedSourcePlaylistId'),
+            )
         )
+        if encrypted:
+            return encrypted
+        return ''
+
+    def _lookup_song_encrypted_id(self, *, playlist_encrypted_id: str, source_track_id: str) -> str:
+        offset = 0
+        limit = 200
+        for _ in range(5):
+            payload = self._run_json(
+                'playlist',
+                'tracks',
+                '--playlistId',
+                playlist_encrypted_id,
+                '--limit',
+                str(limit),
+                '--offset',
+                str(offset),
+            )
+            data = payload.get('data')
+            if not isinstance(data, list) or not data:
+                return ''
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                original_id = self._first_non_empty(item.get('originalId'))
+                if original_id != source_track_id:
+                    continue
+                return self._normalize_encrypted_id(self._first_non_empty(item.get('id')))
+            if len(data) < limit:
+                return ''
+            offset += limit
+        return ''
 
     def _track_from_openapi_item(self, item: dict[str, Any]) -> MusicTrackDto | None:
         track_id = self._first_non_empty(item.get('id'))
@@ -147,13 +210,32 @@ class NeteaseOpenApiService:
 
     def _ensure_ready(self) -> None:
         if not self._cli_package_dir.exists():
-            raise NeteaseOpenApiError('未找到 ncm-cli 运行目录，无法调用网易云官方能力')
+            raise NeteaseOpenApiError(
+                f'未找到 ncm-cli 运行目录：{self._cli_package_dir}。'
+                f'当前约定 CLI 程序目录应为 {self.DEFAULT_CLI_PACKAGE_DIR}'
+            )
+        if not self._cli_entry.exists():
+            raise NeteaseOpenApiError(
+                f'ncm-cli 入口文件缺失：{self._cli_entry}。'
+                '请确认 CLI 包已完整解压到约定目录'
+            )
+        if not self._cli_home.exists():
+            raise NeteaseOpenApiError(
+                f'未找到网易云官方数据目录：{self._cli_home}。'
+                f'当前约定 HOME 目录应为 {self.DEFAULT_CLI_HOME}'
+            )
         credentials_path = self._cli_home / '.config' / 'ncm-cli' / 'credentials.enc.json'
         tokens_path = self._cli_home / '.config' / 'ncm-cli' / 'tokens.enc.json'
         if not credentials_path.exists():
-            raise NeteaseOpenApiError('网易云官方凭据未配置，请先完成 ncm-cli 配置')
+            raise NeteaseOpenApiError(
+                f'网易云官方凭据未配置：{credentials_path} 不存在。'
+                '请先在约定 HOME 目录完成 ncm-cli 配置'
+            )
         if not tokens_path.exists():
-            raise NeteaseOpenApiError('网易云官方登录态缺失，请先完成授权登录')
+            raise NeteaseOpenApiError(
+                f'网易云官方登录态缺失：{tokens_path} 不存在。'
+                '请先在约定 HOME 目录完成授权登录'
+            )
 
     def _run_json(self, *args: str) -> dict[str, Any]:
         env = dict(os.environ)
@@ -189,6 +271,18 @@ class NeteaseOpenApiService:
             return '网易云官方接口调用失败'
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         return lines[-1] if lines else text
+
+    def _normalize_encrypted_id(self, value: Any) -> str:
+        text = str(value or '').strip()
+        if not text:
+            return ''
+        if len(text) < 16:
+            return ''
+        if not all(ch.isdigit() or ('A' <= ch <= 'F') or ('a' <= ch <= 'f') for ch in text):
+            return ''
+        if text.isdigit():
+            return ''
+        return text.upper()
 
     def _first_non_empty(self, *values: Any) -> str:
         for value in values:

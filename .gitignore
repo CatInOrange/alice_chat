@@ -60,3 +60,4 @@ alicelive2d/desktop/out/
 # Python 缓存（通用）
 **/__pycache__/
 **/*.pyc
+tools/ncm-cli/package/node_modules/
