@@ -332,6 +332,7 @@ class MusicStore extends ChangeNotifier {
         _aiPlaylistHistory = const [];
       }
       _cacheKnownAiPlaylistTracks();
+      unawaited(_repairLatestAiPlaylistArtworkIfNeeded());
       final remotePlaylists = await _repository.loadUserPlaylists();
       final remoteLikedPlaylist = _findNeteaseLikedPlaylist(remotePlaylists);
       if (remoteLikedPlaylist != null) {
@@ -355,6 +356,7 @@ class MusicStore extends ChangeNotifier {
         isFavorite: isTrackLiked(_currentTrack.id),
       );
       unawaited(_loadLyricsForTrack(_currentTrack, forceRefresh: false));
+      unawaited(_repairPlaybackArtworkIfNeeded());
       _debugState(
         'refresh.done',
         extra: {
@@ -413,6 +415,7 @@ class MusicStore extends ChangeNotifier {
       _currentTrack = _currentTrack.copyWith(
         isFavorite: isTrackLiked(_currentTrack.id),
       );
+      unawaited(_repairPlaybackArtworkIfNeeded());
       try {
         _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
       } catch (_) {
@@ -424,6 +427,7 @@ class MusicStore extends ChangeNotifier {
         _aiPlaylistHistory = const [];
       }
       _cacheKnownAiPlaylistTracks();
+      unawaited(_repairLatestAiPlaylistArtworkIfNeeded());
       try {
         final remotePlaylists = await _repository.loadUserPlaylists();
         final remoteLikedPlaylist = _findNeteaseLikedPlaylist(remotePlaylists);
@@ -459,6 +463,13 @@ class MusicStore extends ChangeNotifier {
     _currentPlaylistId = null;
     unawaited(_loadLyricsForTrack(_currentTrack, forceRefresh: false));
     notifyListeners();
+    unawaited(
+      _ensureTrackArtwork(
+        _currentTrack,
+        reason: 'select_track',
+        persist: !autoplay,
+      ),
+    );
     if (autoplay) {
       await handleCommand(
         MusicCommand.play(
@@ -1452,6 +1463,7 @@ class MusicStore extends ChangeNotifier {
       _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
       _aiPlaylistHistory = await _repository.loadAiPlaylistHistory();
       _cacheKnownAiPlaylistTracks();
+      unawaited(_repairLatestAiPlaylistArtworkIfNeeded());
       _currentPlaylistId = _normalizePlaylistId(_currentPlaylistId);
       _rebuildPlaylists(basePlaylists: _playlists);
       final heroTrack = _latestAiPlaylist?.tracks.firstOrNull;
@@ -1574,6 +1586,11 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<PlaybackQueueItem> _preparePlayback(MusicTrack track) async {
+    track = await _ensureTrackArtwork(
+      track,
+      reason: 'prepare_playback',
+      persist: track.id == _currentTrack.id,
+    );
     final cached = track.cachedPlayback;
     if (cached != null &&
         cached.streamUrl.trim().isNotEmpty &&
@@ -1907,6 +1924,254 @@ class MusicStore extends ChangeNotifier {
     return trimmed;
   }
 
+  bool _hasArtwork(MusicTrack track) {
+    return (track.cachedPlayback?.artworkUrl ?? '').trim().isNotEmpty ||
+        (track.artworkUrl ?? '').trim().isNotEmpty;
+  }
+
+  String _normalizeArtworkUrl(String? value) {
+    final trimmed = (value ?? '').trim();
+    if (trimmed.isEmpty) return '';
+    return trimmed.replaceFirst(
+      RegExp(r'^http://p(?=\d+\.music\.126\.net/)'),
+      'https://p',
+    );
+  }
+
+  MusicTrack _normalizeTrackArtwork(MusicTrack track) {
+    final artworkUrl = _normalizeArtworkUrl(track.artworkUrl);
+    final cached = track.cachedPlayback;
+    final cachedArtworkUrl = _normalizeArtworkUrl(cached?.artworkUrl);
+    return track.copyWith(
+      artworkUrl: artworkUrl.isEmpty ? null : artworkUrl,
+      cachedPlayback:
+          cached == null
+              ? null
+              : CachedPlaybackSource(
+                providerId: cached.providerId,
+                sourceTrackId: cached.sourceTrackId,
+                streamUrl: cached.streamUrl.trim(),
+                artworkUrl: cachedArtworkUrl.isEmpty ? null : cachedArtworkUrl,
+                mimeType:
+                    (cached.mimeType ?? '').trim().isEmpty
+                        ? null
+                        : cached.mimeType!.trim(),
+                headers: Map<String, String>.from(cached.headers),
+                expiresAt: cached.expiresAt,
+                resolvedAt: cached.resolvedAt,
+              ),
+    );
+  }
+
+  MusicTrack _preferRicherTrack(MusicTrack base, MusicTrack candidate) {
+    return base.copyWith(
+      title: candidate.title.trim().isNotEmpty ? candidate.title : base.title,
+      artist:
+          candidate.artist.trim().isNotEmpty ? candidate.artist : base.artist,
+      album: candidate.album.trim().isNotEmpty ? candidate.album : base.album,
+      duration:
+          candidate.duration.inMilliseconds > 0
+              ? candidate.duration
+              : base.duration,
+      category:
+          candidate.category.trim().isNotEmpty
+              ? candidate.category
+              : base.category,
+      description:
+          candidate.description.trim().isNotEmpty
+              ? candidate.description
+              : base.description,
+      artworkUrl:
+          (candidate.artworkUrl ?? '').trim().isNotEmpty
+              ? candidate.artworkUrl
+              : base.artworkUrl,
+      preferredSourceId:
+          (candidate.preferredSourceId ?? '').trim().isNotEmpty
+              ? candidate.preferredSourceId
+              : base.preferredSourceId,
+      sourceTrackId:
+          (candidate.sourceTrackId ?? '').trim().isNotEmpty
+              ? candidate.sourceTrackId
+              : base.sourceTrackId,
+      encryptedSourceTrackId:
+          (candidate.encryptedSourceTrackId ?? '').trim().isNotEmpty
+              ? candidate.encryptedSourceTrackId
+              : base.encryptedSourceTrackId,
+      cachedPlayback:
+          (candidate.cachedPlayback?.artworkUrl ?? '').trim().isNotEmpty ||
+                  (candidate.cachedPlayback?.streamUrl ?? '').trim().isNotEmpty
+              ? candidate.cachedPlayback
+              : base.cachedPlayback,
+    );
+  }
+
+  void _mergeTrackAcrossState(MusicTrack updatedTrack) {
+    final normalized = _normalizeTrackArtwork(updatedTrack);
+    _currentTrack =
+        _currentTrack.id == normalized.id
+            ? _preferRicherTrack(
+              _currentTrack,
+              normalized,
+            ).copyWith(isFavorite: isTrackLiked(normalized.id))
+            : _currentTrack;
+    _queue = List<PlaybackQueueItem>.unmodifiable(
+      _queue
+          .map(
+            (item) =>
+                item.track.id == normalized.id
+                    ? item.copyWith(
+                      track: _preferRicherTrack(
+                        item.track,
+                        normalized,
+                      ).copyWith(isFavorite: isTrackLiked(normalized.id)),
+                    )
+                    : item,
+          )
+          .toList(growable: false),
+    );
+    _recentTracks = List<MusicTrack>.unmodifiable(
+      _recentTracks
+          .map(
+            (item) =>
+                item.id == normalized.id
+                    ? _preferRicherTrack(
+                      item,
+                      normalized,
+                    ).copyWith(isFavorite: isTrackLiked(normalized.id))
+                    : item,
+          )
+          .toList(growable: false),
+    );
+    _likedTracks = List<MusicTrack>.unmodifiable(
+      _likedTracks
+          .map(
+            (item) =>
+                item.id == normalized.id
+                    ? _preferRicherTrack(
+                      item,
+                      normalized,
+                    ).copyWith(isFavorite: true)
+                    : item,
+          )
+          .toList(growable: false),
+    );
+    for (final entry in _playlistTracksCache.entries.toList(growable: false)) {
+      final replaced = entry.value
+          .map(
+            (item) =>
+                item.id == normalized.id
+                    ? _preferRicherTrack(
+                      item,
+                      normalized,
+                    ).copyWith(isFavorite: isTrackLiked(normalized.id))
+                    : item,
+          )
+          .toList(growable: false);
+      _playlistTracksCache[entry.key] = List<MusicTrack>.unmodifiable(replaced);
+    }
+    if (_latestAiPlaylist != null) {
+      final tracks = _latestAiPlaylist!.tracks
+          .map(
+            (item) =>
+                item.id == normalized.id
+                    ? _preferRicherTrack(
+                      item,
+                      normalized,
+                    ).copyWith(isFavorite: isTrackLiked(normalized.id))
+                    : item,
+          )
+          .toList(growable: false);
+      _latestAiPlaylist = MusicAiPlaylistDraft(
+        id: _latestAiPlaylist!.id,
+        title: _latestAiPlaylist!.title,
+        subtitle: _latestAiPlaylist!.subtitle,
+        description: _latestAiPlaylist!.description,
+        tag: _latestAiPlaylist!.tag,
+        artworkTone: _latestAiPlaylist!.artworkTone,
+        isAiGenerated: _latestAiPlaylist!.isAiGenerated,
+        tracks: List<MusicTrack>.unmodifiable(tracks),
+        createdAt: _latestAiPlaylist!.createdAt,
+        updatedAt: _latestAiPlaylist!.updatedAt,
+      );
+    }
+  }
+
+  Future<MusicTrack> _ensureTrackArtwork(
+    MusicTrack track, {
+    required String reason,
+    bool persist = false,
+  }) async {
+    if (_hasArtwork(track)) {
+      return track;
+    }
+    final enriched = _normalizeTrackArtwork(
+      await _repository.enrichTrackMetadata(
+        _normalizeTrackArtwork(track),
+        allowFallback: false,
+      ),
+    );
+    if (!_hasArtwork(enriched)) {
+      _debugState(
+        'artwork.ensure.miss',
+        extra: {
+          'reason': reason,
+          'trackId': track.id,
+          'title': track.title,
+          'artist': track.artist,
+          'preferredSourceId': track.preferredSourceId,
+          'sourceTrackId': track.sourceTrackId,
+        },
+        force: true,
+        level: 'ERROR',
+      );
+      return enriched;
+    }
+    _mergeTrackAcrossState(enriched);
+    _debugState(
+      'artwork.ensure.hit',
+      extra: {
+        'reason': reason,
+        'trackId': track.id,
+        'title': track.title,
+        'artist': track.artist,
+        'artworkUrl': enriched.artworkUrl,
+        'artworkSource':
+            (enriched.cachedPlayback?.artworkUrl ?? '').trim().isNotEmpty
+                ? 'cachedPlayback'
+                : 'track.artworkUrl',
+        'preferredSourceId': enriched.preferredSourceId,
+        'sourceTrackId': enriched.sourceTrackId,
+      },
+    );
+    if (persist) {
+      notifyListeners();
+      unawaited(_savePlaybackSnapshot());
+    }
+    return _currentTrack.id == enriched.id ? _currentTrack : enriched;
+  }
+
+  Future<void> _repairPlaybackArtworkIfNeeded() async {
+    final tasks = <MusicTrack>[];
+    if (_currentTrack.id.trim().isNotEmpty && !_hasArtwork(_currentTrack)) {
+      tasks.add(_currentTrack);
+    }
+    for (final item in _queue.take(3)) {
+      if (!_hasArtwork(item.track) &&
+          tasks.every((track) => track.id != item.track.id)) {
+        tasks.add(item.track);
+      }
+    }
+    for (final track in tasks) {
+      try {
+        await _ensureTrackArtwork(
+          track,
+          reason: 'state_repair',
+          persist: track.id == _currentTrack.id,
+        );
+      } catch (_) {}
+    }
+  }
+
   Future<void> _playCurrentQueueHead({
     bool resetPosition = true,
     bool clearCachedPlaybackOnRetry = true,
@@ -2184,6 +2449,54 @@ class MusicStore extends ChangeNotifier {
         _cacheTracksForPlaylist(item.id, item.tracks);
       }
     }
+  }
+
+  Future<void> _repairLatestAiPlaylistArtworkIfNeeded() async {
+    final latest = _latestAiPlaylist;
+    if (latest == null || latest.tracks.isEmpty) {
+      return;
+    }
+    var changed = false;
+    final repairedTracks = <MusicTrack>[];
+    for (final track in latest.tracks) {
+      var nextTrack = _normalizeTrackArtwork(track);
+      if (!_hasArtwork(nextTrack)) {
+        try {
+          nextTrack = _normalizeTrackArtwork(
+            await _repository.enrichTrackMetadata(
+              nextTrack,
+              allowFallback: false,
+            ),
+          );
+        } catch (_) {}
+      }
+      if ((nextTrack.artworkUrl ?? '') != (track.artworkUrl ?? '') ||
+          (nextTrack.cachedPlayback?.artworkUrl ?? '') !=
+              (track.cachedPlayback?.artworkUrl ?? '') ||
+          (nextTrack.preferredSourceId ?? '') !=
+              (track.preferredSourceId ?? '') ||
+          (nextTrack.sourceTrackId ?? '') != (track.sourceTrackId ?? '')) {
+        changed = true;
+      }
+      repairedTracks.add(nextTrack);
+    }
+    if (!changed) {
+      return;
+    }
+    _latestAiPlaylist = MusicAiPlaylistDraft(
+      id: latest.id,
+      title: latest.title,
+      subtitle: latest.subtitle,
+      description: latest.description,
+      tag: latest.tag,
+      artworkTone: latest.artworkTone,
+      isAiGenerated: latest.isAiGenerated,
+      tracks: List<MusicTrack>.unmodifiable(repairedTracks),
+      createdAt: latest.createdAt,
+      updatedAt: latest.updatedAt,
+    );
+    _cacheKnownAiPlaylistTracks();
+    notifyListeners();
   }
 
   void _debugState(

@@ -5,7 +5,15 @@ import '../domain/music_runtime_models.dart';
 abstract class MusicRepository {
   Future<MusicStateSnapshot> loadMusicState();
 
-  Future<PlaybackQueueItem> resolveTrack(MusicTrack track, {bool allowFallback = true});
+  Future<PlaybackQueueItem> resolveTrack(
+    MusicTrack track, {
+    bool allowFallback = true,
+  });
+
+  Future<MusicTrack> enrichTrackMetadata(
+    MusicTrack track, {
+    bool allowFallback = true,
+  });
 
   Future<List<MusicPlaylist>> loadUserPlaylists();
 

@@ -5,10 +5,19 @@ import 'package:flutter/material.dart';
 import '../../../../core/debug/native_debug_bridge.dart';
 import '../../domain/music_models.dart';
 
+String _normalizeArtworkUrl(String? value) {
+  final trimmed = (value ?? '').trim();
+  if (trimmed.isEmpty) return '';
+  return trimmed.replaceFirst(
+    RegExp(r'^http://p(?=\d+\.music\.126\.net/)'),
+    'https://p',
+  );
+}
+
 String? effectiveArtworkUrl(MusicTrack track) {
-  final cached = (track.cachedPlayback?.artworkUrl ?? '').trim();
+  final cached = _normalizeArtworkUrl(track.cachedPlayback?.artworkUrl);
   if (cached.isNotEmpty) return cached;
-  final direct = (track.artworkUrl ?? '').trim();
+  final direct = _normalizeArtworkUrl(track.artworkUrl);
   if (direct.isNotEmpty) return direct;
   return null;
 }
@@ -165,7 +174,30 @@ class MusicArtwork extends StatelessWidget {
                     message,
                     level: 'ERROR',
                   );
-                  return const SizedBox.shrink();
+                  return DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: palette.gradient,
+                      ),
+                    ),
+                    child: Center(
+                      child: Container(
+                        width: circular ? size * 0.26 : 48,
+                        height: circular ? size * 0.26 : 48,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.18),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.album_rounded,
+                          color: Colors.white.withValues(alpha: 0.92),
+                          size: circular ? size * 0.12 : 24,
+                        ),
+                      ),
+                    ),
+                  );
                 },
               ),
             DecoratedBox(

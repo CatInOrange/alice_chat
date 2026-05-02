@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../../../core/debug/native_debug_bridge.dart';
 import '../../../core/openclaw/openclaw_client.dart';
 import '../application/music_store.dart';
@@ -117,6 +119,77 @@ class MusicRepositoryImpl implements MusicRepository {
   }
 
   @override
+  Future<MusicTrack> enrichTrackMetadata(
+    MusicTrack track, {
+    bool allowFallback = true,
+  }) async {
+    MusicTrack nextTrack = _normalizeTrackArtwork(track);
+    final hadArtwork = _hasArtwork(nextTrack);
+    try {
+      final candidate = await _resolver.matchTrack(
+        nextTrack,
+        allowFallback: allowFallback,
+      );
+      if (candidate != null) {
+        nextTrack = _normalizeTrackArtwork(
+          nextTrack.copyWith(
+            preferredSourceId: candidate.providerId,
+            sourceTrackId: candidate.sourceTrackId,
+            encryptedSourceTrackId:
+                candidate.track.encryptedSourceTrackId ??
+                nextTrack.encryptedSourceTrackId,
+            artworkUrl: candidate.track.artworkUrl ?? nextTrack.artworkUrl,
+            album:
+                candidate.track.album.isNotEmpty
+                    ? candidate.track.album
+                    : nextTrack.album,
+            duration:
+                candidate.track.duration.inMilliseconds > 0
+                    ? candidate.track.duration
+                    : nextTrack.duration,
+          ),
+        );
+      }
+      final hasArtwork = _hasArtwork(nextTrack);
+      await _debugLog('repository.enrichTrackMetadata.done', {
+        'trackId': track.id,
+        'title': track.title,
+        'artist': track.artist,
+        'preferredSourceIdBefore': track.preferredSourceId,
+        'preferredSourceIdAfter': nextTrack.preferredSourceId,
+        'sourceTrackIdBefore': track.sourceTrackId,
+        'sourceTrackIdAfter': nextTrack.sourceTrackId,
+        'hadArtwork': hadArtwork,
+        'hasArtwork': hasArtwork,
+        'matched': candidate != null,
+        'artworkUrl': nextTrack.artworkUrl ?? '',
+        'artworkSource': _artworkSourceLabel(nextTrack),
+      });
+      if (!hasArtwork) {
+        await _debugLog('repository.enrichTrackMetadata.no_artwork', {
+          'trackId': track.id,
+          'title': track.title,
+          'artist': track.artist,
+          'preferredSourceId': nextTrack.preferredSourceId,
+          'sourceTrackId': nextTrack.sourceTrackId,
+          'matched': candidate != null,
+        });
+      }
+      return nextTrack;
+    } catch (error) {
+      await _debugLog('repository.enrichTrackMetadata.error', {
+        'trackId': track.id,
+        'title': track.title,
+        'artist': track.artist,
+        'preferredSourceId': track.preferredSourceId,
+        'sourceTrackId': track.sourceTrackId,
+        'error': error.toString(),
+      });
+      return nextTrack;
+    }
+  }
+
+  @override
   Future<List<MusicPlaylist>> loadUserPlaylists() async {
     final registry = (_resolver as MusicSourceResolverImpl).registry;
     final results = <MusicPlaylist>[];
@@ -168,42 +241,27 @@ class MusicRepositoryImpl implements MusicRepository {
     final resolvedTracks = <MusicTrack>[];
     var matchedCount = 0;
     var artworkCount = 0;
+    var changedCount = 0;
     for (final track in draft.tracks) {
-      MusicTrack nextTrack = track;
+      MusicTrack nextTrack = _normalizeTrackArtwork(track);
       try {
-        final candidate = await _resolver.matchTrack(
-          track,
-          allowFallback: false,
-        );
-        if (candidate != null) {
+        nextTrack = await enrichTrackMetadata(nextTrack, allowFallback: false);
+        if (nextTrack.preferredSourceId != null &&
+            nextTrack.sourceTrackId != null) {
           matchedCount += 1;
-          nextTrack = track.copyWith(
-            preferredSourceId: candidate.providerId,
-            sourceTrackId: candidate.sourceTrackId,
-            encryptedSourceTrackId:
-                candidate.track.encryptedSourceTrackId ??
-                track.encryptedSourceTrackId,
-            artworkUrl: candidate.track.artworkUrl ?? track.artworkUrl,
-            album:
-                candidate.track.album.isNotEmpty
-                    ? candidate.track.album
-                    : track.album,
-            duration:
-                candidate.track.duration.inMilliseconds > 0
-                    ? candidate.track.duration
-                    : track.duration,
-          );
         }
         final resolved = await _resolver.resolveTrack(
           nextTrack,
           allowFallback: false,
         );
-        nextTrack = resolved.track.copyWith(
-          artworkUrl:
-              resolved.resolvedSource?.artworkUrl ??
-              resolved.candidate?.track.artworkUrl ??
-              resolved.track.artworkUrl ??
-              nextTrack.artworkUrl,
+        nextTrack = _normalizeTrackArtwork(
+          resolved.track.copyWith(
+            artworkUrl:
+                resolved.resolvedSource?.artworkUrl ??
+                resolved.candidate?.track.artworkUrl ??
+                resolved.track.artworkUrl ??
+                nextTrack.artworkUrl,
+          ),
         );
       } catch (error) {
         await _debugLog('repository.loadLatestAiPlaylist.track_enrich.error', {
@@ -215,27 +273,15 @@ class MusicRepositoryImpl implements MusicRepository {
           'error': error.toString(),
         });
       }
-      if ((nextTrack.artworkUrl ?? '').trim().isNotEmpty ||
-          (nextTrack.cachedPlayback?.artworkUrl ?? '').trim().isNotEmpty) {
+      if (_hasArtwork(nextTrack)) {
         artworkCount += 1;
+      }
+      if (_trackMetadataDigest(track) != _trackMetadataDigest(nextTrack)) {
+        changedCount += 1;
       }
       resolvedTracks.add(nextTrack);
     }
-    await _debugLog('repository.loadLatestAiPlaylist.enriched', {
-      'playlistId': draft.id,
-      'trackCount': draft.tracks.length,
-      'matchedCount': matchedCount,
-      'artworkCount': artworkCount,
-      'firstTrackTitle':
-          resolvedTracks.isEmpty ? '' : resolvedTracks.first.title,
-      'firstTrackArtworkUrl':
-          resolvedTracks.isEmpty
-              ? ''
-              : (resolvedTracks.first.artworkUrl ??
-                  resolvedTracks.first.cachedPlayback?.artworkUrl ??
-                  ''),
-    });
-    return MusicAiPlaylistDraft(
+    final enrichedDraft = MusicAiPlaylistDraft(
       id: draft.id,
       title: draft.title,
       subtitle: draft.subtitle,
@@ -247,6 +293,33 @@ class MusicRepositoryImpl implements MusicRepository {
       createdAt: draft.createdAt,
       updatedAt: draft.updatedAt,
     );
+    if (changedCount > 0) {
+      try {
+        await _client.saveLatestAiPlaylist(payload: enrichedDraft.toMap());
+      } catch (error) {
+        await _debugLog('repository.loadLatestAiPlaylist.persist.error', {
+          'playlistId': draft.id,
+          'changedCount': changedCount,
+          'error': error.toString(),
+        });
+      }
+    }
+    await _debugLog('repository.loadLatestAiPlaylist.enriched', {
+      'playlistId': draft.id,
+      'trackCount': draft.tracks.length,
+      'matchedCount': matchedCount,
+      'artworkCount': artworkCount,
+      'changedCount': changedCount,
+      'firstTrackTitle':
+          resolvedTracks.isEmpty ? '' : resolvedTracks.first.title,
+      'firstTrackArtworkUrl':
+          resolvedTracks.isEmpty
+              ? ''
+              : (resolvedTracks.first.artworkUrl ??
+                  resolvedTracks.first.cachedPlayback?.artworkUrl ??
+                  ''),
+    });
+    return enrichedDraft;
   }
 
   @override
@@ -578,6 +651,67 @@ class MusicRepositoryImpl implements MusicRepository {
         RegExp(r'^[0-9A-Fa-f]+$').hasMatch(raw) &&
         !RegExp(r'^\d+$').hasMatch(raw);
     return looksEncrypted ? raw.toUpperCase() : '';
+  }
+
+  bool _hasArtwork(MusicTrack track) {
+    return (track.cachedPlayback?.artworkUrl ?? '').trim().isNotEmpty ||
+        (track.artworkUrl ?? '').trim().isNotEmpty;
+  }
+
+  String _normalizeArtworkUrl(String? value) {
+    final trimmed = (value ?? '').trim();
+    if (trimmed.isEmpty) return '';
+    return trimmed.replaceFirst(
+      RegExp(r'^http://p(?=\d+\.music\.126\.net/)'),
+      'https://p',
+    );
+  }
+
+  MusicTrack _normalizeTrackArtwork(MusicTrack track) {
+    final artworkUrl = _normalizeArtworkUrl(track.artworkUrl);
+    final cached = track.cachedPlayback;
+    final cachedArtworkUrl = _normalizeArtworkUrl(cached?.artworkUrl);
+    return track.copyWith(
+      artworkUrl: artworkUrl.isEmpty ? null : artworkUrl,
+      cachedPlayback:
+          cached == null
+              ? null
+              : CachedPlaybackSource(
+                providerId: cached.providerId,
+                sourceTrackId: cached.sourceTrackId,
+                streamUrl: cached.streamUrl.trim(),
+                artworkUrl: cachedArtworkUrl.isEmpty ? null : cachedArtworkUrl,
+                mimeType:
+                    (cached.mimeType ?? '').trim().isEmpty
+                        ? null
+                        : cached.mimeType!.trim(),
+                headers: Map<String, String>.from(cached.headers),
+                expiresAt: cached.expiresAt,
+                resolvedAt: cached.resolvedAt,
+              ),
+    );
+  }
+
+  String _artworkSourceLabel(MusicTrack track) {
+    final cached = _normalizeArtworkUrl(track.cachedPlayback?.artworkUrl);
+    if (cached.isNotEmpty) return 'cachedPlayback';
+    final direct = _normalizeArtworkUrl(track.artworkUrl);
+    if (direct.isNotEmpty) return 'track.artworkUrl';
+    return 'none';
+  }
+
+  String _trackMetadataDigest(MusicTrack track) {
+    return jsonEncode({
+      'artworkUrl': _normalizeArtworkUrl(track.artworkUrl),
+      'cachedArtworkUrl': _normalizeArtworkUrl(
+        track.cachedPlayback?.artworkUrl,
+      ),
+      'preferredSourceId': (track.preferredSourceId ?? '').trim(),
+      'sourceTrackId': (track.sourceTrackId ?? '').trim(),
+      'encryptedSourceTrackId': (track.encryptedSourceTrackId ?? '').trim(),
+      'album': track.album.trim(),
+      'durationMs': track.duration.inMilliseconds,
+    });
   }
 
   Future<void> _debugLog(String tag, Map<String, dynamic> payload) async {
