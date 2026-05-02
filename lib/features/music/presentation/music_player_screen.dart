@@ -46,6 +46,7 @@ class MusicPlayerScreen extends StatelessWidget {
                     .toDouble();
         final currentLyric = store.currentLyricLine;
         final nextLyric = store.nextLyricLine;
+        final modeBadge = store.currentPlaybackModeBadge;
 
         return Scaffold(
           body: Container(
@@ -98,11 +99,43 @@ class MusicPlayerScreen extends StatelessWidget {
                                     ),
                                   ),
                                   const SizedBox(height: 4),
-                                  Text(
-                                    store.currentPlaybackSourceLabel,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: theme.textTheme.titleMedium,
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          store.currentPlaybackSourceLabel,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.textTheme.titleMedium,
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ),
+                                      if ((modeBadge ?? '').trim().isNotEmpty) ...[
+                                        const SizedBox(width: 8),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 3,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: palette.gradient.first.withValues(alpha: 0.10),
+                                            borderRadius: BorderRadius.circular(999),
+                                            border: Border.all(
+                                              color: palette.gradient.first.withValues(alpha: 0.14),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            modeBadge!,
+                                            style: theme.textTheme.bodySmall?.copyWith(
+                                              color: const Color(0xFF5E6780),
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 10.5,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
                                   ),
                                   if ((store.intelligenceModeHint ?? '')
                                       .trim()

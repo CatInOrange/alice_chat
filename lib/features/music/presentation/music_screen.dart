@@ -458,6 +458,7 @@ class _MusicScreenState extends State<MusicScreen>
         final aiPlaylistHistory = store.aiPlaylistHistory;
         final currentPlaybackSourceLabel = store.currentPlaybackSourceLabel;
         final miniSubtitle = store.miniPlayerSubtitle;
+        final currentPlaybackModeBadge = store.currentPlaybackModeBadge;
         final currentConfig = store.currentConfig;
         const fmPlaylist = MusicPlaylist(
           id: 'netease-fm',
@@ -539,7 +540,10 @@ class _MusicScreenState extends State<MusicScreen>
                     isActive: store.isPlaylistActive(likedPlaylist.id),
                     isPlaying: store.isPlaylistPlaying(likedPlaylist.id),
                     onTap: () => _openPlaylistDetail(store, likedPlaylist),
-                    onPlayTap: () => _playPlaylist(store, likedPlaylist),
+                    onPlayTap:
+                        store.isPlaylistPlaying(likedPlaylist.id)
+                            ? null
+                            : () => _playPlaylist(store, likedPlaylist),
                   ),
                   const SizedBox(height: 28),
                   _SectionHeader(
@@ -666,6 +670,7 @@ class _MusicScreenState extends State<MusicScreen>
                     backendBaseUrl: currentConfig.baseUrl,
                     appPassword: currentConfig.appPassword,
                     sourceLabel: miniSubtitle,
+                    modeBadge: currentPlaybackModeBadge,
                     isPlaying: isPlaying,
                     onTap: () => _openPlayer(store),
                     onPlayPause: store.togglePlayPause,
@@ -1218,7 +1223,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
   final MusicPlaylist playlist;
   final MusicTrack currentTrack;
   final VoidCallback onTap;
-  final VoidCallback onPlayTap;
+  final VoidCallback? onPlayTap;
   final bool isLoading;
   final bool isActive;
   final bool isPlaying;
@@ -1311,7 +1316,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
                             ),
                           ),
                         ),
-                        if (isActive)
+                        if (isPlaying)
                           Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 8,
@@ -1342,7 +1347,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${playlist.trackCount} 首 · ${isActive ? '这一刻正从这里继续' : '想听的时候 随时都能回来'}',
+                      '${playlist.trackCount} 首 · ${isPlaying ? '这一刻正从这里继续' : '想听的时候 随时都能回来'}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
@@ -1388,9 +1393,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
                         : Icon(
                           isPlaying
                               ? Icons.equalizer_rounded
-                              : (isActive
-                                  ? Icons.pause_circle_filled_rounded
-                                  : Icons.play_arrow_rounded),
+                              : Icons.play_arrow_rounded,
                           size: 22,
                         ),
               ),
@@ -1916,11 +1919,13 @@ class _MiniPlayer extends StatefulWidget {
     required this.onPlayPause,
     required this.backendBaseUrl,
     this.appPassword,
+    this.modeBadge,
   });
 
   final MusicTrack track;
   final String sourceLabel;
   final bool isPlaying;
+  final String? modeBadge;
   final VoidCallback onTap;
   final VoidCallback onPlayPause;
   final String backendBaseUrl;
@@ -2010,11 +2015,41 @@ class _MiniPlayerState extends State<_MiniPlayer>
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          widget.track.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleMedium,
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                widget.track.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleMedium,
+                              ),
+                            ),
+                            if ((widget.modeBadge ?? '').trim().isNotEmpty) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: palette.gradient.first.withValues(alpha: 0.10),
+                                  borderRadius: BorderRadius.circular(999),
+                                  border: Border.all(
+                                    color: palette.gradient.first.withValues(alpha: 0.14),
+                                  ),
+                                ),
+                                child: Text(
+                                  widget.modeBadge!,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: const Color(0xFF5E6780),
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                         const SizedBox(height: 4),
                         Text(

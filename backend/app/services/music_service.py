@@ -130,7 +130,8 @@ class MusicService:
         song_payload = request.song.model_dump(exclude_none=True)
         playlist_payload = None if request.playlist is None else request.playlist.model_dump(exclude_none=True)
         last_error: Exception | None = None
-        max_attempts = 4
+        retry_delays = [1, 2, 3, 4, 5]
+        max_attempts = len(retry_delays) + 1
         for attempt in range(1, max_attempts + 1):
             try:
                 _LOG.info(
@@ -170,11 +171,13 @@ class MusicService:
             except NeteaseOpenApiError as exc:
                 last_error = exc
                 will_retry = attempt < max_attempts
+                next_delay = retry_delays[attempt - 1] if will_retry else None
                 _LOG.warning(
-                    '[music.intelligence.failure] attempt=%s/%s willRetry=%s song=%s sourceTrackId=%s encryptedSongId=%s playlistId=%s fallbackPlaylistId=%s error=%s',
+                    '[music.intelligence.failure] attempt=%s/%s willRetry=%s nextDelaySeconds=%s song=%s sourceTrackId=%s encryptedSongId=%s playlistId=%s fallbackPlaylistId=%s error=%s',
                     attempt,
                     max_attempts,
                     will_retry,
+                    next_delay,
                     song_payload.get('trackId') or song_payload.get('id'),
                     song_payload.get('sourceTrackId'),
                     song_payload.get('encryptedSourceTrackId') or song_payload.get('encryptedTrackId'),
@@ -184,7 +187,7 @@ class MusicService:
                 )
                 if not will_retry:
                     break
-                sleep(0.6)
+                sleep(next_delay)
         assert last_error is not None
         raise last_error
 

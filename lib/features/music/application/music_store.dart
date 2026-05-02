@@ -224,6 +224,11 @@ class MusicStore extends ChangeNotifier {
     return fallback.isEmpty ? currentPlaybackSourceLabel : fallback;
   }
 
+  String? get currentPlaybackModeBadge {
+    if (isIntelligenceMode) return '心动模式';
+    return null;
+  }
+
   String get currentPlaybackSourceLabel {
     final playlist = currentPlaylist;
     if (playlist != null) {
@@ -255,8 +260,8 @@ class MusicStore extends ChangeNotifier {
   bool isPlaylistActive(String playlistId) {
     final normalized = playlistId.trim();
     if (normalized.isEmpty) return false;
-    if (normalized == 'liked-local') {
-      return _currentPlaylistId == normalized;
+    if (normalized == likedPlaylist.id) {
+      return _currentPlaylistId == normalized && !isIntelligenceMode;
     }
     return _currentPlaylistId == normalized;
   }
@@ -264,8 +269,8 @@ class MusicStore extends ChangeNotifier {
   bool isPlaylistPlaying(String playlistId) {
     final normalized = playlistId.trim();
     if (normalized.isEmpty) return false;
-    if (normalized == 'liked-local') {
-      return _currentPlaylistId == normalized && _isPlaying;
+    if (normalized == likedPlaylist.id) {
+      return _currentPlaylistId == normalized && _isPlaying && !isIntelligenceMode;
     }
     return _currentPlaylistId == normalized && _isPlaying;
   }
@@ -865,6 +870,45 @@ class MusicStore extends ChangeNotifier {
             .map((track) => track.copyWith(isFavorite: true))
             .toList(growable: false),
       );
+    }
+    if (playlist.id == 'netease-fm') {
+      try {
+        final tracks = await _repository.loadNeteaseFmTracks(limit: 3);
+        _cacheTracksForPlaylist(playlist.id, tracks);
+        unawaited(_savePlaybackSnapshot());
+        return _withFavoriteFlags(tracks);
+      } catch (firstError) {
+        _debugState(
+          'playlist.fm.retry',
+          extra: {
+            'playlistId': playlist.id,
+            'attempt': 1,
+            'limit': 3,
+            'error': firstError.toString(),
+          },
+          force: true,
+          level: 'ERROR',
+        );
+        try {
+          final tracks = await _repository.loadNeteaseFmTracks(limit: 1);
+          _cacheTracksForPlaylist(playlist.id, tracks);
+          unawaited(_savePlaybackSnapshot());
+          return _withFavoriteFlags(tracks);
+        } catch (secondError) {
+          _debugState(
+            'playlist.fm.retry_failed',
+            extra: {
+              'playlistId': playlist.id,
+              'attempt': 2,
+              'limit': 1,
+              'error': secondError.toString(),
+            },
+            force: true,
+            level: 'ERROR',
+          );
+          rethrow;
+        }
+      }
     }
     final cachedTracks = _playlistTracksCache[playlist.id];
     if (cachedTracks != null && cachedTracks.isNotEmpty) {
