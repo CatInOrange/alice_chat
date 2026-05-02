@@ -786,18 +786,27 @@ class _DiscStageState extends State<_DiscStage>
                         ),
                       ),
                     ),
-                    MusicArtwork(
+                  ],
+                ),
+              ),
+              MusicArtworkHero(
+                tag: musicMiniPlayerArtworkHeroTag,
+                child: SizedBox(
+                  width: 238,
+                  height: 238,
+                  child: RotationTransition(
+                    turns: _controller,
+                    child: MusicArtwork(
                       track: widget.track,
                       size: 238,
                       circular: true,
-                      heroTag: 'music-artwork-${widget.track.id}',
                       showMeta: false,
                       showIconBadge: false,
                       overlayStrength: 0.06,
                       backendBaseUrl: context.read<MusicStore>().currentConfig.baseUrl,
                       appPassword: context.read<MusicStore>().currentConfig.appPassword,
                     ),
-                  ],
+                  ),
                 ),
               ),
               Container(

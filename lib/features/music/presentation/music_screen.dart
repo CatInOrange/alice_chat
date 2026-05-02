@@ -1996,17 +1996,23 @@ class _MiniPlayerState extends State<_MiniPlayer>
               ),
               child: Row(
                 children: [
-                  RotationTransition(
-                    turns: _controller,
-                    child: ClipOval(
-                      child: MusicArtwork(
-                        track: widget.track,
-                        size: 56,
-                        circular: true,
-                        showMeta: false,
-                        heroTag: 'music-artwork-${widget.track.id}',
-                        backendBaseUrl: widget.backendBaseUrl,
-                        appPassword: widget.appPassword,
+                  MusicArtworkHero(
+                    tag: musicMiniPlayerArtworkHeroTag,
+                    child: SizedBox(
+                      width: 56,
+                      height: 56,
+                      child: RotationTransition(
+                        turns: _controller,
+                        child: ClipOval(
+                          child: MusicArtwork(
+                            track: widget.track,
+                            size: 56,
+                            circular: true,
+                            showMeta: false,
+                            backendBaseUrl: widget.backendBaseUrl,
+                            appPassword: widget.appPassword,
+                          ),
+                        ),
                       ),
                     ),
                   ),

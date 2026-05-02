@@ -8,6 +8,8 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import '../../../../core/debug/native_debug_bridge.dart';
 import '../../domain/music_models.dart';
 
+const String musicMiniPlayerArtworkHeroTag = 'music-mini-player-artwork';
+
 final CacheManager _musicArtworkCacheManager = CacheManager(
   Config(
     'alicechat_music_artwork',
@@ -490,7 +492,32 @@ class _MusicArtworkState extends State<MusicArtwork> {
     if (widget.heroTag == null) {
       return RepaintBoundary(child: body);
     }
-    return RepaintBoundary(child: Hero(tag: widget.heroTag!, child: body));
+    return MusicArtworkHero(tag: widget.heroTag!, child: body);
+  }
+}
+
+class MusicArtworkHero extends StatelessWidget {
+  const MusicArtworkHero({
+    super.key,
+    required this.tag,
+    required this.child,
+  });
+
+  final String tag;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: Hero(
+        tag: tag,
+        createRectTween: (begin, end) => RectTween(begin: begin, end: end),
+        placeholderBuilder: (context, size, child) => IgnorePointer(
+          child: Opacity(opacity: 0, child: child),
+        ),
+        child: child,
+      ),
+    );
   }
 }
 
