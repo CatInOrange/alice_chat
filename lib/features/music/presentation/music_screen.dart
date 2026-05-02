@@ -1046,20 +1046,53 @@ class _MusicHeroCard extends StatelessWidget {
                               vertical: 12,
                             ),
                             decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.07),
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Colors.white.withValues(alpha: 0.11),
+                                  Colors.white.withValues(alpha: 0.05),
+                                ],
+                              ),
                               borderRadius: BorderRadius.circular(22),
                               border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.1),
+                                color: Colors.white.withValues(alpha: 0.12),
                               ),
                             ),
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
+                                Container(
+                                  width: 38,
+                                  height: 38,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Colors.white.withValues(alpha: 0.1),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(alpha: 0.12),
+                                    ),
+                                  ),
+                                  child: Icon(
+                                    Icons.graphic_eq_rounded,
+                                    color: Colors.white.withValues(alpha: 0.88),
+                                    size: 18,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
+                                      Text(
+                                        '当前主打',
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          color: Colors.white.withValues(alpha: 0.66),
+                                          fontWeight: FontWeight.w700,
+                                          letterSpacing: 0.3,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 3),
                                       Text(
                                         track.title,
                                         maxLines: 1,
@@ -1070,7 +1103,7 @@ class _MusicHeroCard extends StatelessWidget {
                                           fontWeight: FontWeight.w700,
                                         ),
                                       ),
-                                      const SizedBox(height: 4),
+                                      const SizedBox(height: 3),
                                       Text(
                                         '${track.artist} · ${track.album}',
                                         maxLines: 1,
@@ -1172,16 +1205,24 @@ class _FavoritePlaylistCard extends StatelessWidget {
     final theme = Theme.of(context);
     final palette = paletteForTone(playlist.artworkTone);
     return Material(
-      color: Colors.white.withValues(alpha: 0.78),
-      borderRadius: BorderRadius.circular(30),
+      color: Colors.white.withValues(alpha: 0.82),
+      borderRadius: BorderRadius.circular(26),
       child: InkWell(
-        borderRadius: BorderRadius.circular(30),
+        borderRadius: BorderRadius.circular(26),
         onTap: isLoading ? null : onTap,
         child: Container(
-          padding: const EdgeInsets.all(18),
+          padding: const EdgeInsets.fromLTRB(16, 15, 14, 15),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(30),
+            borderRadius: BorderRadius.circular(26),
             border: Border.all(color: Colors.white.withValues(alpha: 0.78)),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white.withValues(alpha: 0.9),
+                Colors.white.withValues(alpha: 0.72),
+              ],
+            ),
             boxShadow: const [
               BoxShadow(
                 color: Color(0x120B1220),
@@ -1193,71 +1234,127 @@ class _FavoritePlaylistCard extends StatelessWidget {
           child: Row(
             children: [
               Container(
-                width: 76,
-                height: 76,
+                width: 68,
+                height: 68,
                 decoration: BoxDecoration(
                   gradient: LinearGradient(colors: palette.gradient),
-                  borderRadius: BorderRadius.circular(24),
+                  borderRadius: BorderRadius.circular(22),
                   boxShadow: [
                     BoxShadow(
-                      color: palette.glowColor.withValues(alpha: 0.45),
+                      color: palette.glowColor.withValues(alpha: 0.38),
                       blurRadius: 18,
                       offset: const Offset(0, 10),
                     ),
                   ],
                 ),
-                child: const Icon(
-                  Icons.favorite_rounded,
-                  color: Colors.white,
-                  size: 30,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      child: Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withValues(alpha: 0.34),
+                        ),
+                      ),
+                    ),
+                    const Icon(
+                      Icons.favorite_rounded,
+                      color: Colors.white,
+                      size: 28,
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            isActive ? '当前正在播放的收藏歌单' : '我喜欢的 · 跨平台收藏',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.35,
+                              color: const Color(0xFF5B6476),
+                            ),
+                          ),
+                        ),
+                        if (isActive)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: palette.gradient.first.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              '正在播放',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: palette.gradient.first,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 5),
                     Text(
-                      isActive ? '当前正在播放的收藏歌单' : '我喜欢的 · 跨平台收藏',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.4,
+                      playlist.title,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    Text(playlist.title, style: theme.textTheme.titleLarge),
                     const SizedBox(height: 4),
                     Text(
                       '${playlist.trackCount} 首 · ${isActive ? '正在使用这份收藏' : '点进来浏览，点右侧直接继续播放'}',
-                      style: theme.textTheme.bodySmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF5B6476),
+                      ),
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
                     Text(
                       '收藏入口 · 最近可从 ${currentTrack.title} 继续',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF7D879A),
+                        color: const Color(0xFF8A93A5),
+                        fontSize: 11.5,
                       ),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               FilledButton(
                 onPressed: isLoading ? null : onPlayTap,
                 style: FilledButton.styleFrom(
                   backgroundColor: palette.gradient.first,
                   foregroundColor: Colors.white,
-                  minimumSize: const Size(56, 56),
+                  minimumSize: const Size(50, 50),
                   shape: const CircleBorder(),
                   padding: EdgeInsets.zero,
+                  elevation: 0,
                 ),
                 child:
                     isLoading
                         ? const SizedBox(
-                          width: 20,
-                          height: 20,
+                          width: 18,
+                          height: 18,
                           child: CircularProgressIndicator(
                             strokeWidth: 2.2,
                             valueColor: AlwaysStoppedAnimation<Color>(
@@ -1271,6 +1368,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
                               : (isActive
                                   ? Icons.pause_circle_filled_rounded
                                   : Icons.play_arrow_rounded),
+                          size: 22,
                         ),
               ),
             ],
@@ -2166,7 +2264,28 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                             final track = tracks[index].copyWith(
                               isFavorite: store.isTrackLiked(tracks[index].id),
                             );
-                            return ListTile(
+                            final isCurrentTrack =
+                                store.currentTrack.id == track.id &&
+                                store.currentPlaylistId == playlist.id;
+                            return Container(
+                              decoration:
+                                  isCurrentTrack
+                                      ? BoxDecoration(
+                                        border: Border(
+                                          left: BorderSide(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .primary,
+                                            width: 3,
+                                          ),
+                                        ),
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary
+                                            .withValues(alpha: 0.05),
+                                      )
+                                      : null,
+                              child: ListTile(
                               dense: true,
                               contentPadding: const EdgeInsets.symmetric(
                                 horizontal: 14,
@@ -2226,7 +2345,15 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: Theme.of(context).textTheme.bodyLarge
-                                    ?.copyWith(fontWeight: FontWeight.w600),
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                      color:
+                                          isCurrentTrack
+                                              ? Theme.of(context)
+                                                  .colorScheme
+                                                  .primary
+                                              : null,
+                                    ),
                               ),
                               subtitle: Text(
                                 '${track.artist} · ${track.album}',
@@ -2244,6 +2371,14 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                                           strokeWidth: 2,
                                         ),
                                       )
+                                      : isCurrentTrack
+                                      ? Icon(
+                                        Icons.graphic_eq_rounded,
+                                        size: 18,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .primary,
+                                      )
                                       : Text(
                                         track.durationLabel,
                                         style: Theme.of(context)
@@ -2254,6 +2389,7 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                                               fontFeatures: const [],
                                             ),
                                       ),
+                            ),
                             );
                           },
                         ),
