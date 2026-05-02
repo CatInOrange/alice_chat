@@ -1434,18 +1434,24 @@ class MusicStore extends ChangeNotifier {
       notifyListeners();
       unawaited(_savePlaybackSnapshot());
     } catch (error) {
+      final message = error.toString();
+      final friendlyMessage =
+          message.contains('网易云心动模式请求失败')
+              ? '网易云官方心动模式请求失败了，我已经重试过一次，你稍后再试一下'
+              : '心动模式加载失败，已退回单曲循环';
       _debugState(
         'intelligence.queue.error',
         extra: {
           'playlistId': playlist.id,
           'seedTrackId': startTrack.id,
           'seedSourceTrackId': startTrack.sourceTrackId,
-          'error': error.toString(),
+          'error': message,
+          'friendlyMessage': friendlyMessage,
         },
         force: true,
         level: 'ERROR',
       );
-      _error = '心动模式加载失败，已退回单曲循环';
+      _error = friendlyMessage;
       _repeatMode = MusicRepeatMode.one;
       _intelligenceSourcePlaylist = null;
       _intelligenceLastAnchorTrackId = null;

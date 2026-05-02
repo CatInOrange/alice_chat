@@ -482,7 +482,8 @@ class MusicRepositoryImpl implements MusicRepository {
     if (sourceTrackId.isEmpty && encryptedSongId.isEmpty) {
       return const <MusicTrack>[];
     }
-    try {
+
+    Future<List<MusicTrack>> attempt(int attempt) async {
       await _debugLog('repository.loadIntelligenceTracks.request', {
         'providerId': providerId,
         'playlistId': playlist.id,
@@ -492,6 +493,7 @@ class MusicRepositoryImpl implements MusicRepository {
         'encryptedPlaylistId': encryptedPlaylistId,
         'effectiveEncryptedPlaylistId': effectiveEncryptedPlaylistId,
         'fallbackEncryptedPlaylistId': fallbackEncryptedPlaylistId,
+        'attempt': attempt,
       });
       final response = await _client.requestNeteaseIntelligence(
         payload: {
@@ -535,19 +537,37 @@ class MusicRepositoryImpl implements MusicRepository {
         'trackCount': rawTracks.length,
         'fallbackUsed': context['fallbackUsed'],
         'contextPlaylistEncryptedId': context['playlistEncryptedId'],
+        'attempt': attempt,
       });
       return rawTracks;
-    } catch (error) {
-      await _debugLog('repository.loadIntelligenceTracks.error', {
-        'providerId': providerId,
-        'playlistId': playlist.id,
-        'seedTrackId': seedTrack.id,
-        'songId': sourceTrackId,
-        'encryptedSongId': encryptedSongId,
-        'error': error.toString(),
-      });
-      return const <MusicTrack>[];
     }
+
+    Object? lastError;
+    for (var attemptIndex = 1; attemptIndex <= 2; attemptIndex++) {
+      try {
+        return await attempt(attemptIndex);
+      } catch (error) {
+        lastError = error;
+        await _debugLog('repository.loadIntelligenceTracks.error', {
+          'providerId': providerId,
+          'playlistId': playlist.id,
+          'seedTrackId': seedTrack.id,
+          'songId': sourceTrackId,
+          'encryptedSongId': encryptedSongId,
+          'attempt': attemptIndex,
+          'willRetry': attemptIndex < 2,
+          'error': error.toString(),
+        });
+        if (attemptIndex < 2) {
+          await Future<void>.delayed(const Duration(milliseconds: 450));
+          continue;
+        }
+      }
+    }
+
+    throw Exception(
+      '网易云心动模式请求失败，请稍后重试：${lastError ?? 'unknown error'}',
+    );
   }
 
   @override
