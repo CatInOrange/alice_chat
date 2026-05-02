@@ -778,10 +778,10 @@ class _MusicHeroCard extends StatelessWidget {
               child: MusicArtworkBackdrop(
                 track: track,
                 borderRadius: cardRadius,
-                blurSigma: 26,
-                opacity: 0.28,
-                tintOpacity: 0.38,
-                darkness: 0.28,
+                blurSigma: 30,
+                opacity: 0.34,
+                tintOpacity: 0.28,
+                darkness: 0.34,
                 backendBaseUrl: backendBaseUrl,
                 appPassword: appPassword,
               ),
@@ -797,30 +797,30 @@ class _MusicHeroCard extends StatelessWidget {
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      Colors.white.withValues(alpha: 0.06),
+                      Colors.white.withValues(alpha: 0.08),
                       Colors.transparent,
-                      Colors.black.withValues(alpha: 0.14),
+                      Colors.black.withValues(alpha: 0.18),
                     ],
-                    stops: const [0.0, 0.32, 1.0],
+                    stops: const [0.0, 0.3, 1.0],
                   ),
                 ),
               ),
             ),
             Positioned(
-              right: -14,
-              top: 14,
-              bottom: 14,
-              width: 168,
+              right: -18,
+              top: 10,
+              bottom: 10,
+              width: 196,
               child: IgnorePointer(
                 child: Stack(
                   clipBehavior: Clip.none,
                   children: [
                     Positioned(
-                      right: -18,
-                      top: 18,
+                      right: -12,
+                      top: 12,
                       child: Container(
-                        width: 160,
-                        height: 160,
+                        width: 184,
+                        height: 184,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           gradient: RadialGradient(
@@ -837,32 +837,32 @@ class _MusicHeroCard extends StatelessWidget {
                       child: Align(
                         alignment: Alignment.centerRight,
                         child: Transform.translate(
-                          offset: const Offset(14, 0),
+                          offset: const Offset(10, 0),
                           child: SizedBox(
-                            width: 154,
-                            height: 194,
+                            width: 176,
+                            height: 220,
                             child: Stack(
                               children: [
                                 Positioned.fill(
                                   child: DecoratedBox(
                                     decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(36),
+                                      borderRadius: BorderRadius.circular(40),
                                       border: Border.all(
-                                        color: Colors.white.withValues(alpha: 0.18),
+                                        color: Colors.white.withValues(alpha: 0.22),
                                       ),
                                       gradient: LinearGradient(
                                         begin: Alignment.topLeft,
                                         end: Alignment.bottomRight,
                                         colors: [
-                                          Colors.white.withValues(alpha: 0.16),
-                                          Colors.white.withValues(alpha: 0.04),
+                                          Colors.white.withValues(alpha: 0.2),
+                                          Colors.white.withValues(alpha: 0.05),
                                         ],
                                       ),
                                       boxShadow: const [
                                         BoxShadow(
                                           color: Color(0x22000000),
-                                          blurRadius: 24,
-                                          offset: Offset(0, 14),
+                                          blurRadius: 28,
+                                          offset: Offset(0, 16),
                                         ),
                                       ],
                                     ),
@@ -874,16 +874,16 @@ class _MusicHeroCard extends StatelessWidget {
                                   top: 10,
                                   bottom: 10,
                                   child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(30),
+                                    borderRadius: BorderRadius.circular(34),
                                     child: Stack(
                                       fit: StackFit.expand,
                                       children: [
                                         MusicArtwork(
                                           track: track,
-                                          size: 170,
+                                          size: 196,
                                           showMeta: false,
                                           showIconBadge: false,
-                                          overlayStrength: 0.08,
+                                          overlayStrength: 0.05,
                                           backendBaseUrl: backendBaseUrl,
                                           appPassword: appPassword,
                                         ),
@@ -893,9 +893,9 @@ class _MusicHeroCard extends StatelessWidget {
                                               begin: Alignment.topCenter,
                                               end: Alignment.bottomCenter,
                                               colors: [
-                                                Colors.white.withValues(alpha: 0.08),
+                                                Colors.white.withValues(alpha: 0.12),
                                                 Colors.transparent,
-                                                Colors.black.withValues(alpha: 0.16),
+                                                Colors.black.withValues(alpha: 0.12),
                                               ],
                                             ),
                                           ),
@@ -921,11 +921,11 @@ class _MusicHeroCard extends StatelessWidget {
                     begin: Alignment.centerLeft,
                     end: Alignment.centerRight,
                     colors: [
-                      Colors.black.withValues(alpha: 0.2),
-                      Colors.black.withValues(alpha: 0.1),
+                      Colors.black.withValues(alpha: 0.34),
+                      Colors.black.withValues(alpha: 0.18),
                       Colors.black.withValues(alpha: 0.0),
                     ],
-                    stops: const [0.0, 0.5, 1.0],
+                    stops: const [0.0, 0.52, 1.0],
                   ),
                 ),
               ),
@@ -936,7 +936,7 @@ class _MusicHeroCard extends StatelessWidget {
                 borderRadius: cardRadius,
                 onTap: onDetailTap ?? onPlayTap,
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 20, 18, 18),
+                  padding: const EdgeInsets.fromLTRB(22, 20, 20, 18),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -986,7 +986,7 @@ class _MusicHeroCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 16),
                       SizedBox(
-                        width: 224,
+                        width: 208,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
