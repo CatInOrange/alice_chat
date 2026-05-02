@@ -414,6 +414,7 @@ class _WebviewScreenState extends State<WebviewScreen>
     final canReloadPage =
         _bootStage == _WebviewBootStage.ready ||
         _bootStage == _WebviewBootStage.loadingPage;
+    final showWebView = _pageReady;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Alice'),
@@ -425,8 +426,7 @@ class _WebviewScreenState extends State<WebviewScreen>
         ],
       ),
       body:
-          (_bootStage == _WebviewBootStage.ready ||
-                  _bootStage == _WebviewBootStage.loadingPage)
+          showWebView
               ? Stack(
                 children: [_buildReadyBody(), if (_loading) _buildBootView()],
               )
