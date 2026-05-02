@@ -12,26 +12,8 @@ Route<void> _buildMusicPlayerRoute({
   required MusicTrack track,
   required List<MusicTrack> queue,
 }) {
-  return PageRouteBuilder<void>(
-    transitionDuration: const Duration(milliseconds: 320),
-    reverseTransitionDuration: const Duration(milliseconds: 280),
-    pageBuilder:
-        (_, animation, secondaryAnimation) => FadeTransition(
-          opacity: CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOutCubic,
-            reverseCurve: Curves.easeInCubic,
-          ),
-          child: MusicPlayerScreen(track: track, queue: queue),
-        ),
-    transitionsBuilder: (context, animation, secondaryAnimation, child) {
-      final curved = CurvedAnimation(
-        parent: animation,
-        curve: Curves.easeOutCubic,
-        reverseCurve: Curves.easeInCubic,
-      );
-      return FadeTransition(opacity: curved, child: child);
-    },
+  return MaterialPageRoute<void>(
+    builder: (_) => MusicPlayerScreen(track: track, queue: queue),
   );
 }
 
