@@ -8,6 +8,7 @@ import '../../../core/openclaw/openclaw_client.dart';
 import '../../../core/openclaw/openclaw_config.dart';
 import '../../../core/openclaw/openclaw_http_client.dart';
 import '../../../core/openclaw/openclaw_settings.dart';
+import '../data/music_local_cache_store.dart';
 import '../data/music_repository.dart';
 import '../data/music_repository_impl.dart';
 import '../data/playback/just_audio_playback_adapter.dart';
@@ -79,6 +80,8 @@ class MusicStore extends ChangeNotifier {
 
   bool _isReady = false;
   bool _isLoading = false;
+  bool _isHydratingFromCache = false;
+  bool _hasHydratedLocalCache = false;
   String? _error;
   bool _isPlaying = false;
   bool _isBuffering = false;
@@ -125,6 +128,7 @@ class MusicStore extends ChangeNotifier {
 
   bool get isReady => _isReady;
   bool get isLoading => _isLoading;
+  bool get isHydratingFromCache => _isHydratingFromCache;
   String? get error => _error;
   bool get isPlaying => _isPlaying;
   bool get isBuffering => _isBuffering;
@@ -267,6 +271,7 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> ensureReady() async {
+    await _hydrateFromLocalCacheIfNeeded();
     if (_isReady) return;
     final existingTask = _ensureReadyTask;
     if (existingTask != null) {
@@ -286,6 +291,7 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> refreshLibrary() async {
+    await _hydrateFromLocalCacheIfNeeded();
     await _configReady;
     _isLoading = true;
     _error = null;
@@ -369,6 +375,7 @@ class MusicStore extends ChangeNotifier {
         },
         force: true,
       );
+      unawaited(_savePlaybackSnapshot());
     } catch (error) {
       _error = '刷新歌单失败，请稍后再试';
       _debugState(
@@ -448,12 +455,86 @@ class MusicStore extends ChangeNotifier {
       _duration = state.currentTrack?.duration ?? _currentTrack.duration;
       unawaited(_loadLyricsForTrack(_currentTrack, forceRefresh: false));
       _isReady = true;
+      unawaited(_savePlaybackSnapshot());
     } catch (error) {
       _error = error.toString();
     } finally {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  Future<void> _hydrateFromLocalCacheIfNeeded() async {
+    if (_hasHydratedLocalCache) {
+      return;
+    }
+    _hasHydratedLocalCache = true;
+    _isHydratingFromCache = true;
+    try {
+      final snapshot = await _repository.loadLocalCache();
+      if (snapshot == null) {
+        return;
+      }
+      _applyLocalSnapshot(snapshot);
+      notifyListeners();
+    } catch (_) {
+      // best effort only
+    } finally {
+      _isHydratingFromCache = false;
+    }
+  }
+
+  void _applyLocalSnapshot(MusicLocalCacheSnapshot snapshot) {
+    final state = snapshot.state;
+    if (state.currentTrack != null) {
+      _currentTrack = state.currentTrack!;
+    }
+    if (state.queue.isNotEmpty) {
+      _queue = List<PlaybackQueueItem>.unmodifiable(state.queue);
+    }
+    if (state.playlists.isNotEmpty) {
+      _playlists = List<MusicPlaylist>.unmodifiable(state.playlists);
+    }
+    if (state.recentTracks.isNotEmpty) {
+      _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
+    }
+    if (state.recentPlaylists.isNotEmpty) {
+      _recentPlaylists = _normalizeRecentPlaylists(state.recentPlaylists);
+    }
+    if (state.likedTracks.isNotEmpty) {
+      _likedTracks = List<MusicTrack>.unmodifiable(state.likedTracks);
+    }
+    if (state.customPlaylists.isNotEmpty) {
+      _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(
+        state.customPlaylists,
+      );
+    }
+    _currentPlaylistId = _normalizePlaylistId(state.currentPlaylistId);
+    _neteaseLikedPlaylistId = state.neteaseLikedPlaylistId?.trim();
+    _neteaseLikedPlaylistEncryptedId =
+        state.neteaseLikedPlaylistEncryptedId?.trim();
+    _isPlaying = state.isPlaying && state.queue.isNotEmpty;
+    _position = state.position;
+    _duration = state.currentTrack?.duration ?? _currentTrack.duration;
+    _latestAiPlaylist = snapshot.latestAiPlaylist ?? _latestAiPlaylist;
+    if (snapshot.aiPlaylistHistory.isNotEmpty) {
+      _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
+        snapshot.aiPlaylistHistory,
+      );
+    }
+    if (snapshot.playlistTracksCache.isNotEmpty) {
+      _playlistTracksCache
+        ..clear()
+        ..addAll(
+          snapshot.playlistTracksCache.map(
+            (key, value) => MapEntry(key, List<MusicTrack>.unmodifiable(value)),
+          ),
+        );
+    }
+    _cacheKnownAiPlaylistTracks();
+    _currentTrack = _currentTrack.copyWith(
+      isFavorite: isTrackLiked(_currentTrack.id),
+    );
   }
 
   Future<void> selectTrack(MusicTrack track, {bool autoplay = true}) async {
@@ -742,6 +823,11 @@ class MusicStore extends ChangeNotifier {
 
   Future<List<MusicTrack>> loadPlaylistTracks(MusicPlaylist playlist) async {
     await ensureReady();
+    final cachedTracks = _playlistTracksCache[playlist.id];
+    if (cachedTracks != null && cachedTracks.isNotEmpty) {
+      unawaited(_refreshPlaylistTracksInBackground(playlist));
+      return _withFavoriteFlags(cachedTracks);
+    }
     if (playlist.id == likedPlaylist.id) {
       return _withFavoriteFlags(
         _likedTracks
@@ -762,6 +848,7 @@ class MusicStore extends ChangeNotifier {
     try {
       final tracks = await _repository.loadPlaylistTracks(playlist);
       _cacheTracksForPlaylist(playlist.id, tracks);
+      unawaited(_savePlaybackSnapshot());
       return _withFavoriteFlags(tracks);
     } catch (error) {
       final cachedTracks = _playlistTracksCache[playlist.id];
@@ -778,6 +865,35 @@ class MusicStore extends ChangeNotifier {
         return _withFavoriteFlags(cachedTracks);
       }
       rethrow;
+    }
+  }
+
+  Future<void> _refreshPlaylistTracksInBackground(
+    MusicPlaylist playlist,
+  ) async {
+    if (playlist.id == likedPlaylist.id) {
+      return;
+    }
+    final customPlaylist = customPlaylistById(playlist.id);
+    if (customPlaylist != null || _knownAiPlaylistTracks(playlist.id) != null) {
+      return;
+    }
+    try {
+      final remoteTracks = await _repository.loadPlaylistTracks(playlist);
+      if (remoteTracks.isEmpty) {
+        return;
+      }
+      final currentDigest = _playlistTracksCache[playlist.id]
+          ?.map((item) => item.id)
+          .join('|');
+      final nextDigest = remoteTracks.map((item) => item.id).join('|');
+      _cacheTracksForPlaylist(playlist.id, remoteTracks);
+      if (currentDigest != nextDigest) {
+        notifyListeners();
+      }
+      await _savePlaybackSnapshot();
+    } catch (_) {
+      // silent background refresh
     }
   }
 
@@ -2377,8 +2493,31 @@ class MusicStore extends ChangeNotifier {
         raw.replaceFirst('Exception: ', '').replaceFirst('Bad state: ', '');
   }
 
-  Future<void> _savePlaybackSnapshot() {
-    return _repository.savePlaybackSnapshot(
+  Future<void> _savePlaybackSnapshot() async {
+    final snapshot = MusicLocalCacheSnapshot(
+      state: MusicStateSnapshot(
+        currentTrack: _currentTrack,
+        queue: _queue,
+        playlists: _playlists,
+        recentTracks: _recentTracks,
+        likedTracks: _likedTracks,
+        recentPlaylists: _recentPlaylists,
+        customPlaylists: _customPlaylists,
+        currentPlaylistId: _currentPlaylistId,
+        neteaseLikedPlaylistId: _neteaseLikedPlaylistId,
+        neteaseLikedPlaylistEncryptedId: _neteaseLikedPlaylistEncryptedId,
+        isPlaying: _isPlaying,
+        position: _position,
+      ),
+      latestAiPlaylist: _latestAiPlaylist,
+      aiPlaylistHistory: _aiPlaylistHistory,
+      playlistTracksCache: Map<String, List<MusicTrack>>.from(
+        _playlistTracksCache,
+      ),
+      cachedAt: DateTime.now(),
+    );
+    await _repository.saveLocalCache(snapshot);
+    await _repository.savePlaybackSnapshot(
       currentTrack: _currentTrack,
       queue: _queue,
       isPlaying: _isPlaying,

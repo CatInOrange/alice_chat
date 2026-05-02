@@ -5,6 +5,7 @@ import '../../../core/openclaw/openclaw_client.dart';
 import '../application/music_store.dart';
 import '../domain/music_models.dart';
 import '../domain/music_runtime_models.dart';
+import 'music_local_cache_store.dart';
 import 'music_repository.dart';
 import 'sources/music_source_provider.dart';
 import 'sources/music_source_resolver.dart';
@@ -14,11 +15,24 @@ class MusicRepositoryImpl implements MusicRepository {
   MusicRepositoryImpl({
     required OpenClawClient client,
     required MusicSourceResolver resolver,
+    MusicLocalCacheStore? localCacheStore,
   }) : _client = client,
-       _resolver = resolver;
+       _resolver = resolver,
+       _localCacheStore = localCacheStore ?? MusicLocalCacheStore();
 
   final OpenClawClient _client;
   final MusicSourceResolver _resolver;
+  final MusicLocalCacheStore _localCacheStore;
+
+  @override
+  Future<MusicLocalCacheSnapshot?> loadLocalCache() {
+    return _localCacheStore.load();
+  }
+
+  @override
+  Future<void> saveLocalCache(MusicLocalCacheSnapshot snapshot) {
+    return _localCacheStore.save(snapshot);
+  }
 
   @override
   Future<MusicStateSnapshot> loadMusicState() async {
