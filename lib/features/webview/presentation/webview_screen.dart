@@ -125,7 +125,9 @@ class _WebviewScreenState extends State<WebviewScreen>
     );
     debugPrint('WebView localModelUrl resolved: $localModelUrl');
     if (localModelUrl == null || localModelUrl.trim().isEmpty) {
-      return null;
+      throw StateError(
+        Live2dModelCache.instance.lastFailureReason ?? '本地模型未准备完成',
+      );
     }
 
     if (mounted) {
