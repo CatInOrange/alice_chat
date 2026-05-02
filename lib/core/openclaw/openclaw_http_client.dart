@@ -265,6 +265,18 @@ class OpenClawHttpClient implements OpenClawClient {
   }
 
   @override
+  Future<Map<String, dynamic>> getMusicHome() async {
+    final response = await _httpClient.get(
+      _uri('/api/music/home'),
+      headers: _headers,
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('加载音乐首页失败', response);
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  @override
   Future<Map<String, dynamic>> getMusicProviders() async {
     final response = await _httpClient.get(
       _uri('/api/music/providers'),

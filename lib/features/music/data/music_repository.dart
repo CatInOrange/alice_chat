@@ -1,4 +1,5 @@
 import '../application/music_store.dart';
+import '../domain/music_home_models.dart';
 import '../domain/music_models.dart';
 import '../domain/music_runtime_models.dart';
 import 'music_local_cache_store.dart';
@@ -9,6 +10,8 @@ abstract class MusicRepository {
   Future<void> saveLocalCache(MusicLocalCacheSnapshot snapshot);
 
   Future<MusicStateSnapshot> loadMusicState();
+
+  Future<MusicHomeBundle> loadMusicHome();
 
   Future<PlaybackQueueItem> resolveTrack(
     MusicTrack track, {

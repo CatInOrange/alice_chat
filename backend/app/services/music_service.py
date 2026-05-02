@@ -7,6 +7,7 @@ from time import sleep, time
 from ..music_api_models import (
     MusicAiPlaylistDraftDto,
     MusicCommandRequest,
+    MusicHomeDto,
     MusicIntelligenceRequestDto,
     MusicProviderDto,
     MusicStateDto,
@@ -33,6 +34,11 @@ class MusicAiPlaylistHistoryResult:
     payload: list[MusicAiPlaylistDraftDto]
 
 
+@dataclass(slots=True)
+class MusicHomeResult:
+    payload: MusicHomeDto
+
+
 class MusicService:
     def __init__(self, *, store: MusicStore | None = None, config: dict | None = None):
         self.store = store or MusicStore()
@@ -51,6 +57,30 @@ class MusicService:
             return MusicAiPlaylistResult(payload=None)
         return MusicAiPlaylistResult(
             payload=MusicAiPlaylistDraftDto.model_validate(payload)
+        )
+
+    def load_home(self) -> MusicHomeResult:
+        state = self.store.load_state()
+        latest_payload = state.get('latestAiPlaylist')
+        ai_history_payload = state.get('aiPlaylistHistory')
+        recent_tracks_payload = state.get('recentTracks')
+        recent_playlists_payload = state.get('recentPlaylists')
+        liked_tracks_payload = state.get('likedTracks')
+        custom_playlists_payload = state.get('customPlaylists')
+        return MusicHomeResult(
+            payload=MusicHomeDto.model_validate(
+                {
+                    'latestAiPlaylist': latest_payload if isinstance(latest_payload, dict) else None,
+                    'aiPlaylistHistory': ai_history_payload if isinstance(ai_history_payload, list) else [],
+                    'recentTracks': recent_tracks_payload if isinstance(recent_tracks_payload, list) else [],
+                    'recentPlaylists': recent_playlists_payload if isinstance(recent_playlists_payload, list) else [],
+                    'likedTracks': liked_tracks_payload if isinstance(liked_tracks_payload, list) else [],
+                    'customPlaylists': custom_playlists_payload if isinstance(custom_playlists_payload, list) else [],
+                    'neteaseLikedPlaylistId': state.get('neteaseLikedPlaylistId'),
+                    'neteaseLikedPlaylistEncryptedId': state.get('neteaseLikedPlaylistEncryptedId'),
+                    'updatedAt': state.get('updatedAt'),
+                }
+            )
         )
 
     def load_ai_playlist_history(self) -> MusicAiPlaylistHistoryResult:

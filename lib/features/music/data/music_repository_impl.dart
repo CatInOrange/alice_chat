@@ -1,8 +1,9 @@
-import 'dart:convert';
+import 'dart:async';
 
 import '../../../core/debug/native_debug_bridge.dart';
 import '../../../core/openclaw/openclaw_client.dart';
 import '../application/music_store.dart';
+import '../domain/music_home_models.dart';
 import '../domain/music_models.dart';
 import '../domain/music_runtime_models.dart';
 import 'music_local_cache_store.dart';
@@ -38,115 +39,100 @@ class MusicRepositoryImpl implements MusicRepository {
   Future<MusicStateSnapshot> loadMusicState() async {
     try {
       final response = await _client.getMusicState();
-      final currentTrackMap =
-          (response['currentTrack'] as Map?)?.cast<String, dynamic>();
-      final queue = ((response['queue'] as List<dynamic>?) ?? const [])
-          .whereType<Map>()
-          .map(
-            (item) => PlaybackQueueItem.fromMap(
-              Map<String, dynamic>.from(item.cast<String, dynamic>()),
-            ),
-          )
-          .toList(growable: false);
-      final playlists = ((response['playlists'] as List<dynamic>?) ?? const [])
-          .whereType<Map>()
-          .map(
-            (item) => MusicPlaylist.fromMap(
-              Map<String, dynamic>.from(item.cast<String, dynamic>()),
-            ),
-          )
-          .toList(growable: false);
-      final recentTracks = ((response['recentTracks'] as List<dynamic>?) ??
-              const [])
-          .whereType<Map>()
-          .map(
-            (item) => MusicTrack.fromMap(
-              Map<String, dynamic>.from(item.cast<String, dynamic>()),
-            ),
-          )
-          .toList(growable: false);
-      final likedTracks = ((response['likedTracks'] as List<dynamic>?) ??
-              const [])
-          .whereType<Map>()
-          .map(
-            (item) => MusicTrack.fromMap(
-              Map<String, dynamic>.from(item.cast<String, dynamic>()),
-            ),
-          )
-          .toList(growable: false);
-      final recentPlaylists =
-          ((response['recentPlaylists'] as List<dynamic>?) ?? const [])
-              .whereType<Map>()
-              .map(
-                (item) => MusicPlaylist.fromMap(
-                  Map<String, dynamic>.from(item.cast<String, dynamic>()),
-                ),
-              )
-              .toList(growable: false);
-      final customPlaylists =
-          ((response['customPlaylists'] as List<dynamic>?) ?? const [])
-              .whereType<Map>()
-              .map(
-                (item) => CustomMusicPlaylist.fromMap(
-                  Map<String, dynamic>.from(item.cast<String, dynamic>()),
-                ),
-              )
-              .toList(growable: false);
-      final currentPlaylistId =
-          (response['currentPlaylistId'] ?? '').toString().trim();
-      final neteaseLikedPlaylistId =
-          (response['neteaseLikedPlaylistId'] ?? '').toString().trim();
-      final neteaseLikedPlaylistEncryptedId =
-          (response['neteaseLikedPlaylistEncryptedId'] ?? '').toString().trim();
-      final latestAiPlaylistMap =
-          (response['latestAiPlaylist'] as Map?)?.cast<String, dynamic>();
-      final aiPlaylistHistory =
-          ((response['aiPlaylistHistory'] as List<dynamic>?) ?? const [])
-              .whereType<Map>()
-              .map(
-                (item) => MusicAiPlaylistDraft.fromMap(
-                  Map<String, dynamic>.from(item.cast<String, dynamic>()),
-                ),
-              )
-              .toList(growable: false);
-      final positionMsRaw = response['positionMs'] ?? 0;
-      return MusicStateSnapshot(
-        currentTrack:
-            currentTrackMap == null
-                ? null
-                : MusicTrack.fromMap(currentTrackMap),
-        queue: queue,
-        playlists: playlists,
-        recentTracks: recentTracks,
-        likedTracks: likedTracks,
-        recentPlaylists: recentPlaylists,
-        customPlaylists: customPlaylists,
-        currentPlaylistId: currentPlaylistId.isEmpty ? null : currentPlaylistId,
-        neteaseLikedPlaylistId:
-            neteaseLikedPlaylistId.isEmpty ? null : neteaseLikedPlaylistId,
-        neteaseLikedPlaylistEncryptedId:
-            neteaseLikedPlaylistEncryptedId.isEmpty
-                ? null
-                : neteaseLikedPlaylistEncryptedId,
-        latestAiPlaylist:
-            latestAiPlaylistMap == null
-                ? null
-                : MusicAiPlaylistDraft.fromMap(latestAiPlaylistMap),
-        aiPlaylistHistory: aiPlaylistHistory,
-        isPlaying: response['isPlaying'] == true,
-        position: Duration(
-          milliseconds:
-              positionMsRaw is num
-                  ? positionMsRaw.toInt()
-                  : int.tryParse('$positionMsRaw') ?? 0,
-        ),
-      );
+      return _parseMusicStateSnapshot(response);
     } catch (error) {
       await _debugLog('repository.loadMusicState.error', {
         'error': error.toString(),
       });
       rethrow;
     }
+  }
+
+  @override
+  Future<MusicHomeBundle> loadMusicHome() async {
+    final response = await _client.getMusicHome();
+    final latestAiPlaylistMap =
+        (response['latestAiPlaylist'] as Map?)?.cast<String, dynamic>();
+    final aiPlaylistHistory =
+        ((response['aiPlaylistHistory'] as List<dynamic>?) ?? const [])
+            .whereType<Map>()
+            .map(
+              (item) => MusicAiPlaylistDraft.fromMap(
+                Map<String, dynamic>.from(item.cast<String, dynamic>()),
+              ),
+            )
+            .toList(growable: false);
+    final recentTracks = ((response['recentTracks'] as List<dynamic>?) ??
+            const [])
+        .whereType<Map>()
+        .map(
+          (item) => MusicTrack.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+    final recentPlaylists = ((response['recentPlaylists'] as List<dynamic>?) ??
+            const [])
+        .whereType<Map>()
+        .map(
+          (item) => MusicPlaylist.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+    final likedTracks = ((response['likedTracks'] as List<dynamic>?) ??
+            const [])
+        .whereType<Map>()
+        .map(
+          (item) => MusicTrack.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+    final customPlaylists = ((response['customPlaylists'] as List<dynamic>?) ??
+            const [])
+        .whereType<Map>()
+        .map(
+          (item) => CustomMusicPlaylist.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+    final updatedAtRaw = response['updatedAt'];
+    final updatedAtSeconds =
+        updatedAtRaw is num
+            ? updatedAtRaw.toDouble()
+            : double.tryParse('$updatedAtRaw');
+    return MusicHomeBundle(
+      latestAiPlaylist:
+          latestAiPlaylistMap == null
+              ? null
+              : MusicAiPlaylistDraft.fromMap(latestAiPlaylistMap),
+      aiPlaylistHistory: aiPlaylistHistory,
+      recentTracks: recentTracks,
+      recentPlaylists: recentPlaylists,
+      likedTracks: likedTracks,
+      customPlaylists: customPlaylists,
+      neteaseLikedPlaylistId:
+          (response['neteaseLikedPlaylistId'] ?? '').toString().trim().isEmpty
+              ? null
+              : (response['neteaseLikedPlaylistId'] ?? '').toString().trim(),
+      neteaseLikedPlaylistEncryptedId:
+          (response['neteaseLikedPlaylistEncryptedId'] ?? '')
+                  .toString()
+                  .trim()
+                  .isEmpty
+              ? null
+              : (response['neteaseLikedPlaylistEncryptedId'] ?? '')
+                  .toString()
+                  .trim(),
+      serverUpdatedAt:
+          updatedAtSeconds == null
+              ? null
+              : DateTime.fromMillisecondsSinceEpoch(
+                (updatedAtSeconds * 1000).round(),
+              ),
+    );
   }
 
   @override
@@ -231,21 +217,27 @@ class MusicRepositoryImpl implements MusicRepository {
   @override
   Future<List<MusicPlaylist>> loadUserPlaylists() async {
     final registry = (_resolver as MusicSourceResolverImpl).registry;
+    final providers = registry.providers.toList(growable: false);
+    final loaded = await Future.wait(
+      providers.map((provider) async {
+        try {
+          return await provider.loadUserPlaylists();
+        } catch (error) {
+          await _debugLog('repository.loadUserPlaylists.error', {
+            'providerId': provider.id,
+            'error': error.toString(),
+          });
+          return const <MusicPlaylist>[];
+        }
+      }),
+    );
     final results = <MusicPlaylist>[];
     final seen = <String>{};
-    for (final provider in registry.providers) {
-      try {
-        final playlists = await provider.loadUserPlaylists();
-        for (final playlist in playlists) {
-          if (seen.add(playlist.id)) {
-            results.add(playlist);
-          }
+    for (final playlists in loaded) {
+      for (final playlist in playlists) {
+        if (seen.add(playlist.id)) {
+          results.add(playlist);
         }
-      } catch (error) {
-        await _debugLog('repository.loadUserPlaylists.error', {
-          'providerId': provider.id,
-          'error': error.toString(),
-        });
       }
     }
     return results;
@@ -258,103 +250,7 @@ class MusicRepositoryImpl implements MusicRepository {
     if (playlistMap == null) {
       return null;
     }
-    final parsed = MusicAiPlaylistDraft.fromMap(playlistMap);
-    final draft =
-        parsed.id == 'ai-playlist:latest'
-            ? parsed
-            : MusicAiPlaylistDraft(
-              id: 'ai-playlist:latest',
-              title: parsed.title,
-              subtitle: parsed.subtitle,
-              description: parsed.description,
-              tag: parsed.tag,
-              artworkTone: parsed.artworkTone,
-              isAiGenerated: parsed.isAiGenerated,
-              tracks: parsed.tracks,
-              createdAt: parsed.createdAt,
-              updatedAt: parsed.updatedAt,
-            );
-    if (draft.tracks.isEmpty) {
-      return draft;
-    }
-    final resolvedTracks = <MusicTrack>[];
-    var matchedCount = 0;
-    var artworkCount = 0;
-    var changedCount = 0;
-    for (final track in draft.tracks) {
-      MusicTrack nextTrack = _normalizeTrackArtwork(track);
-      try {
-        nextTrack = await enrichTrackMetadata(nextTrack, allowFallback: false);
-        if (nextTrack.preferredSourceId != null &&
-            nextTrack.sourceTrackId != null) {
-          matchedCount += 1;
-        }
-        final resolved = await _resolver.resolveTrack(
-          nextTrack,
-          allowFallback: false,
-        );
-        nextTrack = _normalizeTrackArtwork(
-          resolved.track.copyWith(
-            artworkUrl:
-                resolved.resolvedSource?.artworkUrl ??
-                resolved.candidate?.track.artworkUrl ??
-                resolved.track.artworkUrl ??
-                nextTrack.artworkUrl,
-          ),
-        );
-      } catch (error) {
-        await _debugLog('repository.loadLatestAiPlaylist.track_enrich.error', {
-          'trackId': track.id,
-          'title': track.title,
-          'artist': track.artist,
-          'preferredSourceId': track.preferredSourceId,
-          'sourceTrackId': track.sourceTrackId,
-          'error': error.toString(),
-        });
-      }
-      if (_hasArtwork(nextTrack)) {
-        artworkCount += 1;
-      }
-      if (_trackMetadataDigest(track) != _trackMetadataDigest(nextTrack)) {
-        changedCount += 1;
-      }
-      resolvedTracks.add(nextTrack);
-    }
-    final enrichedDraft = MusicAiPlaylistDraft(
-      id: draft.id,
-      title: draft.title,
-      subtitle: draft.subtitle,
-      description: draft.description,
-      tag: draft.tag,
-      artworkTone: draft.artworkTone,
-      isAiGenerated: draft.isAiGenerated,
-      tracks: List<MusicTrack>.unmodifiable(resolvedTracks),
-      createdAt: draft.createdAt,
-      updatedAt: draft.updatedAt,
-    );
-    if (changedCount > 0) {
-      await _debugLog('repository.loadLatestAiPlaylist.enriched_changes', {
-        'playlistId': draft.id,
-        'changedCount': changedCount,
-        'persistSkipped': true,
-      });
-    }
-    await _debugLog('repository.loadLatestAiPlaylist.enriched', {
-      'playlistId': draft.id,
-      'trackCount': draft.tracks.length,
-      'matchedCount': matchedCount,
-      'artworkCount': artworkCount,
-      'changedCount': changedCount,
-      'firstTrackTitle':
-          resolvedTracks.isEmpty ? '' : resolvedTracks.first.title,
-      'firstTrackArtworkUrl':
-          resolvedTracks.isEmpty
-              ? ''
-              : (resolvedTracks.first.artworkUrl ??
-                  resolvedTracks.first.cachedPlayback?.artworkUrl ??
-                  ''),
-    });
-    return enrichedDraft;
+    return _parseLatestAiPlaylistDraft(playlistMap);
   }
 
   @override
@@ -595,9 +491,7 @@ class MusicRepositoryImpl implements MusicRepository {
       }
     }
 
-    throw Exception(
-      '网易云心动模式请求失败，请稍后重试：${lastError ?? 'unknown error'}',
-    );
+    throw Exception('网易云心动模式请求失败，请稍后重试：${lastError ?? 'unknown error'}');
   }
 
   @override
@@ -767,18 +661,129 @@ class MusicRepositoryImpl implements MusicRepository {
     return 'none';
   }
 
-  String _trackMetadataDigest(MusicTrack track) {
-    return jsonEncode({
-      'artworkUrl': _normalizeArtworkUrl(track.artworkUrl),
-      'cachedArtworkUrl': _normalizeArtworkUrl(
-        track.cachedPlayback?.artworkUrl,
+  MusicStateSnapshot _parseMusicStateSnapshot(Map<String, dynamic> response) {
+    final currentTrackMap =
+        (response['currentTrack'] as Map?)?.cast<String, dynamic>();
+    final queue = ((response['queue'] as List<dynamic>?) ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => PlaybackQueueItem.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+    final playlists = ((response['playlists'] as List<dynamic>?) ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => MusicPlaylist.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+    final recentTracks = ((response['recentTracks'] as List<dynamic>?) ??
+            const [])
+        .whereType<Map>()
+        .map(
+          (item) => MusicTrack.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+    final likedTracks = ((response['likedTracks'] as List<dynamic>?) ??
+            const [])
+        .whereType<Map>()
+        .map(
+          (item) => MusicTrack.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+    final recentPlaylists = ((response['recentPlaylists'] as List<dynamic>?) ??
+            const [])
+        .whereType<Map>()
+        .map(
+          (item) => MusicPlaylist.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+    final customPlaylists = ((response['customPlaylists'] as List<dynamic>?) ??
+            const [])
+        .whereType<Map>()
+        .map(
+          (item) => CustomMusicPlaylist.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+    final currentPlaylistId =
+        (response['currentPlaylistId'] ?? '').toString().trim();
+    final neteaseLikedPlaylistId =
+        (response['neteaseLikedPlaylistId'] ?? '').toString().trim();
+    final neteaseLikedPlaylistEncryptedId =
+        (response['neteaseLikedPlaylistEncryptedId'] ?? '').toString().trim();
+    final latestAiPlaylistMap =
+        (response['latestAiPlaylist'] as Map?)?.cast<String, dynamic>();
+    final aiPlaylistHistory =
+        ((response['aiPlaylistHistory'] as List<dynamic>?) ?? const [])
+            .whereType<Map>()
+            .map(
+              (item) => MusicAiPlaylistDraft.fromMap(
+                Map<String, dynamic>.from(item.cast<String, dynamic>()),
+              ),
+            )
+            .toList(growable: false);
+    final positionMsRaw = response['positionMs'] ?? 0;
+    return MusicStateSnapshot(
+      currentTrack:
+          currentTrackMap == null ? null : MusicTrack.fromMap(currentTrackMap),
+      queue: queue,
+      playlists: playlists,
+      recentTracks: recentTracks,
+      likedTracks: likedTracks,
+      recentPlaylists: recentPlaylists,
+      customPlaylists: customPlaylists,
+      currentPlaylistId: currentPlaylistId.isEmpty ? null : currentPlaylistId,
+      neteaseLikedPlaylistId:
+          neteaseLikedPlaylistId.isEmpty ? null : neteaseLikedPlaylistId,
+      neteaseLikedPlaylistEncryptedId:
+          neteaseLikedPlaylistEncryptedId.isEmpty
+              ? null
+              : neteaseLikedPlaylistEncryptedId,
+      latestAiPlaylist:
+          latestAiPlaylistMap == null
+              ? null
+              : MusicAiPlaylistDraft.fromMap(latestAiPlaylistMap),
+      aiPlaylistHistory: aiPlaylistHistory,
+      isPlaying: response['isPlaying'] == true,
+      position: Duration(
+        milliseconds:
+            positionMsRaw is num
+                ? positionMsRaw.toInt()
+                : int.tryParse('$positionMsRaw') ?? 0,
       ),
-      'preferredSourceId': (track.preferredSourceId ?? '').trim(),
-      'sourceTrackId': (track.sourceTrackId ?? '').trim(),
-      'encryptedSourceTrackId': (track.encryptedSourceTrackId ?? '').trim(),
-      'album': track.album.trim(),
-      'durationMs': track.duration.inMilliseconds,
-    });
+    );
+  }
+
+  MusicAiPlaylistDraft _parseLatestAiPlaylistDraft(
+    Map<String, dynamic> playlistMap,
+  ) {
+    final parsed = MusicAiPlaylistDraft.fromMap(playlistMap);
+    if (parsed.id == 'ai-playlist:latest') {
+      return parsed;
+    }
+    return MusicAiPlaylistDraft(
+      id: 'ai-playlist:latest',
+      title: parsed.title,
+      subtitle: parsed.subtitle,
+      description: parsed.description,
+      tag: parsed.tag,
+      artworkTone: parsed.artworkTone,
+      isAiGenerated: parsed.isAiGenerated,
+      tracks: parsed.tracks,
+      createdAt: parsed.createdAt,
+      updatedAt: parsed.updatedAt,
+    );
   }
 
   Future<void> _debugLog(String tag, Map<String, dynamic> payload) async {

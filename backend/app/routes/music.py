@@ -50,6 +50,13 @@ def create_music_router(context: AppContext) -> APIRouter:
         payload.setdefault('ok', True)
         return payload
 
+    @router.get('/api/music/home')
+    async def get_music_home() -> dict:
+        state = context.music_service.load_home().payload
+        payload = state.model_dump(exclude_none=True)
+        payload.setdefault('ok', True)
+        return payload
+
     @router.post('/api/music/state')
     async def save_music_state(body: MusicStatePatchDto) -> dict:
         state = context.music_service.save_state(body).payload

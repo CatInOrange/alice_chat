@@ -11,6 +11,9 @@ import '../../../core/openclaw/openclaw_settings.dart';
 import '../data/music_local_cache_store.dart';
 import '../data/music_repository.dart';
 import '../data/music_repository_impl.dart';
+import 'ai_playlist_enricher.dart';
+import 'playback_snapshot_scheduler.dart';
+import 'playback_warmup_coordinator.dart';
 import '../data/playback/just_audio_playback_adapter.dart';
 import '../data/playback/playback_adapter.dart';
 import '../data/playback/stub_playback_adapter.dart';
@@ -52,6 +55,9 @@ class MusicStore extends ChangeNotifier {
     );
     _playbackAdapter = _createPlaybackAdapter();
     _repository = MusicRepositoryImpl(client: _client, resolver: _resolver);
+    _aiPlaylistEnricher = AiPlaylistEnricher(repository: _repository);
+    _warmupCoordinator = PlaybackWarmupCoordinator(repository: _repository);
+    _snapshotScheduler = _createSnapshotScheduler();
     _eventClient = _client;
     _currentTrack = const MusicTrack(
       id: '',
@@ -73,6 +79,9 @@ class MusicStore extends ChangeNotifier {
   late final MusicSourceResolver _resolver;
   late PlaybackAdapter _playbackAdapter;
   late MusicRepository _repository;
+  late AiPlaylistEnricher _aiPlaylistEnricher;
+  late PlaybackWarmupCoordinator _warmupCoordinator;
+  late PlaybackSnapshotScheduler _snapshotScheduler;
   late Future<void> _configReady;
   Future<void>? _ensureReadyTask;
 
@@ -270,7 +279,9 @@ class MusicStore extends ChangeNotifier {
     final normalized = playlistId.trim();
     if (normalized.isEmpty) return false;
     if (normalized == likedPlaylist.id) {
-      return _currentPlaylistId == normalized && _isPlaying && !isIntelligenceMode;
+      return _currentPlaylistId == normalized &&
+          _isPlaying &&
+          !isIntelligenceMode;
     }
     return _currentPlaylistId == normalized && _isPlaying;
   }
@@ -279,6 +290,10 @@ class MusicStore extends ChangeNotifier {
     final config = await OpenClawSettingsStore.load();
     _client = OpenClawHttpClient(config);
     _repository = MusicRepositoryImpl(client: _client, resolver: _resolver);
+    _aiPlaylistEnricher = AiPlaylistEnricher(repository: _repository);
+    _warmupCoordinator = PlaybackWarmupCoordinator(repository: _repository);
+    _snapshotScheduler.dispose();
+    _snapshotScheduler = _createSnapshotScheduler();
     _eventClient = _client;
     await _eventsSub?.cancel();
     _eventsSub = null;
@@ -301,7 +316,10 @@ class MusicStore extends ChangeNotifier {
 
   Future<void> ensureReady() async {
     await _hydrateFromLocalCacheIfNeeded();
-    if (_isReady) return;
+    if (!_isReady) {
+      _isReady = true;
+      notifyListeners();
+    }
     final existingTask = _ensureReadyTask;
     if (existingTask != null) {
       await existingTask;
@@ -335,66 +353,10 @@ class MusicStore extends ChangeNotifier {
     );
     try {
       final state = await _repository.loadMusicState();
-      _likedTracks = List<MusicTrack>.unmodifiable(state.likedTracks);
-      _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
-      _recentPlaylists = _normalizeRecentPlaylists(state.recentPlaylists);
-      _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(
-        state.customPlaylists,
-      );
-      _currentPlaylistId = _normalizePlaylistId(state.currentPlaylistId);
-      _neteaseLikedPlaylistId = state.neteaseLikedPlaylistId?.trim();
-      _neteaseLikedPlaylistEncryptedId =
-          state.neteaseLikedPlaylistEncryptedId?.trim();
-      _latestAiPlaylist = state.latestAiPlaylist ?? _latestAiPlaylist;
-      _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
-        state.aiPlaylistHistory,
-      );
-      try {
-        _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
-      } catch (error) {
-        _debugState(
-          'refresh.latest_ai.error',
-          extra: {'error': error.toString()},
-          force: true,
-          level: 'ERROR',
-        );
-      }
-      try {
-        _aiPlaylistHistory = await _repository.loadAiPlaylistHistory();
-      } catch (error) {
-        _debugState(
-          'refresh.ai_history.error',
-          extra: {'error': error.toString()},
-          force: true,
-          level: 'ERROR',
-        );
-      }
-      if (_latestAiPlaylist != null) {
-        _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
-          _aiPlaylistHistory.where((item) => item.id != _latestAiPlaylist!.id),
-        );
-      }
-      _cacheKnownAiPlaylistTracks();
-      unawaited(_repairLatestAiPlaylistArtworkIfNeeded());
+      _applyRemoteStateSnapshot(state);
+      await _refreshHomeSections();
       final remotePlaylists = await _repository.loadUserPlaylists();
-      final remoteLikedPlaylist = _findNeteaseLikedPlaylist(remotePlaylists);
-      if (remoteLikedPlaylist != null) {
-        _neteaseLikedPlaylistId = remoteLikedPlaylist.id;
-        _neteaseLikedPlaylistEncryptedId ??=
-            await _repository.syncNeteaseFavoritePlaylistEncryptedId();
-        await _mergeRemoteLikedTracks(remoteLikedPlaylist);
-      }
-      final basePlaylists =
-          remotePlaylists.isNotEmpty
-              ? remotePlaylists
-              : _playlists
-                  .where(
-                    (item) =>
-                        item.id != likedPlaylist.id &&
-                        item.id != _latestAiPlaylist?.id,
-                  )
-                  .toList(growable: false);
-      _rebuildPlaylists(basePlaylists: basePlaylists);
+      await _applyRemotePlaylists(remotePlaylists);
       _currentTrack = _currentTrack.copyWith(
         isFavorite: isTrackLiked(_currentTrack.id),
       );
@@ -412,7 +374,7 @@ class MusicStore extends ChangeNotifier {
         },
         force: true,
       );
-      unawaited(_savePlaybackSnapshot());
+      _markSnapshotDirty();
     } catch (error) {
       _error = '刷新歌单失败，请稍后再试';
       _debugState(
@@ -429,7 +391,6 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> _performEnsureReady() async {
-    if (_isReady) return;
     _isLoading = true;
     _error = null;
     notifyListeners();
@@ -441,69 +402,24 @@ class MusicStore extends ChangeNotifier {
         _handlePlaybackState,
       );
       final state = await _repository.loadMusicState();
-      if (state.currentTrack != null) {
-        _currentTrack = state.currentTrack!;
-      }
-      _queue = List<PlaybackQueueItem>.unmodifiable(state.queue);
-      _playlists = List<MusicPlaylist>.unmodifiable(state.playlists);
-      _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
-      _recentPlaylists = _normalizeRecentPlaylists(state.recentPlaylists);
-      _likedTracks = List<MusicTrack>.unmodifiable(state.likedTracks);
-      _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(
-        state.customPlaylists,
-      );
-      _currentPlaylistId = _normalizePlaylistId(state.currentPlaylistId);
-      _neteaseLikedPlaylistId = state.neteaseLikedPlaylistId?.trim();
-      _neteaseLikedPlaylistEncryptedId =
-          state.neteaseLikedPlaylistEncryptedId?.trim();
-      _latestAiPlaylist = state.latestAiPlaylist ?? _latestAiPlaylist;
-      _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
-        state.aiPlaylistHistory,
-      );
-      _currentTrack = _currentTrack.copyWith(
-        isFavorite: isTrackLiked(_currentTrack.id),
-      );
-      unawaited(_repairPlaybackArtworkIfNeeded());
-      try {
-        _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
-      } catch (_) {
-        _latestAiPlaylist = state.latestAiPlaylist ?? _latestAiPlaylist;
-      }
-      try {
-        _aiPlaylistHistory = await _repository.loadAiPlaylistHistory();
-      } catch (_) {
-        _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
-          state.aiPlaylistHistory,
-        );
-      }
-      if (_latestAiPlaylist != null) {
-        _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
-          _aiPlaylistHistory.where((item) => item.id != _latestAiPlaylist!.id),
-        );
-      }
-      _cacheKnownAiPlaylistTracks();
-      unawaited(_repairLatestAiPlaylistArtworkIfNeeded());
-      try {
-        final remotePlaylists = await _repository.loadUserPlaylists();
-        final remoteLikedPlaylist = _findNeteaseLikedPlaylist(remotePlaylists);
-        if (remoteLikedPlaylist != null) {
-          _neteaseLikedPlaylistId = remoteLikedPlaylist.id;
-          _neteaseLikedPlaylistEncryptedId ??=
-              await _repository.syncNeteaseFavoritePlaylistEncryptedId();
-          await _mergeRemoteLikedTracks(remoteLikedPlaylist);
-        }
-        final basePlaylists =
-            remotePlaylists.isNotEmpty ? remotePlaylists : _playlists;
-        _rebuildPlaylists(basePlaylists: basePlaylists);
-      } catch (_) {
-        _rebuildPlaylists(basePlaylists: _playlists);
-      }
+      _applyRemoteStateSnapshot(state);
       _isPlaying = state.isPlaying && _queue.isNotEmpty;
       _position = state.position;
       _duration = state.currentTrack?.duration ?? _currentTrack.duration;
       unawaited(_loadLyricsForTrack(_currentTrack, forceRefresh: false));
+      unawaited(_repairPlaybackArtworkIfNeeded());
+      unawaited(_refreshHomeSections());
+      unawaited(() async {
+        try {
+          final remotePlaylists = await _repository.loadUserPlaylists();
+          await _applyRemotePlaylists(remotePlaylists);
+          notifyListeners();
+        } catch (_) {
+          _rebuildPlaylists(basePlaylists: _playlists);
+        }
+      }());
       _isReady = true;
-      unawaited(_savePlaybackSnapshot());
+      _markSnapshotDirty();
     } catch (error) {
       _error = error.toString();
     } finally {
@@ -534,30 +450,11 @@ class MusicStore extends ChangeNotifier {
 
   void _applyLocalSnapshot(MusicLocalCacheSnapshot snapshot) {
     final state = snapshot.state;
-    if (state.currentTrack != null) {
-      _currentTrack = state.currentTrack!;
-    }
-    if (state.queue.isNotEmpty) {
-      _queue = List<PlaybackQueueItem>.unmodifiable(state.queue);
-    }
-    if (state.playlists.isNotEmpty) {
-      _playlists = List<MusicPlaylist>.unmodifiable(state.playlists);
-    }
-    _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
-    _recentPlaylists = _normalizeRecentPlaylists(state.recentPlaylists);
-    _likedTracks = List<MusicTrack>.unmodifiable(state.likedTracks);
-    _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(
-      state.customPlaylists,
-    );
-    _currentPlaylistId = _normalizePlaylistId(state.currentPlaylistId);
-    _neteaseLikedPlaylistId = state.neteaseLikedPlaylistId?.trim();
-    _neteaseLikedPlaylistEncryptedId =
-        state.neteaseLikedPlaylistEncryptedId?.trim();
-    _isPlaying = state.isPlaying && state.queue.isNotEmpty;
-    _position = state.position;
-    _duration = state.currentTrack?.duration ?? _currentTrack.duration;
+    _applyRemoteStateSnapshot(state);
     _latestAiPlaylist =
-        state.latestAiPlaylist ?? snapshot.latestAiPlaylist ?? _latestAiPlaylist;
+        state.latestAiPlaylist ??
+        snapshot.latestAiPlaylist ??
+        _latestAiPlaylist;
     _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
       state.aiPlaylistHistory.isNotEmpty
           ? state.aiPlaylistHistory
@@ -635,7 +532,7 @@ class MusicStore extends ChangeNotifier {
     }
     await _playCurrentQueueHead(resetPosition: false);
     notifyListeners();
-    unawaited(_savePlaybackSnapshot());
+    _markSnapshotDirty(flushRemote: true);
   }
 
   Future<void> playPlaylist(MusicPlaylist playlist) async {
@@ -755,7 +652,7 @@ class MusicStore extends ChangeNotifier {
     _rebuildPlaylists(basePlaylists: _playlists);
     notifyListeners();
     await _repository.saveCustomPlaylists(_customPlaylists);
-    unawaited(_savePlaybackSnapshot());
+    _markSnapshotDirty();
   }
 
   Future<void> renameCustomPlaylist(
@@ -781,7 +678,7 @@ class MusicStore extends ChangeNotifier {
     _rebuildPlaylists(basePlaylists: _playlists);
     notifyListeners();
     await _repository.saveCustomPlaylists(_customPlaylists);
-    unawaited(_savePlaybackSnapshot());
+    _markSnapshotDirty();
   }
 
   Future<void> deleteCustomPlaylist(String playlistId) async {
@@ -802,7 +699,7 @@ class MusicStore extends ChangeNotifier {
     _rebuildPlaylists(basePlaylists: _playlists);
     notifyListeners();
     await _repository.saveCustomPlaylists(_customPlaylists);
-    unawaited(_savePlaybackSnapshot());
+    _markSnapshotDirty();
   }
 
   Future<bool> addTrackToCustomPlaylist(
@@ -832,7 +729,7 @@ class MusicStore extends ChangeNotifier {
       _rebuildPlaylists(basePlaylists: _playlists);
       notifyListeners();
       await _repository.saveCustomPlaylists(_customPlaylists);
-      unawaited(_savePlaybackSnapshot());
+      _markSnapshotDirty();
     }
     return added;
   }
@@ -859,7 +756,7 @@ class MusicStore extends ChangeNotifier {
     _rebuildPlaylists(basePlaylists: _playlists);
     notifyListeners();
     await _repository.saveCustomPlaylists(_customPlaylists);
-    unawaited(_savePlaybackSnapshot());
+    _markSnapshotDirty();
   }
 
   Future<List<MusicTrack>> loadPlaylistTracks(MusicPlaylist playlist) async {
@@ -875,7 +772,7 @@ class MusicStore extends ChangeNotifier {
       try {
         final tracks = await _repository.loadNeteaseFmTracks(limit: 3);
         _cacheTracksForPlaylist(playlist.id, tracks);
-        unawaited(_savePlaybackSnapshot());
+        _markSnapshotDirty();
         return _withFavoriteFlags(tracks);
       } catch (firstError) {
         _debugState(
@@ -892,7 +789,7 @@ class MusicStore extends ChangeNotifier {
         try {
           final tracks = await _repository.loadNeteaseFmTracks(limit: 1);
           _cacheTracksForPlaylist(playlist.id, tracks);
-          unawaited(_savePlaybackSnapshot());
+          _markSnapshotDirty();
           return _withFavoriteFlags(tracks);
         } catch (secondError) {
           _debugState(
@@ -928,7 +825,7 @@ class MusicStore extends ChangeNotifier {
     try {
       final tracks = await _repository.loadPlaylistTracks(playlist);
       _cacheTracksForPlaylist(playlist.id, tracks);
-      unawaited(_savePlaybackSnapshot());
+      _markSnapshotDirty();
       return _withFavoriteFlags(tracks);
     } catch (error) {
       final cachedTracks = _playlistTracksCache[playlist.id];
@@ -971,7 +868,7 @@ class MusicStore extends ChangeNotifier {
       if (currentDigest != nextDigest) {
         notifyListeners();
       }
-      await _savePlaybackSnapshot();
+      await _flushSnapshotNow();
     } catch (_) {
       // silent background refresh
     }
@@ -1002,7 +899,9 @@ class MusicStore extends ChangeNotifier {
             ? List<MusicPlaylist>.unmodifiable(
               [
                 normalizedPlaylist,
-                ..._recentPlaylists.where((item) => item.id != normalizedPlaylist.id),
+                ..._recentPlaylists.where(
+                  (item) => item.id != normalizedPlaylist.id,
+                ),
               ].take(6),
             )
             : _recentPlaylists;
@@ -1018,7 +917,7 @@ class MusicStore extends ChangeNotifier {
     _currentPlaylistId = normalizedPlaylist.id;
     _recentPlaylists = nextRecentPlaylists;
     notifyListeners();
-    unawaited(_savePlaybackSnapshot());
+    _markSnapshotDirty();
   }
 
   bool isTrackLiked(String trackId) =>
@@ -1118,7 +1017,7 @@ class MusicStore extends ChangeNotifier {
         level: 'ERROR',
       );
     }
-    unawaited(_savePlaybackSnapshot());
+    _markSnapshotDirty();
   }
 
   Future<void> searchTracks(String query) async {
@@ -1145,9 +1044,12 @@ class MusicStore extends ChangeNotifier {
       final registry = (_resolver as MusicSourceResolverImpl).registry;
       final netease = registry.providerById('netease');
       final migu = registry.providerById('migu');
-      final neteaseCandidates =
-          await netease?.searchTracks(keyword) ?? const [];
-      final miguCandidates = await migu?.searchTracks(keyword) ?? const [];
+      final resultsPair = await Future.wait([
+        Future(() async => await netease?.searchTracks(keyword) ?? const []),
+        Future(() async => await migu?.searchTracks(keyword) ?? const []),
+      ]);
+      final neteaseCandidates = resultsPair[0];
+      final miguCandidates = resultsPair[1];
       if (requestSerial != _searchRequestSerial) {
         return;
       }
@@ -1249,7 +1151,7 @@ class MusicStore extends ChangeNotifier {
       _isPlaying = true;
     }
     notifyListeners();
-    unawaited(_savePlaybackSnapshot());
+    _markSnapshotDirty();
   }
 
   Future<void> seekTo(Duration position) async {
@@ -1264,7 +1166,7 @@ class MusicStore extends ChangeNotifier {
     await _playbackAdapter.seek(clamped);
     _position = clamped;
     notifyListeners();
-    unawaited(_savePlaybackSnapshot());
+    _markSnapshotDirty();
   }
 
   Future<void> playNext() async {
@@ -1502,7 +1404,7 @@ class MusicStore extends ChangeNotifier {
         force: true,
       );
       notifyListeners();
-      unawaited(_savePlaybackSnapshot());
+      _markSnapshotDirty();
     } catch (error) {
       final message = error.toString();
       final friendlyMessage =
@@ -1576,7 +1478,7 @@ class MusicStore extends ChangeNotifier {
     _position = Duration.zero;
     _error = null;
     notifyListeners();
-    unawaited(_savePlaybackSnapshot());
+    _markSnapshotDirty();
   }
 
   Future<void> handleCommand(MusicCommand command) async {
@@ -1660,7 +1562,7 @@ class MusicStore extends ChangeNotifier {
         break;
     }
     notifyListeners();
-    unawaited(_savePlaybackSnapshot());
+    _markSnapshotDirty();
   }
 
   Future<void> _refreshLatestAiPlaylist() async {
@@ -1696,7 +1598,7 @@ class MusicStore extends ChangeNotifier {
         },
         force: true,
       );
-      unawaited(_savePlaybackSnapshot());
+      _markSnapshotDirty();
       notifyListeners();
     } catch (error) {
       _debugState(
@@ -2116,7 +2018,7 @@ class MusicStore extends ChangeNotifier {
       isFavorite: isTrackLiked(_currentTrack.id),
     );
     notifyListeners();
-    unawaited(_savePlaybackSnapshot());
+    _markSnapshotDirty();
   }
 
   MusicPlaylist? _findNeteaseLikedPlaylist(List<MusicPlaylist> playlists) {
@@ -2152,7 +2054,9 @@ class MusicStore extends ChangeNotifier {
     }
 
     final currentSourceTrackId =
-        (_currentTrack.sourceTrackId ?? _currentTrack.cachedPlayback?.sourceTrackId ?? '')
+        (_currentTrack.sourceTrackId ??
+                _currentTrack.cachedPlayback?.sourceTrackId ??
+                '')
             .trim();
     final currentTrackId = _currentTrack.id.trim();
     final currentKey = _trackIdentityKey(_currentTrack).trim();
@@ -2163,12 +2067,14 @@ class MusicStore extends ChangeNotifier {
 
     for (final track in _likedTracks) {
       final likedProvider =
-          (track.preferredSourceId ?? track.cachedPlayback?.providerId ?? '').trim();
+          (track.preferredSourceId ?? track.cachedPlayback?.providerId ?? '')
+              .trim();
       if (likedProvider.isNotEmpty && likedProvider != 'netease') {
         continue;
       }
       final likedSourceTrackId =
-          (track.sourceTrackId ?? track.cachedPlayback?.sourceTrackId ?? '').trim();
+          (track.sourceTrackId ?? track.cachedPlayback?.sourceTrackId ?? '')
+              .trim();
       if (currentSourceTrackId.isNotEmpty &&
           likedSourceTrackId.isNotEmpty &&
           currentSourceTrackId == likedSourceTrackId) {
@@ -2411,7 +2317,7 @@ class MusicStore extends ChangeNotifier {
     );
     if (persist) {
       notifyListeners();
-      unawaited(_savePlaybackSnapshot());
+      _markSnapshotDirty();
     }
     return _currentTrack.id == enriched.id ? _currentTrack : enriched;
   }
@@ -2443,6 +2349,7 @@ class MusicStore extends ChangeNotifier {
     bool clearCachedPlaybackOnRetry = true,
     bool allowSkipOnFailure = true,
   }) async {
+    unawaited(_warmUpcomingQueueTracks());
     final prepared = await _preparePlayback(_currentTrack);
     final preparedTrack = prepared.track.copyWith(
       isFavorite: isTrackLiked(prepared.track.id),
@@ -2649,6 +2556,17 @@ class MusicStore extends ChangeNotifier {
     return true;
   }
 
+  Future<void> _warmUpcomingQueueTracks() async {
+    if (_queue.length <= 1) return;
+    final warmed = await _warmupCoordinator.warmup(_queue);
+    if (identical(warmed, _queue)) {
+      return;
+    }
+    _queue = warmed;
+    _markSnapshotDirty();
+    notifyListeners();
+  }
+
   String _friendlyPlaybackError(Object error, {String? fallback}) {
     final raw = error.toString().trim();
     if (raw.isEmpty) return fallback ?? '当前歌曲暂时无法播放';
@@ -2662,8 +2580,30 @@ class MusicStore extends ChangeNotifier {
         raw.replaceFirst('Exception: ', '').replaceFirst('Bad state: ', '');
   }
 
-  Future<void> _savePlaybackSnapshot() async {
-    final snapshot = MusicLocalCacheSnapshot(
+  PlaybackSnapshotScheduler _createSnapshotScheduler() {
+    return PlaybackSnapshotScheduler(
+      buildSnapshot: _buildSnapshotBundle,
+      saveLocal: _repository.saveLocalCache,
+      saveRemote: (payload) {
+        return _repository.savePlaybackSnapshot(
+          currentTrack: payload.currentTrack,
+          queue: payload.queue,
+          isPlaying: payload.isPlaying,
+          position: payload.position,
+          likedTracks: payload.likedTracks,
+          recentPlaylists: payload.recentPlaylists,
+          customPlaylists: payload.customPlaylists,
+          currentPlaylistId: payload.currentPlaylistId,
+          neteaseLikedPlaylistId: payload.neteaseLikedPlaylistId,
+          neteaseLikedPlaylistEncryptedId:
+              payload.neteaseLikedPlaylistEncryptedId,
+        );
+      },
+    );
+  }
+
+  MusicSnapshotBundle _buildSnapshotBundle() {
+    final localSnapshot = MusicLocalCacheSnapshot(
       state: MusicStateSnapshot(
         currentTrack: _currentTrack,
         queue: _queue,
@@ -2685,19 +2625,29 @@ class MusicStore extends ChangeNotifier {
       ),
       cachedAt: DateTime.now(),
     );
-    await _repository.saveLocalCache(snapshot);
-    await _repository.savePlaybackSnapshot(
-      currentTrack: _currentTrack,
-      queue: _queue,
-      isPlaying: _isPlaying,
-      position: _position,
-      likedTracks: _likedTracks,
-      recentPlaylists: _recentPlaylists,
-      customPlaylists: _customPlaylists,
-      currentPlaylistId: _currentPlaylistId,
-      neteaseLikedPlaylistId: _neteaseLikedPlaylistId,
-      neteaseLikedPlaylistEncryptedId: _neteaseLikedPlaylistEncryptedId,
+    return MusicSnapshotBundle(
+      localSnapshot: localSnapshot,
+      remoteSnapshot: MusicRemoteSnapshotPayload(
+        currentTrack: _currentTrack,
+        queue: _queue,
+        isPlaying: _isPlaying,
+        position: _position,
+        likedTracks: _likedTracks,
+        recentPlaylists: _recentPlaylists,
+        customPlaylists: _customPlaylists,
+        currentPlaylistId: _currentPlaylistId,
+        neteaseLikedPlaylistId: _neteaseLikedPlaylistId,
+        neteaseLikedPlaylistEncryptedId: _neteaseLikedPlaylistEncryptedId,
+      ),
     );
+  }
+
+  void _markSnapshotDirty({bool flushRemote = false}) {
+    _snapshotScheduler.markDirty(flushRemote: flushRemote);
+  }
+
+  Future<void> _flushSnapshotNow() {
+    return _snapshotScheduler.flushNow();
   }
 
   String _searchDedupKey(MusicTrack track) {
@@ -2846,10 +2796,102 @@ class MusicStore extends ChangeNotifier {
 
   @override
   void dispose() {
+    _snapshotScheduler.dispose();
+    _aiPlaylistEnricher.cancel();
+    _warmupCoordinator.cancel();
     _eventsSub?.cancel();
     _playbackStateSub?.cancel();
     unawaited(_playbackAdapter.dispose());
     super.dispose();
+  }
+
+  void _applyRemoteStateSnapshot(MusicStateSnapshot state) {
+    if (state.currentTrack != null) {
+      _currentTrack = state.currentTrack!;
+    }
+    if (state.queue.isNotEmpty) {
+      _queue = List<PlaybackQueueItem>.unmodifiable(state.queue);
+    }
+    if (state.playlists.isNotEmpty) {
+      _playlists = List<MusicPlaylist>.unmodifiable(state.playlists);
+    }
+    _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
+    _recentPlaylists = _normalizeRecentPlaylists(state.recentPlaylists);
+    _likedTracks = List<MusicTrack>.unmodifiable(state.likedTracks);
+    _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(
+      state.customPlaylists,
+    );
+    _currentPlaylistId = _normalizePlaylistId(state.currentPlaylistId);
+    _neteaseLikedPlaylistId = state.neteaseLikedPlaylistId?.trim();
+    _neteaseLikedPlaylistEncryptedId =
+        state.neteaseLikedPlaylistEncryptedId?.trim();
+    _latestAiPlaylist = state.latestAiPlaylist ?? _latestAiPlaylist;
+    _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
+      state.aiPlaylistHistory,
+    );
+    _cacheKnownAiPlaylistTracks();
+  }
+
+  Future<void> _refreshHomeSections() async {
+    try {
+      final home = await _repository.loadMusicHome();
+      _recentTracks = List<MusicTrack>.unmodifiable(home.recentTracks);
+      _recentPlaylists = _normalizeRecentPlaylists(home.recentPlaylists);
+      _likedTracks = List<MusicTrack>.unmodifiable(home.likedTracks);
+      _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(
+        home.customPlaylists,
+      );
+      _neteaseLikedPlaylistId = home.neteaseLikedPlaylistId?.trim();
+      _neteaseLikedPlaylistEncryptedId =
+          home.neteaseLikedPlaylistEncryptedId?.trim();
+      _latestAiPlaylist = home.latestAiPlaylist ?? _latestAiPlaylist;
+      _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
+        home.aiPlaylistHistory,
+      );
+      if (_latestAiPlaylist != null) {
+        _latestAiPlaylist = await _aiPlaylistEnricher.enrichTopTracks(
+          _latestAiPlaylist!,
+          limit: 3,
+        );
+        _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
+          _aiPlaylistHistory.where((item) => item.id != _latestAiPlaylist!.id),
+        );
+      }
+      _cacheKnownAiPlaylistTracks();
+      unawaited(_repairLatestAiPlaylistArtworkIfNeeded());
+      _markSnapshotDirty();
+      notifyListeners();
+    } catch (error) {
+      _debugState(
+        'refresh.home.error',
+        extra: {'error': error.toString()},
+        force: true,
+        level: 'ERROR',
+      );
+    }
+  }
+
+  Future<void> _applyRemotePlaylists(
+    List<MusicPlaylist> remotePlaylists,
+  ) async {
+    final remoteLikedPlaylist = _findNeteaseLikedPlaylist(remotePlaylists);
+    if (remoteLikedPlaylist != null) {
+      _neteaseLikedPlaylistId = remoteLikedPlaylist.id;
+      _neteaseLikedPlaylistEncryptedId ??=
+          await _repository.syncNeteaseFavoritePlaylistEncryptedId();
+      await _mergeRemoteLikedTracks(remoteLikedPlaylist);
+    }
+    final basePlaylists =
+        remotePlaylists.isNotEmpty
+            ? remotePlaylists
+            : _playlists
+                .where(
+                  (item) =>
+                      item.id != likedPlaylist.id &&
+                      item.id != _latestAiPlaylist?.id,
+                )
+                .toList(growable: false);
+    _rebuildPlaylists(basePlaylists: basePlaylists);
   }
 }
 

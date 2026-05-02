@@ -160,6 +160,18 @@ class MusicStateDto(MusicApiModel):
     updatedAt: float | None = None
 
 
+class MusicHomeDto(MusicApiModel):
+    latestAiPlaylist: MusicAiPlaylistDraftDto | None = None
+    aiPlaylistHistory: list[MusicAiPlaylistDraftDto] = Field(default_factory=list)
+    recentTracks: list[MusicTrackDto] = Field(default_factory=list)
+    recentPlaylists: list[MusicPlaylistDto] = Field(default_factory=list)
+    likedTracks: list[MusicTrackDto] = Field(default_factory=list)
+    customPlaylists: list[CustomMusicPlaylistDto] = Field(default_factory=list)
+    neteaseLikedPlaylistId: str | None = None
+    neteaseLikedPlaylistEncryptedId: str | None = None
+    updatedAt: float | None = None
+
+
 class MusicStatePatchDto(MusicApiModel):
     currentTrack: MusicTrackDto | None = None
     queue: list[PlaybackQueueItemDto] | None = None
