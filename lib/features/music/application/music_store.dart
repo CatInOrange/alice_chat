@@ -83,7 +83,8 @@ class MusicStore extends ChangeNotifier {
   late PlaybackWarmupCoordinator _warmupCoordinator;
   late PlaybackSnapshotScheduler _snapshotScheduler;
   late Future<void> _configReady;
-  Future<void>? _ensureReadyTask;
+  Future<void>? _ensurePlaybackReadyTask;
+  Future<void>? _ensureLibraryReadyTask;
 
   OpenClawConfig get currentConfig =>
       _client is OpenClawHttpClient
@@ -99,7 +100,8 @@ class MusicStore extends ChangeNotifier {
   StreamSubscription<PlaybackAdapterState>? _playbackStateSub;
 
   bool _isReady = false;
-  bool _isLoading = false;
+  bool _isPreparingPlayback = false;
+  bool _isRefreshingLibrary = false;
   bool _isHydratingFromCache = false;
   bool _hasHydratedLocalCache = false;
   String? _error;
@@ -151,7 +153,9 @@ class MusicStore extends ChangeNotifier {
   DateTime? _lastRemoteStateUpdatedAt;
 
   bool get isReady => _isReady;
-  bool get isLoading => _isLoading;
+  bool get isPreparingPlayback => _isPreparingPlayback;
+  bool get isRefreshingLibrary => _isRefreshingLibrary;
+  bool get isLoading => _isPreparingPlayback || _isRefreshingLibrary;
   bool get isHydratingFromCache => _isHydratingFromCache;
   String? get error => _error;
   bool get isPlaying => _isPlaying;
@@ -302,7 +306,8 @@ class MusicStore extends ChangeNotifier {
     await _eventsSub?.cancel();
     _eventsSub = null;
     _isReady = false;
-    _ensureReadyTask = null;
+    _ensurePlaybackReadyTask = null;
+    _ensureLibraryReadyTask = null;
     _error = null;
     await _playbackStateSub?.cancel();
     _playbackStateSub = null;
@@ -319,32 +324,55 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> ensureReady() async {
-    await _hydrateFromLocalCacheIfNeeded();
-    if (!_isReady) {
-      _isReady = true;
-      notifyListeners();
-    }
-    final existingTask = _ensureReadyTask;
+    await ensureLibraryReady();
+  }
+
+  Future<void> ensurePlaybackReady() async {
+    await _ensureDataAccessReady();
+    final existingTask = _ensurePlaybackReadyTask;
     if (existingTask != null) {
       await existingTask;
       return;
     }
 
-    final task = _performEnsureReady();
-    _ensureReadyTask = task;
+    final task = _performEnsurePlaybackReady();
+    _ensurePlaybackReadyTask = task;
     try {
       await task;
     } finally {
-      if (identical(_ensureReadyTask, task)) {
-        _ensureReadyTask = null;
+      if (identical(_ensurePlaybackReadyTask, task)) {
+        _ensurePlaybackReadyTask = null;
       }
     }
   }
 
-  Future<void> refreshLibrary() async {
+  Future<void> ensureLibraryReady() async {
+    await ensurePlaybackReady();
+    final existingTask = _ensureLibraryReadyTask;
+    if (existingTask != null) {
+      await existingTask;
+      return;
+    }
+
+    final task = _performEnsureLibraryReady();
+    _ensureLibraryReadyTask = task;
+    try {
+      await task;
+    } finally {
+      if (identical(_ensureLibraryReadyTask, task)) {
+        _ensureLibraryReadyTask = null;
+      }
+    }
+  }
+
+  Future<void> _ensureDataAccessReady() async {
     await _hydrateFromLocalCacheIfNeeded();
     await _configReady;
-    _isLoading = true;
+  }
+
+  Future<void> refreshLibrary() async {
+    await _ensureDataAccessReady();
+    _isRefreshingLibrary = true;
     _error = null;
     notifyListeners();
     _debugState(
@@ -389,17 +417,16 @@ class MusicStore extends ChangeNotifier {
       );
       rethrow;
     } finally {
-      _isLoading = false;
+      _isRefreshingLibrary = false;
       notifyListeners();
     }
   }
 
-  Future<void> _performEnsureReady() async {
-    _isLoading = true;
+  Future<void> _performEnsurePlaybackReady() async {
+    _isPreparingPlayback = true;
     _error = null;
     notifyListeners();
     try {
-      await _configReady;
       await _playbackAdapter.initialize();
       await _playbackStateSub?.cancel();
       _playbackStateSub = _playbackAdapter.stateStream.listen(
@@ -412,22 +439,28 @@ class MusicStore extends ChangeNotifier {
       _duration = state.currentTrack?.duration ?? _currentTrack.duration;
       unawaited(_loadLyricsForTrack(_currentTrack, forceRefresh: false));
       unawaited(_repairPlaybackArtworkIfNeeded());
-      unawaited(_refreshHomeSections());
-      unawaited(() async {
-        try {
-          final remotePlaylists = await _repository.loadUserPlaylists();
-          await _applyRemotePlaylists(remotePlaylists);
-          notifyListeners();
-        } catch (_) {
-          _rebuildPlaylists(basePlaylists: _playlists);
-        }
-      }());
       _isReady = true;
       _markSnapshotDirty();
     } catch (error) {
       _error = error.toString();
     } finally {
-      _isLoading = false;
+      _isPreparingPlayback = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _performEnsureLibraryReady() async {
+    try {
+      await _refreshHomeSections();
+      final remotePlaylists = await _repository.loadUserPlaylists();
+      await _applyRemotePlaylists(remotePlaylists);
+      _currentTrack = _currentTrack.copyWith(
+        isFavorite: isTrackLiked(_currentTrack.id),
+      );
+      _markSnapshotDirty();
+      notifyListeners();
+    } catch (_) {
+      _rebuildPlaylists(basePlaylists: _playlists);
       notifyListeners();
     }
   }
@@ -520,7 +553,7 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> retryCurrentTrack() async {
-    await ensureReady();
+    await ensurePlaybackReady();
     _error = null;
     notifyListeners();
     if (_queue.isEmpty) {
@@ -767,7 +800,7 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<List<MusicTrack>> loadPlaylistTracks(MusicPlaylist playlist) async {
-    await ensureReady();
+    await ensurePlaybackReady();
     if (playlist.id == likedPlaylist.id) {
       return _withFavoriteFlags(
         _likedTracks
@@ -931,7 +964,7 @@ class MusicStore extends ChangeNotifier {
       _likedTracks.any((item) => item.id == trackId);
 
   Future<void> toggleTrackLiked(MusicTrack track) async {
-    await ensureReady();
+    await ensurePlaybackReady();
     final liked = !isTrackLiked(track.id);
     final playbackState = _playbackAdapter.state;
     final cachedPlayback =
@@ -1128,7 +1161,7 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> togglePlayPause() async {
-    await ensureReady();
+    await ensurePlaybackReady();
     if (_isPlaying) {
       await _playbackAdapter.pause();
       _isPlaying = false;
@@ -1162,7 +1195,7 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> seekTo(Duration position) async {
-    await ensureReady();
+    await ensurePlaybackReady();
     final maxMs =
         _duration.inMilliseconds > 0
             ? _duration.inMilliseconds
@@ -1206,7 +1239,7 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> enableIntelligenceMode() async {
-    await ensureReady();
+    await ensurePlaybackReady();
     final originalMode = _repeatMode;
     final sourceTrackId = (_currentTrack.sourceTrackId ?? '').trim();
     _debugState(
@@ -1454,7 +1487,7 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> playPrevious() async {
-    await ensureReady();
+    await ensurePlaybackReady();
     if (_position >= const Duration(seconds: 3)) {
       await seekTo(Duration.zero);
       return;
@@ -1489,7 +1522,7 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> handleCommand(MusicCommand command) async {
-    await ensureReady();
+    await ensurePlaybackReady();
     switch (command.type) {
       case MusicCommandType.play:
       case MusicCommandType.replaceQueue:
@@ -1788,7 +1821,7 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> playQueueIndex(int index) async {
-    await ensureReady();
+    await ensurePlaybackReady();
     if (index < 0 || index >= _queue.length) return;
     if (index == 0) {
       await _playCurrentQueueHead(
@@ -1999,7 +2032,7 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> syncLikedPlaylistFromNetease() async {
-    await ensureReady();
+    await ensurePlaybackReady();
     await _repository.syncNeteaseFavoritePlaylistEncryptedId();
     final remotePlaylists = await _repository.loadUserPlaylists();
     final remoteLikedPlaylist = _findNeteaseLikedPlaylist(remotePlaylists);
@@ -2806,7 +2839,9 @@ class MusicStore extends ChangeNotifier {
       'queueLength': _queue.length,
       'isPlaying': _isPlaying,
       'isBuffering': _isBuffering,
-      'isLoading': _isLoading,
+      'isPreparingPlayback': _isPreparingPlayback,
+      'isRefreshingLibrary': _isRefreshingLibrary,
+      'isLoading': isLoading,
       'isLoadingPlaylist': _isLoadingPlaylist,
       'latestAiPlaylistId': _latestAiPlaylist?.id,
       if (extra != null) ...extra,

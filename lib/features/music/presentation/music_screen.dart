@@ -598,7 +598,7 @@ class _MusicScreenState extends State<MusicScreen>
                       title: '最近播放',
                       subtitle: '刚刚听过的感觉 还能从这里回去',
                       actionLabel: '刷新',
-                      isBusy: store.isLoading,
+                      isBusy: store.isRefreshingLibrary,
                       onActionTap: () {
                         store.refreshLibrary();
                       },
@@ -623,7 +623,7 @@ class _MusicScreenState extends State<MusicScreen>
                       title: 'AI 历史歌单',
                       subtitle: '这次为你整理的在 之前的也还留着',
                       actionLabel: '刷新',
-                      isBusy: store.isLoading,
+                      isBusy: store.isRefreshingLibrary,
                       onActionTap: () {
                         store.refreshLibrary();
                       },
