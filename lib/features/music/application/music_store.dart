@@ -327,6 +327,10 @@ class MusicStore extends ChangeNotifier {
       _neteaseLikedPlaylistId = state.neteaseLikedPlaylistId?.trim();
       _neteaseLikedPlaylistEncryptedId =
           state.neteaseLikedPlaylistEncryptedId?.trim();
+      _latestAiPlaylist = state.latestAiPlaylist ?? _latestAiPlaylist;
+      _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
+        state.aiPlaylistHistory,
+      );
       try {
         _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
       } catch (error) {
@@ -346,7 +350,11 @@ class MusicStore extends ChangeNotifier {
           force: true,
           level: 'ERROR',
         );
-        _aiPlaylistHistory = const [];
+      }
+      if (_latestAiPlaylist != null) {
+        _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
+          _aiPlaylistHistory.where((item) => item.id != _latestAiPlaylist!.id),
+        );
       }
       _cacheKnownAiPlaylistTracks();
       unawaited(_repairLatestAiPlaylistArtworkIfNeeded());
@@ -430,6 +438,10 @@ class MusicStore extends ChangeNotifier {
       _neteaseLikedPlaylistId = state.neteaseLikedPlaylistId?.trim();
       _neteaseLikedPlaylistEncryptedId =
           state.neteaseLikedPlaylistEncryptedId?.trim();
+      _latestAiPlaylist = state.latestAiPlaylist ?? _latestAiPlaylist;
+      _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
+        state.aiPlaylistHistory,
+      );
       _currentTrack = _currentTrack.copyWith(
         isFavorite: isTrackLiked(_currentTrack.id),
       );
@@ -437,12 +449,19 @@ class MusicStore extends ChangeNotifier {
       try {
         _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
       } catch (_) {
-        _latestAiPlaylist = null;
+        _latestAiPlaylist = state.latestAiPlaylist ?? _latestAiPlaylist;
       }
       try {
         _aiPlaylistHistory = await _repository.loadAiPlaylistHistory();
       } catch (_) {
-        _aiPlaylistHistory = const [];
+        _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
+          state.aiPlaylistHistory,
+        );
+      }
+      if (_latestAiPlaylist != null) {
+        _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
+          _aiPlaylistHistory.where((item) => item.id != _latestAiPlaylist!.id),
+        );
       }
       _cacheKnownAiPlaylistTracks();
       unawaited(_repairLatestAiPlaylistArtworkIfNeeded());
@@ -506,20 +525,12 @@ class MusicStore extends ChangeNotifier {
     if (state.playlists.isNotEmpty) {
       _playlists = List<MusicPlaylist>.unmodifiable(state.playlists);
     }
-    if (state.recentTracks.isNotEmpty) {
-      _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
-    }
-    if (state.recentPlaylists.isNotEmpty) {
-      _recentPlaylists = _normalizeRecentPlaylists(state.recentPlaylists);
-    }
-    if (state.likedTracks.isNotEmpty) {
-      _likedTracks = List<MusicTrack>.unmodifiable(state.likedTracks);
-    }
-    if (state.customPlaylists.isNotEmpty) {
-      _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(
-        state.customPlaylists,
-      );
-    }
+    _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
+    _recentPlaylists = _normalizeRecentPlaylists(state.recentPlaylists);
+    _likedTracks = List<MusicTrack>.unmodifiable(state.likedTracks);
+    _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(
+      state.customPlaylists,
+    );
     _currentPlaylistId = _normalizePlaylistId(state.currentPlaylistId);
     _neteaseLikedPlaylistId = state.neteaseLikedPlaylistId?.trim();
     _neteaseLikedPlaylistEncryptedId =
@@ -527,12 +538,13 @@ class MusicStore extends ChangeNotifier {
     _isPlaying = state.isPlaying && state.queue.isNotEmpty;
     _position = state.position;
     _duration = state.currentTrack?.duration ?? _currentTrack.duration;
-    _latestAiPlaylist = snapshot.latestAiPlaylist ?? _latestAiPlaylist;
-    if (snapshot.aiPlaylistHistory.isNotEmpty) {
-      _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
-        snapshot.aiPlaylistHistory,
-      );
-    }
+    _latestAiPlaylist =
+        state.latestAiPlaylist ?? snapshot.latestAiPlaylist ?? _latestAiPlaylist;
+    _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
+      state.aiPlaylistHistory.isNotEmpty
+          ? state.aiPlaylistHistory
+          : snapshot.aiPlaylistHistory,
+    );
     if (snapshot.playlistTracksCache.isNotEmpty) {
       _playlistTracksCache
         ..clear()
@@ -834,17 +846,17 @@ class MusicStore extends ChangeNotifier {
 
   Future<List<MusicTrack>> loadPlaylistTracks(MusicPlaylist playlist) async {
     await ensureReady();
-    final cachedTracks = _playlistTracksCache[playlist.id];
-    if (cachedTracks != null && cachedTracks.isNotEmpty) {
-      unawaited(_refreshPlaylistTracksInBackground(playlist));
-      return _withFavoriteFlags(cachedTracks);
-    }
     if (playlist.id == likedPlaylist.id) {
       return _withFavoriteFlags(
         _likedTracks
             .map((track) => track.copyWith(isFavorite: true))
             .toList(growable: false),
       );
+    }
+    final cachedTracks = _playlistTracksCache[playlist.id];
+    if (cachedTracks != null && cachedTracks.isNotEmpty) {
+      unawaited(_refreshPlaylistTracksInBackground(playlist));
+      return _withFavoriteFlags(cachedTracks);
     }
     final customPlaylist = customPlaylistById(playlist.id);
     if (customPlaylist != null) {
@@ -927,12 +939,16 @@ class MusicStore extends ChangeNotifier {
       playlist.copyWith(trackCount: tracks.length),
     );
     _cacheTracksForPlaylist(normalizedPlaylist.id, tracks);
-    final nextRecentPlaylists = List<MusicPlaylist>.unmodifiable(
-      [
-        normalizedPlaylist,
-        ..._recentPlaylists.where((item) => item.id != normalizedPlaylist.id),
-      ].take(6),
-    );
+    final shouldAddToRecent = normalizedPlaylist.id != 'netease-fm';
+    final nextRecentPlaylists =
+        shouldAddToRecent
+            ? List<MusicPlaylist>.unmodifiable(
+              [
+                normalizedPlaylist,
+                ..._recentPlaylists.where((item) => item.id != normalizedPlaylist.id),
+              ].take(6),
+            )
+            : _recentPlaylists;
     await handleCommand(
       MusicCommand(
         type: MusicCommandType.replaceQueue,
@@ -1596,8 +1612,18 @@ class MusicStore extends ChangeNotifier {
 
   Future<void> _refreshLatestAiPlaylist() async {
     try {
+      final previousLatestId = _latestAiPlaylist?.id;
       _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
-      _aiPlaylistHistory = await _repository.loadAiPlaylistHistory();
+      try {
+        _aiPlaylistHistory = await _repository.loadAiPlaylistHistory();
+      } catch (_) {
+        // keep current history when refresh fails
+      }
+      if (_latestAiPlaylist != null) {
+        _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
+          _aiPlaylistHistory.where((item) => item.id != _latestAiPlaylist!.id),
+        );
+      }
       _cacheKnownAiPlaylistTracks();
       unawaited(_repairLatestAiPlaylistArtworkIfNeeded());
       _currentPlaylistId = _normalizePlaylistId(_currentPlaylistId);
@@ -1607,6 +1633,7 @@ class MusicStore extends ChangeNotifier {
         'ai_playlist.refresh',
         extra: {
           'latestAiPlaylistId': _latestAiPlaylist?.id,
+          'previousLatestId': previousLatestId,
           'latestAiTrackCount': _latestAiPlaylist?.tracks.length ?? 0,
           'aiHistoryCount': _aiPlaylistHistory.length,
           'heroTrackId': heroTrack?.id,
@@ -2503,6 +2530,25 @@ class MusicStore extends ChangeNotifier {
       }
       return raw;
     }
+    if (playlist.id == 'netease-fm') {
+      if (raw.contains('认证失败')) {
+        return raw;
+      }
+      if (raw.contains('404') ||
+          raw.contains('Not Found') ||
+          raw.contains('未找到') ||
+          raw.contains('unsupported')) {
+        return '私人 FM 暂时不可用，请确认后端已经更新到最新版本';
+      }
+      if (raw.contains('凭据未配置') ||
+          raw.contains('登录态缺失') ||
+          raw.contains('授权登录')) {
+        return '私人 FM 暂时不可用，请先检查网易云登录状态';
+      }
+      if (raw.contains('加载网易云私人 FM 失败')) {
+        return '私人 FM 暂时不可用，请稍后再试';
+      }
+    }
     if (playlist.id.startsWith('ai-playlist:')) {
       if (raw.contains('加载 AI 歌单失败') || raw.contains('加载 AI 历史歌单失败')) {
         return 'AI 歌单加载失败，请稍后再试';
@@ -2766,6 +2812,8 @@ class MusicStateSnapshot {
     this.currentPlaylistId,
     this.neteaseLikedPlaylistId,
     this.neteaseLikedPlaylistEncryptedId,
+    this.latestAiPlaylist,
+    this.aiPlaylistHistory = const [],
     this.isPlaying = false,
     this.position = Duration.zero,
   });
@@ -2780,6 +2828,8 @@ class MusicStateSnapshot {
   final String? currentPlaylistId;
   final String? neteaseLikedPlaylistId;
   final String? neteaseLikedPlaylistEncryptedId;
+  final MusicAiPlaylistDraft? latestAiPlaylist;
+  final List<MusicAiPlaylistDraft> aiPlaylistHistory;
   final bool isPlaying;
   final Duration position;
 }

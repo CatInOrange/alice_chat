@@ -345,8 +345,9 @@ class OpenClawHttpClient implements OpenClawClient {
 
   @override
   Future<Map<String, dynamic>> getNeteaseFm({int limit = 3}) async {
+    final safeLimit = limit.clamp(1, 20);
     final response = await _httpClient.get(
-      _uri('/api/music/netease/fm', queryParameters: {'limit': '$limit'}),
+      _uri('/api/music/netease/fm', queryParameters: {'limit': '$safeLimit'}),
       headers: _headers,
     );
     if (response.statusCode >= 400) {

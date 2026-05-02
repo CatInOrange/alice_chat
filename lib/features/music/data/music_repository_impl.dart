@@ -96,6 +96,19 @@ class MusicRepositoryImpl implements MusicRepository {
           (response['currentPlaylistId'] ?? '').toString().trim();
       final neteaseLikedPlaylistId =
           (response['neteaseLikedPlaylistId'] ?? '').toString().trim();
+      final neteaseLikedPlaylistEncryptedId =
+          (response['neteaseLikedPlaylistEncryptedId'] ?? '').toString().trim();
+      final latestAiPlaylistMap =
+          (response['latestAiPlaylist'] as Map?)?.cast<String, dynamic>();
+      final aiPlaylistHistory =
+          ((response['aiPlaylistHistory'] as List<dynamic>?) ?? const [])
+              .whereType<Map>()
+              .map(
+                (item) => MusicAiPlaylistDraft.fromMap(
+                  Map<String, dynamic>.from(item.cast<String, dynamic>()),
+                ),
+              )
+              .toList(growable: false);
       final positionMsRaw = response['positionMs'] ?? 0;
       return MusicStateSnapshot(
         currentTrack:
@@ -111,6 +124,15 @@ class MusicRepositoryImpl implements MusicRepository {
         currentPlaylistId: currentPlaylistId.isEmpty ? null : currentPlaylistId,
         neteaseLikedPlaylistId:
             neteaseLikedPlaylistId.isEmpty ? null : neteaseLikedPlaylistId,
+        neteaseLikedPlaylistEncryptedId:
+            neteaseLikedPlaylistEncryptedId.isEmpty
+                ? null
+                : neteaseLikedPlaylistEncryptedId,
+        latestAiPlaylist:
+            latestAiPlaylistMap == null
+                ? null
+                : MusicAiPlaylistDraft.fromMap(latestAiPlaylistMap),
+        aiPlaylistHistory: aiPlaylistHistory,
         isPlaying: response['isPlaying'] == true,
         position: Duration(
           milliseconds:
@@ -119,8 +141,11 @@ class MusicRepositoryImpl implements MusicRepository {
                   : int.tryParse('$positionMsRaw') ?? 0,
         ),
       );
-    } catch (_) {
-      return const MusicStateSnapshot();
+    } catch (error) {
+      await _debugLog('repository.loadMusicState.error', {
+        'error': error.toString(),
+      });
+      rethrow;
     }
   }
 
@@ -308,15 +333,11 @@ class MusicRepositoryImpl implements MusicRepository {
       updatedAt: draft.updatedAt,
     );
     if (changedCount > 0) {
-      try {
-        await _client.saveLatestAiPlaylist(payload: enrichedDraft.toMap());
-      } catch (error) {
-        await _debugLog('repository.loadLatestAiPlaylist.persist.error', {
-          'playlistId': draft.id,
-          'changedCount': changedCount,
-          'error': error.toString(),
-        });
-      }
+      await _debugLog('repository.loadLatestAiPlaylist.enriched_changes', {
+        'playlistId': draft.id,
+        'changedCount': changedCount,
+        'persistSkipped': true,
+      });
     }
     await _debugLog('repository.loadLatestAiPlaylist.enriched', {
       'playlistId': draft.id,
@@ -338,23 +359,16 @@ class MusicRepositoryImpl implements MusicRepository {
 
   @override
   Future<List<MusicAiPlaylistDraft>> loadAiPlaylistHistory() async {
-    try {
-      final response = await _client.getAiPlaylistHistory();
-      final raw = (response['playlists'] as List<dynamic>?) ?? const [];
-      return raw
-          .whereType<Map>()
-          .map(
-            (item) => MusicAiPlaylistDraft.fromMap(
-              Map<String, dynamic>.from(item.cast<String, dynamic>()),
-            ),
-          )
-          .toList(growable: false);
-    } catch (error) {
-      await _debugLog('repository.loadAiPlaylistHistory.error', {
-        'error': error.toString(),
-      });
-      return const <MusicAiPlaylistDraft>[];
-    }
+    final response = await _client.getAiPlaylistHistory();
+    final raw = (response['playlists'] as List<dynamic>?) ?? const [];
+    return raw
+        .whereType<Map>()
+        .map(
+          (item) => MusicAiPlaylistDraft.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
   }
 
   @override
@@ -412,7 +426,8 @@ class MusicRepositoryImpl implements MusicRepository {
 
   @override
   Future<List<MusicTrack>> loadNeteaseFmTracks({int limit = 20}) async {
-    final response = await _client.getNeteaseFm(limit: limit);
+    final safeLimit = limit.clamp(1, 20);
+    final response = await _client.getNeteaseFm(limit: safeLimit);
     final rawTracks = (response['tracks'] as List<dynamic>? ?? const [])
         .whereType<Map>()
         .map(
@@ -422,7 +437,7 @@ class MusicRepositoryImpl implements MusicRepository {
         )
         .toList(growable: false);
     await _debugLog('repository.loadNeteaseFmTracks.done', {
-      'limit': limit,
+      'limit': safeLimit,
       'trackCount': rawTracks.length,
       'firstTrackTitle': rawTracks.isEmpty ? '' : rawTracks.first.title,
     });

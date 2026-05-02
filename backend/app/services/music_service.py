@@ -83,23 +83,26 @@ class MusicService:
                 'updatedAt': playlist.updatedAt or now,
             }
         )
-        history_id = (playlist.id or '').strip() or f'ai-playlist:{int(now * 1000)}'
-        history_created_at = playlist.createdAt or canonical_latest.updatedAt or now
-        history_entry = canonical_latest.model_copy(
-            update={
-                'id': history_id,
-                'createdAt': history_created_at,
-                'updatedAt': canonical_latest.updatedAt or now,
-            }
-        )
-        deduped_history = [
-            history_entry,
-            *[
-                item
-                for item in history
-                if item.id != history_entry.id
-            ],
-        ][:50]
+        raw_history_id = (playlist.id or '').strip()
+        deduped_history = history[:50]
+        if raw_history_id != 'ai-playlist:latest':
+            history_id = raw_history_id or f'ai-playlist:{int(now * 1000)}'
+            history_created_at = playlist.createdAt or canonical_latest.updatedAt or now
+            history_entry = canonical_latest.model_copy(
+                update={
+                    'id': history_id,
+                    'createdAt': history_created_at,
+                    'updatedAt': canonical_latest.updatedAt or now,
+                }
+            )
+            deduped_history = [
+                history_entry,
+                *[
+                    item
+                    for item in history
+                    if item.id != history_entry.id
+                ],
+            ][:50]
         saved = self.store.save_state(
             {
                 'latestAiPlaylist': canonical_latest.model_dump(exclude_none=True),
