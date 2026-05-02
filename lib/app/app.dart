@@ -553,27 +553,44 @@ class _MainScaffoldState extends State<_MainScaffold>
                   ),
                 ),
                 Container(width: 1, color: const Color(0xFFE1E6F0)),
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  width: isDesktop ? 340 : 280,
-                  child: companion,
-                ),
-                if (_desktopLive2dVisible) ...[
-                  Container(width: 1, color: const Color(0xFFE1E6F0)),
-                  SizedBox(
-                    width: isDesktop ? 260 : 220,
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: _WorkbenchPlaceholderCard(
-                        child: WebviewScreen(
-                          key: const ValueKey('webview-live2d-sidecar'),
-                          active: _desktopLive2dVisible,
-                        ),
+                SizedBox(
+                  width: isDesktop ? 340 : 300,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: _WorkbenchPlaceholderCard(
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 220),
+                        switchInCurve: Curves.easeOutCubic,
+                        switchOutCurve: Curves.easeInCubic,
+                        child:
+                            _desktopLive2dVisible
+                                ? Column(
+                                  key: const ValueKey('companion-with-live2d'),
+                                  children: [
+                                    Expanded(flex: 4, child: companion),
+                                    Container(
+                                      height: 1,
+                                      color: const Color(0xFFE1E6F0),
+                                    ),
+                                    Expanded(
+                                      flex: 6,
+                                      child: WebviewScreen(
+                                        key: const ValueKey(
+                                          'webview-live2d-inline',
+                                        ),
+                                        active: _desktopLive2dVisible,
+                                      ),
+                                    ),
+                                  ],
+                                )
+                                : SizedBox.expand(
+                                  key: const ValueKey('companion-only'),
+                                  child: companion,
+                                ),
                       ),
                     ),
                   ),
-                ],
+                ),
               ],
             ),
           ),
