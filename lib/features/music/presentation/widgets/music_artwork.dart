@@ -1,9 +1,20 @@
+import 'dart:async';
+import 'dart:io';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
 import '../../../../core/debug/native_debug_bridge.dart';
 import '../../domain/music_models.dart';
+
+final CacheManager _musicArtworkCacheManager = CacheManager(
+  Config(
+    'alicechat_music_artwork',
+    stalePeriod: const Duration(days: 30),
+    maxNrOfCacheObjects: 600,
+  ),
+);
 
 String _normalizeArtworkUrl(String? value) {
   final trimmed = (value ?? '').trim();
@@ -52,6 +63,136 @@ String effectiveArtworkSource(MusicTrack track) {
   final direct = (track.artworkUrl ?? '').trim();
   if (direct.isNotEmpty) return 'track.artworkUrl';
   return 'none';
+}
+
+Map<String, String> _proxyHeaders(String? appPassword) {
+  final password = (appPassword ?? '').trim();
+  if (password.isEmpty) return const <String, String>{};
+  return <String, String>{'X-AliceChat-Password': password};
+}
+
+String _buildArtworkCacheKey(
+  String url, {
+  required Map<String, String> headers,
+}) {
+  final password = headers['X-AliceChat-Password'] ?? '';
+  return 'music-artwork|$url|$password';
+}
+
+bool _mapEquals(Map<String, String> a, Map<String, String> b) {
+  if (identical(a, b)) return true;
+  if (a.length != b.length) return false;
+  for (final entry in a.entries) {
+    if (b[entry.key] != entry.value) return false;
+  }
+  return true;
+}
+
+class _ResolvedArtworkFile {
+  const _ResolvedArtworkFile({
+    required this.file,
+    required this.sourceUrl,
+    required this.usedProxy,
+  });
+
+  final File file;
+  final String sourceUrl;
+  final bool usedProxy;
+}
+
+Future<_ResolvedArtworkFile?> _resolveArtworkFile({
+  required MusicTrack track,
+  required String? backendBaseUrl,
+  required String? appPassword,
+  required String logContext,
+}) async {
+  final rawArtworkUrl = effectiveArtworkUrl(track);
+  if (rawArtworkUrl == null) return null;
+
+  final proxiedArtworkUrl = buildProxiedArtworkUrl(
+    rawArtworkUrl,
+    backendBaseUrl: backendBaseUrl ?? '',
+  );
+  final proxyHeaders = _proxyHeaders(appPassword);
+  final proxyEligible = proxiedArtworkUrl != null && proxiedArtworkUrl != rawArtworkUrl;
+  final artworkSource = effectiveArtworkSource(track);
+
+  Future<_ResolvedArtworkFile> fetchFile(
+    String url, {
+    required bool usingProxy,
+    required Map<String, String> headers,
+  }) async {
+    final file = await _musicArtworkCacheManager.getSingleFile(
+      url,
+      key: _buildArtworkCacheKey(url, headers: headers),
+      headers: headers,
+    );
+    return _ResolvedArtworkFile(
+      file: file,
+      sourceUrl: url,
+      usedProxy: usingProxy,
+    );
+  }
+
+  try {
+    return await fetchFile(
+      rawArtworkUrl,
+      usingProxy: false,
+      headers: const <String, String>{},
+    );
+  } catch (error) {
+    final retryPayload = <String, dynamic>{
+      'tag': proxyEligible
+          ? 'music.artwork.image_retry_proxy'
+          : 'music.artwork.image_error',
+      'ts': DateTime.now().toIso8601String(),
+      'trackId': track.id,
+      'title': track.title,
+      'artist': track.artist,
+      'artworkUrl': rawArtworkUrl,
+      'rawArtworkUrl': rawArtworkUrl,
+      'proxiedArtworkUrl': proxiedArtworkUrl,
+      'artworkSource': artworkSource,
+      'usingProxy': false,
+      'context': logContext,
+      'error': error.toString(),
+    };
+    await NativeDebugBridge.instance.log(
+      'music',
+      retryPayload.entries.map((e) => '${e.key}=${e.value}').join(' | '),
+      level: proxyEligible ? 'WARN' : 'ERROR',
+    );
+    if (!proxyEligible) rethrow;
+  }
+
+  try {
+    return await fetchFile(
+      proxiedArtworkUrl,
+      usingProxy: true,
+      headers: proxyHeaders,
+    );
+  } catch (error) {
+    final payload = <String, dynamic>{
+      'tag': 'music.artwork.image_error',
+      'ts': DateTime.now().toIso8601String(),
+      'trackId': track.id,
+      'title': track.title,
+      'artist': track.artist,
+      'artworkUrl': proxiedArtworkUrl,
+      'rawArtworkUrl': rawArtworkUrl,
+      'proxiedArtworkUrl': proxiedArtworkUrl,
+      'artworkSource': artworkSource,
+      'usingProxy': true,
+      'context': logContext,
+      'error': error.toString(),
+    };
+    await NativeDebugBridge.instance.log(
+      'music',
+      payload.entries.map((e) => '${e.key}=${e.value}').join(' | '),
+      level: 'ERROR',
+    );
+    rethrow;
+  }
 }
 
 class MusicArtworkPalette {
@@ -136,14 +277,43 @@ class MusicArtwork extends StatefulWidget {
 }
 
 class _MusicArtworkState extends State<MusicArtwork> {
-  bool _useProxy = false;
+  late Future<_ResolvedArtworkFile?> _artworkFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _artworkFuture = _loadArtwork();
+  }
 
   @override
   void didUpdateWidget(covariant MusicArtwork oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (effectiveArtworkUrl(oldWidget.track) != effectiveArtworkUrl(widget.track)) {
-      _useProxy = false;
+    final oldRawUrl = effectiveArtworkUrl(oldWidget.track);
+    final nextRawUrl = effectiveArtworkUrl(widget.track);
+    final oldProxyUrl = buildProxiedArtworkUrl(
+      oldRawUrl,
+      backendBaseUrl: oldWidget.backendBaseUrl ?? '',
+    );
+    final nextProxyUrl = buildProxiedArtworkUrl(
+      nextRawUrl,
+      backendBaseUrl: widget.backendBaseUrl ?? '',
+    );
+    final oldHeaders = _proxyHeaders(oldWidget.appPassword);
+    final nextHeaders = _proxyHeaders(widget.appPassword);
+    if (oldRawUrl != nextRawUrl ||
+        oldProxyUrl != nextProxyUrl ||
+        !_mapEquals(oldHeaders, nextHeaders)) {
+      _artworkFuture = _loadArtwork();
     }
+  }
+
+  Future<_ResolvedArtworkFile?> _loadArtwork() {
+    return _resolveArtworkFile(
+      track: widget.track,
+      backendBaseUrl: widget.backendBaseUrl,
+      appPassword: widget.appPassword,
+      logContext: 'artwork',
+    );
   }
 
   @override
@@ -151,17 +321,7 @@ class _MusicArtworkState extends State<MusicArtwork> {
     final track = widget.track;
     final palette = paletteForTone(track.artworkTone);
     final borderRadius = BorderRadius.circular(widget.circular ? widget.size / 2 : 28);
-    final rawArtworkUrl = effectiveArtworkUrl(track);
-    final proxiedArtworkUrl = buildProxiedArtworkUrl(
-      rawArtworkUrl,
-      backendBaseUrl: widget.backendBaseUrl ?? '',
-    );
-    final artworkUrl = _useProxy ? proxiedArtworkUrl : rawArtworkUrl;
-    final artworkSource = effectiveArtworkSource(track);
     final effectiveOverlayStrength = widget.overlayStrength ?? (widget.showMeta ? 0.28 : 0.1);
-    final proxyEligible = rawArtworkUrl != null &&
-        proxiedArtworkUrl != null &&
-        proxiedArtworkUrl != rawArtworkUrl;
 
     final body = Container(
       width: widget.size,
@@ -184,27 +344,23 @@ class _MusicArtworkState extends State<MusicArtwork> {
       ),
       child: ClipRRect(
         borderRadius: borderRadius,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (artworkUrl != null)
-              Image.network(
-                artworkUrl,
-                headers:
-                    _useProxy && (widget.appPassword ?? '').trim().isNotEmpty
-                        ? {
-                          'X-AliceChat-Password': (widget.appPassword ?? '').trim(),
-                        }
-                        : null,
-                fit: BoxFit.cover,
-                cacheWidth: (widget.size * 3).round(),
-                cacheHeight: (widget.size * 3).round(),
-                filterQuality: FilterQuality.medium,
-                frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
-                  if (wasSynchronouslyLoaded || frame != null) {
-                    return child;
-                  }
-                  return DecoratedBox(
+        child: FutureBuilder<_ResolvedArtworkFile?>(
+          future: _artworkFuture,
+          builder: (context, snapshot) {
+            final resolved = snapshot.data;
+            final hasArtwork = resolved != null && resolved.file.existsSync();
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                if (hasArtwork)
+                  Image.file(
+                    resolved.file,
+                    fit: BoxFit.cover,
+                    gaplessPlayback: true,
+                    filterQuality: FilterQuality.medium,
+                  ),
+                if (!hasArtwork && snapshot.connectionState == ConnectionState.waiting)
+                  DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
@@ -212,51 +368,9 @@ class _MusicArtworkState extends State<MusicArtwork> {
                         colors: palette.gradient,
                       ),
                     ),
-                  );
-                },
-                errorBuilder: (_, error, stackTrace) {
-                  final shouldRetryWithProxy = !_useProxy && proxyEligible;
-                  final payload = <String, dynamic>{
-                    'tag': shouldRetryWithProxy
-                        ? 'music.artwork.image_retry_proxy'
-                        : 'music.artwork.image_error',
-                    'ts': DateTime.now().toIso8601String(),
-                    'trackId': track.id,
-                    'title': track.title,
-                    'artist': track.artist,
-                    'artworkUrl': artworkUrl,
-                    'rawArtworkUrl': rawArtworkUrl,
-                    'proxiedArtworkUrl': proxiedArtworkUrl,
-                    'artworkSource': artworkSource,
-                    'usingProxy': _useProxy,
-                    'error': error.toString(),
-                  };
-                  final message = payload.entries
-                      .map((e) => '${e.key}=${e.value}')
-                      .join(' | ');
-                  NativeDebugBridge.instance.log(
-                    'music',
-                    message,
-                    level: shouldRetryWithProxy ? 'WARN' : 'ERROR',
-                  );
-                  if (shouldRetryWithProxy) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (!mounted) return;
-                      setState(() {
-                        _useProxy = true;
-                      });
-                    });
-                    return DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: palette.gradient,
-                        ),
-                      ),
-                    );
-                  }
-                  return DecoratedBox(
+                  ),
+                if (!hasArtwork && snapshot.connectionState != ConnectionState.waiting)
+                  DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
@@ -279,105 +393,104 @@ class _MusicArtworkState extends State<MusicArtwork> {
                         ),
                       ),
                     ),
-                  );
-                },
-              ),
-            DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors:
-                      artworkUrl == null
+                  ),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: !hasArtwork
                           ? palette.gradient
                           : [
-                            Colors.black.withValues(
-                              alpha: effectiveOverlayStrength * 0.45,
-                            ),
-                            Colors.black.withValues(
-                              alpha: effectiveOverlayStrength + 0.08,
-                            ),
-                          ],
-                ),
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: Padding(
-                  padding: EdgeInsets.all(widget.circular ? widget.size * 0.16 : 18),
-                  child: Column(
-                    crossAxisAlignment:
-                        widget.circular
+                              Colors.black.withValues(
+                                alpha: effectiveOverlayStrength * 0.45,
+                              ),
+                              Colors.black.withValues(
+                                alpha: effectiveOverlayStrength + 0.08,
+                              ),
+                            ],
+                    ),
+                  ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: Padding(
+                      padding: EdgeInsets.all(widget.circular ? widget.size * 0.16 : 18),
+                      child: Column(
+                        crossAxisAlignment: widget.circular
                             ? CrossAxisAlignment.center
                             : CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      if (widget.showIconBadge)
-                        Container(
-                          width: widget.circular ? widget.size * 0.24 : 44,
-                          height: widget.circular ? widget.size * 0.24 : 44,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(
-                              alpha: artworkUrl == null ? 0.18 : 0.24,
-                            ),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            palette.icon,
-                            color: Colors.white,
-                            size: widget.circular ? widget.size * 0.11 : 22,
-                          ),
-                        )
-                      else
-                        const SizedBox.shrink(),
-                      if (widget.showMeta)
-                        Column(
-                          crossAxisAlignment:
-                              widget.circular
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          if (widget.showIconBadge)
+                            Container(
+                              width: widget.circular ? widget.size * 0.24 : 44,
+                              height: widget.circular ? widget.size * 0.24 : 44,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(
+                                  alpha: hasArtwork ? 0.24 : 0.18,
+                                ),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                palette.icon,
+                                color: Colors.white,
+                                size: widget.circular ? widget.size * 0.11 : 22,
+                              ),
+                            )
+                          else
+                            const SizedBox.shrink(),
+                          if (widget.showMeta)
+                            Column(
+                              crossAxisAlignment: widget.circular
                                   ? CrossAxisAlignment.center
                                   : CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              track.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign:
-                                  widget.circular ? TextAlign.center : TextAlign.start,
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: widget.circular ? widget.size * 0.08 : 18,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.2,
-                              ),
+                              children: [
+                                Text(
+                                  track.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: widget.circular
+                                      ? TextAlign.center
+                                      : TextAlign.start,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: widget.circular ? widget.size * 0.08 : 18,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.2,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  track.artist,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: widget.circular
+                                      ? TextAlign.center
+                                      : TextAlign.start,
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: 0.84),
+                                    fontSize: widget.circular ? widget.size * 0.042 : 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 6),
-                            Text(
-                              track.artist,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign:
-                                  widget.circular ? TextAlign.center : TextAlign.start,
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.84),
-                                fontSize: widget.circular ? widget.size * 0.042 : 13,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                    ],
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ),
-          ],
+              ],
+            );
+          },
         ),
       ),
     );
 
     if (widget.heroTag == null) {
-      return body;
+      return RepaintBoundary(child: body);
     }
-    return Hero(tag: widget.heroTag!, child: body);
+    return RepaintBoundary(child: Hero(tag: widget.heroTag!, child: body));
   }
 }
 
@@ -408,115 +521,118 @@ class MusicArtworkBackdrop extends StatefulWidget {
 }
 
 class _MusicArtworkBackdropState extends State<MusicArtworkBackdrop> {
-  bool _useProxy = false;
+  late Future<_ResolvedArtworkFile?> _artworkFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _artworkFuture = _loadArtwork();
+  }
 
   @override
   void didUpdateWidget(covariant MusicArtworkBackdrop oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (effectiveArtworkUrl(oldWidget.track) != effectiveArtworkUrl(widget.track)) {
-      _useProxy = false;
+    final oldRawUrl = effectiveArtworkUrl(oldWidget.track);
+    final nextRawUrl = effectiveArtworkUrl(widget.track);
+    final oldProxyUrl = buildProxiedArtworkUrl(
+      oldRawUrl,
+      backendBaseUrl: oldWidget.backendBaseUrl ?? '',
+    );
+    final nextProxyUrl = buildProxiedArtworkUrl(
+      nextRawUrl,
+      backendBaseUrl: widget.backendBaseUrl ?? '',
+    );
+    final oldHeaders = _proxyHeaders(oldWidget.appPassword);
+    final nextHeaders = _proxyHeaders(widget.appPassword);
+    if (oldRawUrl != nextRawUrl ||
+        oldProxyUrl != nextProxyUrl ||
+        !_mapEquals(oldHeaders, nextHeaders)) {
+      _artworkFuture = _loadArtwork();
     }
+  }
+
+  Future<_ResolvedArtworkFile?> _loadArtwork() {
+    return _resolveArtworkFile(
+      track: widget.track,
+      backendBaseUrl: widget.backendBaseUrl,
+      appPassword: widget.appPassword,
+      logContext: 'backdrop',
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final palette = paletteForTone(widget.track.artworkTone);
-    final rawArtworkUrl = effectiveArtworkUrl(widget.track);
-    final proxiedArtworkUrl = buildProxiedArtworkUrl(
-      rawArtworkUrl,
-      backendBaseUrl: widget.backendBaseUrl ?? '',
-    );
-    final artworkUrl = _useProxy ? proxiedArtworkUrl : rawArtworkUrl;
-    final proxyEligible = rawArtworkUrl != null &&
-        proxiedArtworkUrl != null &&
-        proxiedArtworkUrl != rawArtworkUrl;
-
     return ClipRRect(
       borderRadius: widget.borderRadius ?? BorderRadius.zero,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  palette.gradient.first,
-                  Color.lerp(palette.gradient.last, Colors.black, 0.12)!,
-                ],
-              ),
-            ),
-          ),
-          if (artworkUrl != null)
-            Opacity(
-              opacity: widget.opacity,
-              child: ImageFiltered(
-                imageFilter: ImageFilter.blur(
-                  sigmaX: widget.blurSigma,
-                  sigmaY: widget.blurSigma,
-                ),
-                child: Transform.scale(
-                  scale: 1.14,
-                  child: Image.network(
-                    artworkUrl,
-                    headers:
-                        _useProxy && (widget.appPassword ?? '').trim().isNotEmpty
-                            ? {
-                              'X-AliceChat-Password': (widget.appPassword ?? '').trim(),
-                            }
-                            : null,
-                    fit: BoxFit.cover,
-                    cacheWidth: 1200,
-                    cacheHeight: 1200,
-                    filterQuality: FilterQuality.medium,
-                    errorBuilder: (_, error, __) {
-                      if (!_useProxy && proxyEligible) {
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (!mounted) return;
-                          setState(() {
-                            _useProxy = true;
-                          });
-                        });
-                      }
-                      NativeDebugBridge.instance.log(
-                        'music',
-                        'tag=${(!_useProxy && proxyEligible) ? 'music.artwork.backdrop_retry_proxy' : 'music.artwork.backdrop_error'} | trackId=${widget.track.id} | title=${widget.track.title} | artworkUrl=$artworkUrl | rawArtworkUrl=$rawArtworkUrl | proxiedArtworkUrl=$proxiedArtworkUrl | usingProxy=$_useProxy | error=$error',
-                        level: (!_useProxy && proxyEligible) ? 'WARN' : 'ERROR',
-                      );
-                      return const SizedBox.shrink();
-                    },
+      child: FutureBuilder<_ResolvedArtworkFile?>(
+        future: _artworkFuture,
+        builder: (context, snapshot) {
+          final resolved = snapshot.data;
+          final hasArtwork = resolved != null && resolved.file.existsSync();
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      palette.gradient.first,
+                      Color.lerp(palette.gradient.last, Colors.black, 0.12)!,
+                    ],
                   ),
                 ),
               ),
-            ),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  palette.gradient.first.withValues(alpha: widget.tintOpacity),
-                  palette.gradient.last.withValues(alpha: widget.tintOpacity * 0.82),
-                ],
+              if (hasArtwork)
+                Opacity(
+                  opacity: widget.opacity,
+                  child: ImageFiltered(
+                    imageFilter: ImageFilter.blur(
+                      sigmaX: widget.blurSigma,
+                      sigmaY: widget.blurSigma,
+                    ),
+                    child: Transform.scale(
+                      scale: 1.14,
+                      child: Image.file(
+                        resolved.file,
+                        fit: BoxFit.cover,
+                        gaplessPlayback: true,
+                        filterQuality: FilterQuality.medium,
+                      ),
+                    ),
+                  ),
+                ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      palette.gradient.first.withValues(alpha: widget.tintOpacity),
+                      palette.gradient.last.withValues(alpha: widget.tintOpacity * 0.82),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.black.withValues(alpha: widget.darkness * 0.4),
-                  Colors.transparent,
-                  Colors.black.withValues(alpha: widget.darkness),
-                ],
-                stops: const [0, 0.45, 1],
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withValues(alpha: widget.darkness * 0.4),
+                      Colors.transparent,
+                      Colors.black.withValues(alpha: widget.darkness),
+                    ],
+                    stops: const [0, 0.45, 1],
+                  ),
+                ),
               ),
-            ),
-          ),
-        ],
+            ],
+          );
+        },
       ),
     );
   }
