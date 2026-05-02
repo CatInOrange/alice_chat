@@ -534,7 +534,7 @@ class MusicRepositoryImpl implements MusicRepository {
   }
 
   @override
-  Future<void> savePlaybackSnapshot({
+  Future<DateTime?> savePlaybackSnapshot({
     required MusicTrack currentTrack,
     required List<PlaybackQueueItem> queue,
     required bool isPlaying,
@@ -545,9 +545,10 @@ class MusicRepositoryImpl implements MusicRepository {
     String? currentPlaylistId,
     String? neteaseLikedPlaylistId,
     String? neteaseLikedPlaylistEncryptedId,
+    int? localRevision,
   }) async {
     try {
-      await _client.saveMusicState(
+      final response = await _client.saveMusicState(
         payload: {
           'currentTrack': currentTrack.toMap(),
           'queue': queue.map((item) => item.toMap()).toList(),
@@ -566,10 +567,24 @@ class MusicRepositoryImpl implements MusicRepository {
             'neteaseLikedPlaylistId': neteaseLikedPlaylistId,
           if (neteaseLikedPlaylistEncryptedId != null)
             'neteaseLikedPlaylistEncryptedId': neteaseLikedPlaylistEncryptedId,
+          if (localRevision != null) 'localRevision': localRevision,
         },
       );
+      final updatedAtRaw = response['updatedAt'];
+      if (updatedAtRaw is num) {
+        return DateTime.fromMillisecondsSinceEpoch(
+          (updatedAtRaw.toDouble() * 1000).round(),
+        );
+      }
+      final updatedAtSeconds = double.tryParse('${response['updatedAt']}');
+      if (updatedAtSeconds == null) {
+        return null;
+      }
+      return DateTime.fromMillisecondsSinceEpoch(
+        (updatedAtSeconds * 1000).round(),
+      );
     } catch (_) {
-      // best effort for first pass
+      return null;
     }
   }
 
@@ -755,6 +770,11 @@ class MusicRepositoryImpl implements MusicRepository {
               ? null
               : MusicAiPlaylistDraft.fromMap(latestAiPlaylistMap),
       aiPlaylistHistory: aiPlaylistHistory,
+      serverUpdatedAt: _parseUpdatedAt(response['updatedAt']),
+      remoteRevision:
+          (response['localRevision'] is num)
+              ? (response['localRevision'] as num).toInt()
+              : int.tryParse('${response['localRevision']}') ?? 0,
       isPlaying: response['isPlaying'] == true,
       position: Duration(
         milliseconds:
@@ -763,6 +783,17 @@ class MusicRepositoryImpl implements MusicRepository {
                 : int.tryParse('$positionMsRaw') ?? 0,
       ),
     );
+  }
+
+  DateTime? _parseUpdatedAt(dynamic raw) {
+    if (raw is num) {
+      return DateTime.fromMillisecondsSinceEpoch(
+        (raw.toDouble() * 1000).round(),
+      );
+    }
+    final seconds = double.tryParse('$raw');
+    if (seconds == null) return null;
+    return DateTime.fromMillisecondsSinceEpoch((seconds * 1000).round());
   }
 
   MusicAiPlaylistDraft _parseLatestAiPlaylistDraft(

@@ -16,6 +16,7 @@ class MusicRemoteSnapshotPayload {
     required this.currentPlaylistId,
     required this.neteaseLikedPlaylistId,
     required this.neteaseLikedPlaylistEncryptedId,
+    required this.localRevision,
   });
 
   final MusicTrack currentTrack;
@@ -28,6 +29,7 @@ class MusicRemoteSnapshotPayload {
   final String? currentPlaylistId;
   final String? neteaseLikedPlaylistId;
   final String? neteaseLikedPlaylistEncryptedId;
+  final int localRevision;
 }
 
 class MusicSnapshotBundle {

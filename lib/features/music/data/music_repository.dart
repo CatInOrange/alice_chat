@@ -52,7 +52,7 @@ abstract class MusicRepository {
     String? fallbackEncryptedPlaylistId,
   });
 
-  Future<void> savePlaybackSnapshot({
+  Future<DateTime?> savePlaybackSnapshot({
     required MusicTrack currentTrack,
     required List<PlaybackQueueItem> queue,
     required bool isPlaying,
@@ -63,5 +63,6 @@ abstract class MusicRepository {
     String? currentPlaylistId,
     String? neteaseLikedPlaylistId,
     String? neteaseLikedPlaylistEncryptedId,
+    int? localRevision,
   });
 }

@@ -46,7 +46,9 @@ class MusicStore:
         self.ensure_schema()
         current = self.load_state()
         merged = self._merge_dicts(current, payload or {})
+        next_revision = self._next_local_revision(current, payload or {})
         updated_at = _now()
+        merged["localRevision"] = next_revision
         merged["updatedAt"] = updated_at
         value_json = json.dumps(merged, ensure_ascii=False)
         with connect(self.db) as conn:
@@ -71,3 +73,8 @@ class MusicStore:
             else:
                 result[key] = value
         return result
+
+    def _next_local_revision(self, current: dict[str, Any], patch: dict[str, Any]) -> int:
+        current_revision = int(current.get('localRevision') or 0)
+        requested_revision = int(patch.get('localRevision') or 0)
+        return max(current_revision, requested_revision) + 1

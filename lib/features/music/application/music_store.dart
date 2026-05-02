@@ -145,6 +145,10 @@ class MusicStore extends ChangeNotifier {
   final Map<String, List<MusicTrack>> _intelligenceCache =
       <String, List<MusicTrack>>{};
   final Map<String, DateTime> _lastDebugLogAt = <String, DateTime>{};
+  int _localRevision = 0;
+  int _lastAckedRevision = 0;
+  bool _hasPendingRemoteSync = false;
+  DateTime? _lastRemoteStateUpdatedAt;
 
   bool get isReady => _isReady;
   bool get isLoading => _isLoading;
@@ -449,8 +453,11 @@ class MusicStore extends ChangeNotifier {
   }
 
   void _applyLocalSnapshot(MusicLocalCacheSnapshot snapshot) {
+    _localRevision = snapshot.localRevision;
+    _lastAckedRevision = snapshot.lastAckedRevision;
+    _hasPendingRemoteSync = snapshot.hasPendingSync;
     final state = snapshot.state;
-    _applyRemoteStateSnapshot(state);
+    _applyRemoteStateSnapshot(state, allowStaleOverride: true);
     _latestAiPlaylist =
         state.latestAiPlaylist ??
         snapshot.latestAiPlaylist ??
@@ -2584,8 +2591,8 @@ class MusicStore extends ChangeNotifier {
     return PlaybackSnapshotScheduler(
       buildSnapshot: _buildSnapshotBundle,
       saveLocal: _repository.saveLocalCache,
-      saveRemote: (payload) {
-        return _repository.savePlaybackSnapshot(
+      saveRemote: (payload) async {
+        final ackedAt = await _repository.savePlaybackSnapshot(
           currentTrack: payload.currentTrack,
           queue: payload.queue,
           isPlaying: payload.isPlaying,
@@ -2597,7 +2604,18 @@ class MusicStore extends ChangeNotifier {
           neteaseLikedPlaylistId: payload.neteaseLikedPlaylistId,
           neteaseLikedPlaylistEncryptedId:
               payload.neteaseLikedPlaylistEncryptedId,
+          localRevision: payload.localRevision,
         );
+        if (payload.localRevision >= _lastAckedRevision) {
+          _lastAckedRevision = payload.localRevision;
+          _hasPendingRemoteSync = _lastAckedRevision < _localRevision;
+          if (ackedAt != null) {
+            _lastRemoteStateUpdatedAt = ackedAt;
+          }
+          await _repository.saveLocalCache(
+            _buildSnapshotBundle().localSnapshot,
+          );
+        }
       },
     );
   }
@@ -2624,6 +2642,9 @@ class MusicStore extends ChangeNotifier {
         _playlistTracksCache,
       ),
       cachedAt: DateTime.now(),
+      localRevision: _localRevision,
+      lastAckedRevision: _lastAckedRevision,
+      hasPendingSync: _hasPendingRemoteSync,
     );
     return MusicSnapshotBundle(
       localSnapshot: localSnapshot,
@@ -2638,11 +2659,14 @@ class MusicStore extends ChangeNotifier {
         currentPlaylistId: _currentPlaylistId,
         neteaseLikedPlaylistId: _neteaseLikedPlaylistId,
         neteaseLikedPlaylistEncryptedId: _neteaseLikedPlaylistEncryptedId,
+        localRevision: _localRevision,
       ),
     );
   }
 
   void _markSnapshotDirty({bool flushRemote = false}) {
+    _localRevision += 1;
+    _hasPendingRemoteSync = true;
     _snapshotScheduler.markDirty(flushRemote: flushRemote);
   }
 
@@ -2805,7 +2829,36 @@ class MusicStore extends ChangeNotifier {
     super.dispose();
   }
 
-  void _applyRemoteStateSnapshot(MusicStateSnapshot state) {
+  void _applyRemoteStateSnapshot(
+    MusicStateSnapshot state, {
+    bool allowStaleOverride = false,
+  }) {
+    final remoteUpdatedAt = state.serverUpdatedAt;
+    final remoteRevision = state.remoteRevision;
+    final hasNewerLocal =
+        _hasPendingRemoteSync || _localRevision > _lastAckedRevision;
+    if (!allowStaleOverride && hasNewerLocal) {
+      final remoteLooksFresh =
+          remoteRevision > 0 && remoteRevision >= _localRevision;
+      final remoteTimeFresh =
+          remoteUpdatedAt != null &&
+          (_lastRemoteStateUpdatedAt == null ||
+              !remoteUpdatedAt.isBefore(_lastRemoteStateUpdatedAt!));
+      if (!remoteLooksFresh && !remoteTimeFresh) {
+        _debugState(
+          'state.apply_remote.skipped_stale',
+          extra: {
+            'remoteRevision': remoteRevision,
+            'localRevision': _localRevision,
+            'lastAckedRevision': _lastAckedRevision,
+            'remoteUpdatedAt': remoteUpdatedAt?.toIso8601String(),
+            'lastRemoteUpdatedAt': _lastRemoteStateUpdatedAt?.toIso8601String(),
+          },
+          force: true,
+        );
+        return;
+      }
+    }
     if (state.currentTrack != null) {
       _currentTrack = state.currentTrack!;
     }
@@ -2830,11 +2883,38 @@ class MusicStore extends ChangeNotifier {
       state.aiPlaylistHistory,
     );
     _cacheKnownAiPlaylistTracks();
+    if (remoteRevision > 0) {
+      _lastAckedRevision =
+          remoteRevision > _lastAckedRevision
+              ? remoteRevision
+              : _lastAckedRevision;
+      if (remoteRevision > _localRevision) {
+        _localRevision = remoteRevision;
+      }
+      _hasPendingRemoteSync = _localRevision > _lastAckedRevision;
+    }
+    if (remoteUpdatedAt != null) {
+      _lastRemoteStateUpdatedAt = remoteUpdatedAt;
+    }
   }
 
   Future<void> _refreshHomeSections() async {
     try {
       final home = await _repository.loadMusicHome();
+      if (_hasPendingRemoteSync &&
+          home.remoteRevision > 0 &&
+          home.remoteRevision < _localRevision) {
+        _debugState(
+          'refresh.home.skipped_stale',
+          extra: {
+            'homeRevision': home.remoteRevision,
+            'localRevision': _localRevision,
+            'lastAckedRevision': _lastAckedRevision,
+          },
+          force: true,
+        );
+        return;
+      }
       _recentTracks = List<MusicTrack>.unmodifiable(home.recentTracks);
       _recentPlaylists = _normalizeRecentPlaylists(home.recentPlaylists);
       _likedTracks = List<MusicTrack>.unmodifiable(home.likedTracks);
@@ -2909,6 +2989,8 @@ class MusicStateSnapshot {
     this.neteaseLikedPlaylistEncryptedId,
     this.latestAiPlaylist,
     this.aiPlaylistHistory = const [],
+    this.serverUpdatedAt,
+    this.remoteRevision = 0,
     this.isPlaying = false,
     this.position = Duration.zero,
   });
@@ -2925,6 +3007,8 @@ class MusicStateSnapshot {
   final String? neteaseLikedPlaylistEncryptedId;
   final MusicAiPlaylistDraft? latestAiPlaylist;
   final List<MusicAiPlaylistDraft> aiPlaylistHistory;
+  final DateTime? serverUpdatedAt;
+  final int remoteRevision;
   final bool isPlaying;
   final Duration position;
 }

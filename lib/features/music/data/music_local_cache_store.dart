@@ -13,6 +13,9 @@ class MusicLocalCacheSnapshot {
     this.aiPlaylistHistory = const [],
     this.playlistTracksCache = const {},
     this.cachedAt,
+    this.localRevision = 0,
+    this.lastAckedRevision = 0,
+    this.hasPendingSync = false,
   });
 
   final MusicStateSnapshot state;
@@ -20,6 +23,9 @@ class MusicLocalCacheSnapshot {
   final List<MusicAiPlaylistDraft> aiPlaylistHistory;
   final Map<String, List<MusicTrack>> playlistTracksCache;
   final DateTime? cachedAt;
+  final int localRevision;
+  final int lastAckedRevision;
+  final bool hasPendingSync;
 }
 
 class MusicLocalCacheStore {
@@ -144,6 +150,9 @@ class MusicLocalCacheStore {
           ),
         ),
         cachedAt: _nullableDateTime(map['cachedAt']),
+        localRevision: _intValue(map['localRevision']),
+        lastAckedRevision: _intValue(map['lastAckedRevision']),
+        hasPendingSync: map['hasPendingSync'] == true,
       );
     } catch (_) {
       return null;
@@ -188,6 +197,9 @@ class MusicLocalCacheStore {
           value.map((item) => item.toMap()).toList(growable: false),
         ),
       ),
+      'localRevision': snapshot.localRevision,
+      'lastAckedRevision': snapshot.lastAckedRevision,
+      'hasPendingSync': snapshot.hasPendingSync,
     };
     await prefs.setString(_cacheKey, jsonEncode(payload));
   }

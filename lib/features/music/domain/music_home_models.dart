@@ -11,6 +11,7 @@ class MusicHomeBundle {
     this.neteaseLikedPlaylistId,
     this.neteaseLikedPlaylistEncryptedId,
     this.serverUpdatedAt,
+    this.remoteRevision = 0,
   });
 
   final MusicAiPlaylistDraft? latestAiPlaylist;
@@ -22,4 +23,5 @@ class MusicHomeBundle {
   final String? neteaseLikedPlaylistId;
   final String? neteaseLikedPlaylistEncryptedId;
   final DateTime? serverUpdatedAt;
+  final int remoteRevision;
 }

@@ -78,6 +78,7 @@ class MusicService:
                     'customPlaylists': custom_playlists_payload if isinstance(custom_playlists_payload, list) else [],
                     'neteaseLikedPlaylistId': state.get('neteaseLikedPlaylistId'),
                     'neteaseLikedPlaylistEncryptedId': state.get('neteaseLikedPlaylistEncryptedId'),
+                    'localRevision': state.get('localRevision'),
                     'updatedAt': state.get('updatedAt'),
                 }
             )

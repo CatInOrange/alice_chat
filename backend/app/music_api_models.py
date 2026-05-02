@@ -157,6 +157,7 @@ class MusicStateDto(MusicApiModel):
     currentPlaylistId: str | None = None
     neteaseLikedPlaylistId: str | None = None
     neteaseLikedPlaylistEncryptedId: str | None = None
+    localRevision: int | None = None
     updatedAt: float | None = None
 
 
@@ -169,6 +170,7 @@ class MusicHomeDto(MusicApiModel):
     customPlaylists: list[CustomMusicPlaylistDto] = Field(default_factory=list)
     neteaseLikedPlaylistId: str | None = None
     neteaseLikedPlaylistEncryptedId: str | None = None
+    localRevision: int | None = None
     updatedAt: float | None = None
 
 
@@ -187,6 +189,7 @@ class MusicStatePatchDto(MusicApiModel):
     currentPlaylistId: str | None = None
     neteaseLikedPlaylistId: str | None = None
     neteaseLikedPlaylistEncryptedId: str | None = None
+    localRevision: int | None = None
 
 
 class MusicProviderDto(MusicApiModel):
