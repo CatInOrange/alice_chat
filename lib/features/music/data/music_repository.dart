@@ -34,6 +34,8 @@ abstract class MusicRepository {
 
   Future<String?> syncNeteaseFavoritePlaylistEncryptedId();
 
+  Future<List<MusicPlaylist>> syncNeteaseFavoritePlaylist();
+
   Future<void> setTrackLiked(MusicTrack track, bool liked);
 
   Future<List<MusicTrack>> loadPlaylistTracks(MusicPlaylist playlist);

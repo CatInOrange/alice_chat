@@ -411,6 +411,16 @@ class MusicRepositoryImpl implements MusicRepository {
   }
 
   @override
+  Future<List<MusicPlaylist>> syncNeteaseFavoritePlaylist() async {
+    final response = await _client.syncNeteaseFavoritePlaylist();
+    final playlist =
+        (response['playlist'] as Map?)?.cast<String, dynamic>() ??
+        const <String, dynamic>{};
+    if (playlist.isEmpty) return const <MusicPlaylist>[];
+    return [MusicPlaylist.fromMap(playlist)];
+  }
+
+  @override
   Future<void> setTrackLiked(MusicTrack track, bool liked) async {
     final current = await loadLikedTracks();
     final filtered = current

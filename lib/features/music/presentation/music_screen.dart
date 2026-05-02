@@ -1886,6 +1886,7 @@ class _PlaylistDetailScreen extends StatefulWidget {
 
 class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
   bool _isPlayingAll = false;
+  bool _isSyncingLikedPlaylist = false;
   final Set<int> _pendingTrackIndexes = <int>{};
 
   Future<void> _showTrackActions(
@@ -2016,6 +2017,49 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                         ],
                       ),
                     ),
+                    if (playlist.id == store.likedPlaylist.id)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: OutlinedButton.icon(
+                          onPressed:
+                              _isSyncingLikedPlaylist
+                                  ? null
+                                  : () async {
+                                    setState(() {
+                                      _isSyncingLikedPlaylist = true;
+                                    });
+                                    try {
+                                      await store.syncLikedPlaylistFromNetease();
+                                      if (!context.mounted) return;
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('已同步网易云喜欢歌单')),
+                                      );
+                                    } catch (error) {
+                                      if (!context.mounted) return;
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('同步失败：$error')),
+                                      );
+                                    } finally {
+                                      if (mounted) {
+                                        setState(() {
+                                          _isSyncingLikedPlaylist = false;
+                                        });
+                                      }
+                                    }
+                                  },
+                          icon:
+                              _isSyncingLikedPlaylist
+                                  ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                  : const Icon(Icons.sync_rounded),
+                          label: Text(_isSyncingLikedPlaylist ? '同步中' : '同步'),
+                        ),
+                      ),
                     FilledButton.icon(
                       onPressed:
                           tracks.isEmpty ||

@@ -132,6 +132,10 @@ class MusicPlayerScreen extends StatelessWidget {
                                 track: currentTrack,
                                 isPlaying: store.isPlaying,
                                 isBuffering: store.isBuffering,
+                                hasPrevious: store.hasPreviousTrack,
+                                hasNext: store.hasNextTrack,
+                                onPrevious: store.playPrevious,
+                                onNext: store.playNext,
                               ),
                               const SizedBox(height: 20),
                               _LyricsPreviewCard(
@@ -567,11 +571,19 @@ class _DiscStage extends StatefulWidget {
     required this.track,
     required this.isPlaying,
     required this.isBuffering,
+    required this.hasPrevious,
+    required this.hasNext,
+    required this.onPrevious,
+    required this.onNext,
   });
 
   final MusicTrack track;
   final bool isPlaying;
   final bool isBuffering;
+  final bool hasPrevious;
+  final bool hasNext;
+  final Future<void> Function() onPrevious;
+  final Future<void> Function() onNext;
 
   @override
   State<_DiscStage> createState() => _DiscStageState();
@@ -615,127 +627,116 @@ class _DiscStageState extends State<_DiscStage>
     final palette = paletteForTone(widget.track.artworkTone);
     return SizedBox(
       height: 352,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Container(
-            width: 338,
-            height: 338,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  palette.glowColor.withValues(alpha: 0.42),
-                  Colors.transparent,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragEnd: (details) async {
+          final velocity = details.primaryVelocity ?? 0;
+          if (velocity <= -180 && widget.hasNext) {
+            await widget.onNext();
+            return;
+          }
+          if (velocity >= 180 && widget.hasPrevious) {
+            await widget.onPrevious();
+          }
+        },
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Container(
+              width: 338,
+              height: 338,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    palette.glowColor.withValues(alpha: 0.42),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+            RotationTransition(
+              turns: _controller,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Container(
+                    width: 286,
+                    height: 286,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          Colors.white.withValues(alpha: 0.9),
+                          Colors.white.withValues(alpha: 0.26),
+                        ],
+                      ),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x16000000),
+                          blurRadius: 18,
+                          offset: Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    width: 266,
+                    height: 266,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.5),
+                        width: 10,
+                      ),
+                    ),
+                  ),
+                  Container(
+                    width: 248,
+                    height: 248,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.14),
+                        width: 1.5,
+                      ),
+                    ),
+                  ),
+                  MusicArtwork(
+                    track: widget.track,
+                    size: 238,
+                    circular: true,
+                    heroTag: 'music-artwork-${widget.track.id}',
+                    showMeta: false,
+                    showIconBadge: false,
+                    overlayStrength: 0.06,
+                    backendBaseUrl: context.read<MusicStore>().currentConfig.baseUrl,
+                    appPassword: context.read<MusicStore>().currentConfig.appPassword,
+                  ),
                 ],
               ),
             ),
-          ),
-          RotationTransition(
-            turns: _controller,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Container(
-                  width: 286,
-                  height: 286,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        Colors.white.withValues(alpha: 0.9),
-                        Colors.white.withValues(alpha: 0.26),
-                      ],
-                    ),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x16000000),
-                        blurRadius: 18,
-                        offset: Offset(0, 10),
-                      ),
-                    ],
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.78),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.7),
+                  width: 1,
+                ),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x14000000),
+                    blurRadius: 10,
+                    offset: Offset(0, 4),
                   ),
-                ),
-                Container(
-                  width: 266,
-                  height: 266,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.5),
-                      width: 10,
-                    ),
-                  ),
-                ),
-                Container(
-                  width: 248,
-                  height: 248,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.14),
-                      width: 1.5,
-                    ),
-                  ),
-                ),
-                MusicArtwork(
-                  track: widget.track,
-                  size: 238,
-                  circular: true,
-                  heroTag: 'music-artwork-${widget.track.id}',
-                  showMeta: false,
-                  showIconBadge: false,
-                  overlayStrength: 0.06,
-                  backendBaseUrl: context.read<MusicStore>().currentConfig.baseUrl,
-                  appPassword: context.read<MusicStore>().currentConfig.appPassword,
-                ),
-              ],
-            ),
-          ),
-          Container(
-            width: 46,
-            height: 46,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.white.withValues(alpha: 0.94),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.8),
-                width: 1.5,
-              ),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x22000000),
-                  blurRadius: 12,
-                  offset: Offset(0, 6),
-                ),
-              ],
-            ),
-            child: Center(
-              child: Container(
-                width: 22,
-                height: 22,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: palette.gradient.first.withValues(alpha: 0.22),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.65),
-                    width: 1,
-                  ),
-                ),
-                child: Center(
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Color(0xFF111111),
-                    ),
-                  ),
-                ),
+                ],
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

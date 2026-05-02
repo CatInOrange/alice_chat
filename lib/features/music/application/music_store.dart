@@ -1207,6 +1207,9 @@ class MusicStore extends ChangeNotifier {
 
   bool get canAttemptIntelligenceMode => _currentTrackProviderId() == 'netease';
 
+  bool get canManualSyncNeteaseLikedPlaylist =>
+      (_neteaseLikedPlaylistId ?? '').trim().isNotEmpty;
+
   String? get intelligenceModeHint {
     if (isIntelligenceMode) {
       return '后续会根据当前歌曲自动续播相似内容';
@@ -1215,7 +1218,7 @@ class MusicStore extends ChangeNotifier {
       return '心动模式仅支持当前有网易云音源的歌曲';
     }
     if (!canEnableIntelligenceMode) {
-      return '当前歌曲有网易云音源，但需要从网易云歌单内开启心动模式';
+      return '当前歌曲还不在“我喜欢”的网易云收藏里';
     }
     return '当前歌曲可开启心动模式';
   }
@@ -1261,7 +1264,7 @@ class MusicStore extends ChangeNotifier {
           originalMode == MusicRepeatMode.intelligence
               ? MusicRepeatMode.one
               : originalMode;
-      _error = '当前歌曲有网易云音源，但还缺少网易云歌单上下文，暂时无法开启心动模式';
+      _error = '当前歌曲还不在“我喜欢”的网易云收藏里，暂时无法开启心动模式';
       _debugState(
         'intelligence.enable.blocked_no_context',
         extra: {
@@ -1912,13 +1915,8 @@ class MusicStore extends ChangeNotifier {
   }
 
   MusicPlaylist? _resolveIntelligenceContext() {
-    final playlist = currentPlaylist;
-    if (playlist != null && _providerIdForPlaylist(playlist.id) == 'netease') {
-      return playlist;
-    }
-    if (_intelligenceSourcePlaylist != null &&
-        _providerIdForPlaylist(_intelligenceSourcePlaylist!.id) == 'netease') {
-      return _intelligenceSourcePlaylist;
+    if (_currentTrackProviderId() != 'netease') {
+      return null;
     }
     final currentTrackKey = _trackIdentityKey(_currentTrack);
     if ((_neteaseLikedPlaylistId ?? '').trim().isNotEmpty &&
@@ -1933,21 +1931,9 @@ class MusicStore extends ChangeNotifier {
         artworkTone: MusicArtworkTone.rose,
       );
     }
-    for (final item in _recentPlaylists) {
-      if (_providerIdForPlaylist(item.id) == 'netease') {
-        final tracks = _playlistTracksCache[item.id] ?? const <MusicTrack>[];
-        if (tracks.any((track) => track.id == _currentTrack.id)) {
-          return item;
-        }
-      }
-    }
-    for (final item in _playlists) {
-      if (_providerIdForPlaylist(item.id) == 'netease') {
-        final tracks = _playlistTracksCache[item.id] ?? const <MusicTrack>[];
-        if (tracks.any((track) => track.id == _currentTrack.id)) {
-          return item;
-        }
-      }
+    if (_intelligenceSourcePlaylist != null &&
+        _providerIdForPlaylist(_intelligenceSourcePlaylist!.id) == 'netease') {
+      return _intelligenceSourcePlaylist;
     }
     return null;
   }
@@ -2018,6 +2004,33 @@ class MusicStore extends ChangeNotifier {
         level: 'ERROR',
       );
     }
+  }
+
+  Future<void> syncLikedPlaylistFromNetease() async {
+    await ensureReady();
+    final synced = await _repository.syncNeteaseFavoritePlaylist();
+    final remoteLikedPlaylist = _findNeteaseLikedPlaylist(synced);
+    if (remoteLikedPlaylist == null) {
+      throw Exception('未获取到网易云喜欢歌单');
+    }
+    _neteaseLikedPlaylistId = remoteLikedPlaylist.id;
+    _neteaseLikedPlaylistEncryptedId ??=
+        await _repository.syncNeteaseFavoritePlaylistEncryptedId();
+    await _mergeRemoteLikedTracks(remoteLikedPlaylist);
+    final basePlaylists =
+        _playlists
+            .where(
+              (item) =>
+                  item.id != likedPlaylist.id &&
+                  item.id != _latestAiPlaylist?.id,
+            )
+            .toList(growable: false);
+    _rebuildPlaylists(basePlaylists: [...synced, ...basePlaylists]);
+    _currentTrack = _currentTrack.copyWith(
+      isFavorite: isTrackLiked(_currentTrack.id),
+    );
+    notifyListeners();
+    unawaited(_savePlaybackSnapshot());
   }
 
   MusicPlaylist? _findNeteaseLikedPlaylist(List<MusicPlaylist> playlists) {
