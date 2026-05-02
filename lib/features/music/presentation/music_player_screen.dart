@@ -950,9 +950,7 @@ class _PlayerControls extends StatelessWidget {
         _PlayerActionButton(
           icon:
               repeatMode == MusicRepeatMode.one
-                  ? (canAttemptIntelligence
-                      ? Icons.auto_awesome_rounded
-                      : Icons.repeat_one_rounded)
+                  ? Icons.repeat_one_rounded
                   : repeatMode == MusicRepeatMode.intelligence
                   ? Icons.auto_awesome_rounded
                   : Icons.repeat_rounded,

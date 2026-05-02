@@ -63,6 +63,9 @@ class MusicSourceResolverImpl implements MusicSourceResolver {
           track: track.copyWith(
             preferredSourceId: provider.id,
             sourceTrackId: candidate.sourceTrackId,
+            encryptedSourceTrackId:
+                candidate.track.encryptedSourceTrackId ??
+                track.encryptedSourceTrackId,
             artworkUrl: candidate.track.artworkUrl ?? track.artworkUrl,
             cachedPlayback: CachedPlaybackSource(
               providerId: resolved.providerId,

@@ -4,17 +4,21 @@ class MusicSourceRef {
   const MusicSourceRef({
     required this.providerId,
     required this.sourceTrackId,
+    this.encryptedSourceTrackId,
     this.sourceUrl,
   });
 
   final String providerId;
   final String sourceTrackId;
+  final String? encryptedSourceTrackId;
   final String? sourceUrl;
 
   Map<String, dynamic> toMap() {
     return {
       'providerId': providerId,
       'sourceTrackId': sourceTrackId,
+      if (encryptedSourceTrackId != null && encryptedSourceTrackId!.isNotEmpty)
+        'encryptedSourceTrackId': encryptedSourceTrackId,
       if (sourceUrl != null && sourceUrl!.isNotEmpty) 'sourceUrl': sourceUrl,
     };
   }
@@ -23,9 +27,14 @@ class MusicSourceRef {
     return MusicSourceRef(
       providerId: (map['providerId'] ?? '').toString(),
       sourceTrackId: (map['sourceTrackId'] ?? '').toString(),
-      sourceUrl: (map['sourceUrl'] ?? '').toString().trim().isEmpty
-          ? null
-          : (map['sourceUrl'] ?? '').toString(),
+      encryptedSourceTrackId:
+          (map['encryptedSourceTrackId'] ?? '').toString().trim().isEmpty
+              ? null
+              : (map['encryptedSourceTrackId'] ?? '').toString(),
+      sourceUrl:
+          (map['sourceUrl'] ?? '').toString().trim().isEmpty
+              ? null
+              : (map['sourceUrl'] ?? '').toString(),
     );
   }
 }
@@ -55,6 +64,9 @@ class CanonicalTrack {
   final String? artworkUrl;
   final List<MusicSourceRef> sourceRefs;
 
+  String? get encryptedSourceTrackId =>
+      sourceRefs.isNotEmpty ? sourceRefs.first.encryptedSourceTrackId : null;
+
   MusicTrack toMusicTrack({bool isFavorite = false}) {
     final preferredRef = sourceRefs.isNotEmpty ? sourceRefs.first : null;
     return MusicTrack(
@@ -70,6 +82,7 @@ class CanonicalTrack {
       artworkUrl: artworkUrl,
       preferredSourceId: preferredRef?.providerId,
       sourceTrackId: preferredRef?.sourceTrackId,
+      encryptedSourceTrackId: preferredRef?.encryptedSourceTrackId,
     );
   }
 
@@ -77,11 +90,12 @@ class CanonicalTrack {
     final refs =
         track.preferredSourceId != null && track.sourceTrackId != null
             ? [
-                MusicSourceRef(
-                  providerId: track.preferredSourceId!,
-                  sourceTrackId: track.sourceTrackId!,
-                ),
-              ]
+              MusicSourceRef(
+                providerId: track.preferredSourceId!,
+                sourceTrackId: track.sourceTrackId!,
+                encryptedSourceTrackId: track.encryptedSourceTrackId,
+              ),
+            ]
             : const <MusicSourceRef>[];
     return CanonicalTrack(
       id: track.id,
@@ -107,7 +121,8 @@ class CanonicalTrack {
       'artworkTone': artworkTone.name,
       'category': category,
       'description': description,
-      if (artworkUrl != null && artworkUrl!.isNotEmpty) 'artworkUrl': artworkUrl,
+      if (artworkUrl != null && artworkUrl!.isNotEmpty)
+        'artworkUrl': artworkUrl,
       'sourceRefs': sourceRefs.map((item) => item.toMap()).toList(),
     };
   }
@@ -120,18 +135,20 @@ class CanonicalTrack {
       artist: (map['artist'] ?? '').toString(),
       album: (map['album'] ?? '').toString(),
       duration: Duration(
-        milliseconds: durationMsRaw is num
-            ? durationMsRaw.toInt()
-            : int.tryParse('$durationMsRaw') ?? 0,
+        milliseconds:
+            durationMsRaw is num
+                ? durationMsRaw.toInt()
+                : int.tryParse('$durationMsRaw') ?? 0,
       ),
       artworkTone: musicArtworkToneFromName(
         (map['artworkTone'] ?? MusicArtworkTone.twilight.name).toString(),
       ),
       category: (map['category'] ?? '').toString(),
       description: (map['description'] ?? '').toString(),
-      artworkUrl: (map['artworkUrl'] ?? '').toString().trim().isEmpty
-          ? null
-          : (map['artworkUrl'] ?? '').toString(),
+      artworkUrl:
+          (map['artworkUrl'] ?? '').toString().trim().isEmpty
+              ? null
+              : (map['artworkUrl'] ?? '').toString(),
       sourceRefs: ((map['sourceRefs'] as List<dynamic>?) ?? const [])
           .whereType<Map>()
           .map(
@@ -178,13 +195,19 @@ class SourceCandidate {
       providerId: (map['providerId'] ?? '').toString(),
       sourceTrackId: (map['sourceTrackId'] ?? '').toString(),
       track: CanonicalTrack.fromMap(
-        Map<String, dynamic>.from((map['track'] as Map?)?.cast<String, dynamic>() ?? const {}),
+        Map<String, dynamic>.from(
+          (map['track'] as Map?)?.cast<String, dynamic>() ?? const {},
+        ),
       ),
-      matchScore: scoreRaw is num ? scoreRaw.toDouble() : double.tryParse('$scoreRaw') ?? 1,
+      matchScore:
+          scoreRaw is num
+              ? scoreRaw.toDouble()
+              : double.tryParse('$scoreRaw') ?? 1,
       available: map['available'] != false,
-      sourceUrl: (map['sourceUrl'] ?? '').toString().trim().isEmpty
-          ? null
-          : (map['sourceUrl'] ?? '').toString(),
+      sourceUrl:
+          (map['sourceUrl'] ?? '').toString().trim().isEmpty
+              ? null
+              : (map['sourceUrl'] ?? '').toString(),
     );
   }
 }
@@ -213,7 +236,8 @@ class ResolvedPlaybackSource {
       'providerId': providerId,
       'sourceTrackId': sourceTrackId,
       'streamUrl': streamUrl,
-      if (artworkUrl != null && artworkUrl!.isNotEmpty) 'artworkUrl': artworkUrl,
+      if (artworkUrl != null && artworkUrl!.isNotEmpty)
+        'artworkUrl': artworkUrl,
       if (mimeType != null && mimeType!.isNotEmpty) 'mimeType': mimeType,
       if (headers.isNotEmpty) 'headers': headers,
       if (expiresAt != null) 'expiresAt': expiresAt!.toIso8601String(),
@@ -221,21 +245,25 @@ class ResolvedPlaybackSource {
   }
 
   factory ResolvedPlaybackSource.fromMap(Map<String, dynamic> map) {
-    final rawHeaders = (map['headers'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final rawHeaders =
+        (map['headers'] as Map?)?.cast<String, dynamic>() ?? const {};
     return ResolvedPlaybackSource(
       providerId: (map['providerId'] ?? '').toString(),
       sourceTrackId: (map['sourceTrackId'] ?? '').toString(),
       streamUrl: (map['streamUrl'] ?? '').toString(),
-      artworkUrl: (map['artworkUrl'] ?? '').toString().trim().isEmpty
-          ? null
-          : (map['artworkUrl'] ?? '').toString(),
-      mimeType: (map['mimeType'] ?? '').toString().trim().isEmpty
-          ? null
-          : (map['mimeType'] ?? '').toString(),
+      artworkUrl:
+          (map['artworkUrl'] ?? '').toString().trim().isEmpty
+              ? null
+              : (map['artworkUrl'] ?? '').toString(),
+      mimeType:
+          (map['mimeType'] ?? '').toString().trim().isEmpty
+              ? null
+              : (map['mimeType'] ?? '').toString(),
       headers: rawHeaders.map((key, value) => MapEntry(key, '$value')),
-      expiresAt: (map['expiresAt'] ?? '').toString().trim().isEmpty
-          ? null
-          : DateTime.tryParse((map['expiresAt'] ?? '').toString()),
+      expiresAt:
+          (map['expiresAt'] ?? '').toString().trim().isEmpty
+              ? null
+              : DateTime.tryParse((map['expiresAt'] ?? '').toString()),
     );
   }
 }
@@ -279,18 +307,26 @@ class PlaybackQueueItem {
   factory PlaybackQueueItem.fromMap(Map<String, dynamic> map) {
     return PlaybackQueueItem(
       track: MusicTrack.fromMap(
-        Map<String, dynamic>.from((map['track'] as Map?)?.cast<String, dynamic>() ?? const {}),
+        Map<String, dynamic>.from(
+          (map['track'] as Map?)?.cast<String, dynamic>() ?? const {},
+        ),
       ),
-      candidate: map['candidate'] is Map
-          ? SourceCandidate.fromMap(
-              Map<String, dynamic>.from((map['candidate'] as Map).cast<String, dynamic>()),
-            )
-          : null,
-      resolvedSource: map['resolvedSource'] is Map
-          ? ResolvedPlaybackSource.fromMap(
-              Map<String, dynamic>.from((map['resolvedSource'] as Map).cast<String, dynamic>()),
-            )
-          : null,
+      candidate:
+          map['candidate'] is Map
+              ? SourceCandidate.fromMap(
+                Map<String, dynamic>.from(
+                  (map['candidate'] as Map).cast<String, dynamic>(),
+                ),
+              )
+              : null,
+      resolvedSource:
+          map['resolvedSource'] is Map
+              ? ResolvedPlaybackSource.fromMap(
+                Map<String, dynamic>.from(
+                  (map['resolvedSource'] as Map).cast<String, dynamic>(),
+                ),
+              )
+              : null,
       requestedBy: (map['requestedBy'] ?? '').toString(),
     );
   }

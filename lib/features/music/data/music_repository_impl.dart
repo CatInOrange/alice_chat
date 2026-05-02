@@ -180,6 +180,9 @@ class MusicRepositoryImpl implements MusicRepository {
           nextTrack = track.copyWith(
             preferredSourceId: candidate.providerId,
             sourceTrackId: candidate.sourceTrackId,
+            encryptedSourceTrackId:
+                candidate.track.encryptedSourceTrackId ??
+                track.encryptedSourceTrackId,
             artworkUrl: candidate.track.artworkUrl ?? track.artworkUrl,
             album:
                 candidate.track.album.isNotEmpty

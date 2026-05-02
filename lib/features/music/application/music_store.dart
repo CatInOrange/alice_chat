@@ -96,6 +96,7 @@ class MusicStore extends ChangeNotifier {
   MusicAiPlaylistDraft? _latestAiPlaylist;
   final Map<String, List<MusicTrack>> _playlistTracksCache =
       <String, List<MusicTrack>>{};
+  final Set<String> _neteaseLikedTrackKeys = <String>{};
   int _searchRequestSerial = 0;
   String? _activeSearchQuery;
   bool _isSearching = false;
@@ -1083,6 +1084,7 @@ class MusicStore extends ChangeNotifier {
 
   Future<void> enableIntelligenceMode() async {
     await ensureReady();
+    final originalMode = _repeatMode;
     final sourceTrackId = (_currentTrack.sourceTrackId ?? '').trim();
     _debugState(
       'intelligence.enable.request',
@@ -1098,6 +1100,10 @@ class MusicStore extends ChangeNotifier {
       force: true,
     );
     if (!canAttemptIntelligenceMode || sourceTrackId.isEmpty) {
+      _repeatMode =
+          originalMode == MusicRepeatMode.intelligence
+              ? MusicRepeatMode.one
+              : originalMode;
       _error = '当前歌曲还没有网易云音源，暂时无法开启心动模式';
       _debugState(
         'intelligence.enable.blocked_no_source',
@@ -1113,6 +1119,10 @@ class MusicStore extends ChangeNotifier {
     }
     final playlist = _resolveIntelligenceContext();
     if (playlist == null) {
+      _repeatMode =
+          originalMode == MusicRepeatMode.intelligence
+              ? MusicRepeatMode.one
+              : originalMode;
       _error = '当前歌曲有网易云音源，但还缺少网易云歌单上下文，暂时无法开启心动模式';
       _debugState(
         'intelligence.enable.blocked_no_context',
@@ -1233,7 +1243,12 @@ class MusicStore extends ChangeNotifier {
           force: true,
           level: 'ERROR',
         );
-        disableIntelligenceMode();
+        _repeatMode = MusicRepeatMode.one;
+        _intelligenceSourcePlaylist = null;
+        _intelligenceLastAnchorTrackId = null;
+        _isLoadingIntelligenceBatch = false;
+        _recentIntelligenceTrackIds.clear();
+        notifyListeners();
         return;
       }
       if (keepCurrentTrack) {
@@ -1289,8 +1304,12 @@ class MusicStore extends ChangeNotifier {
         force: true,
         level: 'ERROR',
       );
-      _error = '心动模式加载失败，已退回普通播放';
-      disableIntelligenceMode();
+      _error = '心动模式加载失败，已退回单曲循环';
+      _repeatMode = MusicRepeatMode.one;
+      _intelligenceSourcePlaylist = null;
+      _intelligenceLastAnchorTrackId = null;
+      _recentIntelligenceTrackIds.clear();
+      notifyListeners();
     } finally {
       _isLoadingIntelligenceBatch = false;
     }
@@ -1667,22 +1686,26 @@ class MusicStore extends ChangeNotifier {
     switch (_repeatMode) {
       case MusicRepeatMode.off:
         _repeatMode = MusicRepeatMode.all;
-        break;
+        notifyListeners();
+        return;
       case MusicRepeatMode.all:
         _repeatMode = MusicRepeatMode.one;
-        break;
+        notifyListeners();
+        return;
       case MusicRepeatMode.one:
         if (canEnableIntelligenceMode) {
+          _repeatMode = MusicRepeatMode.intelligence;
+          notifyListeners();
           unawaited(enableIntelligenceMode());
-        } else {
-          _repeatMode = MusicRepeatMode.off;
+          return;
         }
-        break;
+        _repeatMode = MusicRepeatMode.off;
+        notifyListeners();
+        return;
       case MusicRepeatMode.intelligence:
         disableIntelligenceMode();
-        break;
+        return;
     }
-    notifyListeners();
   }
 
   void _rebuildPlaylists({List<MusicPlaylist>? basePlaylists}) {
@@ -1753,7 +1776,10 @@ class MusicStore extends ChangeNotifier {
         _providerIdForPlaylist(_intelligenceSourcePlaylist!.id) == 'netease') {
       return _intelligenceSourcePlaylist;
     }
-    if ((_neteaseLikedPlaylistId ?? '').trim().isNotEmpty) {
+    final currentTrackKey = _trackIdentityKey(_currentTrack);
+    if ((_neteaseLikedPlaylistId ?? '').trim().isNotEmpty &&
+        currentTrackKey.trim().isNotEmpty &&
+        _neteaseLikedTrackKeys.contains(currentTrackKey)) {
       return MusicPlaylist(
         id: _neteaseLikedPlaylistId!,
         title: '喜欢',
@@ -1832,6 +1858,13 @@ class MusicStore extends ChangeNotifier {
         }
       }
       _likedTracks = List<MusicTrack>.unmodifiable(merged);
+      _neteaseLikedTrackKeys
+        ..clear()
+        ..addAll(
+          remoteTracks
+              .map(_trackIdentityKey)
+              .where((item) => item.trim().isNotEmpty),
+        );
       _cacheTracksForPlaylist(likedPlaylist.id, _likedTracks);
     } catch (error) {
       _debugState(

@@ -145,6 +145,9 @@ class NeteaseOpenApiService:
     def _lookup_song_encrypted_id(self, *, playlist_encrypted_id: str, source_track_id: str) -> str:
         offset = 0
         limit = 200
+        normalized_source_track_id = str(source_track_id or '').strip()
+        if not normalized_source_track_id:
+            return ''
         for _ in range(5):
             payload = self._run_json(
                 'playlist',
@@ -163,9 +166,11 @@ class NeteaseOpenApiService:
                 if not isinstance(item, dict):
                     continue
                 original_id = self._first_non_empty(item.get('originalId'))
-                if original_id != source_track_id:
-                    continue
-                return self._normalize_encrypted_id(self._first_non_empty(item.get('id')))
+                item_id = self._first_non_empty(item.get('id'))
+                if original_id == normalized_source_track_id:
+                    return self._normalize_encrypted_id(item_id)
+                if item_id == normalized_source_track_id:
+                    return self._normalize_encrypted_id(item_id)
             if len(data) < limit:
                 return ''
             offset += limit

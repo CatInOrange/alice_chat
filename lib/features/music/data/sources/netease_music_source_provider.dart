@@ -25,13 +25,10 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
 
     final payload = await _getJson(
       '/api/v1/search/song/get',
-      query: <String, String>{
-        's': keyword,
-        'offset': '0',
-        'limit': '12',
-      },
+      query: <String, String>{'s': keyword, 'offset': '0', 'limit': '12'},
     );
-    final result = (payload['result'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final result =
+        (payload['result'] as Map?)?.cast<String, dynamic>() ?? const {};
     final songs = ((result['songs'] as List?) ?? const <dynamic>[])
         .whereType<Map>()
         .map((item) => Map<String, dynamic>.from(item.cast<String, dynamic>()))
@@ -49,15 +46,17 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
     if ((track.preferredSourceId == id || sourceTrackId != null) &&
         sourceTrackId != null &&
         sourceTrackId.isNotEmpty) {
+      final detailTrack = await _loadTrackDetailById(sourceTrackId);
+      final hydratedTrack = (detailTrack ?? track).copyWith(
+        preferredSourceId: id,
+        sourceTrackId: sourceTrackId,
+        encryptedSourceTrackId:
+            detailTrack?.encryptedSourceTrackId ?? track.encryptedSourceTrackId,
+      );
       return SourceCandidate(
         providerId: id,
         sourceTrackId: sourceTrackId,
-        track: CanonicalTrack.fromMusicTrack(
-          track.copyWith(
-            preferredSourceId: id,
-            sourceTrackId: sourceTrackId,
-          ),
-        ),
+        track: CanonicalTrack.fromMusicTrack(hydratedTrack),
       );
     }
 
@@ -86,7 +85,8 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
 
   @override
   Future<MusicLyrics?> loadLyrics(MusicTrack track) async {
-    final key = '${track.preferredSourceId ?? id}:${track.sourceTrackId ?? track.id}';
+    final key =
+        '${track.preferredSourceId ?? id}:${track.sourceTrackId ?? track.id}';
     if (_lyricsCache.containsKey(key)) {
       return _lyricsCache[key];
     }
@@ -105,13 +105,15 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
           await OpenClawSettingsStore.loadMusicProviderCookie(id),
         ),
       );
-      final lyric = ((payload['lrc'] as Map?)?.cast<String, dynamic>() ??
-              const <String, dynamic>{})['lyric']
-          ?.toString() ??
+      final lyric =
+          ((payload['lrc'] as Map?)?.cast<String, dynamic>() ??
+                  const <String, dynamic>{})['lyric']
+              ?.toString() ??
           '';
-      final translated = ((payload['tlyric'] as Map?)?.cast<String, dynamic>() ??
-              const <String, dynamic>{})['lyric']
-          ?.toString() ??
+      final translated =
+          ((payload['tlyric'] as Map?)?.cast<String, dynamic>() ??
+                  const <String, dynamic>{})['lyric']
+              ?.toString() ??
           '';
       final parsed = _parseLyrics(lyric, translated: translated);
       _lyricsCache[key] = parsed;
@@ -123,7 +125,9 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
   }
 
   @override
-  Future<ResolvedPlaybackSource?> resolvePlayback(SourceCandidate candidate) async {
+  Future<ResolvedPlaybackSource?> resolvePlayback(
+    SourceCandidate candidate,
+  ) async {
     final cookie = await OpenClawSettingsStore.loadMusicProviderCookie(id);
     final payload = await _getJson(
       '/api/song/enhance/player/url',
@@ -160,7 +164,8 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
       sourceTrackId: candidate.sourceTrackId,
       streamUrl: streamUrl,
       artworkUrl: candidate.track.artworkUrl,
-      mimeType: mimeType.isEmpty ? _inferMimeType(streamUrl) : 'audio/$mimeType',
+      mimeType:
+          mimeType.isEmpty ? _inferMimeType(streamUrl) : 'audio/$mimeType',
       headers: headers,
       expiresAt: DateTime.now().add(const Duration(minutes: 20)),
     );
@@ -172,9 +177,10 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
     required String songId,
     String? startTrackId,
   }) async {
-    final normalizedPlaylistId = playlistId.startsWith(_playlistPrefix)
-        ? playlistId.substring(_playlistPrefix.length)
-        : playlistId;
+    final normalizedPlaylistId =
+        playlistId.startsWith(_playlistPrefix)
+            ? playlistId.substring(_playlistPrefix.length)
+            : playlistId;
     final normalizedSongId = songId.trim();
     final normalizedStartTrackId = (startTrackId ?? '').trim();
     if (normalizedPlaylistId.isEmpty || normalizedSongId.isEmpty) {
@@ -208,7 +214,8 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
     final tracks = <MusicTrack>[];
     final seen = <String>{};
     for (final item in items) {
-      final songMap = (item['songInfo'] as Map?)?.cast<String, dynamic>() ??
+      final songMap =
+          (item['songInfo'] as Map?)?.cast<String, dynamic>() ??
           (item['song'] as Map?)?.cast<String, dynamic>() ??
           item;
       final candidate = _candidateFromSong(songMap);
@@ -234,9 +241,11 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
       cookieHeader: seededCookie,
       fallbackToGet: true,
     );
-    final account = (accountPayload['account'] as Map?)?.cast<String, dynamic>() ??
+    final account =
+        (accountPayload['account'] as Map?)?.cast<String, dynamic>() ??
         const <String, dynamic>{};
-    final profile = (accountPayload['profile'] as Map?)?.cast<String, dynamic>() ??
+    final profile =
+        (accountPayload['profile'] as Map?)?.cast<String, dynamic>() ??
         const <String, dynamic>{};
     final userId = (profile['userId'] ?? account['id'] ?? '').toString().trim();
     if (userId.isEmpty) {
@@ -254,7 +263,8 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
       cookieHeader: seededCookie,
       fallbackToGet: true,
     );
-    final playlists = ((playlistPayload['playlist'] as List?) ?? const <dynamic>[])
+    final playlists = ((playlistPayload['playlist'] as List?) ??
+            const <dynamic>[])
         .whereType<Map>()
         .map((item) => Map<String, dynamic>.from(item.cast<String, dynamic>()))
         .map(_playlistFromMap)
@@ -275,9 +285,10 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
 
   @override
   Future<List<MusicTrack>> loadPlaylistTracks(String playlistId) async {
-    final normalizedId = playlistId.startsWith(_playlistPrefix)
-        ? playlistId.substring(_playlistPrefix.length)
-        : playlistId;
+    final normalizedId =
+        playlistId.startsWith(_playlistPrefix)
+            ? playlistId.substring(_playlistPrefix.length)
+            : playlistId;
     if (normalizedId.isEmpty) {
       return const <MusicTrack>[];
     }
@@ -287,7 +298,8 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
       query: <String, String>{'id': normalizedId, 'n': '200'},
       cookieHeader: _seedCookieHeader(cookie),
     );
-    final playlist = (payload['playlist'] as Map?)?.cast<String, dynamic>() ??
+    final playlist =
+        (payload['playlist'] as Map?)?.cast<String, dynamic>() ??
         const <String, dynamic>{};
     final tracks = ((playlist['tracks'] as List?) ?? const <dynamic>[])
         .whereType<Map>()
@@ -330,28 +342,66 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
     return code == 200;
   }
 
+  Future<MusicTrack?> _loadTrackDetailById(String sourceTrackId) async {
+    final normalizedId = sourceTrackId.trim();
+    if (normalizedId.isEmpty) {
+      return null;
+    }
+    try {
+      final payload = await _getJson(
+        '/api/v3/song/detail',
+        query: <String, String>{'c': '[{"id":$normalizedId}]'},
+      );
+      final songs = ((payload['songs'] as List?) ?? const <dynamic>[])
+          .whereType<Map>()
+          .map(
+            (item) => Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          )
+          .toList(growable: false);
+      final candidates = songs
+          .map(_candidateFromSong)
+          .whereType<SourceCandidate>()
+          .toList(growable: false);
+      if (candidates.isEmpty) {
+        return null;
+      }
+      final candidate = candidates.firstWhere(
+        (item) => item.sourceTrackId.trim() == normalizedId,
+        orElse: () => candidates.first,
+      );
+      return candidate.track.toMusicTrack();
+    } catch (_) {
+      return null;
+    }
+  }
+
   SourceCandidate? _candidateFromSong(Map<String, dynamic> song) {
     final encryptedTrackId = (song['id'] ?? '').toString().trim();
-    final originalTrackId = (song['originalId'] ?? song['id'] ?? '').toString().trim();
+    final originalTrackId =
+        (song['originalId'] ?? song['id'] ?? '').toString().trim();
     final title = (song['name'] ?? '').toString().trim();
     if (encryptedTrackId.isEmpty || title.isEmpty) {
       return null;
     }
 
-    final artists = ((song['artists'] as List?) ?? song['ar'] as List? ?? const <dynamic>[])
+    final artists = ((song['artists'] as List?) ??
+            song['ar'] as List? ??
+            const <dynamic>[])
         .whereType<Map>()
         .map((item) => (item['name'] ?? '').toString().trim())
         .where((item) => item.isNotEmpty)
         .toList(growable: false);
-    final album = (song['album'] as Map?)?.cast<String, dynamic>() ??
+    final album =
+        (song['album'] as Map?)?.cast<String, dynamic>() ??
         (song['al'] as Map?)?.cast<String, dynamic>() ??
         const <String, dynamic>{};
     final albumTitle = (album['name'] ?? '').toString().trim();
     final artworkUrl = (album['picUrl'] ?? '').toString().trim();
     final durationRaw = song['duration'] ?? song['dt'] ?? 0;
-    final durationMs = durationRaw is num
-        ? durationRaw.toInt()
-        : int.tryParse('$durationRaw') ?? 0;
+    final durationMs =
+        durationRaw is num
+            ? durationRaw.toInt()
+            : int.tryParse('$durationRaw') ?? 0;
 
     final track = MusicTrack(
       id: 'netease:$originalTrackId',
@@ -383,24 +433,26 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
     }
     final description = (raw['description'] ?? '').toString().trim();
     final trackCountRaw = raw['trackCount'] ?? 0;
-    final trackCount = trackCountRaw is num
-        ? trackCountRaw.toInt()
-        : int.tryParse('$trackCountRaw') ?? 0;
-    final isLiked = raw['subscribed'] == false ||
+    final trackCount =
+        trackCountRaw is num
+            ? trackCountRaw.toInt()
+            : int.tryParse('$trackCountRaw') ?? 0;
+    final isLiked =
+        raw['subscribed'] == false ||
         title.contains('喜欢') ||
         title.contains('收藏');
     return MusicPlaylist(
       id: '${_playlistPrefix}enc:$rawId',
       title: isLiked ? '喜欢' : title,
-      subtitle: description.isEmpty
-          ? (isLiked ? '网易云喜欢的歌曲' : '来自网易云音乐')
-          : description,
+      subtitle:
+          description.isEmpty
+              ? (isLiked ? '网易云喜欢的歌曲' : '来自网易云音乐')
+              : description,
       tag: isLiked ? 'LIKED' : 'NETEASE',
       trackCount: trackCount,
       artworkTone: isLiked ? MusicArtworkTone.rose : _toneForSeed(rawId),
     );
   }
-
 
   MusicLyrics? _parseLyrics(String raw, {String translated = ''}) {
     final lines = <MusicLyricsLine>[];
@@ -430,11 +482,12 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
       for (final match in matches) {
         final ts = _lyricTimestamp(match);
         final translatedText = translatedMap[ts.inMilliseconds]?.trim();
-        final merged = translatedText != null &&
-                translatedText.isNotEmpty &&
-                translatedText != content
-            ? '$content\n$translatedText'
-            : content;
+        final merged =
+            translatedText != null &&
+                    translatedText.isNotEmpty &&
+                    translatedText != content
+                ? '$content\n$translatedText'
+                : content;
         lines.add(MusicLyricsLine(timestamp: ts, text: merged));
       }
     }
@@ -481,7 +534,8 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
       score += 5;
     }
     final durationPenalty =
-        (normalizedResultTitle.length - normalizedQueryTitle.length).abs() * 0.05;
+        (normalizedResultTitle.length - normalizedQueryTitle.length).abs() *
+        0.05;
     return score - durationPenalty;
   }
 
@@ -539,7 +593,9 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
   }) async {
     final client = HttpClient();
     try {
-      final request = await client.getUrl(Uri.https('music.163.com', path, query));
+      final request = await client.getUrl(
+        Uri.https('music.163.com', path, query),
+      );
       _applyCommonHeaders(request, cookieHeader: cookieHeader);
       return await _decodeResponse(await request.close());
     } finally {
@@ -579,7 +635,10 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
 
   void _applyCommonHeaders(HttpClientRequest request, {String? cookieHeader}) {
     request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
-    request.headers.set(HttpHeaders.acceptHeader, 'application/json, text/plain, */*');
+    request.headers.set(
+      HttpHeaders.acceptHeader,
+      'application/json, text/plain, */*',
+    );
     request.headers.set(HttpHeaders.refererHeader, 'https://music.163.com/');
     request.headers.set('origin', 'https://music.163.com');
     final normalizedCookie = (cookieHeader ?? '').trim();
@@ -588,7 +647,9 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
     }
   }
 
-  Future<Map<String, dynamic>> _decodeResponse(HttpClientResponse response) async {
+  Future<Map<String, dynamic>> _decodeResponse(
+    HttpClientResponse response,
+  ) async {
     final body = await response.transform(utf8.decoder).join();
     final decoded = jsonDecode(body);
     if (decoded is Map<String, dynamic>) {
