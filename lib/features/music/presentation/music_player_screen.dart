@@ -683,6 +683,7 @@ class _DiscStageState extends State<_DiscStage>
                   size: 238,
                   circular: true,
                   heroTag: 'music-artwork-${widget.track.id}',
+                  showMeta: false,
                   showIconBadge: false,
                   overlayStrength: 0.06,
                 ),

@@ -295,7 +295,12 @@ class MusicArtwork extends StatelessWidget {
     if (heroTag == null) {
       return body;
     }
-    return Hero(tag: heroTag!, child: body);
+    return Hero(
+      tag: heroTag!,
+      createRectTween: (begin, end) => Tween<Rect?>(begin: begin, end: end),
+      transitionOnUserGestures: true,
+      child: body,
+    );
   }
 }
 

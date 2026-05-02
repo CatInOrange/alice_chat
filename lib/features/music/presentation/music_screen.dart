@@ -8,6 +8,33 @@ import '../domain/music_models.dart';
 import 'music_player_screen.dart';
 import 'widgets/music_artwork.dart';
 
+Route<void> _buildMusicPlayerRoute({
+  required MusicTrack track,
+  required List<MusicTrack> queue,
+}) {
+  return PageRouteBuilder<void>(
+    transitionDuration: const Duration(milliseconds: 320),
+    reverseTransitionDuration: const Duration(milliseconds: 280),
+    pageBuilder:
+        (_, animation, secondaryAnimation) => FadeTransition(
+          opacity: CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic,
+          ),
+          child: MusicPlayerScreen(track: track, queue: queue),
+        ),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+        reverseCurve: Curves.easeInCubic,
+      );
+      return FadeTransition(opacity: curved, child: child);
+    },
+  );
+}
+
 class MusicScreen extends StatefulWidget {
   const MusicScreen({super.key});
 
@@ -113,14 +140,9 @@ class _MusicScreenState extends State<MusicScreen>
       }
       if (!mounted) return;
       await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder:
-              (_) => MusicPlayerScreen(
-                track: track ?? store.currentTrack,
-                queue: store.queue
-                    .map((item) => item.track)
-                    .toList(growable: false),
-              ),
+        _buildMusicPlayerRoute(
+          track: track ?? store.currentTrack,
+          queue: store.queue.map((item) => item.track).toList(growable: false),
         ),
       );
     } finally {
@@ -1943,14 +1965,9 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
   Future<void> _openPlayer(BuildContext context, MusicStore store) async {
     if (!mounted) return;
     await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder:
-            (_) => MusicPlayerScreen(
-              track: store.currentTrack,
-              queue: store.queue
-                  .map((item) => item.track)
-                  .toList(growable: false),
-            ),
+      _buildMusicPlayerRoute(
+        track: store.currentTrack,
+        queue: store.queue.map((item) => item.track).toList(growable: false),
       ),
     );
   }
@@ -2279,14 +2296,9 @@ class _MusicSearchSheetState extends State<_MusicSearchSheet> {
       if (!context.mounted) return;
       Navigator.of(context).pop();
       await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder:
-              (_) => MusicPlayerScreen(
-                track: track,
-                queue: store.queue
-                    .map((item) => item.track)
-                    .toList(growable: false),
-              ),
+        _buildMusicPlayerRoute(
+          track: track,
+          queue: store.queue.map((item) => item.track).toList(growable: false),
         ),
       );
     } finally {
