@@ -344,6 +344,18 @@ class OpenClawHttpClient implements OpenClawClient {
   }
 
   @override
+  Future<Map<String, dynamic>> getNeteaseFm({int limit = 3}) async {
+    final response = await _httpClient.get(
+      _uri('/api/music/netease/fm', queryParameters: {'limit': '$limit'}),
+      headers: _headers,
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('加载网易云私人 FM 失败', response);
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  @override
   Future<Map<String, dynamic>> saveMusicState({
     required Map<String, dynamic> payload,
   }) async {

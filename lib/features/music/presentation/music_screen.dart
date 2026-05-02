@@ -341,6 +341,9 @@ class _MusicScreenState extends State<MusicScreen>
     MusicStore store,
     MusicPlaylist playlist,
   ) async {
+    if (playlist.id == 'netease-fm') {
+      return;
+    }
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -453,6 +456,18 @@ class _MusicScreenState extends State<MusicScreen>
         final currentPlaybackSourceLabel = store.currentPlaybackSourceLabel;
         final miniSubtitle = store.miniPlayerSubtitle;
         final currentConfig = store.currentConfig;
+        const fmPlaylist = MusicPlaylist(
+          id: 'netease-fm',
+          title: '私人 FM',
+          subtitle: '根据你的喜好连续播放',
+          tag: 'FM',
+          trackCount: 0,
+          artworkTone: MusicArtworkTone.sunset,
+        );
+        final displayedCustomPlaylists = <MusicPlaylist>[
+          fmPlaylist,
+          ...store.customPlaylistCards,
+        ];
         final latestAiPlaylistActionPending =
             latestAiPlaylist != null &&
             _isPlaylistActionPending(latestAiPlaylist.id);
@@ -478,9 +493,14 @@ class _MusicScreenState extends State<MusicScreen>
                     track: store.heroTrack,
                     backendBaseUrl: currentConfig.baseUrl,
                     appPassword: currentConfig.appPassword,
-                    title: latestAiPlaylist?.title ?? '今晚推荐',
+                    title:
+                        latestAiPlaylist == null
+                            ? '今晚推荐'
+                            : (latestAiPlaylist.subtitle.trim().isNotEmpty
+                                ? latestAiPlaylist.subtitle
+                                : 'AI 为你生成'),
                     headline: latestAiPlaylist?.title ?? '给工作和夜色留一点音乐。',
-                    subtitle: latestAiPlaylist?.subtitle,
+                    subtitle: null,
                     description:
                         latestAiPlaylist?.description ??
                         store.heroTrack.description,
@@ -529,24 +549,24 @@ class _MusicScreenState extends State<MusicScreen>
                     },
                   ),
                   const SizedBox(height: 14),
-                  if (store.customPlaylistCards.isEmpty)
-                    _SectionPlaceholder(
-                      title: '你还没有创建歌单',
-                      subtitle: '点右上角“添加”，就能新建自己的歌单',
-                    )
-                  else
-                    _CompactPlaylistGrid(
-                      playlists: store.customPlaylistCards,
-                      currentPlaylistId: store.currentPlaylistId,
-                      onPlaylistTap:
-                          (playlist) => _openPlaylistDetail(store, playlist),
-                      onPlaylistLongPress:
-                          (playlist) => _showCustomPlaylistActions(
-                            context,
-                            store,
-                            playlist,
-                          ),
-                    ),
+                  _CompactPlaylistGrid(
+                    playlists: displayedCustomPlaylists,
+                    currentPlaylistId: store.currentPlaylistId,
+                    onPlaylistTap: (playlist) {
+                      if (playlist.id == 'netease-fm') {
+                        _playPlaylist(store, playlist);
+                        return;
+                      }
+                      _openPlaylistDetail(store, playlist);
+                    },
+                    onPlaylistLongPress:
+                        (playlist) {
+                          if (playlist.id == 'netease-fm') {
+                            return;
+                          }
+                          _showCustomPlaylistActions(context, store, playlist);
+                        },
+                  ),
                   if ((store.error ?? '').trim().isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 20, bottom: 12),
@@ -1504,8 +1524,24 @@ class _PlaylistGridCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   gradient: LinearGradient(colors: palette.gradient),
                   borderRadius: BorderRadius.circular(16),
+                  boxShadow:
+                      playlist.id == 'netease-fm'
+                          ? [
+                            BoxShadow(
+                              color: palette.glowColor.withValues(alpha: 0.28),
+                              blurRadius: 18,
+                              offset: const Offset(0, 8),
+                            ),
+                          ]
+                          : null,
                 ),
-                child: Icon(palette.icon, color: Colors.white, size: 22),
+                child: Icon(
+                  playlist.id == 'netease-fm'
+                      ? Icons.radio_rounded
+                      : palette.icon,
+                  color: Colors.white,
+                  size: 22,
+                ),
               ),
               const SizedBox(height: 12),
               Text(
@@ -1516,7 +1552,9 @@ class _PlaylistGridCard extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                isActive ? '当前播放中' : playlist.tag,
+                isActive
+                    ? '当前播放中'
+                    : (playlist.id == 'netease-fm' ? '专属推荐' : playlist.tag),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: palette.gradient.first,
                   fontWeight: FontWeight.w700,
@@ -1536,7 +1574,9 @@ class _PlaylistGridCard extends StatelessWidget {
               Row(
                 children: [
                   Text(
-                    '${playlist.trackCount} 首',
+                    playlist.id == 'netease-fm'
+                        ? '连续播放'
+                        : '${playlist.trackCount} 首',
                     style: theme.textTheme.bodySmall,
                   ),
                   const Spacer(),

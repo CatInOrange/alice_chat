@@ -203,6 +203,17 @@ def create_music_router(context: AppContext) -> APIRouter:
             'playlist': playlist,
         }
 
+    @router.get('/api/music/netease/fm')
+    async def get_netease_fm(limit: int = 3) -> dict:
+        try:
+            tracks = context.music_service.load_netease_fm(limit=limit)
+        except NeteaseOpenApiError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            'ok': True,
+            'tracks': [item.model_dump(exclude_none=True) for item in tracks],
+        }
+
     @router.post('/api/music/commands')
     async def issue_music_command(body: MusicCommandRequest) -> dict:
         event = await context.events_bus.publish(

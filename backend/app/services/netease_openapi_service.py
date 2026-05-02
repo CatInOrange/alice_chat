@@ -89,6 +89,23 @@ class NeteaseOpenApiService:
             raise NeteaseOpenApiError('未获取到网易云喜欢歌单')
         return data
 
+    def get_fm_tracks(self, *, limit: int = 3) -> list[MusicTrackDto]:
+        self._ensure_ready()
+        payload = self._run_json(
+            'recommend',
+            'fm',
+            '--limit',
+            str(max(1, min(limit, 20))),
+        )
+        data = payload.get('data')
+        if not isinstance(data, list):
+            raise NeteaseOpenApiError('网易云私人 FM 返回为空')
+        tracks = [self._track_from_fm_item(item) for item in data if isinstance(item, dict)]
+        tracks = [item for item in tracks if item is not None]
+        if not tracks:
+            raise NeteaseOpenApiError('网易云私人 FM 暂时没有返回可播放歌曲')
+        return tracks
+
     def _resolve_song_encrypted_id(self, song: dict[str, Any], playlist_encrypted_id: str) -> str:
         encrypted = self._normalize_encrypted_id(
             self._first_non_empty(
@@ -211,6 +228,18 @@ class NeteaseOpenApiService:
             sourceTrackId=source_track_id or None,
             encryptedSourceTrackId=track_id or None,
             isFavorite=bool(item.get('liked') is True),
+        )
+
+    def _track_from_fm_item(self, item: dict[str, Any]) -> MusicTrackDto | None:
+        track = self._track_from_openapi_item(item)
+        if track is None:
+            return None
+        album_name = track.album or '网易云音乐'
+        return track.model_copy(
+            update={
+                'description': f'私人 FM · {album_name}',
+                'artworkTone': 'sunset',
+            }
         )
 
     def _ensure_ready(self) -> None:

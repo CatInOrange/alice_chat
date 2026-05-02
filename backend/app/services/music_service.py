@@ -148,6 +148,9 @@ class MusicService:
             self.store.save_state(patch)
         return playlist
 
+    def load_netease_fm(self, *, limit: int = 3) -> list:
+        return self.netease_openapi.get_fm_tracks(limit=limit)
+
     def list_providers(self) -> list[MusicProviderDto]:
         return [
             MusicProviderDto(
