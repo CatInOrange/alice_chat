@@ -11,9 +11,10 @@ import '../../../core/openclaw/openclaw_settings.dart';
 import '../application/live2d_model_cache.dart';
 
 class WebviewScreen extends StatefulWidget {
-  const WebviewScreen({super.key, required this.active});
+  const WebviewScreen({super.key, required this.active, this.embedded = false});
 
   final bool active;
+  final bool embedded;
 
   @override
   State<WebviewScreen> createState() => _WebviewScreenState();
@@ -415,6 +416,34 @@ class _WebviewScreenState extends State<WebviewScreen>
         _bootStage == _WebviewBootStage.ready ||
         _bootStage == _WebviewBootStage.loadingPage;
     final showWebView = _pageReady;
+    final body =
+        showWebView
+            ? Stack(
+              children: [
+                _buildReadyBody(),
+                if (_loading) _buildBootView(),
+                if (widget.embedded)
+                  Positioned(
+                    top: 10,
+                    right: 10,
+                    child: Material(
+                      color: Colors.black.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(999),
+                      child: IconButton(
+                        tooltip: '刷新 Live2D',
+                        icon: const Icon(Icons.refresh, color: Colors.white),
+                        onPressed: canReloadPage ? _reloadPage : _init,
+                      ),
+                    ),
+                  ),
+              ],
+            )
+            : _buildBootView();
+
+    if (widget.embedded) {
+      return ColoredBox(color: Colors.white, child: body);
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Alice'),
@@ -425,12 +454,7 @@ class _WebviewScreenState extends State<WebviewScreen>
           ),
         ],
       ),
-      body:
-          showWebView
-              ? Stack(
-                children: [_buildReadyBody(), if (_loading) _buildBootView()],
-              )
-              : _buildBootView(),
+      body: body,
     );
   }
 }

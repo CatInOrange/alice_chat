@@ -558,30 +558,19 @@ class _MainScaffoldState extends State<_MainScaffold>
                   child: Padding(
                     padding: const EdgeInsets.all(12),
                     child: _WorkbenchPlaceholderCard(
+                      removePadding: _desktopLive2dVisible,
                       child: AnimatedSwitcher(
                         duration: const Duration(milliseconds: 220),
                         switchInCurve: Curves.easeOutCubic,
                         switchOutCurve: Curves.easeInCubic,
                         child:
                             _desktopLive2dVisible
-                                ? Column(
-                                  key: const ValueKey('companion-with-live2d'),
-                                  children: [
-                                    Expanded(flex: 4, child: companion),
-                                    Container(
-                                      height: 1,
-                                      color: const Color(0xFFE1E6F0),
-                                    ),
-                                    Expanded(
-                                      flex: 6,
-                                      child: WebviewScreen(
-                                        key: const ValueKey(
-                                          'webview-live2d-inline',
-                                        ),
-                                        active: _desktopLive2dVisible,
-                                      ),
-                                    ),
-                                  ],
+                                ? WebviewScreen(
+                                  key: const ValueKey(
+                                    'webview-live2d-full-panel',
+                                  ),
+                                  active: true,
+                                  embedded: true,
                                 )
                                 : SizedBox.expand(
                                   key: const ValueKey('companion-only'),
