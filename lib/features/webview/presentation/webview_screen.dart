@@ -1,8 +1,11 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
+import 'package:webview_windows/webview_windows.dart' as windows_webview;
 
 import '../../../core/openclaw/openclaw_settings.dart';
 import '../application/live2d_model_cache.dart';
@@ -28,7 +31,11 @@ class _WebviewScreenState extends State<WebviewScreen>
     '正在做最后校验…',
   ];
 
-  late final WebViewController _controller;
+  static const String _baseUrl = 'https://alice.newthu.com';
+  static const String _modelId = 'bian';
+
+  WebViewController? _mobileController;
+  windows_webview.WebviewController? _windowsController;
   bool _loading = false;
   bool _pageReady = false;
   _WebviewBootStage _bootStage = _WebviewBootStage.preparing;
@@ -36,6 +43,10 @@ class _WebviewScreenState extends State<WebviewScreen>
   String? _bootError;
   int _messageIndex = 0;
   Timer? _messageTimer;
+  bool _windowsRuntimeMissing = false;
+
+  bool get _isWindows =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
 
   @override
   bool get wantKeepAlive => true;
@@ -43,20 +54,29 @@ class _WebviewScreenState extends State<WebviewScreen>
   @override
   void initState() {
     super.initState();
-    _controller = WebViewController();
-    final platformController = _controller.platform;
+    _initPlatformController();
+    unawaited(_init());
+  }
+
+  void _initPlatformController() {
+    if (_isWindows) {
+      _windowsController = windows_webview.WebviewController();
+      return;
+    }
+    _mobileController = WebViewController();
+    final platformController = _mobileController!.platform;
     if (platformController is AndroidWebViewController) {
       platformController.setMediaPlaybackRequiresUserGesture(false);
       platformController.setMixedContentMode(MixedContentMode.alwaysAllow);
       debugPrint('WebView Android mediaPlaybackRequiresUserGesture=false');
       debugPrint('WebView Android mixedContentMode=alwaysAllow');
     }
-    unawaited(_init());
   }
 
   @override
   void dispose() {
     _messageTimer?.cancel();
+    _windowsController?.dispose();
     super.dispose();
   }
 
@@ -64,6 +84,7 @@ class _WebviewScreenState extends State<WebviewScreen>
     _messageTimer?.cancel();
     _messageTimer = null;
     _pageReady = false;
+    _windowsRuntimeMissing = false;
     if (mounted) {
       setState(() {
         _loading = false;
@@ -73,8 +94,62 @@ class _WebviewScreenState extends State<WebviewScreen>
       });
     }
 
-    await _controller.setJavaScriptMode(JavaScriptMode.unrestricted);
-    await _controller.setNavigationDelegate(
+    try {
+      final targetUrl = await _resolveTargetUrl();
+      if (targetUrl == null || targetUrl.trim().isEmpty) {
+        throw StateError('本地模型未准备完成');
+      }
+      await (_isWindows
+          ? _initWindowsWebView(targetUrl)
+          : _initMobileWebView(targetUrl));
+    } catch (error) {
+      debugPrint('WebView bootstrap failed: $error');
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _bootStage = _WebviewBootStage.failed;
+          _bootError = '$error';
+        });
+      }
+    }
+  }
+
+  Future<String?> _resolveTargetUrl() async {
+    final config = await OpenClawSettingsStore.load();
+    final password = (config.appPassword ?? '').trim();
+
+    final localModelUrl = await _ensureLocalModelReady(
+      base: _baseUrl,
+      password: password,
+      modelId: _modelId,
+    );
+    debugPrint('WebView localModelUrl resolved: $localModelUrl');
+    if (localModelUrl == null || localModelUrl.trim().isEmpty) {
+      return null;
+    }
+
+    if (mounted) {
+      setState(() {
+        _bootStage = _WebviewBootStage.loadingPage;
+        _bootMessage = '本地模型已就绪，正在打开页面…';
+        _loading = true;
+      });
+    }
+
+    final uri = Uri.parse(_baseUrl);
+    final queryParameters = <String, String>{
+      ...uri.queryParameters,
+      if (password.isNotEmpty) 'app_password': password,
+      'local_model_url': localModelUrl,
+      if (_modelId.isNotEmpty) 'model': _modelId,
+    };
+    return uri.replace(queryParameters: queryParameters).toString();
+  }
+
+  Future<void> _initMobileWebView(String targetUrl) async {
+    final controller = _mobileController!;
+    await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+    await controller.setNavigationDelegate(
       NavigationDelegate(
         onPageStarted: (url) {
           if (mounted) {
@@ -88,7 +163,7 @@ class _WebviewScreenState extends State<WebviewScreen>
         onPageFinished: (url) {
           debugPrint('WebView page finished: $url');
           _pageReady = true;
-          _syncActiveState();
+          unawaited(_syncActiveState());
           if (mounted) {
             setState(() {
               _loading = false;
@@ -109,52 +184,38 @@ class _WebviewScreenState extends State<WebviewScreen>
       ),
     );
 
+    final config = await OpenClawSettingsStore.load();
+    final password = (config.appPassword ?? '').trim();
+    await controller.loadRequest(
+      Uri.parse(targetUrl),
+      headers: {if (password.isNotEmpty) 'X-AliceChat-Password': password},
+    );
+  }
+
+  Future<void> _initWindowsWebView(String targetUrl) async {
+    final controller = _windowsController!;
+    final version = await windows_webview.WebviewController.getWebViewVersion();
+    if (version == null || version.trim().isEmpty) {
+      _windowsRuntimeMissing = true;
+      throw StateError(
+        'Windows 缺少 WebView2 Runtime，请先安装微软 Edge WebView2 Runtime。',
+      );
+    }
+
     try {
-      final config = await OpenClawSettingsStore.load();
-      final password = (config.appPassword ?? '').trim();
-      const base = 'https://alice.newthu.com';
-      const modelId = 'bian';
-
-      final localModelUrl = await _ensureLocalModelReady(
-        base: base,
-        password: password,
-        modelId: modelId,
-      );
-      debugPrint('WebView localModelUrl resolved: $localModelUrl');
-      if (localModelUrl == null || localModelUrl.trim().isEmpty) {
-        throw StateError('本地模型未准备完成');
-      }
-
-      if (mounted) {
-        setState(() {
-          _bootStage = _WebviewBootStage.loadingPage;
-          _bootMessage = '本地模型已就绪，正在打开页面…';
-          _loading = true;
-        });
-      }
-
-      final uri = Uri.parse(base);
-      final queryParameters = <String, String>{
-        ...uri.queryParameters,
-        if (password.isNotEmpty) 'app_password': password,
-        'local_model_url': localModelUrl,
-        if (modelId.isNotEmpty) 'model': modelId,
-      };
-      final targetUrl =
-          uri.replace(queryParameters: queryParameters).toString();
-      await _controller.loadRequest(
-        Uri.parse(targetUrl),
-        headers: {if (password.isNotEmpty) 'X-AliceChat-Password': password},
-      );
-    } catch (error) {
-      debugPrint('WebView bootstrap failed: $error');
+      await controller.initialize();
+      await controller.setBackgroundColor(Colors.transparent);
+      await controller.loadUrl(targetUrl);
+      _pageReady = true;
+      unawaited(_syncActiveState());
       if (mounted) {
         setState(() {
           _loading = false;
-          _bootStage = _WebviewBootStage.failed;
-          _bootError = '$error';
+          _bootStage = _WebviewBootStage.ready;
         });
       }
+    } on PlatformException catch (error) {
+      throw StateError('Windows WebView 初始化失败：${error.message ?? error.code}');
     }
   }
 
@@ -228,7 +289,7 @@ class _WebviewScreenState extends State<WebviewScreen>
       debugPrint(
         'WebView active changed: ${oldWidget.active} -> ${widget.active}',
       );
-      _syncActiveState();
+      unawaited(_syncActiveState());
     }
   }
 
@@ -240,12 +301,31 @@ class _WebviewScreenState extends State<WebviewScreen>
     final activeValue = widget.active ? 'true' : 'false';
     debugPrint('WebView syncing active state to page: $activeValue');
     try {
-      await _controller.runJavaScript(
-        'window.aliceLive2dSetActive?.($activeValue);',
-      );
+      if (_isWindows) {
+        await _windowsController?.executeScript(
+          'window.aliceLive2dSetActive?.($activeValue);',
+        );
+      } else {
+        await _mobileController?.runJavaScript(
+          'window.aliceLive2dSetActive?.($activeValue);',
+        );
+      }
     } catch (error) {
       debugPrint('WebView active sync failed: $error');
     }
+  }
+
+  Future<void> _reloadPage() async {
+    if (_bootStage == _WebviewBootStage.ready ||
+        _bootStage == _WebviewBootStage.loadingPage) {
+      if (_isWindows) {
+        await _windowsController?.reload();
+      } else {
+        await _mobileController?.reload();
+      }
+      return;
+    }
+    await _init();
   }
 
   Widget _buildBootView() {
@@ -294,6 +374,16 @@ class _WebviewScreenState extends State<WebviewScreen>
                   ),
                   textAlign: TextAlign.center,
                 ),
+              if (_windowsRuntimeMissing) ...[
+                const SizedBox(height: 12),
+                SelectableText(
+                  '下载地址：https://developer.microsoft.com/microsoft-edge/webview2/',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.primary,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
               if (isFailed) ...[
                 const SizedBox(height: 8),
                 FilledButton.icon(
@@ -309,6 +399,13 @@ class _WebviewScreenState extends State<WebviewScreen>
     );
   }
 
+  Widget _buildReadyBody() {
+    if (_isWindows) {
+      return windows_webview.Webview(_windowsController!);
+    }
+    return WebViewWidget(controller: _mobileController!);
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -321,7 +418,7 @@ class _WebviewScreenState extends State<WebviewScreen>
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: canReloadPage ? () => _controller.reload() : _init,
+            onPressed: canReloadPage ? _reloadPage : _init,
           ),
         ],
       ),
@@ -329,10 +426,7 @@ class _WebviewScreenState extends State<WebviewScreen>
           (_bootStage == _WebviewBootStage.ready ||
                   _bootStage == _WebviewBootStage.loadingPage)
               ? Stack(
-                children: [
-                  WebViewWidget(controller: _controller),
-                  if (_loading) _buildBootView(),
-                ],
+                children: [_buildReadyBody(), if (_loading) _buildBootView()],
               )
               : _buildBootView(),
     );
