@@ -1918,10 +1918,7 @@ class MusicStore extends ChangeNotifier {
     if (_currentTrackProviderId() != 'netease') {
       return null;
     }
-    final currentTrackKey = _trackIdentityKey(_currentTrack);
-    if ((_neteaseLikedPlaylistId ?? '').trim().isNotEmpty &&
-        currentTrackKey.trim().isNotEmpty &&
-        _neteaseLikedTrackKeys.contains(currentTrackKey)) {
+    if (_isCurrentTrackInNeteaseLiked()) {
       return MusicPlaylist(
         id: _neteaseLikedPlaylistId!,
         title: '喜欢',
@@ -2008,24 +2005,27 @@ class MusicStore extends ChangeNotifier {
 
   Future<void> syncLikedPlaylistFromNetease() async {
     await ensureReady();
-    final synced = await _repository.syncNeteaseFavoritePlaylist();
-    final remoteLikedPlaylist = _findNeteaseLikedPlaylist(synced);
+    await _repository.syncNeteaseFavoritePlaylistEncryptedId();
+    final remotePlaylists = await _repository.loadUserPlaylists();
+    final remoteLikedPlaylist = _findNeteaseLikedPlaylist(remotePlaylists);
     if (remoteLikedPlaylist == null) {
       throw Exception('未获取到网易云喜欢歌单');
     }
     _neteaseLikedPlaylistId = remoteLikedPlaylist.id;
-    _neteaseLikedPlaylistEncryptedId ??=
+    _neteaseLikedPlaylistEncryptedId =
         await _repository.syncNeteaseFavoritePlaylistEncryptedId();
     await _mergeRemoteLikedTracks(remoteLikedPlaylist);
     final basePlaylists =
-        _playlists
-            .where(
-              (item) =>
-                  item.id != likedPlaylist.id &&
-                  item.id != _latestAiPlaylist?.id,
-            )
-            .toList(growable: false);
-    _rebuildPlaylists(basePlaylists: [...synced, ...basePlaylists]);
+        remotePlaylists.isNotEmpty
+            ? remotePlaylists
+            : _playlists
+                .where(
+                  (item) =>
+                      item.id != likedPlaylist.id &&
+                      item.id != _latestAiPlaylist?.id,
+                )
+                .toList(growable: false);
+    _rebuildPlaylists(basePlaylists: basePlaylists);
     _currentTrack = _currentTrack.copyWith(
       isFavorite: isTrackLiked(_currentTrack.id),
     );
@@ -2053,6 +2053,46 @@ class MusicStore extends ChangeNotifier {
       return '$providerId::$sourceTrackId';
     }
     return track.id.trim();
+  }
+
+  bool _isCurrentTrackInNeteaseLiked() {
+    final likedPlaylistId = (_neteaseLikedPlaylistId ?? '').trim();
+    if (likedPlaylistId.isEmpty) {
+      return false;
+    }
+    final providerId = (_currentTrackProviderId() ?? '').trim();
+    if (providerId != 'netease') {
+      return false;
+    }
+
+    final currentSourceTrackId =
+        (_currentTrack.sourceTrackId ?? _currentTrack.cachedPlayback?.sourceTrackId ?? '')
+            .trim();
+    final currentTrackId = _currentTrack.id.trim();
+    final currentKey = _trackIdentityKey(_currentTrack).trim();
+
+    if (currentKey.isNotEmpty && _neteaseLikedTrackKeys.contains(currentKey)) {
+      return true;
+    }
+
+    for (final track in _likedTracks) {
+      final likedProvider =
+          (track.preferredSourceId ?? track.cachedPlayback?.providerId ?? '').trim();
+      if (likedProvider.isNotEmpty && likedProvider != 'netease') {
+        continue;
+      }
+      final likedSourceTrackId =
+          (track.sourceTrackId ?? track.cachedPlayback?.sourceTrackId ?? '').trim();
+      if (currentSourceTrackId.isNotEmpty &&
+          likedSourceTrackId.isNotEmpty &&
+          currentSourceTrackId == likedSourceTrackId) {
+        return true;
+      }
+      if (currentTrackId.isNotEmpty && currentTrackId == track.id.trim()) {
+        return true;
+      }
+    }
+    return false;
   }
 
   String? _normalizePlaylistId(String? playlistId) {

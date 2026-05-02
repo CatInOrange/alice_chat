@@ -592,6 +592,8 @@ class _DiscStage extends StatefulWidget {
 class _DiscStageState extends State<_DiscStage>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
+  double _dragOffset = 0;
+  bool _isSwitchingTrack = false;
 
   @override
   void initState() {
@@ -622,120 +624,170 @@ class _DiscStageState extends State<_DiscStage>
     }
   }
 
+  Future<void> _finishDrag(double velocity) async {
+    if (_isSwitchingTrack) return;
+    final threshold = 110.0;
+    final shouldNext = (_dragOffset <= -threshold || velocity <= -520) && widget.hasNext;
+    final shouldPrevious = (_dragOffset >= threshold || velocity >= 520) && widget.hasPrevious;
+
+    if (shouldNext || shouldPrevious) {
+      setState(() {
+        _isSwitchingTrack = true;
+        _dragOffset = shouldNext ? -220 : 220;
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 180));
+      if (!mounted) return;
+      if (shouldNext) {
+        await widget.onNext();
+      } else {
+        await widget.onPrevious();
+      }
+      if (!mounted) return;
+      setState(() {
+        _dragOffset = 0;
+        _isSwitchingTrack = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _dragOffset = 0;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = paletteForTone(widget.track.artworkTone);
+    final dragProgress = (_dragOffset.abs() / 160).clamp(0.0, 1.0);
     return SizedBox(
       height: 352,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onHorizontalDragEnd: (details) async {
-          final velocity = details.primaryVelocity ?? 0;
-          if (velocity <= -180 && widget.hasNext) {
-            await widget.onNext();
-            return;
-          }
-          if (velocity >= 180 && widget.hasPrevious) {
-            await widget.onPrevious();
-          }
+        onHorizontalDragUpdate: (details) {
+          if (_isSwitchingTrack) return;
+          final next = (_dragOffset + details.delta.dx).clamp(-220.0, 220.0);
+          setState(() {
+            _dragOffset = next;
+          });
         },
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Container(
-              width: 338,
-              height: 338,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    palette.glowColor.withValues(alpha: 0.42),
-                    Colors.transparent,
-                  ],
-                ),
-              ),
-            ),
-            RotationTransition(
-              turns: _controller,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Container(
-                    width: 286,
-                    height: 286,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: [
-                          Colors.white.withValues(alpha: 0.9),
-                          Colors.white.withValues(alpha: 0.26),
-                        ],
-                      ),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x16000000),
-                          blurRadius: 18,
-                          offset: Offset(0, 10),
-                        ),
+        onHorizontalDragEnd: (details) async {
+          await _finishDrag(details.primaryVelocity ?? 0);
+        },
+        onHorizontalDragCancel: () {
+          if (_isSwitchingTrack) return;
+          setState(() {
+            _dragOffset = 0;
+          });
+        },
+        child: AnimatedContainer(
+          duration: _isSwitchingTrack
+              ? const Duration(milliseconds: 180)
+              : const Duration(milliseconds: 260),
+          curve: _isSwitchingTrack ? Curves.easeIn : Curves.easeOutCubic,
+          transform: Matrix4.identity()
+            ..translate(_dragOffset)
+            ..rotateZ(_dragOffset / 1800),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Opacity(
+                opacity: 0.28 + dragProgress * 0.24,
+                child: Container(
+                  width: 338,
+                  height: 338,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      colors: [
+                        palette.glowColor.withValues(alpha: 0.42),
+                        Colors.transparent,
                       ],
                     ),
                   ),
-                  Container(
-                    width: 266,
-                    height: 266,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.5),
-                        width: 10,
-                      ),
-                    ),
-                  ),
-                  Container(
-                    width: 248,
-                    height: 248,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.14),
-                        width: 1.5,
-                      ),
-                    ),
-                  ),
-                  MusicArtwork(
-                    track: widget.track,
-                    size: 238,
-                    circular: true,
-                    heroTag: 'music-artwork-${widget.track.id}',
-                    showMeta: false,
-                    showIconBadge: false,
-                    overlayStrength: 0.06,
-                    backendBaseUrl: context.read<MusicStore>().currentConfig.baseUrl,
-                    appPassword: context.read<MusicStore>().currentConfig.appPassword,
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.78),
-                border: Border.all(
-                  color: Colors.white.withValues(alpha: 0.7),
-                  width: 1,
                 ),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x14000000),
-                    blurRadius: 10,
-                    offset: Offset(0, 4),
-                  ),
-                ],
               ),
-            ),
-          ],
+              RotationTransition(
+                turns: _controller,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Container(
+                      width: 286,
+                      height: 286,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: RadialGradient(
+                          colors: [
+                            Colors.white.withValues(alpha: 0.9),
+                            Colors.white.withValues(alpha: 0.26),
+                          ],
+                        ),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x16000000),
+                            blurRadius: 18,
+                            offset: Offset(0, 10),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      width: 266,
+                      height: 266,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.5),
+                          width: 10,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      width: 248,
+                      height: 248,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.14),
+                          width: 1.5,
+                        ),
+                      ),
+                    ),
+                    MusicArtwork(
+                      track: widget.track,
+                      size: 238,
+                      circular: true,
+                      heroTag: 'music-artwork-${widget.track.id}',
+                      showMeta: false,
+                      showIconBadge: false,
+                      overlayStrength: 0.06,
+                      backendBaseUrl: context.read<MusicStore>().currentConfig.baseUrl,
+                      appPassword: context.read<MusicStore>().currentConfig.appPassword,
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: Colors.white.withValues(alpha: 0.78),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.7),
+                    width: 1,
+                  ),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x14000000),
+                      blurRadius: 10,
+                      offset: Offset(0, 4),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
