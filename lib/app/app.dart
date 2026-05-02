@@ -18,6 +18,7 @@ import '../features/music/application/music_platform_store.dart';
 import '../features/music/application/music_store.dart';
 import '../features/music/presentation/music_screen.dart';
 import '../features/webview/presentation/webview_screen.dart';
+import '../features/companion/presentation/companion_panel.dart';
 import 'theme.dart';
 
 class AliceChatApp extends StatelessWidget {
@@ -354,87 +355,500 @@ class _MainScaffoldState extends State<_MainScaffold>
 
   @override
   Widget build(BuildContext context) {
-    context.watch<ChatSessionStore>();
+    final chatStore = context.watch<ChatSessionStore>();
+    final activeState =
+        _activeChatSession == null
+            ? null
+            : chatStore.stateFor(_activeChatSession!);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _handleSessionStateChanged();
     });
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (!didPop) {
-          unawaited(_handleRootBack());
-        }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final isDesktop = width >= 1200;
+        final isTablet = width >= 820;
+        final useWorkbenchLayout = isTablet;
+
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) {
+            if (!didPop) {
+              unawaited(_handleRootBack());
+            }
+          },
+          child:
+              useWorkbenchLayout
+                  ? _buildWorkbenchScaffold(
+                    context,
+                    activeState: activeState,
+                    isDesktop: isDesktop,
+                  )
+                  : _buildMobileScaffold(context),
+        );
       },
-      child: Scaffold(
-        body: Stack(
-          children: [
-            IndexedStack(
-              index: _currentIndex,
+    );
+  }
+
+  Widget _buildMobileScaffold(BuildContext context) {
+    return Scaffold(
+      body: Stack(
+        children: [
+          IndexedStack(
+            index: _currentIndex,
+            children: [
+              ContactsScreen(
+                contacts: _contacts,
+                onContactTap: _navigateToChat,
+              ),
+              WebviewScreen(
+                key: const ValueKey('webview'),
+                active: _currentIndex == 1 && _activeChatSession == null,
+              ),
+              const MusicScreen(),
+              const SettingsScreen(),
+            ],
+          ),
+          if (_activeChatSession != null)
+            Positioned.fill(
+              child: Material(
+                color: Colors.transparent,
+                child: ChatScreen(
+                  key: ValueKey('chat-${_activeChatSession!.id}'),
+                  session: _activeChatSession!,
+                  onBack: _closeChat,
+                ),
+              ),
+            ),
+        ],
+      ),
+      bottomNavigationBar:
+          _activeChatSession == null ? _buildBottomNavigationBar() : null,
+    );
+  }
+
+  Widget _buildWorkbenchScaffold(
+    BuildContext context, {
+    required ChatViewState? activeState,
+    required bool isDesktop,
+  }) {
+    final theme = Theme.of(context);
+    final page = _buildWorkbenchPage();
+    final selectedContactId = _activeChatSession?.id;
+    final companion = CompanionPanel(
+      session: _activeChatSession,
+      state: activeState,
+      compact: !isDesktop,
+      onOpenLive2d: () {
+        setState(() => _currentIndex = 1);
+      },
+      onOpenMusic: () {
+        setState(() => _currentIndex = 2);
+      },
+    );
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF4F6FB),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: const Color(0xFFEEF1F8),
+              borderRadius: BorderRadius.circular(30),
+            ),
+            child: Row(
               children: [
-                ContactsScreen(
-                  contacts: _contacts,
-                  onContactTap: _navigateToChat,
+                _PrimaryNavRail(
+                  currentIndex: _currentIndex,
+                  activeChatSession: _activeChatSession,
+                  onSelected: (index) {
+                    setState(() {
+                      _currentIndex = index;
+                      if (index != 0) {
+                        _activeChatSession = null;
+                      }
+                    });
+                  },
                 ),
-                WebviewScreen(
-                  key: const ValueKey('webview'),
-                  active: _currentIndex == 1 && _activeChatSession == null,
+                Container(width: 1, color: const Color(0xFFE1E6F0)),
+                SizedBox(
+                  width: 300,
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(18, 18, 18, 10),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _currentIndex == 0
+                                        ? '消息'
+                                        : _navTitle(_currentIndex),
+                                    style: theme.textTheme.titleLarge?.copyWith(
+                                      fontWeight: FontWeight.w800,
+                                      color: const Color(0xFF2D3443),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _currentIndex == 0
+                                        ? '像微信桌面版一样利落，再加一点陪伴感。'
+                                        : '保留统一功能，不做花哨分叉。',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: const Color(0xFF98A1B3),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child:
+                            _currentIndex == 0
+                                ? ContactsScreen(
+                                  contacts: _contacts,
+                                  onContactTap: _navigateToChat,
+                                  selectedContactId: selectedContactId,
+                                  embedded: true,
+                                )
+                                : Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    12,
+                                    4,
+                                    12,
+                                    12,
+                                  ),
+                                  child: _WorkbenchPlaceholderCard(child: page),
+                                ),
+                      ),
+                    ],
+                  ),
                 ),
-                const MusicScreen(),
-                const SettingsScreen(),
+                Container(width: 1, color: const Color(0xFFE1E6F0)),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: _WorkbenchPlaceholderCard(
+                      removePadding: _activeChatSession != null,
+                      child: _buildCenterPane(activeState),
+                    ),
+                  ),
+                ),
+                if (isDesktop) ...[
+                  Container(width: 1, color: const Color(0xFFE1E6F0)),
+                  SizedBox(width: 340, child: companion),
+                ] else ...[
+                  Container(width: 1, color: const Color(0xFFE1E6F0)),
+                  SizedBox(width: 280, child: companion),
+                ],
               ],
             ),
-            if (_activeChatSession != null)
-              Positioned.fill(
-                child: Material(
-                  color: Colors.transparent,
-                  child: ChatScreen(
-                    key: ValueKey('chat-${_activeChatSession!.id}'),
-                    session: _activeChatSession!,
-                    onBack: _closeChat,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCenterPane(ChatViewState? activeState) {
+    if (_currentIndex == 0 && _activeChatSession != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(26),
+        child: ChatScreen(
+          key: ValueKey('chat-desktop-${_activeChatSession!.id}'),
+          session: _activeChatSession!,
+          onBack: _closeChat,
+        ),
+      );
+    }
+    return _WorkbenchEmptyState(
+      title: _currentIndex == 0 ? '选一个联系人开始聊天' : _navTitle(_currentIndex),
+      subtitle:
+          _currentIndex == 0
+              ? '桌面版保持专业聊天工具的骨架，中间专心干正事。'
+              : '这里沿用现有 Flutter 功能，后面再逐步做桌面优化。',
+      icon: _navIcon(_currentIndex),
+    );
+  }
+
+  Widget _buildWorkbenchPage() {
+    switch (_currentIndex) {
+      case 1:
+        return WebviewScreen(
+          key: const ValueKey('webview-desktop'),
+          active: _activeChatSession == null,
+        );
+      case 2:
+        return const MusicScreen();
+      case 3:
+      default:
+        return const SettingsScreen();
+    }
+  }
+
+  Widget _buildBottomNavigationBar() {
+    return NavigationBar(
+      selectedIndex: _currentIndex,
+      onDestinationSelected: (index) {
+        unawaited(
+          NativeDebugBridge.instance.log(
+            'app',
+            'bottomNav selectedIndex=$index activeChat=${_activeChatSession?.backendSessionId ?? _activeChatSession?.id ?? ''}',
+          ),
+        );
+        setState(() {
+          _currentIndex = index;
+        });
+      },
+      destinations: const [
+        NavigationDestination(
+          icon: Icon(Icons.contacts_outlined),
+          selectedIcon: Icon(Icons.contacts),
+          label: '通讯录',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.web_outlined),
+          selectedIcon: Icon(Icons.web),
+          label: '网页',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.library_music_outlined),
+          selectedIcon: Icon(Icons.library_music),
+          label: '音乐',
+        ),
+        NavigationDestination(
+          icon: Icon(Icons.settings_outlined),
+          selectedIcon: Icon(Icons.settings),
+          label: '设置',
+        ),
+      ],
+    );
+  }
+
+  String _navTitle(int index) {
+    switch (index) {
+      case 1:
+        return '网页陪伴';
+      case 2:
+        return '音乐';
+      case 3:
+        return '设置';
+      default:
+        return '消息';
+    }
+  }
+
+  IconData _navIcon(int index) {
+    switch (index) {
+      case 1:
+        return Icons.web_rounded;
+      case 2:
+        return Icons.library_music_rounded;
+      case 3:
+        return Icons.settings_rounded;
+      default:
+        return Icons.chat_bubble_rounded;
+    }
+  }
+}
+
+class _PrimaryNavRail extends StatelessWidget {
+  const _PrimaryNavRail({
+    required this.currentIndex,
+    required this.activeChatSession,
+    required this.onSelected,
+  });
+
+  final int currentIndex;
+  final ChatSession? activeChatSession;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = <({IconData icon, String label})>[
+      (icon: Icons.chat_bubble_outline_rounded, label: '聊天'),
+      (icon: Icons.web_asset_outlined, label: '网页'),
+      (icon: Icons.library_music_outlined, label: '音乐'),
+      (icon: Icons.settings_outlined, label: '设置'),
+    ];
+
+    return Container(
+      width: 88,
+      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 12),
+      child: Column(
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              gradient: const LinearGradient(
+                colors: [Color(0xFF8B5CF6), Color(0xFFA78BFA)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x338B5CF6),
+                  blurRadius: 18,
+                  offset: Offset(0, 8),
+                ),
+              ],
+            ),
+            child: const Icon(Icons.auto_awesome_rounded, color: Colors.white),
+          ),
+          const SizedBox(height: 18),
+          ...List.generate(items.length, (index) {
+            final item = items[index];
+            final selected = currentIndex == index && activeChatSession == null;
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: InkWell(
+                onTap: () => onSelected(index),
+                borderRadius: BorderRadius.circular(18),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  width: 56,
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(
+                    color:
+                        selected ? const Color(0xFFEFE8FF) : Colors.transparent,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Column(
+                    children: [
+                      Icon(
+                        item.icon,
+                        color:
+                            selected
+                                ? const Color(0xFF7C4DFF)
+                                : const Color(0xFF7B8496),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        item.label,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight:
+                              selected ? FontWeight.w700 : FontWeight.w600,
+                          color:
+                              selected
+                                  ? const Color(0xFF7C4DFF)
+                                  : const Color(0xFF7B8496),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
+            );
+          }),
+          const Spacer(),
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEFF2F8),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              Icons.person_outline_rounded,
+              color: Color(0xFF7B8496),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WorkbenchPlaceholderCard extends StatelessWidget {
+  const _WorkbenchPlaceholderCard({
+    required this.child,
+    this.removePadding = false,
+  });
+
+  final Widget child;
+  final bool removePadding;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(26),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0A1F2430),
+            blurRadius: 24,
+            offset: Offset(0, 10),
+          ),
+        ],
+      ),
+      clipBehavior: Clip.antiAlias,
+      child:
+          removePadding
+              ? child
+              : Padding(padding: const EdgeInsets.all(4), child: child),
+    );
+  }
+}
+
+class _WorkbenchEmptyState extends StatelessWidget {
+  const _WorkbenchEmptyState({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3EEFF),
+                borderRadius: BorderRadius.circular(24),
+              ),
+              child: Icon(icon, size: 34, color: const Color(0xFF7C4DFF)),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              title,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF2D3443),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: const Color(0xFF7B8496),
+                height: 1.6,
+              ),
+            ),
           ],
         ),
-        bottomNavigationBar:
-            _activeChatSession == null
-                ? NavigationBar(
-                  selectedIndex: _currentIndex,
-                  onDestinationSelected: (index) {
-                    unawaited(
-                      NativeDebugBridge.instance.log(
-                        'app',
-                        'bottomNav selectedIndex=$index activeChat=${_activeChatSession?.backendSessionId ?? _activeChatSession?.id ?? ''}',
-                      ),
-                    );
-                    setState(() {
-                      _currentIndex = index;
-                    });
-                  },
-                  destinations: const [
-                    NavigationDestination(
-                      icon: Icon(Icons.contacts_outlined),
-                      selectedIcon: Icon(Icons.contacts),
-                      label: '通讯录',
-                    ),
-                    NavigationDestination(
-                      icon: Icon(Icons.web_outlined),
-                      selectedIcon: Icon(Icons.web),
-                      label: '网页',
-                    ),
-                    NavigationDestination(
-                      icon: Icon(Icons.library_music_outlined),
-                      selectedIcon: Icon(Icons.library_music),
-                      label: '音乐',
-                    ),
-                    NavigationDestination(
-                      icon: Icon(Icons.settings_outlined),
-                      selectedIcon: Icon(Icons.settings),
-                      label: '设置',
-                    ),
-                  ],
-                )
-                : null,
       ),
     );
   }
