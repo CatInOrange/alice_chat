@@ -22,6 +22,30 @@ String? effectiveArtworkUrl(MusicTrack track) {
   return null;
 }
 
+bool _shouldProxyArtworkUrl(String url) {
+  final uri = Uri.tryParse(url);
+  final host = (uri?.host ?? '').toLowerCase();
+  return host == 'p1.music.126.net' ||
+      host == 'p2.music.126.net' ||
+      host == 'p3.music.126.net' ||
+      host == 'p4.music.126.net';
+}
+
+String? buildProxiedArtworkUrl(
+  String? rawUrl, {
+  required String backendBaseUrl,
+}) {
+  final normalized = _normalizeArtworkUrl(rawUrl);
+  final base = backendBaseUrl.trim();
+  if (normalized.isEmpty || base.isEmpty || !_shouldProxyArtworkUrl(normalized)) {
+    return normalized.isEmpty ? null : normalized;
+  }
+  final cleanBase = base.endsWith('/') ? base.substring(0, base.length - 1) : base;
+  return Uri.parse('$cleanBase/api/music/artwork').replace(
+    queryParameters: {'url': normalized},
+  ).toString();
+}
+
 String effectiveArtworkSource(MusicTrack track) {
   final cached = (track.cachedPlayback?.artworkUrl ?? '').trim();
   if (cached.isNotEmpty) return 'cachedPlayback';
@@ -83,7 +107,7 @@ MusicArtworkPalette paletteForTone(MusicArtworkTone tone) {
   }
 }
 
-class MusicArtwork extends StatelessWidget {
+class MusicArtwork extends StatefulWidget {
   const MusicArtwork({
     super.key,
     required this.track,
@@ -93,6 +117,8 @@ class MusicArtwork extends StatelessWidget {
     this.showMeta = true,
     this.showIconBadge = true,
     this.overlayStrength,
+    this.backendBaseUrl,
+    this.appPassword,
   });
 
   final MusicTrack track;
@@ -102,20 +128,47 @@ class MusicArtwork extends StatelessWidget {
   final bool showMeta;
   final bool showIconBadge;
   final double? overlayStrength;
+  final String? backendBaseUrl;
+  final String? appPassword;
+
+  @override
+  State<MusicArtwork> createState() => _MusicArtworkState();
+}
+
+class _MusicArtworkState extends State<MusicArtwork> {
+  bool _useProxy = false;
+
+  @override
+  void didUpdateWidget(covariant MusicArtwork oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (effectiveArtworkUrl(oldWidget.track) != effectiveArtworkUrl(widget.track)) {
+      _useProxy = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final track = widget.track;
     final palette = paletteForTone(track.artworkTone);
-    final borderRadius = BorderRadius.circular(circular ? size / 2 : 28);
-    final artworkUrl = effectiveArtworkUrl(track);
+    final borderRadius = BorderRadius.circular(widget.circular ? widget.size / 2 : 28);
+    final rawArtworkUrl = effectiveArtworkUrl(track);
+    final proxiedArtworkUrl = buildProxiedArtworkUrl(
+      rawArtworkUrl,
+      backendBaseUrl: widget.backendBaseUrl ?? '',
+    );
+    final artworkUrl = _useProxy ? proxiedArtworkUrl : rawArtworkUrl;
     final artworkSource = effectiveArtworkSource(track);
-    final effectiveOverlayStrength = overlayStrength ?? (showMeta ? 0.28 : 0.1);
+    final effectiveOverlayStrength = widget.overlayStrength ?? (widget.showMeta ? 0.28 : 0.1);
+    final proxyEligible = rawArtworkUrl != null &&
+        proxiedArtworkUrl != null &&
+        proxiedArtworkUrl != rawArtworkUrl;
+
     final body = Container(
-      width: size,
-      height: size,
+      width: widget.size,
+      height: widget.size,
       decoration: BoxDecoration(
-        shape: circular ? BoxShape.circle : BoxShape.rectangle,
-        borderRadius: circular ? null : borderRadius,
+        shape: widget.circular ? BoxShape.circle : BoxShape.rectangle,
+        borderRadius: widget.circular ? null : borderRadius,
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -137,9 +190,15 @@ class MusicArtwork extends StatelessWidget {
             if (artworkUrl != null)
               Image.network(
                 artworkUrl,
+                headers:
+                    _useProxy && (widget.appPassword ?? '').trim().isNotEmpty
+                        ? {
+                          'X-AliceChat-Password': (widget.appPassword ?? '').trim(),
+                        }
+                        : null,
                 fit: BoxFit.cover,
-                cacheWidth: (size * 3).round(),
-                cacheHeight: (size * 3).round(),
+                cacheWidth: (widget.size * 3).round(),
+                cacheHeight: (widget.size * 3).round(),
                 filterQuality: FilterQuality.medium,
                 frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
                   if (wasSynchronouslyLoaded || frame != null) {
@@ -156,14 +215,20 @@ class MusicArtwork extends StatelessWidget {
                   );
                 },
                 errorBuilder: (_, error, stackTrace) {
+                  final shouldRetryWithProxy = !_useProxy && proxyEligible;
                   final payload = <String, dynamic>{
-                    'tag': 'music.artwork.image_error',
+                    'tag': shouldRetryWithProxy
+                        ? 'music.artwork.image_retry_proxy'
+                        : 'music.artwork.image_error',
                     'ts': DateTime.now().toIso8601String(),
                     'trackId': track.id,
                     'title': track.title,
                     'artist': track.artist,
                     'artworkUrl': artworkUrl,
+                    'rawArtworkUrl': rawArtworkUrl,
+                    'proxiedArtworkUrl': proxiedArtworkUrl,
                     'artworkSource': artworkSource,
+                    'usingProxy': _useProxy,
                     'error': error.toString(),
                   };
                   final message = payload.entries
@@ -172,8 +237,25 @@ class MusicArtwork extends StatelessWidget {
                   NativeDebugBridge.instance.log(
                     'music',
                     message,
-                    level: 'ERROR',
+                    level: shouldRetryWithProxy ? 'WARN' : 'ERROR',
                   );
+                  if (shouldRetryWithProxy) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted) return;
+                      setState(() {
+                        _useProxy = true;
+                      });
+                    });
+                    return DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: palette.gradient,
+                        ),
+                      ),
+                    );
+                  }
                   return DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
@@ -184,8 +266,8 @@ class MusicArtwork extends StatelessWidget {
                     ),
                     child: Center(
                       child: Container(
-                        width: circular ? size * 0.26 : 48,
-                        height: circular ? size * 0.26 : 48,
+                        width: widget.circular ? widget.size * 0.26 : 48,
+                        height: widget.circular ? widget.size * 0.26 : 48,
                         decoration: BoxDecoration(
                           color: Colors.white.withValues(alpha: 0.18),
                           shape: BoxShape.circle,
@@ -193,7 +275,7 @@ class MusicArtwork extends StatelessWidget {
                         child: Icon(
                           Icons.album_rounded,
                           color: Colors.white.withValues(alpha: 0.92),
-                          size: circular ? size * 0.12 : 24,
+                          size: widget.circular ? widget.size * 0.12 : 24,
                         ),
                       ),
                     ),
@@ -221,18 +303,18 @@ class MusicArtwork extends StatelessWidget {
               child: Material(
                 color: Colors.transparent,
                 child: Padding(
-                  padding: EdgeInsets.all(circular ? size * 0.16 : 18),
+                  padding: EdgeInsets.all(widget.circular ? widget.size * 0.16 : 18),
                   child: Column(
                     crossAxisAlignment:
-                        circular
+                        widget.circular
                             ? CrossAxisAlignment.center
                             : CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      if (showIconBadge)
+                      if (widget.showIconBadge)
                         Container(
-                          width: circular ? size * 0.24 : 44,
-                          height: circular ? size * 0.24 : 44,
+                          width: widget.circular ? widget.size * 0.24 : 44,
+                          height: widget.circular ? widget.size * 0.24 : 44,
                           decoration: BoxDecoration(
                             color: Colors.white.withValues(
                               alpha: artworkUrl == null ? 0.18 : 0.24,
@@ -242,15 +324,15 @@ class MusicArtwork extends StatelessWidget {
                           child: Icon(
                             palette.icon,
                             color: Colors.white,
-                            size: circular ? size * 0.11 : 22,
+                            size: widget.circular ? widget.size * 0.11 : 22,
                           ),
                         )
                       else
                         const SizedBox.shrink(),
-                      if (showMeta)
+                      if (widget.showMeta)
                         Column(
                           crossAxisAlignment:
-                              circular
+                              widget.circular
                                   ? CrossAxisAlignment.center
                                   : CrossAxisAlignment.start,
                           children: [
@@ -259,10 +341,10 @@ class MusicArtwork extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               textAlign:
-                                  circular ? TextAlign.center : TextAlign.start,
+                                  widget.circular ? TextAlign.center : TextAlign.start,
                               style: TextStyle(
                                 color: Colors.white,
-                                fontSize: circular ? size * 0.08 : 18,
+                                fontSize: widget.circular ? widget.size * 0.08 : 18,
                                 fontWeight: FontWeight.w700,
                                 letterSpacing: 0.2,
                               ),
@@ -273,10 +355,10 @@ class MusicArtwork extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               textAlign:
-                                  circular ? TextAlign.center : TextAlign.start,
+                                  widget.circular ? TextAlign.center : TextAlign.start,
                               style: TextStyle(
                                 color: Colors.white.withValues(alpha: 0.84),
-                                fontSize: circular ? size * 0.042 : 13,
+                                fontSize: widget.circular ? widget.size * 0.042 : 13,
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -292,14 +374,14 @@ class MusicArtwork extends StatelessWidget {
       ),
     );
 
-    if (heroTag == null) {
+    if (widget.heroTag == null) {
       return body;
     }
-    return Hero(tag: heroTag!, child: body);
+    return Hero(tag: widget.heroTag!, child: body);
   }
 }
 
-class MusicArtworkBackdrop extends StatelessWidget {
+class MusicArtworkBackdrop extends StatefulWidget {
   const MusicArtworkBackdrop({
     super.key,
     required this.track,
@@ -308,6 +390,8 @@ class MusicArtworkBackdrop extends StatelessWidget {
     this.opacity = 0.22,
     this.tintOpacity = 0.56,
     this.darkness = 0.2,
+    this.backendBaseUrl,
+    this.appPassword,
   });
 
   final MusicTrack track;
@@ -316,13 +400,39 @@ class MusicArtworkBackdrop extends StatelessWidget {
   final double opacity;
   final double tintOpacity;
   final double darkness;
+  final String? backendBaseUrl;
+  final String? appPassword;
+
+  @override
+  State<MusicArtworkBackdrop> createState() => _MusicArtworkBackdropState();
+}
+
+class _MusicArtworkBackdropState extends State<MusicArtworkBackdrop> {
+  bool _useProxy = false;
+
+  @override
+  void didUpdateWidget(covariant MusicArtworkBackdrop oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (effectiveArtworkUrl(oldWidget.track) != effectiveArtworkUrl(widget.track)) {
+      _useProxy = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final palette = paletteForTone(track.artworkTone);
-    final artworkUrl = effectiveArtworkUrl(track);
+    final palette = paletteForTone(widget.track.artworkTone);
+    final rawArtworkUrl = effectiveArtworkUrl(widget.track);
+    final proxiedArtworkUrl = buildProxiedArtworkUrl(
+      rawArtworkUrl,
+      backendBaseUrl: widget.backendBaseUrl ?? '',
+    );
+    final artworkUrl = _useProxy ? proxiedArtworkUrl : rawArtworkUrl;
+    final proxyEligible = rawArtworkUrl != null &&
+        proxiedArtworkUrl != null &&
+        proxiedArtworkUrl != rawArtworkUrl;
+
     return ClipRRect(
-      borderRadius: borderRadius ?? BorderRadius.zero,
+      borderRadius: widget.borderRadius ?? BorderRadius.zero,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -340,21 +450,42 @@ class MusicArtworkBackdrop extends StatelessWidget {
           ),
           if (artworkUrl != null)
             Opacity(
-              opacity: opacity,
+              opacity: widget.opacity,
               child: ImageFiltered(
                 imageFilter: ImageFilter.blur(
-                  sigmaX: blurSigma,
-                  sigmaY: blurSigma,
+                  sigmaX: widget.blurSigma,
+                  sigmaY: widget.blurSigma,
                 ),
                 child: Transform.scale(
                   scale: 1.14,
                   child: Image.network(
                     artworkUrl,
+                    headers:
+                        _useProxy && (widget.appPassword ?? '').trim().isNotEmpty
+                            ? {
+                              'X-AliceChat-Password': (widget.appPassword ?? '').trim(),
+                            }
+                            : null,
                     fit: BoxFit.cover,
                     cacheWidth: 1200,
                     cacheHeight: 1200,
                     filterQuality: FilterQuality.medium,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    errorBuilder: (_, error, __) {
+                      if (!_useProxy && proxyEligible) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (!mounted) return;
+                          setState(() {
+                            _useProxy = true;
+                          });
+                        });
+                      }
+                      NativeDebugBridge.instance.log(
+                        'music',
+                        'tag=${(!_useProxy && proxyEligible) ? 'music.artwork.backdrop_retry_proxy' : 'music.artwork.backdrop_error'} | trackId=${widget.track.id} | title=${widget.track.title} | artworkUrl=$artworkUrl | rawArtworkUrl=$rawArtworkUrl | proxiedArtworkUrl=$proxiedArtworkUrl | usingProxy=$_useProxy | error=$error',
+                        level: (!_useProxy && proxyEligible) ? 'WARN' : 'ERROR',
+                      );
+                      return const SizedBox.shrink();
+                    },
                   ),
                 ),
               ),
@@ -365,8 +496,8 @@ class MusicArtworkBackdrop extends StatelessWidget {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  palette.gradient.first.withValues(alpha: tintOpacity),
-                  palette.gradient.last.withValues(alpha: tintOpacity * 0.82),
+                  palette.gradient.first.withValues(alpha: widget.tintOpacity),
+                  palette.gradient.last.withValues(alpha: widget.tintOpacity * 0.82),
                 ],
               ),
             ),
@@ -377,9 +508,9 @@ class MusicArtworkBackdrop extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Colors.black.withValues(alpha: darkness * 0.4),
+                  Colors.black.withValues(alpha: widget.darkness * 0.4),
                   Colors.transparent,
-                  Colors.black.withValues(alpha: darkness),
+                  Colors.black.withValues(alpha: widget.darkness),
                 ],
                 stops: const [0, 0.45, 1],
               ),

@@ -75,6 +75,17 @@ class MusicStore extends ChangeNotifier {
   late MusicRepository _repository;
   late Future<void> _configReady;
   Future<void>? _ensureReadyTask;
+
+  OpenClawConfig get currentConfig =>
+      _client is OpenClawHttpClient
+          ? (_client as OpenClawHttpClient).config
+          : const OpenClawConfig(
+            baseUrl: '',
+            modelId: 'alicechat-default',
+            providerId: 'alicechat-channel',
+            agent: 'main',
+            sessionName: 'alicechat',
+          );
   StreamSubscription<Map<String, dynamic>>? _eventsSub;
   StreamSubscription<PlaybackAdapterState>? _playbackStateSub;
 

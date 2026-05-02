@@ -452,6 +452,7 @@ class _MusicScreenState extends State<MusicScreen>
         final aiPlaylistHistory = store.aiPlaylistHistory;
         final currentPlaybackSourceLabel = store.currentPlaybackSourceLabel;
         final miniSubtitle = store.miniPlayerSubtitle;
+        final currentConfig = store.currentConfig;
         final latestAiPlaylistActionPending =
             latestAiPlaylist != null &&
             _isPlaylistActionPending(latestAiPlaylist.id);
@@ -475,6 +476,8 @@ class _MusicScreenState extends State<MusicScreen>
                 children: [
                   _MusicHeroCard(
                     track: store.heroTrack,
+                    backendBaseUrl: currentConfig.baseUrl,
+                    appPassword: currentConfig.appPassword,
                     title: latestAiPlaylist?.title ?? '今晚推荐',
                     headline: latestAiPlaylist?.title ?? '给工作和夜色留一点音乐。',
                     subtitle: latestAiPlaylist?.subtitle,
@@ -637,6 +640,8 @@ class _MusicScreenState extends State<MusicScreen>
                   bottom: 16,
                   child: _MiniPlayer(
                     track: currentTrack,
+                    backendBaseUrl: currentConfig.baseUrl,
+                    appPassword: currentConfig.appPassword,
                     sourceLabel: miniSubtitle,
                     isPlaying: isPlaying,
                     onTap: () => _openPlayer(store),
@@ -702,6 +707,8 @@ class _GlowOrb extends StatelessWidget {
 class _MusicHeroCard extends StatelessWidget {
   const _MusicHeroCard({
     required this.track,
+    required this.backendBaseUrl,
+    this.appPassword,
     required this.onPlayTap,
     required this.title,
     required this.headline,
@@ -715,6 +722,8 @@ class _MusicHeroCard extends StatelessWidget {
   });
 
   final MusicTrack track;
+  final String backendBaseUrl;
+  final String? appPassword;
   final VoidCallback onPlayTap;
   final String title;
   final String headline;
@@ -773,6 +782,8 @@ class _MusicHeroCard extends StatelessWidget {
                 opacity: 0.2,
                 tintOpacity: 0.46,
                 darkness: 0.22,
+                backendBaseUrl: backendBaseUrl,
+                appPassword: appPassword,
               ),
             ),
             Positioned(
@@ -843,6 +854,8 @@ class _MusicHeroCard extends StatelessWidget {
                                           showMeta: false,
                                           showIconBadge: false,
                                           overlayStrength: 0.14,
+                                          backendBaseUrl: backendBaseUrl,
+                                          appPassword: appPassword,
                                         ),
                                         DecoratedBox(
                                           decoration: BoxDecoration(
@@ -1713,6 +1726,8 @@ class _MiniPlayer extends StatefulWidget {
     required this.isPlaying,
     required this.onTap,
     required this.onPlayPause,
+    required this.backendBaseUrl,
+    this.appPassword,
   });
 
   final MusicTrack track;
@@ -1720,6 +1735,8 @@ class _MiniPlayer extends StatefulWidget {
   final bool isPlaying;
   final VoidCallback onTap;
   final VoidCallback onPlayPause;
+  final String backendBaseUrl;
+  final String? appPassword;
 
   @override
   State<_MiniPlayer> createState() => _MiniPlayerState();
@@ -1795,6 +1812,8 @@ class _MiniPlayerState extends State<_MiniPlayer>
                         circular: true,
                         showMeta: false,
                         heroTag: 'music-artwork-${widget.track.id}',
+                        backendBaseUrl: widget.backendBaseUrl,
+                        appPassword: widget.appPassword,
                       ),
                     ),
                   ),
@@ -2096,6 +2115,8 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                                 track: track,
                                 size: 52,
                                 showMeta: false,
+                                backendBaseUrl: store.currentConfig.baseUrl,
+                                appPassword: store.currentConfig.appPassword,
                               ),
                               title: Text(
                                 track.title,
@@ -2486,7 +2507,13 @@ Future<void> _showSearchTrackPreview(
           children: [
             Row(
               children: [
-                MusicArtwork(track: track, size: 72, showMeta: false),
+                MusicArtwork(
+                  track: track,
+                  size: 72,
+                  showMeta: false,
+                  backendBaseUrl: context.read<MusicStore>().currentConfig.baseUrl,
+                  appPassword: context.read<MusicStore>().currentConfig.appPassword,
+                ),
                 const SizedBox(width: 14),
                 Expanded(
                   child: Column(

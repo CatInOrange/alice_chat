@@ -686,6 +686,8 @@ class _DiscStageState extends State<_DiscStage>
                   showMeta: false,
                   showIconBadge: false,
                   overlayStrength: 0.06,
+                  backendBaseUrl: context.read<MusicStore>().currentConfig.baseUrl,
+                  appPassword: context.read<MusicStore>().currentConfig.appPassword,
                 ),
               ],
             ),
@@ -983,7 +985,13 @@ class _QueueItem extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
-              MusicArtwork(track: track, size: 56, showMeta: false),
+              MusicArtwork(
+                track: track,
+                size: 56,
+                showMeta: false,
+                backendBaseUrl: context.read<MusicStore>().currentConfig.baseUrl,
+                appPassword: context.read<MusicStore>().currentConfig.appPassword,
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
