@@ -31,7 +31,9 @@ class _MusicScreenState extends State<MusicScreen>
     if (text.contains('401') || text.contains('403') || text.contains('登录')) {
       return '当前登录状态可能已经失效，请重新登录音乐平台后再试。';
     }
-    if (text.contains('没有可播放') || text.contains('source') || text.contains('播放')) {
+    if (text.contains('没有可播放') ||
+        text.contains('source') ||
+        text.contains('播放')) {
       return '这首歌暂时没法顺利播放，可以重试一次，或者换一首试试。';
     }
     return text;
@@ -66,17 +68,20 @@ class _MusicScreenState extends State<MusicScreen>
   ) async {
     final lower = raw.toLowerCase();
     if (lower.contains('baseurl') || lower.contains('no host specified')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请到设置里检查后端地址、桥接地址和登录状态')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请到设置里检查后端地址、桥接地址和登录状态')));
       return;
     }
-    if (raw.contains('没有可播放') || lower.contains('source') || raw.contains('播放')) {
+    if (raw.contains('没有可播放') ||
+        lower.contains('source') ||
+        raw.contains('播放')) {
       await store.retryCurrentTrack();
       return;
     }
     await store.retryCurrentPlaylist();
   }
+
   @override
   void initState() {
     super.initState();
@@ -109,10 +114,13 @@ class _MusicScreenState extends State<MusicScreen>
       if (!mounted) return;
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => MusicPlayerScreen(
-            track: track ?? store.currentTrack,
-            queue: store.queue.map((item) => item.track).toList(growable: false),
-          ),
+          builder:
+              (_) => MusicPlayerScreen(
+                track: track ?? store.currentTrack,
+                queue: store.queue
+                    .map((item) => item.track)
+                    .toList(growable: false),
+              ),
         ),
       );
     } finally {
@@ -156,17 +164,24 @@ class _MusicScreenState extends State<MusicScreen>
     }
   }
 
-  Future<void> _openPlaylistDetail(MusicStore store, MusicPlaylist playlist) async {
+  Future<void> _openPlaylistDetail(
+    MusicStore store,
+    MusicPlaylist playlist,
+  ) async {
     if (!_beginPlaylistAction(playlist.id)) return;
     try {
       final tracks = await store.loadPlaylistTracks(playlist);
       if (!mounted) return;
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => ChangeNotifierProvider.value(
-            value: store,
-            child: _PlaylistDetailScreen(playlist: playlist, tracks: tracks),
-          ),
+          builder:
+              (_) => ChangeNotifierProvider.value(
+                value: store,
+                child: _PlaylistDetailScreen(
+                  playlist: playlist,
+                  tracks: tracks,
+                ),
+              ),
         ),
       );
     } catch (_) {
@@ -176,7 +191,10 @@ class _MusicScreenState extends State<MusicScreen>
     }
   }
 
-  Future<void> _showCreatePlaylistSheet(BuildContext context, MusicStore store) async {
+  Future<void> _showCreatePlaylistSheet(
+    BuildContext context,
+    MusicStore store,
+  ) async {
     final nameController = TextEditingController();
     final subtitleController = TextEditingController();
     final descriptionController = TextEditingController();
@@ -233,9 +251,9 @@ class _MusicScreenState extends State<MusicScreen>
                     );
                     if (!sheetContext.mounted) return;
                     Navigator.of(sheetContext).pop();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('已创建歌单：$title')),
-                    );
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text('已创建歌单：$title')));
                   },
                   child: const Text('创建歌单'),
                 ),
@@ -256,7 +274,9 @@ class _MusicScreenState extends State<MusicScreen>
     if (custom == null) return;
     final nameController = TextEditingController(text: custom.title);
     final subtitleController = TextEditingController(text: custom.subtitle);
-    final descriptionController = TextEditingController(text: custom.description);
+    final descriptionController = TextEditingController(
+      text: custom.description,
+    );
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -271,11 +291,21 @@ class _MusicScreenState extends State<MusicScreen>
             children: [
               Text('编辑歌单', style: Theme.of(sheetContext).textTheme.titleLarge),
               const SizedBox(height: 16),
-              TextField(controller: nameController, decoration: const InputDecoration(labelText: '歌单名称')),
+              TextField(
+                controller: nameController,
+                decoration: const InputDecoration(labelText: '歌单名称'),
+              ),
               const SizedBox(height: 12),
-              TextField(controller: subtitleController, decoration: const InputDecoration(labelText: '副标题（选填）')),
+              TextField(
+                controller: subtitleController,
+                decoration: const InputDecoration(labelText: '副标题（选填）'),
+              ),
               const SizedBox(height: 12),
-              TextField(controller: descriptionController, maxLines: 2, decoration: const InputDecoration(labelText: '简介（选填）')),
+              TextField(
+                controller: descriptionController,
+                maxLines: 2,
+                decoration: const InputDecoration(labelText: '简介（选填）'),
+              ),
               const SizedBox(height: 18),
               SizedBox(
                 width: double.infinity,
@@ -340,20 +370,35 @@ class _MusicScreenState extends State<MusicScreen>
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
-                title: const Text('删除歌单', style: TextStyle(color: Colors.redAccent)),
+                leading: const Icon(
+                  Icons.delete_outline_rounded,
+                  color: Colors.redAccent,
+                ),
+                title: const Text(
+                  '删除歌单',
+                  style: TextStyle(color: Colors.redAccent),
+                ),
                 onTap: () async {
                   Navigator.of(sheetContext).pop();
                   final confirmed = await showDialog<bool>(
                     context: context,
-                    builder: (dialogContext) => AlertDialog(
-                      title: const Text('删除歌单？'),
-                      content: const Text('删除后歌单里的歌曲不会被删除，只会移除这个歌单。'),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('取消')),
-                        FilledButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('删除')),
-                      ],
-                    ),
+                    builder:
+                        (dialogContext) => AlertDialog(
+                          title: const Text('删除歌单？'),
+                          content: const Text('删除后歌单里的歌曲不会被删除，只会移除这个歌单。'),
+                          actions: [
+                            TextButton(
+                              onPressed:
+                                  () => Navigator.of(dialogContext).pop(false),
+                              child: const Text('取消'),
+                            ),
+                            FilledButton(
+                              onPressed:
+                                  () => Navigator.of(dialogContext).pop(true),
+                              child: const Text('删除'),
+                            ),
+                          ],
+                        ),
                   );
                   if (confirmed == true) {
                     await store.deleteCustomPlaylist(playlist.id);
@@ -403,7 +448,8 @@ class _MusicScreenState extends State<MusicScreen>
         final aiPlaylistHistory = store.aiPlaylistHistory;
         final currentPlaybackSourceLabel = store.currentPlaybackSourceLabel;
         final miniSubtitle = store.miniPlayerSubtitle;
-        final latestAiPlaylistActionPending = latestAiPlaylist != null &&
+        final latestAiPlaylistActionPending =
+            latestAiPlaylist != null &&
             _isPlaylistActionPending(latestAiPlaylist.id);
 
         return Scaffold(
@@ -411,7 +457,8 @@ class _MusicScreenState extends State<MusicScreen>
             title: const Text('音乐'),
             actions: [
               IconButton(
-                onPressed: _isOpeningSearch ? null : () => _openSearch(context, store),
+                onPressed:
+                    _isOpeningSearch ? null : () => _openSearch(context, store),
                 icon: const Icon(Icons.search_rounded),
               ),
             ],
@@ -428,7 +475,8 @@ class _MusicScreenState extends State<MusicScreen>
                     headline: latestAiPlaylist?.title ?? '给工作和夜色留一点音乐。',
                     subtitle: latestAiPlaylist?.subtitle,
                     description:
-                        latestAiPlaylist?.description ?? store.heroTrack.description,
+                        latestAiPlaylist?.description ??
+                        store.heroTrack.description,
                     buttonLabel: latestAiPlaylist != null ? '播放歌单' : '播放',
                     badgeLabel: latestAiPlaylist != null ? 'AI 最新歌单' : '今晚推荐',
                     timestampLabel: _formatAiPlaylistTime(latestAiPlaylist),
@@ -440,17 +488,23 @@ class _MusicScreenState extends State<MusicScreen>
                       }
                       await _openPlayer(store, store.heroTrack);
                     },
-                    onDetailTap: latestAiPlaylist != null
-                        ? () => _openPlaylistDetail(store, latestAiPlaylist.asPlaylist)
-                        : null,
+                    onDetailTap:
+                        latestAiPlaylist != null
+                            ? () => _openPlaylistDetail(
+                              store,
+                              latestAiPlaylist.asPlaylist,
+                            )
+                            : null,
                   ),
                   const SizedBox(height: 24),
                   _FavoritePlaylistCard(
                     playlist: likedPlaylist,
-                    currentTrack: store.likedTracks.isNotEmpty
-                        ? store.likedTracks.first
-                        : currentTrack,
-                    isLoading: store.isPlaylistLoading(likedPlaylist.id) ||
+                    currentTrack:
+                        store.likedTracks.isNotEmpty
+                            ? store.likedTracks.first
+                            : currentTrack,
+                    isLoading:
+                        store.isPlaylistLoading(likedPlaylist.id) ||
                         _isPlaylistActionPending(likedPlaylist.id),
                     isActive: store.isPlaylistActive(likedPlaylist.id),
                     isPlaying: store.isPlaylistPlaying(likedPlaylist.id),
@@ -477,8 +531,14 @@ class _MusicScreenState extends State<MusicScreen>
                     _CompactPlaylistGrid(
                       playlists: store.customPlaylistCards,
                       currentPlaylistId: store.currentPlaylistId,
-                      onPlaylistTap: (playlist) => _openPlaylistDetail(store, playlist),
-                      onPlaylistLongPress: (playlist) => _showCustomPlaylistActions(context, store, playlist),
+                      onPlaylistTap:
+                          (playlist) => _openPlaylistDetail(store, playlist),
+                      onPlaylistLongPress:
+                          (playlist) => _showCustomPlaylistActions(
+                            context,
+                            store,
+                            playlist,
+                          ),
                     ),
                   if ((store.error ?? '').trim().isNotEmpty)
                     Padding(
@@ -487,8 +547,15 @@ class _MusicScreenState extends State<MusicScreen>
                         message: _friendlyHomeError(store.error!),
                         tone: _noticeToneForError(store.error!),
                         onDismiss: store.clearError,
-                        primaryActionLabel: _primaryActionLabelForError(store.error!),
-                        onPrimaryAction: () => _handlePrimaryErrorAction(context, store, store.error!),
+                        primaryActionLabel: _primaryActionLabelForError(
+                          store.error!,
+                        ),
+                        onPrimaryAction:
+                            () => _handlePrimaryErrorAction(
+                              context,
+                              store,
+                              store.error!,
+                            ),
                       ),
                     ),
                   if (recentPlaylists.isNotEmpty) ...[
@@ -536,13 +603,18 @@ class _MusicScreenState extends State<MusicScreen>
                           isActive: store.isPlaylistActive(draft.asPlaylist.id),
                           isBusy: _isPlaylistActionPending(draft.asPlaylist.id),
                           metaLabel: _formatAiPlaylistTime(draft),
-                          onTap: () => _openPlaylistDetail(store, draft.asPlaylist),
-                          onPlayTap: () => _playPlaylist(store, draft.asPlaylist),
+                          onTap:
+                              () =>
+                                  _openPlaylistDetail(store, draft.asPlaylist),
+                          onPlayTap:
+                              () => _playPlaylist(store, draft.asPlaylist),
                         ),
                       ),
                     ),
                   ],
-                  if (playlists.isEmpty && recentPlaylists.isEmpty && latestAiPlaylist == null)
+                  if (playlists.isEmpty &&
+                      recentPlaylists.isEmpty &&
+                      latestAiPlaylist == null)
                     const _EmptyMusicState()
                   else if (recentPlaylists.isEmpty && aiPlaylistHistory.isEmpty)
                     Padding(
@@ -586,26 +658,17 @@ class _MusicScreenBackdrop extends StatelessWidget {
           Positioned(
             top: -80,
             right: -40,
-            child: _GlowOrb(
-              size: 220,
-              color: const Color(0x337C4DFF),
-            ),
+            child: _GlowOrb(size: 220, color: const Color(0x337C4DFF)),
           ),
           Positioned(
             top: 180,
             left: -72,
-            child: _GlowOrb(
-              size: 180,
-              color: const Color(0x2200BFA5),
-            ),
+            child: _GlowOrb(size: 180, color: const Color(0x2200BFA5)),
           ),
           Positioned(
             bottom: 80,
             right: -30,
-            child: _GlowOrb(
-              size: 160,
-              color: const Color(0x22FF8A65),
-            ),
+            child: _GlowOrb(size: 160, color: const Color(0x22FF8A65)),
           ),
         ],
       ),
@@ -626,9 +689,7 @@ class _GlowOrb extends StatelessWidget {
       height: size,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        gradient: RadialGradient(
-          colors: [color, Colors.transparent],
-        ),
+        gradient: RadialGradient(colors: [color, Colors.transparent]),
       ),
     );
   }
@@ -668,14 +729,6 @@ class _MusicHeroCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(36),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            palette.gradient.first,
-            Color.lerp(palette.gradient.last, Colors.black, 0.12)!,
-          ],
-        ),
         boxShadow: [
           BoxShadow(
             color: palette.glowColor.withValues(alpha: 0.82),
@@ -684,180 +737,265 @@ class _MusicHeroCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(36),
-          onTap: onDetailTap ?? onPlayTap,
-          child: Padding(
-            padding: const EdgeInsets.all(22),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 7,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withValues(alpha: 0.16),
-                                      borderRadius: BorderRadius.circular(999),
-                                      border: Border.all(
-                                        color: Colors.white.withValues(alpha: 0.16),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      badgeLabel,
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: 0.4,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(36),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: MusicArtworkBackdrop(
+                track: track,
+                borderRadius: BorderRadius.circular(36),
+                blurSigma: 26,
+                opacity: 0.24,
+                tintOpacity: 0.62,
+                darkness: 0.28,
+              ),
+            ),
+            Positioned(
+              right: -42,
+              top: -28,
+              child: Container(
+                width: 190,
+                height: 190,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      Colors.white.withValues(alpha: 0.12),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(36),
+                onTap: onDetailTap ?? onPlayTap,
+                child: Padding(
+                  padding: const EdgeInsets.all(22),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 7,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.16),
+                                    borderRadius: BorderRadius.circular(999),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.16,
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(height: 16),
-                                  Text(
-                                    title,
+                                  child: Text(
+                                    badgeLabel,
                                     style: theme.textTheme.bodySmall?.copyWith(
-                                      color: Colors.white.withValues(alpha: 0.78),
+                                      color: Colors.white,
                                       fontWeight: FontWeight.w700,
                                       letterSpacing: 0.4,
                                     ),
                                   ),
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  title,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: Colors.white.withValues(alpha: 0.78),
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.4,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  headline,
+                                  style: theme.textTheme.titleLarge?.copyWith(
+                                    color: Colors.white,
+                                    fontSize: 24,
+                                    height: 1.2,
+                                  ),
+                                ),
+                                if ((subtitle ?? '').trim().isNotEmpty) ...[
                                   const SizedBox(height: 8),
                                   Text(
-                                    headline,
-                                    style: theme.textTheme.titleLarge?.copyWith(
-                                      color: Colors.white,
-                                      fontSize: 24,
-                                      height: 1.2,
-                                    ),
-                                  ),
-                                  if ((subtitle ?? '').trim().isNotEmpty) ...[
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      subtitle!,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.bodyMedium?.copyWith(
-                                        color: Colors.white.withValues(alpha: 0.9),
-                                      ),
-                                    ),
-                                  ],
-                                  if ((timestampLabel ?? '').trim().isNotEmpty) ...[
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      timestampLabel!,
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: Colors.white.withValues(alpha: 0.74),
-                                      ),
-                                    ),
-                                  ],
-                                  const SizedBox(height: 10),
-                                  Text(
-                                    description,
-                                    maxLines: 2,
+                                    subtitle!,
+                                    maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.bodyMedium?.copyWith(
-                                      color: Colors.white.withValues(alpha: 0.82),
-                                      height: 1.5,
+                                      color: Colors.white.withValues(
+                                        alpha: 0.9,
+                                      ),
                                     ),
                                   ),
                                 ],
-                              ),
+                                if ((timestampLabel ?? '')
+                                    .trim()
+                                    .isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    timestampLabel!,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.74,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 10),
+                                Text(
+                                  description,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: Colors.white.withValues(alpha: 0.82),
+                                    height: 1.5,
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 14),
-                            MusicArtwork(
+                          ),
+                          const SizedBox(width: 14),
+                          Container(
+                            padding: const EdgeInsets.all(3),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(32),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.26),
+                              ),
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Colors.white.withValues(alpha: 0.16),
+                                  Colors.white.withValues(alpha: 0.04),
+                                ],
+                              ),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Color(0x22000000),
+                                  blurRadius: 18,
+                                  offset: Offset(0, 10),
+                                ),
+                              ],
+                            ),
+                            child: MusicArtwork(
                               track: track,
                               size: 108,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 22),
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(24),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.12),
+                              showIconBadge: false,
+                              overlayStrength: 0.08,
                             ),
                           ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      track.title,
-                                      style: theme.textTheme.titleMedium?.copyWith(
-                                        color: Colors.white,
-                                        fontSize: 18,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      '${track.artist} · ${track.album}',
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: Colors.white.withValues(alpha: 0.78),
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                        ],
+                      ),
+                      const SizedBox(height: 22),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(24),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.14),
                               ),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  FilledButton.tonalIcon(
-                                    onPressed: isBusy ? null : onPlayTap,
-                                    style: FilledButton.styleFrom(
-                                      backgroundColor: Colors.white,
-                                      foregroundColor: palette.gradient.first,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 18,
-                                        vertical: 14,
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        track.title,
+                                        style: theme.textTheme.titleMedium
+                                            ?.copyWith(
+                                              color: Colors.white,
+                                              fontSize: 18,
+                                            ),
                                       ),
-                                    ),
-                                    icon: isBusy
-                                        ? SizedBox(
-                                            width: 18,
-                                            height: 18,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              valueColor: AlwaysStoppedAnimation<Color>(
-                                                palette.gradient.first,
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        '${track.artist} · ${track.album}',
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                              color: Colors.white.withValues(
+                                                alpha: 0.78,
                                               ),
                                             ),
-                                          )
-                                        : const Icon(Icons.play_arrow_rounded),
-                                    label: Text(isBusy ? '处理中...' : buttonLabel),
-                                  ),
-                                  if (onDetailTap != null) ...[
-                                    const SizedBox(height: 8),
-                                    TextButton(
-                                      onPressed: isBusy ? null : onDetailTap,
-                                      style: TextButton.styleFrom(
-                                        foregroundColor: Colors.white,
                                       ),
-                                      child: const Text('查看歌单'),
+                                    ],
+                                  ),
+                                ),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    FilledButton.tonalIcon(
+                                      onPressed: isBusy ? null : onPlayTap,
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor: Colors.white,
+                                        foregroundColor: palette.gradient.first,
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 18,
+                                          vertical: 14,
+                                        ),
+                                      ),
+                                      icon:
+                                          isBusy
+                                              ? SizedBox(
+                                                width: 18,
+                                                height: 18,
+                                                child: CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                  valueColor:
+                                                      AlwaysStoppedAnimation<
+                                                        Color
+                                                      >(palette.gradient.first),
+                                                ),
+                                              )
+                                              : const Icon(
+                                                Icons.play_arrow_rounded,
+                                              ),
+                                      label: Text(
+                                        isBusy ? '处理中...' : buttonLabel,
+                                      ),
                                     ),
+                                    if (onDetailTap != null) ...[
+                                      const SizedBox(height: 8),
+                                      TextButton(
+                                        onPressed: isBusy ? null : onDetailTap,
+                                        style: TextButton.styleFrom(
+                                          foregroundColor: Colors.white,
+                                        ),
+                                        child: const Text('查看歌单'),
+                                      ),
+                                    ],
                                   ],
-                                ],
-                              ),
-                            ],
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-              ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -969,22 +1107,25 @@ class _FavoritePlaylistCard extends StatelessWidget {
                   shape: const CircleBorder(),
                   padding: EdgeInsets.zero,
                 ),
-                child: isLoading
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                child:
+                    isLoading
+                        ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
+                          ),
+                        )
+                        : Icon(
+                          isPlaying
+                              ? Icons.equalizer_rounded
+                              : (isActive
+                                  ? Icons.pause_circle_filled_rounded
+                                  : Icons.play_arrow_rounded),
                         ),
-                      )
-                    : Icon(
-                        isPlaying
-                            ? Icons.equalizer_rounded
-                            : (isActive
-                                ? Icons.pause_circle_filled_rounded
-                                : Icons.play_arrow_rounded),
-                      ),
               ),
             ],
           ),
@@ -1027,13 +1168,14 @@ class _SectionHeader extends StatelessWidget {
         ),
         TextButton(
           onPressed: isBusy ? null : onActionTap,
-          child: isBusy
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Text(actionLabel),
+          child:
+              isBusy
+                  ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                  : Text(actionLabel),
         ),
       ],
     );
@@ -1071,7 +1213,10 @@ class _CompactPlaylistGrid extends StatelessWidget {
               playlist: playlist,
               isActive: currentPlaylistId == playlist.id,
               onTap: () => onPlaylistTap(playlist),
-              onLongPress: onPlaylistLongPress == null ? null : () => onPlaylistLongPress!(playlist),
+              onLongPress:
+                  onPlaylistLongPress == null
+                      ? null
+                      : () => onPlaylistLongPress!(playlist),
             ),
           );
         },
@@ -1234,7 +1379,9 @@ class _RecentPlaylistTile extends StatelessWidget {
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: palette.gradient.first.withValues(alpha: 0.12),
+                              color: palette.gradient.first.withValues(
+                                alpha: 0.12,
+                              ),
                               borderRadius: BorderRadius.circular(999),
                             ),
                             child: Text(
@@ -1280,19 +1427,22 @@ class _RecentPlaylistTile extends StatelessWidget {
                     ),
                     child: IconButton(
                       onPressed: isBusy ? null : onPlayTap,
-                      icon: isBusy
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      icon:
+                          isBusy
+                              ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.white,
+                                  ),
+                                ),
+                              )
+                              : const Icon(
+                                Icons.play_arrow_rounded,
+                                color: Colors.white,
                               ),
-                            )
-                          : const Icon(
-                              Icons.play_arrow_rounded,
-                              color: Colors.white,
-                            ),
                     ),
                   ),
                 ),
@@ -1359,7 +1509,8 @@ class _InlineNotice extends StatelessWidget {
                       height: 1.4,
                     ),
                   ),
-                  if ((primaryActionLabel ?? '').trim().isNotEmpty && onPrimaryAction != null)
+                  if ((primaryActionLabel ?? '').trim().isNotEmpty &&
+                      onPrimaryAction != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
                       child: TextButton(
@@ -1430,7 +1581,11 @@ class _EmptyMusicState extends StatelessWidget {
       ),
       child: Column(
         children: [
-          const Icon(Icons.music_off_rounded, size: 36, color: Color(0xFF7D879A)),
+          const Icon(
+            Icons.music_off_rounded,
+            size: 36,
+            color: Color(0xFF7D879A),
+          ),
           const SizedBox(height: 12),
           Text('还没有可展示的音乐内容', style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
@@ -1594,12 +1749,8 @@ class _MiniPlayerState extends State<_MiniPlayer>
   }
 }
 
-
 class _PlaylistDetailScreen extends StatefulWidget {
-  const _PlaylistDetailScreen({
-    required this.playlist,
-    required this.tracks,
-  });
+  const _PlaylistDetailScreen({required this.playlist, required this.tracks});
 
   final MusicPlaylist playlist;
   final List<MusicTrack> tracks;
@@ -1622,44 +1773,68 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.play_arrow_rounded),
-              title: const Text('播放这首歌'),
-              onTap: () async {
-                Navigator.of(sheetContext).pop();
-                await store.playLoadedPlaylist(playlist, widget.tracks, startIndex: widget.tracks.indexWhere((item) => item.id == track.id));
-                if (!context.mounted) return;
-                await _openPlayer(context, store);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.playlist_remove_rounded, color: Colors.redAccent),
-              title: const Text('从歌单移除', style: TextStyle(color: Colors.redAccent)),
-              onTap: () async {
-                Navigator.of(sheetContext).pop();
-                await store.removeTrackFromCustomPlaylist(playlist.id, track.id);
-                if (!context.mounted) return;
-                Navigator.of(context).pop();
-                final updatedPlaylist = store.customPlaylistById(playlist.id)?.asPlaylist ?? playlist;
-                final updatedTracks = await store.loadPlaylistTracks(updatedPlaylist);
-                if (!context.mounted) return;
-                await Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => ChangeNotifierProvider.value(
-                      value: store,
-                      child: _PlaylistDetailScreen(playlist: updatedPlaylist, tracks: updatedTracks),
-                    ),
+      builder:
+          (sheetContext) => SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.play_arrow_rounded),
+                  title: const Text('播放这首歌'),
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    await store.playLoadedPlaylist(
+                      playlist,
+                      widget.tracks,
+                      startIndex: widget.tracks.indexWhere(
+                        (item) => item.id == track.id,
+                      ),
+                    );
+                    if (!context.mounted) return;
+                    await _openPlayer(context, store);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(
+                    Icons.playlist_remove_rounded,
+                    color: Colors.redAccent,
                   ),
-                );
-              },
+                  title: const Text(
+                    '从歌单移除',
+                    style: TextStyle(color: Colors.redAccent),
+                  ),
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    await store.removeTrackFromCustomPlaylist(
+                      playlist.id,
+                      track.id,
+                    );
+                    if (!context.mounted) return;
+                    Navigator.of(context).pop();
+                    final updatedPlaylist =
+                        store.customPlaylistById(playlist.id)?.asPlaylist ??
+                        playlist;
+                    final updatedTracks = await store.loadPlaylistTracks(
+                      updatedPlaylist,
+                    );
+                    if (!context.mounted) return;
+                    await Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder:
+                            (_) => ChangeNotifierProvider.value(
+                              value: store,
+                              child: _PlaylistDetailScreen(
+                                playlist: updatedPlaylist,
+                                tracks: updatedTracks,
+                              ),
+                            ),
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
     );
   }
 
@@ -1667,10 +1842,13 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
     if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => MusicPlayerScreen(
-          track: store.currentTrack,
-          queue: store.queue.map((item) => item.track).toList(growable: false),
-        ),
+        builder:
+            (_) => MusicPlayerScreen(
+              track: store.currentTrack,
+              queue: store.queue
+                  .map((item) => item.track)
+                  .toList(growable: false),
+            ),
       ),
     );
   }
@@ -1684,14 +1862,20 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
         return Scaffold(
           appBar: AppBar(
             title: Text(playlist.title),
-            actions: store.isCustomPlaylist(playlist.id)
-                ? [
-                    IconButton(
-                      onPressed: () => _showCustomPlaylistDetailActions(context, store, playlist),
-                      icon: const Icon(Icons.more_horiz_rounded),
-                    ),
-                  ]
-                : null,
+            actions:
+                store.isCustomPlaylist(playlist.id)
+                    ? [
+                      IconButton(
+                        onPressed:
+                            () => _showCustomPlaylistDetailActions(
+                              context,
+                              store,
+                              playlist,
+                            ),
+                        icon: const Icon(Icons.more_horiz_rounded),
+                      ),
+                    ]
+                    : null,
           ),
           body: Column(
             children: [
@@ -1713,33 +1897,40 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                       ),
                     ),
                     FilledButton.icon(
-                      onPressed: tracks.isEmpty ||
-                              store.isPlaylistLoading(playlist.id) ||
-                              _isPlayingAll
-                          ? null
-                          : () async {
-                              setState(() {
-                                _isPlayingAll = true;
-                              });
-                              try {
-                                await store.playLoadedPlaylist(playlist, tracks);
-                                if (!context.mounted) return;
-                                await _openPlayer(context, store);
-                              } finally {
-                                if (mounted) {
-                                  setState(() {
-                                    _isPlayingAll = false;
-                                  });
+                      onPressed:
+                          tracks.isEmpty ||
+                                  store.isPlaylistLoading(playlist.id) ||
+                                  _isPlayingAll
+                              ? null
+                              : () async {
+                                setState(() {
+                                  _isPlayingAll = true;
+                                });
+                                try {
+                                  await store.playLoadedPlaylist(
+                                    playlist,
+                                    tracks,
+                                  );
+                                  if (!context.mounted) return;
+                                  await _openPlayer(context, store);
+                                } finally {
+                                  if (mounted) {
+                                    setState(() {
+                                      _isPlayingAll = false;
+                                    });
+                                  }
                                 }
-                              }
-                            },
-                      icon: _isPlayingAll
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.play_arrow_rounded),
+                              },
+                      icon:
+                          _isPlayingAll
+                              ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                              : const Icon(Icons.play_arrow_rounded),
                       label: Text(_isPlayingAll ? '处理中...' : '播放全部'),
                     ),
                   ],
@@ -1747,74 +1938,87 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
               ),
               const Divider(height: 1),
               Expanded(
-                child: tracks.isEmpty
-                    ? Center(
-                        child: Text(
-                          store.isCustomPlaylist(playlist.id)
-                              ? '这个歌单还没有歌曲\n去播放器长按当前歌曲，就能收藏到这里'
-                              : '这个歌单暂时没有可播放的歌曲',
-                          textAlign: TextAlign.center,
-                        ),
-                      )
-                    : ListView.separated(
-                        itemCount: tracks.length,
-                        separatorBuilder: (_, _) => const Divider(height: 1),
-                        itemBuilder: (context, index) {
-                          final track = tracks[index].copyWith(
-                            isFavorite: store.isTrackLiked(tracks[index].id),
-                          );
-                          return ListTile(
-                            enabled: !_pendingTrackIndexes.contains(index),
-                            onLongPress: store.isCustomPlaylist(playlist.id)
-                                ? () => _showTrackActions(context, store, playlist, track)
-                                : null,
-                            onTap: _pendingTrackIndexes.contains(index)
-                                ? null
-                                : () async {
-                                    setState(() {
-                                      _pendingTrackIndexes.add(index);
-                                    });
-                                    try {
-                                      await store.playLoadedPlaylist(
+                child:
+                    tracks.isEmpty
+                        ? Center(
+                          child: Text(
+                            store.isCustomPlaylist(playlist.id)
+                                ? '这个歌单还没有歌曲\n去播放器长按当前歌曲，就能收藏到这里'
+                                : '这个歌单暂时没有可播放的歌曲',
+                            textAlign: TextAlign.center,
+                          ),
+                        )
+                        : ListView.separated(
+                          itemCount: tracks.length,
+                          separatorBuilder: (_, _) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final track = tracks[index].copyWith(
+                              isFavorite: store.isTrackLiked(tracks[index].id),
+                            );
+                            return ListTile(
+                              enabled: !_pendingTrackIndexes.contains(index),
+                              onLongPress:
+                                  store.isCustomPlaylist(playlist.id)
+                                      ? () => _showTrackActions(
+                                        context,
+                                        store,
                                         playlist,
-                                        tracks,
-                                        startIndex: index,
-                                      );
-                                      if (!context.mounted) return;
-                                      await _openPlayer(context, store);
-                                    } finally {
-                                      if (mounted) {
+                                        track,
+                                      )
+                                      : null,
+                              onTap:
+                                  _pendingTrackIndexes.contains(index)
+                                      ? null
+                                      : () async {
                                         setState(() {
-                                          _pendingTrackIndexes.remove(index);
+                                          _pendingTrackIndexes.add(index);
                                         });
-                                      }
-                                    }
-                                  },
-                            leading: MusicArtwork(
-                              track: track,
-                              size: 52,
-                              showMeta: false,
-                            ),
-                            title: Text(
-                              track.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            subtitle: Text(
-                              '${track.artist} · ${track.album}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            trailing: _pendingTrackIndexes.contains(index)
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
-                                  )
-                                : Text(track.durationLabel),
-                          );
-                        },
-                      ),
+                                        try {
+                                          await store.playLoadedPlaylist(
+                                            playlist,
+                                            tracks,
+                                            startIndex: index,
+                                          );
+                                          if (!context.mounted) return;
+                                          await _openPlayer(context, store);
+                                        } finally {
+                                          if (mounted) {
+                                            setState(() {
+                                              _pendingTrackIndexes.remove(
+                                                index,
+                                              );
+                                            });
+                                          }
+                                        }
+                                      },
+                              leading: MusicArtwork(
+                                track: track,
+                                size: 52,
+                                showMeta: false,
+                              ),
+                              title: Text(
+                                track.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: Text(
+                                '${track.artist} · ${track.album}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              trailing:
+                                  _pendingTrackIndexes.contains(index)
+                                      ? const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                      : Text(track.durationLabel),
+                            );
+                          },
+                        ),
               ),
             ],
           ),
@@ -1845,11 +2049,21 @@ Future<void> _showEditPlaylistSheetFromDetail(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: nameController, decoration: const InputDecoration(labelText: '歌单名称')),
+            TextField(
+              controller: nameController,
+              decoration: const InputDecoration(labelText: '歌单名称'),
+            ),
             const SizedBox(height: 12),
-            TextField(controller: subtitleController, decoration: const InputDecoration(labelText: '副标题（选填）')),
+            TextField(
+              controller: subtitleController,
+              decoration: const InputDecoration(labelText: '副标题（选填）'),
+            ),
             const SizedBox(height: 12),
-            TextField(controller: descriptionController, maxLines: 2, decoration: const InputDecoration(labelText: '简介（选填）')),
+            TextField(
+              controller: descriptionController,
+              maxLines: 2,
+              decoration: const InputDecoration(labelText: '简介（选填）'),
+            ),
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
@@ -1884,43 +2098,59 @@ Future<void> _showCustomPlaylistDetailActions(
   await showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
-    builder: (sheetContext) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            leading: const Icon(Icons.edit_rounded),
-            title: const Text('编辑歌单'),
-            onTap: () {
-              Navigator.of(sheetContext).pop();
-              _showEditPlaylistSheetFromDetail(context, store, playlist);
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
-            title: const Text('删除歌单', style: TextStyle(color: Colors.redAccent)),
-            onTap: () async {
-              Navigator.of(sheetContext).pop();
-              final confirmed = await showDialog<bool>(
-                context: context,
-                builder: (dialogContext) => AlertDialog(
-                  title: const Text('删除歌单？'),
-                  content: const Text('删除后歌单里的歌曲不会被删除，只会移除这个歌单。'),
-                  actions: [
-                    TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('取消')),
-                    FilledButton(onPressed: () => Navigator.of(dialogContext).pop(true), child: const Text('删除')),
-                  ],
+    builder:
+        (sheetContext) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.edit_rounded),
+                title: const Text('编辑歌单'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  _showEditPlaylistSheetFromDetail(context, store, playlist);
+                },
+              ),
+              ListTile(
+                leading: const Icon(
+                  Icons.delete_outline_rounded,
+                  color: Colors.redAccent,
                 ),
-              );
-              if (confirmed == true) {
-                await store.deleteCustomPlaylist(playlist.id);
-                if (context.mounted) Navigator.of(context).pop();
-              }
-            },
+                title: const Text(
+                  '删除歌单',
+                  style: TextStyle(color: Colors.redAccent),
+                ),
+                onTap: () async {
+                  Navigator.of(sheetContext).pop();
+                  final confirmed = await showDialog<bool>(
+                    context: context,
+                    builder:
+                        (dialogContext) => AlertDialog(
+                          title: const Text('删除歌单？'),
+                          content: const Text('删除后歌单里的歌曲不会被删除，只会移除这个歌单。'),
+                          actions: [
+                            TextButton(
+                              onPressed:
+                                  () => Navigator.of(dialogContext).pop(false),
+                              child: const Text('取消'),
+                            ),
+                            FilledButton(
+                              onPressed:
+                                  () => Navigator.of(dialogContext).pop(true),
+                              child: const Text('删除'),
+                            ),
+                          ],
+                        ),
+                  );
+                  if (confirmed == true) {
+                    await store.deleteCustomPlaylist(playlist.id);
+                    if (context.mounted) Navigator.of(context).pop();
+                  }
+                },
+              ),
+            ],
           ),
-        ],
-      ),
-    ),
+        ),
   );
 }
 
@@ -1948,10 +2178,13 @@ class _MusicSearchSheetState extends State<_MusicSearchSheet> {
       Navigator.of(context).pop();
       await Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => MusicPlayerScreen(
-            track: track,
-            queue: store.queue.map((item) => item.track).toList(growable: false),
-          ),
+          builder:
+              (_) => MusicPlayerScreen(
+                track: track,
+                queue: store.queue
+                    .map((item) => item.track)
+                    .toList(growable: false),
+              ),
         ),
       );
     } finally {
@@ -2019,25 +2252,27 @@ class _MusicSearchSheetState extends State<_MusicSearchSheet> {
                     decoration: InputDecoration(
                       hintText: '例如：晴天 周杰伦',
                       prefixIcon: const Icon(Icons.search_rounded),
-                      suffixIcon: _controller.text.isEmpty
-                          ? null
-                          : IconButton(
-                              onPressed: () {
-                                _controller.clear();
-                                store.clearSearchResults();
-                                setState(() {});
-                              },
-                              icon: const Icon(Icons.close_rounded),
-                            ),
+                      suffixIcon:
+                          _controller.text.isEmpty
+                              ? null
+                              : IconButton(
+                                onPressed: () {
+                                  _controller.clear();
+                                  store.clearSearchResults();
+                                  setState(() {});
+                                },
+                                icon: const Icon(Icons.close_rounded),
+                              ),
                     ),
                     onChanged: (_) => setState(() {}),
                   ),
                 ),
                 const SizedBox(width: 12),
                 FilledButton(
-                  onPressed: store.isSearching
-                      ? null
-                      : () => store.searchTracks(_controller.text),
+                  onPressed:
+                      store.isSearching
+                          ? null
+                          : () => store.searchTracks(_controller.text),
                   child: const Text('搜索'),
                 ),
               ],
@@ -2054,11 +2289,15 @@ class _MusicSearchSheetState extends State<_MusicSearchSheet> {
                 ),
               ),
             const SizedBox(height: 8),
-            if (store.recentSearches.isNotEmpty && _controller.text.trim().isEmpty) ...[
+            if (store.recentSearches.isNotEmpty &&
+                _controller.text.trim().isEmpty) ...[
               Row(
                 children: [
                   Expanded(
-                    child: Text('最近搜索', style: Theme.of(context).textTheme.titleMedium),
+                    child: Text(
+                      '最近搜索',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
                   ),
                   TextButton(
                     onPressed: store.clearRecentSearches,
@@ -2086,39 +2325,44 @@ class _MusicSearchSheetState extends State<_MusicSearchSheet> {
               const SizedBox(height: 16),
             ],
             Expanded(
-              child: store.searchResults.isEmpty
-                  ? Center(
-                      child: Text(
-                        _controller.text.trim().isEmpty
-                            ? '输入歌名、歌手或情绪关键词开始搜索'
-                            : ((store.searchError ?? '').trim().isNotEmpty
-                                ? '搜索暂时失败，换个关键词试试'
-                                : '没有找到结果，试试更短的关键词'),
-                        style: Theme.of(context).textTheme.bodyMedium,
-                        textAlign: TextAlign.center,
+              child:
+                  store.searchResults.isEmpty
+                      ? Center(
+                        child: Text(
+                          _controller.text.trim().isEmpty
+                              ? '输入歌名、歌手或情绪关键词开始搜索'
+                              : ((store.searchError ?? '').trim().isNotEmpty
+                                  ? '搜索暂时失败，换个关键词试试'
+                                  : '没有找到结果，试试更短的关键词'),
+                          style: Theme.of(context).textTheme.bodyMedium,
+                          textAlign: TextAlign.center,
+                        ),
+                      )
+                      : ListView.separated(
+                        itemCount: store.searchResults.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 12),
+                        itemBuilder: (context, index) {
+                          final track = store.searchResults[index];
+                          return _SearchResultTile(
+                            track: track,
+                            isBusy: _pendingTrackId == track.id,
+                            isLiking: _pendingLikeTrackIds.contains(track.id),
+                            onOpen: () async {
+                              await _showSearchTrackPreview(
+                                context,
+                                track,
+                                _playSearchTrack,
+                              );
+                            },
+                            onPlay: () async {
+                              await _playSearchTrack(context, track);
+                            },
+                            onToggleLike: () async {
+                              await _toggleSearchTrackLiked(track);
+                            },
+                          );
+                        },
                       ),
-                    )
-                  : ListView.separated(
-                      itemCount: store.searchResults.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 12),
-                      itemBuilder: (context, index) {
-                        final track = store.searchResults[index];
-                        return _SearchResultTile(
-                          track: track,
-                          isBusy: _pendingTrackId == track.id,
-                          isLiking: _pendingLikeTrackIds.contains(track.id),
-                          onOpen: () async {
-                            await _showSearchTrackPreview(context, track, _playSearchTrack);
-                          },
-                          onPlay: () async {
-                            await _playSearchTrack(context, track);
-                          },
-                          onToggleLike: () async {
-                            await _toggleSearchTrackLiked(track);
-                          },
-                        );
-                      },
-                    ),
             ),
           ],
         ),
@@ -2154,16 +2398,27 @@ Future<void> _showSearchTrackPreview(
                     children: [
                       Text(track.title, style: theme.textTheme.titleLarge),
                       const SizedBox(height: 6),
-                      Text('${track.artist} · ${track.album}', style: theme.textTheme.bodyMedium),
+                      Text(
+                        '${track.artist} · ${track.album}',
+                        style: theme.textTheme.bodyMedium,
+                      ),
                       const SizedBox(height: 6),
-                      Text(track.category, style: theme.textTheme.bodySmall?.copyWith(color: palette.gradient.first)),
+                      Text(
+                        track.category,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: palette.gradient.first,
+                        ),
+                      ),
                     ],
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            Text(track.description, style: theme.textTheme.bodySmall?.copyWith(height: 1.5)),
+            Text(
+              track.description,
+              style: theme.textTheme.bodySmall?.copyWith(height: 1.5),
+            ),
             const SizedBox(height: 18),
             SizedBox(
               width: double.infinity,
@@ -2203,7 +2458,9 @@ class _SearchResultTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<MusicStore>();
-    final effectiveTrack = track.copyWith(isFavorite: store.isTrackLiked(track.id));
+    final effectiveTrack = track.copyWith(
+      isFavorite: store.isTrackLiked(track.id),
+    );
     final palette = paletteForTone(effectiveTrack.artworkTone);
     return Material(
       color: Colors.white,
@@ -2237,21 +2494,25 @@ class _SearchResultTile extends StatelessWidget {
                         onTap: isLiking ? null : onToggleLike,
                         child: Padding(
                           padding: const EdgeInsets.all(4),
-                          child: isLiking
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : Icon(
-                                  effectiveTrack.isFavorite
-                                      ? Icons.favorite_rounded
-                                      : Icons.favorite_border_rounded,
-                                  size: 16,
-                                  color: effectiveTrack.isFavorite
-                                      ? const Color(0xFFE91E63)
-                                      : const Color(0xFF7D879A),
-                                ),
+                          child:
+                              isLiking
+                                  ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                  : Icon(
+                                    effectiveTrack.isFavorite
+                                        ? Icons.favorite_rounded
+                                        : Icons.favorite_border_rounded,
+                                    size: 16,
+                                    color:
+                                        effectiveTrack.isFavorite
+                                            ? const Color(0xFFE91E63)
+                                            : const Color(0xFF7D879A),
+                                  ),
                         ),
                       ),
                     ),
@@ -2290,19 +2551,22 @@ class _SearchResultTile extends StatelessWidget {
               const SizedBox(width: 12),
               IconButton(
                 onPressed: isBusy || isLiking ? null : onPlay,
-                icon: isBusy
-                    ? SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(palette.gradient.first),
+                icon:
+                    isBusy
+                        ? SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              palette.gradient.first,
+                            ),
+                          ),
+                        )
+                        : Icon(
+                          Icons.play_circle_fill_rounded,
+                          color: palette.gradient.first,
                         ),
-                      )
-                    : Icon(
-                        Icons.play_circle_fill_rounded,
-                        color: palette.gradient.first,
-                      ),
               ),
             ],
           ),

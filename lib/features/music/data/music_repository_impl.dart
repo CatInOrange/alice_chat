@@ -12,8 +12,8 @@ class MusicRepositoryImpl implements MusicRepository {
   MusicRepositoryImpl({
     required OpenClawClient client,
     required MusicSourceResolver resolver,
-  })  : _client = client,
-        _resolver = resolver;
+  }) : _client = client,
+       _resolver = resolver;
 
   final OpenClawClient _client;
   final MusicSourceResolver _resolver;
@@ -40,7 +40,8 @@ class MusicRepositoryImpl implements MusicRepository {
             ),
           )
           .toList(growable: false);
-      final recentTracks = ((response['recentTracks'] as List<dynamic>?) ?? const [])
+      final recentTracks = ((response['recentTracks'] as List<dynamic>?) ??
+              const [])
           .whereType<Map>()
           .map(
             (item) => MusicTrack.fromMap(
@@ -48,7 +49,8 @@ class MusicRepositoryImpl implements MusicRepository {
             ),
           )
           .toList(growable: false);
-      final likedTracks = ((response['likedTracks'] as List<dynamic>?) ?? const [])
+      final likedTracks = ((response['likedTracks'] as List<dynamic>?) ??
+              const [])
           .whereType<Map>()
           .map(
             (item) => MusicTrack.fromMap(
@@ -56,28 +58,34 @@ class MusicRepositoryImpl implements MusicRepository {
             ),
           )
           .toList(growable: false);
-      final recentPlaylists = ((response['recentPlaylists'] as List<dynamic>?) ?? const [])
-          .whereType<Map>()
-          .map(
-            (item) => MusicPlaylist.fromMap(
-              Map<String, dynamic>.from(item.cast<String, dynamic>()),
-            ),
-          )
-          .toList(growable: false);
-      final customPlaylists = ((response['customPlaylists'] as List<dynamic>?) ?? const [])
-          .whereType<Map>()
-          .map(
-            (item) => CustomMusicPlaylist.fromMap(
-              Map<String, dynamic>.from(item.cast<String, dynamic>()),
-            ),
-          )
-          .toList(growable: false);
-      final currentPlaylistId = (response['currentPlaylistId'] ?? '').toString().trim();
-      final neteaseLikedPlaylistId = (response['neteaseLikedPlaylistId'] ?? '').toString().trim();
+      final recentPlaylists =
+          ((response['recentPlaylists'] as List<dynamic>?) ?? const [])
+              .whereType<Map>()
+              .map(
+                (item) => MusicPlaylist.fromMap(
+                  Map<String, dynamic>.from(item.cast<String, dynamic>()),
+                ),
+              )
+              .toList(growable: false);
+      final customPlaylists =
+          ((response['customPlaylists'] as List<dynamic>?) ?? const [])
+              .whereType<Map>()
+              .map(
+                (item) => CustomMusicPlaylist.fromMap(
+                  Map<String, dynamic>.from(item.cast<String, dynamic>()),
+                ),
+              )
+              .toList(growable: false);
+      final currentPlaylistId =
+          (response['currentPlaylistId'] ?? '').toString().trim();
+      final neteaseLikedPlaylistId =
+          (response['neteaseLikedPlaylistId'] ?? '').toString().trim();
       final positionMsRaw = response['positionMs'] ?? 0;
       return MusicStateSnapshot(
         currentTrack:
-            currentTrackMap == null ? null : MusicTrack.fromMap(currentTrackMap),
+            currentTrackMap == null
+                ? null
+                : MusicTrack.fromMap(currentTrackMap),
         queue: queue,
         playlists: playlists,
         recentTracks: recentTracks,
@@ -85,12 +93,14 @@ class MusicRepositoryImpl implements MusicRepository {
         recentPlaylists: recentPlaylists,
         customPlaylists: customPlaylists,
         currentPlaylistId: currentPlaylistId.isEmpty ? null : currentPlaylistId,
-        neteaseLikedPlaylistId: neteaseLikedPlaylistId.isEmpty ? null : neteaseLikedPlaylistId,
+        neteaseLikedPlaylistId:
+            neteaseLikedPlaylistId.isEmpty ? null : neteaseLikedPlaylistId,
         isPlaying: response['isPlaying'] == true,
         position: Duration(
-          milliseconds: positionMsRaw is num
-              ? positionMsRaw.toInt()
-              : int.tryParse('$positionMsRaw') ?? 0,
+          milliseconds:
+              positionMsRaw is num
+                  ? positionMsRaw.toInt()
+                  : int.tryParse('$positionMsRaw') ?? 0,
         ),
       );
     } catch (_) {
@@ -137,39 +147,91 @@ class MusicRepositoryImpl implements MusicRepository {
       return null;
     }
     final parsed = MusicAiPlaylistDraft.fromMap(playlistMap);
-    final draft = parsed.id == 'ai-playlist:latest'
-        ? parsed
-        : MusicAiPlaylistDraft(
-            id: 'ai-playlist:latest',
-            title: parsed.title,
-            subtitle: parsed.subtitle,
-            description: parsed.description,
-            tag: parsed.tag,
-            artworkTone: parsed.artworkTone,
-            isAiGenerated: parsed.isAiGenerated,
-            tracks: parsed.tracks,
-            createdAt: parsed.createdAt,
-            updatedAt: parsed.updatedAt,
-          );
+    final draft =
+        parsed.id == 'ai-playlist:latest'
+            ? parsed
+            : MusicAiPlaylistDraft(
+              id: 'ai-playlist:latest',
+              title: parsed.title,
+              subtitle: parsed.subtitle,
+              description: parsed.description,
+              tag: parsed.tag,
+              artworkTone: parsed.artworkTone,
+              isAiGenerated: parsed.isAiGenerated,
+              tracks: parsed.tracks,
+              createdAt: parsed.createdAt,
+              updatedAt: parsed.updatedAt,
+            );
     if (draft.tracks.isEmpty) {
       return draft;
     }
     final resolvedTracks = <MusicTrack>[];
+    var matchedCount = 0;
+    var artworkCount = 0;
     for (final track in draft.tracks) {
+      MusicTrack nextTrack = track;
       try {
-        final resolved = await _resolver.resolveTrack(track, allowFallback: false);
-        resolvedTracks.add(
-          resolved.track.copyWith(
-            artworkUrl:
-                resolved.resolvedSource?.artworkUrl ??
-                resolved.candidate?.track.artworkUrl ??
-                track.artworkUrl,
-          ),
+        final candidate = await _resolver.matchTrack(
+          track,
+          allowFallback: false,
         );
-      } catch (_) {
-        resolvedTracks.add(track);
+        if (candidate != null) {
+          matchedCount += 1;
+          nextTrack = track.copyWith(
+            preferredSourceId: candidate.providerId,
+            sourceTrackId: candidate.sourceTrackId,
+            artworkUrl: candidate.track.artworkUrl ?? track.artworkUrl,
+            album:
+                candidate.track.album.isNotEmpty
+                    ? candidate.track.album
+                    : track.album,
+            duration:
+                candidate.track.duration.inMilliseconds > 0
+                    ? candidate.track.duration
+                    : track.duration,
+          );
+        }
+        final resolved = await _resolver.resolveTrack(
+          nextTrack,
+          allowFallback: false,
+        );
+        nextTrack = resolved.track.copyWith(
+          artworkUrl:
+              resolved.resolvedSource?.artworkUrl ??
+              resolved.candidate?.track.artworkUrl ??
+              resolved.track.artworkUrl ??
+              nextTrack.artworkUrl,
+        );
+      } catch (error) {
+        await _debugLog('repository.loadLatestAiPlaylist.track_enrich.error', {
+          'trackId': track.id,
+          'title': track.title,
+          'artist': track.artist,
+          'preferredSourceId': track.preferredSourceId,
+          'sourceTrackId': track.sourceTrackId,
+          'error': error.toString(),
+        });
       }
+      if ((nextTrack.artworkUrl ?? '').trim().isNotEmpty ||
+          (nextTrack.cachedPlayback?.artworkUrl ?? '').trim().isNotEmpty) {
+        artworkCount += 1;
+      }
+      resolvedTracks.add(nextTrack);
     }
+    await _debugLog('repository.loadLatestAiPlaylist.enriched', {
+      'playlistId': draft.id,
+      'trackCount': draft.tracks.length,
+      'matchedCount': matchedCount,
+      'artworkCount': artworkCount,
+      'firstTrackTitle':
+          resolvedTracks.isEmpty ? '' : resolvedTracks.first.title,
+      'firstTrackArtworkUrl':
+          resolvedTracks.isEmpty
+              ? ''
+              : (resolvedTracks.first.artworkUrl ??
+                  resolvedTracks.first.cachedPlayback?.artworkUrl ??
+                  ''),
+    });
     return MusicAiPlaylistDraft(
       id: draft.id,
       title: draft.title,
@@ -208,7 +270,8 @@ class MusicRepositoryImpl implements MusicRepository {
   @override
   Future<List<MusicTrack>> loadLikedTracks() async {
     final response = await _client.getMusicState();
-    final likedTracks = ((response['likedTracks'] as List<dynamic>?) ?? const [])
+    final likedTracks = ((response['likedTracks'] as List<dynamic>?) ??
+            const [])
         .whereType<Map>()
         .map(
           (item) => MusicTrack.fromMap(
@@ -236,7 +299,9 @@ class MusicRepositoryImpl implements MusicRepository {
   Future<void> saveCustomPlaylists(List<CustomMusicPlaylist> playlists) async {
     await _client.saveMusicState(
       payload: {
-        'customPlaylists': playlists.map((item) => item.toMap()).toList(growable: false),
+        'customPlaylists': playlists
+            .map((item) => item.toMap())
+            .toList(growable: false),
       },
     );
   }
@@ -245,7 +310,9 @@ class MusicRepositoryImpl implements MusicRepository {
   Future<String?> syncNeteaseFavoritePlaylistEncryptedId() async {
     try {
       final response = await _client.syncNeteaseFavoritePlaylist();
-      final playlist = (response['playlist'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+      final playlist =
+          (response['playlist'] as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
       final encryptedId = (playlist['id'] ?? '').toString().trim();
       return encryptedId.isEmpty ? null : encryptedId;
     } catch (_) {
@@ -256,14 +323,14 @@ class MusicRepositoryImpl implements MusicRepository {
   @override
   Future<void> setTrackLiked(MusicTrack track, bool liked) async {
     final current = await loadLikedTracks();
-    final filtered = current.where((item) => item.id != track.id).toList(growable: true);
+    final filtered = current
+        .where((item) => item.id != track.id)
+        .toList(growable: true);
     if (liked) {
       filtered.insert(0, track.copyWith(isFavorite: true));
     }
     await _client.saveMusicState(
-      payload: {
-        'likedTracks': filtered.map((item) => item.toMap()).toList(),
-      },
+      payload: {'likedTracks': filtered.map((item) => item.toMap()).toList()},
     );
 
     final provider = _providerForTrack(track);
@@ -318,9 +385,10 @@ class MusicRepositoryImpl implements MusicRepository {
     final sourceTrackId = (seedTrack.sourceTrackId ?? '').trim();
     final encryptedSongId = (seedTrack.encryptedSourceTrackId ?? '').trim();
     final encryptedPlaylistId = _encryptedPlaylistIdFor(playlist.id);
-    final effectiveEncryptedPlaylistId = fallbackEncryptedPlaylistId?.trim().isNotEmpty == true
-        ? fallbackEncryptedPlaylistId!.trim()
-        : encryptedPlaylistId;
+    final effectiveEncryptedPlaylistId =
+        fallbackEncryptedPlaylistId?.trim().isNotEmpty == true
+            ? fallbackEncryptedPlaylistId!.trim()
+            : encryptedPlaylistId;
     if (sourceTrackId.isEmpty && encryptedSongId.isEmpty) {
       return const <MusicTrack>[];
     }
@@ -367,7 +435,9 @@ class MusicRepositoryImpl implements MusicRepository {
             ),
           )
           .toList(growable: false);
-      final context = (response['context'] as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+      final context =
+          (response['context'] as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
       await _debugLog('repository.loadIntelligenceTracks.done', {
         'providerId': providerId,
         'playlistId': playlist.id,
@@ -405,20 +475,19 @@ class MusicRepositoryImpl implements MusicRepository {
         return const <MusicTrack>[];
       }
       final history = await loadAiPlaylistHistory();
-      final matched = history.where((item) => item.id == playlist.id).cast<MusicAiPlaylistDraft?>().firstWhere(
-            (item) => item != null,
-            orElse: () => null,
-          );
+      final matched = history
+          .where((item) => item.id == playlist.id)
+          .cast<MusicAiPlaylistDraft?>()
+          .firstWhere((item) => item != null, orElse: () => null);
       return matched?.tracks ?? const <MusicTrack>[];
     }
     if (providerId == null) {
       return const <MusicTrack>[];
     }
-    final provider = (_resolver as MusicSourceResolverImpl)
-        .registry
+    final provider = (_resolver as MusicSourceResolverImpl).registry
         .providerById(providerId);
-    final tracks = await provider?.loadPlaylistTracks(playlist.id) ??
-        const <MusicTrack>[];
+    final tracks =
+        await provider?.loadPlaylistTracks(playlist.id) ?? const <MusicTrack>[];
     await _debugLog('repository.loadPlaylistTracks', {
       'playlistId': playlist.id,
       'providerId': providerId,
@@ -450,9 +519,11 @@ class MusicRepositoryImpl implements MusicRepository {
           if (likedTracks != null)
             'likedTracks': likedTracks.map((item) => item.toMap()).toList(),
           if (recentPlaylists != null)
-            'recentPlaylists': recentPlaylists.map((item) => item.toMap()).toList(),
+            'recentPlaylists':
+                recentPlaylists.map((item) => item.toMap()).toList(),
           if (customPlaylists != null)
-            'customPlaylists': customPlaylists.map((item) => item.toMap()).toList(),
+            'customPlaylists':
+                customPlaylists.map((item) => item.toMap()).toList(),
           if (currentPlaylistId != null) 'currentPlaylistId': currentPlaylistId,
           if (neteaseLikedPlaylistId != null)
             'neteaseLikedPlaylistId': neteaseLikedPlaylistId,
@@ -471,7 +542,8 @@ class MusicRepositoryImpl implements MusicRepository {
     if (preferred != null && preferred.isNotEmpty) {
       return registry.providerById(preferred);
     }
-    if ((track.sourceTrackId ?? '').trim().isNotEmpty && track.id.contains(':')) {
+    if ((track.sourceTrackId ?? '').trim().isNotEmpty &&
+        track.id.contains(':')) {
       return registry.providerById(track.id.split(':').first);
     }
     return registry.providerById('netease');
@@ -498,7 +570,8 @@ class MusicRepositoryImpl implements MusicRepository {
       return '';
     }
     final raw = playlistId.substring('netease-playlist:enc:'.length).trim();
-    final looksEncrypted = raw.length >= 16 &&
+    final looksEncrypted =
+        raw.length >= 16 &&
         RegExp(r'^[0-9A-Fa-f]+$').hasMatch(raw) &&
         !RegExp(r'^\d+$').hasMatch(raw);
     return looksEncrypted ? raw.toUpperCase() : '';
@@ -510,7 +583,9 @@ class MusicRepositoryImpl implements MusicRepository {
       'ts': DateTime.now().toIso8601String(),
       ...payload,
     };
-    final message = enriched.entries.map((e) => '${e.key}=${e.value}').join(' | ');
+    final message = enriched.entries
+        .map((e) => '${e.key}=${e.value}')
+        .join(' | ');
     await NativeDebugBridge.instance.log('music', message, level: 'INFO');
     await _client.sendClientDebugLog(enriched);
   }

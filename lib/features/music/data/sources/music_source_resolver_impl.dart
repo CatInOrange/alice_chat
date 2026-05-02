@@ -6,26 +6,51 @@ import 'music_source_resolver.dart';
 
 class MusicSourceResolverImpl implements MusicSourceResolver {
   MusicSourceResolverImpl({required MusicSourceRegistry registry})
-      : _registry = registry;
+    : _registry = registry;
 
   final MusicSourceRegistry _registry;
 
   MusicSourceRegistry get registry => _registry;
+
+  List<MusicSourceProvider> _orderedProviders(
+    MusicTrack track, {
+    required bool allowFallback,
+  }) {
+    final preferredProviderId = track.preferredSourceId?.trim();
+    final allProviders = <MusicSourceProvider>[
+      if (preferredProviderId != null && preferredProviderId.isNotEmpty)
+        ..._registry.providers.where((item) => item.id == preferredProviderId),
+      ..._registry.providers.where((item) => item.id != preferredProviderId),
+    ];
+    return allowFallback
+        ? allProviders
+        : allProviders
+            .where((item) => item.id != 'mock')
+            .toList(growable: false);
+  }
+
+  @override
+  Future<SourceCandidate?> matchTrack(
+    MusicTrack track, {
+    bool allowFallback = true,
+  }) async {
+    final providers = _orderedProviders(track, allowFallback: allowFallback);
+    for (final provider in providers) {
+      final candidate = await provider.matchTrack(track);
+      if (candidate == null || !candidate.available) {
+        continue;
+      }
+      return candidate;
+    }
+    return null;
+  }
 
   @override
   Future<PlaybackQueueItem> resolveTrack(
     MusicTrack track, {
     bool allowFallback = true,
   }) async {
-    final preferredProviderId = track.preferredSourceId;
-    final allProviders = <MusicSourceProvider>[
-      if (preferredProviderId != null)
-        ..._registry.providers.where((item) => item.id == preferredProviderId),
-      ..._registry.providers.where((item) => item.id != preferredProviderId),
-    ];
-    final providers = allowFallback
-        ? allProviders
-        : allProviders.where((item) => item.id != 'mock').toList(growable: false);
+    final providers = _orderedProviders(track, allowFallback: allowFallback);
 
     for (final provider in providers) {
       final candidate = await provider.matchTrack(track);
@@ -38,6 +63,7 @@ class MusicSourceResolverImpl implements MusicSourceResolver {
           track: track.copyWith(
             preferredSourceId: provider.id,
             sourceTrackId: candidate.sourceTrackId,
+            artworkUrl: candidate.track.artworkUrl ?? track.artworkUrl,
             cachedPlayback: CachedPlaybackSource(
               providerId: resolved.providerId,
               sourceTrackId: resolved.sourceTrackId,

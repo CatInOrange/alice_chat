@@ -27,19 +27,19 @@ enum MusicRepeatMode { off, all, one, intelligence }
 
 class MusicStore extends ChangeNotifier {
   MusicStore({OpenClawClient? client})
-      : _client =
-            client ??
-            OpenClawHttpClient(
-              const OpenClawConfig(
-                baseUrl: '',
-                modelId: 'alicechat-default',
-                providerId: 'alicechat-channel',
-                agent: 'main',
-                sessionName: 'alicechat',
-                bridgeUrl:
-                    'ws://127.0.0.1:18791?token=yuanzhe-7611681-668128-zheyuan-012345',
-              ),
-            ) {
+    : _client =
+          client ??
+          OpenClawHttpClient(
+            const OpenClawConfig(
+              baseUrl: '',
+              modelId: 'alicechat-default',
+              providerId: 'alicechat-channel',
+              agent: 'main',
+              sessionName: 'alicechat',
+              bridgeUrl:
+                  'ws://127.0.0.1:18791?token=yuanzhe-7611681-668128-zheyuan-012345',
+            ),
+          ) {
     _resolver = MusicSourceResolverImpl(
       registry: MusicSourceRegistry(
         providers: [
@@ -132,7 +132,8 @@ class MusicStore extends ChangeNotifier {
   MusicTrack get currentTrack => _currentTrack;
   List<PlaybackQueueItem> get queue => _queue;
   List<MusicPlaylist> get playlists => _playlists;
-  List<MusicPlaylist> get customPlaylistCards => List<MusicPlaylist>.unmodifiable(
+  List<MusicPlaylist> get customPlaylistCards =>
+      List<MusicPlaylist>.unmodifiable(
         _customPlaylists.map((item) => item.asPlaylist).toList(growable: false),
       );
 
@@ -194,9 +195,11 @@ class MusicStore extends ChangeNotifier {
     return null;
   }
 
-  String? get currentLyricLine => _currentLyrics?.lineAt(_position)?.text.trim();
+  String? get currentLyricLine =>
+      _currentLyrics?.lineAt(_position)?.text.trim();
 
-  String? get nextLyricLine => _currentLyrics?.nextLineAfter(_position)?.text.trim();
+  String? get nextLyricLine =>
+      _currentLyrics?.nextLineAfter(_position)?.text.trim();
 
   String get miniPlayerSubtitle {
     final lyric = currentLyricLine;
@@ -221,6 +224,7 @@ class MusicStore extends ChangeNotifier {
     if (_queue.isNotEmpty) return '来自当前播放队列';
     return '还没有播放来源';
   }
+
   bool get hasPreviousTrack =>
       _playbackHistory.isNotEmpty || _position >= const Duration(seconds: 3);
   bool get hasNextTrack =>
@@ -285,17 +289,22 @@ class MusicStore extends ChangeNotifier {
     _isLoading = true;
     _error = null;
     notifyListeners();
-    _debugState('refresh.start', extra: {
-      'hasLatestAiPlaylist': _latestAiPlaylist != null,
-      'playlistCount': _playlists.length,
-      'likedCount': _likedTracks.length,
-    });
+    _debugState(
+      'refresh.start',
+      extra: {
+        'hasLatestAiPlaylist': _latestAiPlaylist != null,
+        'playlistCount': _playlists.length,
+        'likedCount': _likedTracks.length,
+      },
+    );
     try {
       final state = await _repository.loadMusicState();
       _likedTracks = List<MusicTrack>.unmodifiable(state.likedTracks);
       _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
       _recentPlaylists = _normalizeRecentPlaylists(state.recentPlaylists);
-      _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(state.customPlaylists);
+      _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(
+        state.customPlaylists,
+      );
       _currentPlaylistId = _normalizePlaylistId(state.currentPlaylistId);
       _neteaseLikedPlaylistId = state.neteaseLikedPlaylistId?.trim();
       _neteaseLikedPlaylistEncryptedId =
@@ -303,16 +312,22 @@ class MusicStore extends ChangeNotifier {
       try {
         _latestAiPlaylist = await _repository.loadLatestAiPlaylist();
       } catch (error) {
-        _debugState('refresh.latest_ai.error', extra: {
-          'error': error.toString(),
-        }, force: true, level: 'ERROR');
+        _debugState(
+          'refresh.latest_ai.error',
+          extra: {'error': error.toString()},
+          force: true,
+          level: 'ERROR',
+        );
       }
       try {
         _aiPlaylistHistory = await _repository.loadAiPlaylistHistory();
       } catch (error) {
-        _debugState('refresh.ai_history.error', extra: {
-          'error': error.toString(),
-        }, force: true, level: 'ERROR');
+        _debugState(
+          'refresh.ai_history.error',
+          extra: {'error': error.toString()},
+          force: true,
+          level: 'ERROR',
+        );
         _aiPlaylistHistory = const [];
       }
       _cacheKnownAiPlaylistTracks();
@@ -324,29 +339,41 @@ class MusicStore extends ChangeNotifier {
             await _repository.syncNeteaseFavoritePlaylistEncryptedId();
         await _mergeRemoteLikedTracks(remoteLikedPlaylist);
       }
-      final basePlaylists = remotePlaylists.isNotEmpty
-          ? remotePlaylists
-          : _playlists.where(
-              (item) => item.id != likedPlaylist.id && item.id != _latestAiPlaylist?.id,
-            ).toList(growable: false);
+      final basePlaylists =
+          remotePlaylists.isNotEmpty
+              ? remotePlaylists
+              : _playlists
+                  .where(
+                    (item) =>
+                        item.id != likedPlaylist.id &&
+                        item.id != _latestAiPlaylist?.id,
+                  )
+                  .toList(growable: false);
       _rebuildPlaylists(basePlaylists: basePlaylists);
       _currentTrack = _currentTrack.copyWith(
         isFavorite: isTrackLiked(_currentTrack.id),
       );
       unawaited(_loadLyricsForTrack(_currentTrack, forceRefresh: false));
-      _debugState('refresh.done', extra: {
-        'hasLatestAiPlaylist': _latestAiPlaylist != null,
-        'latestAiPlaylistId': _latestAiPlaylist?.id,
-        'latestAiTrackCount': _latestAiPlaylist?.tracks.length ?? 0,
-        'playlistCount': _playlists.length,
-        'likedCount': _likedTracks.length,
-        'recentPlaylistCount': _recentPlaylists.length,
-      }, force: true);
+      _debugState(
+        'refresh.done',
+        extra: {
+          'hasLatestAiPlaylist': _latestAiPlaylist != null,
+          'latestAiPlaylistId': _latestAiPlaylist?.id,
+          'latestAiTrackCount': _latestAiPlaylist?.tracks.length ?? 0,
+          'playlistCount': _playlists.length,
+          'likedCount': _likedTracks.length,
+          'recentPlaylistCount': _recentPlaylists.length,
+        },
+        force: true,
+      );
     } catch (error) {
       _error = '刷新歌单失败，请稍后再试';
-      _debugState('refresh.error', extra: {
-        'error': error.toString(),
-      }, force: true, level: 'ERROR');
+      _debugState(
+        'refresh.error',
+        extra: {'error': error.toString()},
+        force: true,
+        level: 'ERROR',
+      );
       rethrow;
     } finally {
       _isLoading = false;
@@ -375,7 +402,9 @@ class MusicStore extends ChangeNotifier {
       _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
       _recentPlaylists = _normalizeRecentPlaylists(state.recentPlaylists);
       _likedTracks = List<MusicTrack>.unmodifiable(state.likedTracks);
-      _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(state.customPlaylists);
+      _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(
+        state.customPlaylists,
+      );
       _currentPlaylistId = _normalizePlaylistId(state.currentPlaylistId);
       _neteaseLikedPlaylistId = state.neteaseLikedPlaylistId?.trim();
       _neteaseLikedPlaylistEncryptedId =
@@ -403,9 +432,8 @@ class MusicStore extends ChangeNotifier {
               await _repository.syncNeteaseFavoritePlaylistEncryptedId();
           await _mergeRemoteLikedTracks(remoteLikedPlaylist);
         }
-        final basePlaylists = remotePlaylists.isNotEmpty
-            ? remotePlaylists
-            : _playlists;
+        final basePlaylists =
+            remotePlaylists.isNotEmpty ? remotePlaylists : _playlists;
         _rebuildPlaylists(basePlaylists: basePlaylists);
       } catch (_) {
         _rebuildPlaylists(basePlaylists: _playlists);
@@ -481,38 +509,55 @@ class MusicStore extends ChangeNotifier {
     _loadingPlaylistId = playlist.id;
     _error = null;
     notifyListeners();
-    _debugState('playlist.open.start', extra: {
-      'playlistId': playlist.id,
-      'playlistTitle': playlist.title,
-    });
+    _debugState(
+      'playlist.open.start',
+      extra: {'playlistId': playlist.id, 'playlistTitle': playlist.title},
+    );
     try {
       final tracks = await loadPlaylistTracks(playlist);
-      _debugState('playlist.open.loaded', extra: {
-        'playlistId': playlist.id,
-        'playlistTitle': playlist.title,
-        'trackCount': tracks.length,
-        'firstTrack': tracks.isEmpty ? null : '${tracks.first.title} - ${tracks.first.artist}',
-        'firstPreferredSourceId': tracks.isEmpty ? null : tracks.first.preferredSourceId,
-        'firstSourceTrackId': tracks.isEmpty ? null : tracks.first.sourceTrackId,
-      });
+      _debugState(
+        'playlist.open.loaded',
+        extra: {
+          'playlistId': playlist.id,
+          'playlistTitle': playlist.title,
+          'trackCount': tracks.length,
+          'firstTrack':
+              tracks.isEmpty
+                  ? null
+                  : '${tracks.first.title} - ${tracks.first.artist}',
+          'firstPreferredSourceId':
+              tracks.isEmpty ? null : tracks.first.preferredSourceId,
+          'firstSourceTrackId':
+              tracks.isEmpty ? null : tracks.first.sourceTrackId,
+        },
+      );
       await playLoadedPlaylist(playlist, tracks);
-      _debugState('playlist.open.playing', extra: {
-        'playlistId': playlist.id,
-        'currentTrackId': _currentTrack.id,
-        'currentTrackTitle': _currentTrack.title,
-        'isPlaying': _isPlaying,
-        'queueLength': _queue.length,
-      }, force: true);
+      _debugState(
+        'playlist.open.playing',
+        extra: {
+          'playlistId': playlist.id,
+          'currentTrackId': _currentTrack.id,
+          'currentTrackTitle': _currentTrack.title,
+          'isPlaying': _isPlaying,
+          'queueLength': _queue.length,
+        },
+        force: true,
+      );
     } catch (error) {
       _error = _friendlyPlaylistLoadError(error, playlist);
-      _debugState('playlist.open.error', extra: {
-        'playlistId': playlist.id,
-        'playlistTitle': playlist.title,
-        'error': error.toString(),
-        'friendlyError': _error,
-        'currentTrackId': _currentTrack.id,
-        'queueLength': _queue.length,
-      }, force: true, level: 'ERROR');
+      _debugState(
+        'playlist.open.error',
+        extra: {
+          'playlistId': playlist.id,
+          'playlistTitle': playlist.title,
+          'error': error.toString(),
+          'friendlyError': _error,
+          'currentTrackId': _currentTrack.id,
+          'queueLength': _queue.length,
+        },
+        force: true,
+        level: 'ERROR',
+      );
       notifyListeners();
       rethrow;
     } finally {
@@ -525,11 +570,14 @@ class MusicStore extends ChangeNotifier {
   MusicTrack get heroTrack =>
       _latestAiPlaylist?.tracks.isNotEmpty == true
           ? _latestAiPlaylist!.tracks.first.copyWith(
-              isFavorite: isTrackLiked(_latestAiPlaylist!.tracks.first.id),
-              description: (_latestAiPlaylist!.updatedAt ?? _latestAiPlaylist!.createdAt) == null
-                  ? _latestAiPlaylist!.description
-                  : '${_formatPlaylistStamp(_latestAiPlaylist!.updatedAt ?? _latestAiPlaylist!.createdAt!)} · ${_latestAiPlaylist!.description}',
-            )
+            isFavorite: isTrackLiked(_latestAiPlaylist!.tracks.first.id),
+            description:
+                (_latestAiPlaylist!.updatedAt ??
+                            _latestAiPlaylist!.createdAt) ==
+                        null
+                    ? _latestAiPlaylist!.description
+                    : '${_formatPlaylistStamp(_latestAiPlaylist!.updatedAt ?? _latestAiPlaylist!.createdAt!)} · ${_latestAiPlaylist!.description}',
+          )
           : _currentTrack;
 
   MusicPlaylist get likedPlaylist => MusicPlaylist(
@@ -584,15 +632,17 @@ class MusicStore extends ChangeNotifier {
   }) async {
     final now = DateTime.now();
     _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(
-      _customPlaylists.map((item) {
-        if (item.id != playlistId) return item;
-        return item.copyWith(
-          title: title.trim(),
-          subtitle: subtitle ?? item.subtitle,
-          description: description ?? item.description,
-          updatedAt: now,
-        );
-      }).toList(growable: false),
+      _customPlaylists
+          .map((item) {
+            if (item.id != playlistId) return item;
+            return item.copyWith(
+              title: title.trim(),
+              subtitle: subtitle ?? item.subtitle,
+              description: description ?? item.description,
+              updatedAt: now,
+            );
+          })
+          .toList(growable: false),
     );
     _rebuildPlaylists(basePlaylists: _playlists);
     notifyListeners();
@@ -602,10 +652,14 @@ class MusicStore extends ChangeNotifier {
 
   Future<void> deleteCustomPlaylist(String playlistId) async {
     _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(
-      _customPlaylists.where((item) => item.id != playlistId).toList(growable: false),
+      _customPlaylists
+          .where((item) => item.id != playlistId)
+          .toList(growable: false),
     );
     _recentPlaylists = List<MusicPlaylist>.unmodifiable(
-      _recentPlaylists.where((item) => item.id != playlistId).toList(growable: false),
+      _recentPlaylists
+          .where((item) => item.id != playlistId)
+          .toList(growable: false),
     );
     if (_currentPlaylistId == playlistId) {
       _currentPlaylistId = null;
@@ -617,23 +671,28 @@ class MusicStore extends ChangeNotifier {
     unawaited(_savePlaybackSnapshot());
   }
 
-  Future<bool> addTrackToCustomPlaylist(String playlistId, MusicTrack track) async {
+  Future<bool> addTrackToCustomPlaylist(
+    String playlistId,
+    MusicTrack track,
+  ) async {
     final now = DateTime.now();
     var added = false;
     _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(
-      _customPlaylists.map((item) {
-        if (item.id != playlistId) return item;
-        if (item.tracks.any((existing) => existing.id == track.id)) {
-          return item;
-        }
-        added = true;
-        final nextTracks = List<MusicTrack>.unmodifiable([
-          track.copyWith(isFavorite: isTrackLiked(track.id)),
-          ...item.tracks,
-        ]);
-        _playlistTracksCache[playlistId] = nextTracks;
-        return item.copyWith(tracks: nextTracks, updatedAt: now);
-      }).toList(growable: false),
+      _customPlaylists
+          .map((item) {
+            if (item.id != playlistId) return item;
+            if (item.tracks.any((existing) => existing.id == track.id)) {
+              return item;
+            }
+            added = true;
+            final nextTracks = List<MusicTrack>.unmodifiable([
+              track.copyWith(isFavorite: isTrackLiked(track.id)),
+              ...item.tracks,
+            ]);
+            _playlistTracksCache[playlistId] = nextTracks;
+            return item.copyWith(tracks: nextTracks, updatedAt: now);
+          })
+          .toList(growable: false),
     );
     if (added) {
       _rebuildPlaylists(basePlaylists: _playlists);
@@ -644,17 +703,24 @@ class MusicStore extends ChangeNotifier {
     return added;
   }
 
-  Future<void> removeTrackFromCustomPlaylist(String playlistId, String trackId) async {
+  Future<void> removeTrackFromCustomPlaylist(
+    String playlistId,
+    String trackId,
+  ) async {
     final now = DateTime.now();
     _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(
-      _customPlaylists.map((item) {
-        if (item.id != playlistId) return item;
-        final nextTracks = List<MusicTrack>.unmodifiable(
-          item.tracks.where((track) => track.id != trackId).toList(growable: false),
-        );
-        _playlistTracksCache[playlistId] = nextTracks;
-        return item.copyWith(tracks: nextTracks, updatedAt: now);
-      }).toList(growable: false),
+      _customPlaylists
+          .map((item) {
+            if (item.id != playlistId) return item;
+            final nextTracks = List<MusicTrack>.unmodifiable(
+              item.tracks
+                  .where((track) => track.id != trackId)
+                  .toList(growable: false),
+            );
+            _playlistTracksCache[playlistId] = nextTracks;
+            return item.copyWith(tracks: nextTracks, updatedAt: now);
+          })
+          .toList(growable: false),
     );
     _rebuildPlaylists(basePlaylists: _playlists);
     notifyListeners();
@@ -688,12 +754,15 @@ class MusicStore extends ChangeNotifier {
     } catch (error) {
       final cachedTracks = _playlistTracksCache[playlist.id];
       if (cachedTracks != null && cachedTracks.isNotEmpty) {
-        _debugState('playlist.load.cached_fallback', extra: {
-          'playlistId': playlist.id,
-          'playlistTitle': playlist.title,
-          'trackCount': cachedTracks.length,
-          'error': error.toString(),
-        });
+        _debugState(
+          'playlist.load.cached_fallback',
+          extra: {
+            'playlistId': playlist.id,
+            'playlistTitle': playlist.title,
+            'trackCount': cachedTracks.length,
+            'error': error.toString(),
+          },
+        );
         return _withFavoriteFlags(cachedTracks);
       }
       rethrow;
@@ -710,19 +779,21 @@ class MusicStore extends ChangeNotifier {
     }
     final safeIndex = startIndex.clamp(0, tracks.length - 1);
     final orderedTracks = <MusicTrack>[
-      ...tracks.skip(safeIndex),
-      ...tracks.take(safeIndex),
-    ]
+          ...tracks.skip(safeIndex),
+          ...tracks.take(safeIndex),
+        ]
         .map((track) => track.copyWith(isFavorite: isTrackLiked(track.id)))
         .toList(growable: false);
     final normalizedPlaylist = _normalizeAiPlaylistRef(
       playlist.copyWith(trackCount: tracks.length),
     );
     _cacheTracksForPlaylist(normalizedPlaylist.id, tracks);
-    final nextRecentPlaylists = List<MusicPlaylist>.unmodifiable([
-      normalizedPlaylist,
-      ..._recentPlaylists.where((item) => item.id != normalizedPlaylist.id),
-    ].take(6));
+    final nextRecentPlaylists = List<MusicPlaylist>.unmodifiable(
+      [
+        normalizedPlaylist,
+        ..._recentPlaylists.where((item) => item.id != normalizedPlaylist.id),
+      ].take(6),
+    );
     await handleCommand(
       MusicCommand(
         type: MusicCommandType.replaceQueue,
@@ -745,60 +816,71 @@ class MusicStore extends ChangeNotifier {
     await ensureReady();
     final liked = !isTrackLiked(track.id);
     final playbackState = _playbackAdapter.state;
-    final cachedPlayback = _currentTrack.id == track.id &&
-            playbackState.currentSource != null
-        ? CachedPlaybackSource(
-            providerId: playbackState.currentSource!.providerId,
-            sourceTrackId: playbackState.currentSource!.sourceTrackId,
-            streamUrl: playbackState.currentSource!.streamUrl,
-            artworkUrl: playbackState.currentSource!.artworkUrl,
-            mimeType: playbackState.currentSource!.mimeType,
-            headers: playbackState.currentSource!.headers,
-            expiresAt: playbackState.currentSource!.expiresAt,
-            resolvedAt: DateTime.now(),
-          )
-        : track.cachedPlayback;
+    final cachedPlayback =
+        _currentTrack.id == track.id && playbackState.currentSource != null
+            ? CachedPlaybackSource(
+              providerId: playbackState.currentSource!.providerId,
+              sourceTrackId: playbackState.currentSource!.sourceTrackId,
+              streamUrl: playbackState.currentSource!.streamUrl,
+              artworkUrl: playbackState.currentSource!.artworkUrl,
+              mimeType: playbackState.currentSource!.mimeType,
+              headers: playbackState.currentSource!.headers,
+              expiresAt: playbackState.currentSource!.expiresAt,
+              resolvedAt: DateTime.now(),
+            )
+            : track.cachedPlayback;
     final nextTrack = track.copyWith(
       isFavorite: liked,
       cachedPlayback: cachedPlayback,
     );
-    final nextLikedTracks = liked
-        ? <MusicTrack>[nextTrack, ..._likedTracks.where((item) => item.id != track.id)]
-        : _likedTracks.where((item) => item.id != track.id).toList(growable: false);
+    final nextLikedTracks =
+        liked
+            ? <MusicTrack>[
+              nextTrack,
+              ..._likedTracks.where((item) => item.id != track.id),
+            ]
+            : _likedTracks
+                .where((item) => item.id != track.id)
+                .toList(growable: false);
     _likedTracks = List<MusicTrack>.unmodifiable(nextLikedTracks);
-    _currentTrack = _currentTrack.id == track.id
-        ? _currentTrack.copyWith(
-            isFavorite: liked,
-            cachedPlayback: cachedPlayback,
-          )
-        : _currentTrack;
+    _currentTrack =
+        _currentTrack.id == track.id
+            ? _currentTrack.copyWith(
+              isFavorite: liked,
+              cachedPlayback: cachedPlayback,
+            )
+            : _currentTrack;
     _queue = List<PlaybackQueueItem>.unmodifiable(
       _queue
           .map(
-            (item) => item.track.id == track.id
-                ? PlaybackQueueItem(
-                    track: item.track.copyWith(
-                      isFavorite: liked,
-                      cachedPlayback:
-                          item.track.id == track.id ? cachedPlayback : item.track.cachedPlayback,
-                    ),
-                    candidate: item.candidate,
-                    resolvedSource: item.resolvedSource,
-                    requestedBy: item.requestedBy,
-                  )
-                : item,
+            (item) =>
+                item.track.id == track.id
+                    ? PlaybackQueueItem(
+                      track: item.track.copyWith(
+                        isFavorite: liked,
+                        cachedPlayback:
+                            item.track.id == track.id
+                                ? cachedPlayback
+                                : item.track.cachedPlayback,
+                      ),
+                      candidate: item.candidate,
+                      resolvedSource: item.resolvedSource,
+                      requestedBy: item.requestedBy,
+                    )
+                    : item,
           )
           .toList(growable: false),
     );
     _recentTracks = List<MusicTrack>.unmodifiable(
       _recentTracks
           .map(
-            (item) => item.id == track.id
-                ? item.copyWith(
-                    isFavorite: liked,
-                    cachedPlayback: cachedPlayback,
-                  )
-                : item,
+            (item) =>
+                item.id == track.id
+                    ? item.copyWith(
+                      isFavorite: liked,
+                      cachedPlayback: cachedPlayback,
+                    )
+                    : item,
           )
           .toList(growable: false),
     );
@@ -817,11 +899,12 @@ class MusicStore extends ChangeNotifier {
         );
       }
     } catch (error) {
-      _debugState('liked.sync.error', extra: {
-        'trackId': track.id,
-        'liked': liked,
-        'error': error.toString(),
-      }, force: true, level: 'ERROR');
+      _debugState(
+        'liked.sync.error',
+        extra: {'trackId': track.id, 'liked': liked, 'error': error.toString()},
+        force: true,
+        level: 'ERROR',
+      );
     }
     unawaited(_savePlaybackSnapshot());
   }
@@ -840,10 +923,9 @@ class MusicStore extends ChangeNotifier {
     }
     final requestSerial = ++_searchRequestSerial;
     _activeSearchQuery = keyword;
-    _recentSearches = List<String>.unmodifiable([
-      keyword,
-      ..._recentSearches.where((item) => item != keyword),
-    ].take(8));
+    _recentSearches = List<String>.unmodifiable(
+      [keyword, ..._recentSearches.where((item) => item != keyword)].take(8),
+    );
     _isSearching = true;
     _searchError = null;
     notifyListeners();
@@ -851,7 +933,8 @@ class MusicStore extends ChangeNotifier {
       final registry = (_resolver as MusicSourceResolverImpl).registry;
       final netease = registry.providerById('netease');
       final migu = registry.providerById('migu');
-      final neteaseCandidates = await netease?.searchTracks(keyword) ?? const [];
+      final neteaseCandidates =
+          await netease?.searchTracks(keyword) ?? const [];
       final miguCandidates = await migu?.searchTracks(keyword) ?? const [];
       if (requestSerial != _searchRequestSerial) {
         return;
@@ -873,22 +956,27 @@ class MusicStore extends ChangeNotifier {
         }
       }
       _searchResults = List<MusicTrack>.unmodifiable(results.take(20));
-      _debugState('search.done', extra: {
-        'query': keyword,
-        'neteaseCount': neteaseCandidates.length,
-        'miguCount': miguCandidates.length,
-        'resultCount': _searchResults.length,
-      });
+      _debugState(
+        'search.done',
+        extra: {
+          'query': keyword,
+          'neteaseCount': neteaseCandidates.length,
+          'miguCount': miguCandidates.length,
+          'resultCount': _searchResults.length,
+        },
+      );
     } catch (error) {
       if (requestSerial != _searchRequestSerial) {
         return;
       }
       _searchError = error.toString();
       _searchResults = const [];
-      _debugState('search.error', extra: {
-        'query': keyword,
-        'error': error.toString(),
-      }, force: true, level: 'ERROR');
+      _debugState(
+        'search.error',
+        extra: {'query': keyword, 'error': error.toString()},
+        force: true,
+        level: 'ERROR',
+      );
     } finally {
       if (requestSerial == _searchRequestSerial) {
         _isSearching = false;
@@ -941,10 +1029,7 @@ class MusicStore extends ChangeNotifier {
       final adapterState = _playbackAdapter.state;
       if (adapterState.currentSource == null) {
         await handleCommand(
-          MusicCommand.play(
-            queue: _queue,
-            source: MusicCommandSource.manual,
-          ),
+          MusicCommand.play(queue: _queue, source: MusicCommandSource.manual),
         );
         return;
       }
@@ -957,9 +1042,10 @@ class MusicStore extends ChangeNotifier {
 
   Future<void> seekTo(Duration position) async {
     await ensureReady();
-    final maxMs = _duration.inMilliseconds > 0
-        ? _duration.inMilliseconds
-        : _currentTrack.duration.inMilliseconds;
+    final maxMs =
+        _duration.inMilliseconds > 0
+            ? _duration.inMilliseconds
+            : _currentTrack.duration.inMilliseconds;
     final clamped = Duration(
       milliseconds: position.inMilliseconds.clamp(0, maxMs),
     );
@@ -998,33 +1084,47 @@ class MusicStore extends ChangeNotifier {
   Future<void> enableIntelligenceMode() async {
     await ensureReady();
     final sourceTrackId = (_currentTrack.sourceTrackId ?? '').trim();
-    _debugState('intelligence.enable.request', extra: {
-      'trackId': _currentTrack.id,
-      'title': _currentTrack.title,
-      'providerId': _currentTrackProviderId(),
-      'sourceTrackId': sourceTrackId,
-      'encryptedSourceTrackId': _currentTrack.encryptedSourceTrackId,
-      'neteaseLikedPlaylistId': _neteaseLikedPlaylistId,
-      'neteaseLikedPlaylistEncryptedId': _neteaseLikedPlaylistEncryptedId,
-    }, force: true);
-    if (!canAttemptIntelligenceMode || sourceTrackId.isEmpty) {
-      _error = '当前歌曲还没有网易云音源，暂时无法开启心动模式';
-      _debugState('intelligence.enable.blocked_no_source', extra: {
+    _debugState(
+      'intelligence.enable.request',
+      extra: {
+        'trackId': _currentTrack.id,
+        'title': _currentTrack.title,
         'providerId': _currentTrackProviderId(),
         'sourceTrackId': sourceTrackId,
-      }, force: true, level: 'ERROR');
+        'encryptedSourceTrackId': _currentTrack.encryptedSourceTrackId,
+        'neteaseLikedPlaylistId': _neteaseLikedPlaylistId,
+        'neteaseLikedPlaylistEncryptedId': _neteaseLikedPlaylistEncryptedId,
+      },
+      force: true,
+    );
+    if (!canAttemptIntelligenceMode || sourceTrackId.isEmpty) {
+      _error = '当前歌曲还没有网易云音源，暂时无法开启心动模式';
+      _debugState(
+        'intelligence.enable.blocked_no_source',
+        extra: {
+          'providerId': _currentTrackProviderId(),
+          'sourceTrackId': sourceTrackId,
+        },
+        force: true,
+        level: 'ERROR',
+      );
       notifyListeners();
       return;
     }
     final playlist = _resolveIntelligenceContext();
     if (playlist == null) {
       _error = '当前歌曲有网易云音源，但还缺少网易云歌单上下文，暂时无法开启心动模式';
-      _debugState('intelligence.enable.blocked_no_context', extra: {
-        'sourceTrackId': sourceTrackId,
-        'encryptedSourceTrackId': _currentTrack.encryptedSourceTrackId,
-        'neteaseLikedPlaylistId': _neteaseLikedPlaylistId,
-        'neteaseLikedPlaylistEncryptedId': _neteaseLikedPlaylistEncryptedId,
-      }, force: true, level: 'ERROR');
+      _debugState(
+        'intelligence.enable.blocked_no_context',
+        extra: {
+          'sourceTrackId': sourceTrackId,
+          'encryptedSourceTrackId': _currentTrack.encryptedSourceTrackId,
+          'neteaseLikedPlaylistId': _neteaseLikedPlaylistId,
+          'neteaseLikedPlaylistEncryptedId': _neteaseLikedPlaylistEncryptedId,
+        },
+        force: true,
+        level: 'ERROR',
+      );
       notifyListeners();
       return;
     }
@@ -1034,16 +1134,23 @@ class MusicStore extends ChangeNotifier {
       ..clear()
       ..add(sourceTrackId);
     _repeatMode = MusicRepeatMode.intelligence;
-    _debugState('intelligence.enable.ready', extra: {
-      'sourceTrackId': sourceTrackId,
-      'encryptedSourceTrackId': _currentTrack.encryptedSourceTrackId,
-      'playlistId': playlist.id,
-      'playlistTitle': playlist.title,
-      'playlistTag': playlist.tag,
-      'neteaseLikedPlaylistEncryptedId': _neteaseLikedPlaylistEncryptedId,
-    }, force: true);
+    _debugState(
+      'intelligence.enable.ready',
+      extra: {
+        'sourceTrackId': sourceTrackId,
+        'encryptedSourceTrackId': _currentTrack.encryptedSourceTrackId,
+        'playlistId': playlist.id,
+        'playlistTitle': playlist.title,
+        'playlistTag': playlist.tag,
+        'neteaseLikedPlaylistEncryptedId': _neteaseLikedPlaylistEncryptedId,
+      },
+      force: true,
+    );
     notifyListeners();
-    await _refreshIntelligenceQueue(startTrack: _currentTrack, keepCurrentTrack: true);
+    await _refreshIntelligenceQueue(
+      startTrack: _currentTrack,
+      keepCurrentTrack: true,
+    );
   }
 
   void disableIntelligenceMode({bool keepQueue = true}) {
@@ -1066,17 +1173,23 @@ class MusicStore extends ChangeNotifier {
     if (playlist == null || _isLoadingIntelligenceBatch) return;
     _isLoadingIntelligenceBatch = true;
     try {
-      final cacheKey = '${playlist.id}::${startTrack.sourceTrackId ?? startTrack.id}';
-      List<MusicTrack> tracks = _intelligenceCache[cacheKey] ?? const <MusicTrack>[];
-      _debugState('intelligence.queue.refresh.start', extra: {
-        'playlistId': playlist.id,
-        'playlistTitle': playlist.title,
-        'seedTrackId': startTrack.id,
-        'seedSourceTrackId': startTrack.sourceTrackId,
-        'keepCurrentTrack': keepCurrentTrack,
-        'cacheKey': cacheKey,
-        'cacheHit': tracks.isNotEmpty,
-      }, force: true);
+      final cacheKey =
+          '${playlist.id}::${startTrack.sourceTrackId ?? startTrack.id}';
+      List<MusicTrack> tracks =
+          _intelligenceCache[cacheKey] ?? const <MusicTrack>[];
+      _debugState(
+        'intelligence.queue.refresh.start',
+        extra: {
+          'playlistId': playlist.id,
+          'playlistTitle': playlist.title,
+          'seedTrackId': startTrack.id,
+          'seedSourceTrackId': startTrack.sourceTrackId,
+          'keepCurrentTrack': keepCurrentTrack,
+          'cacheKey': cacheKey,
+          'cacheHit': tracks.isNotEmpty,
+        },
+        force: true,
+      );
       if (tracks.isEmpty) {
         tracks = await _repository.loadIntelligenceTracks(
           playlist: playlist,
@@ -1085,16 +1198,21 @@ class MusicStore extends ChangeNotifier {
           fallbackEncryptedPlaylistId: _neteaseLikedPlaylistEncryptedId,
         );
         _intelligenceCache[cacheKey] = tracks;
-        _debugState('intelligence.queue.fetch.done', extra: {
-          'playlistId': playlist.id,
-          'seedSourceTrackId': startTrack.sourceTrackId,
-          'fetchedCount': tracks.length,
-        }, force: true);
+        _debugState(
+          'intelligence.queue.fetch.done',
+          extra: {
+            'playlistId': playlist.id,
+            'seedSourceTrackId': startTrack.sourceTrackId,
+            'fetchedCount': tracks.length,
+          },
+          force: true,
+        );
       }
       final filtered = <MusicTrack>[];
       for (final track in tracks) {
         final sourceId = (track.sourceTrackId ?? '').trim();
-        if (sourceId.isNotEmpty && _recentIntelligenceTrackIds.contains(sourceId)) {
+        if (sourceId.isNotEmpty &&
+            _recentIntelligenceTrackIds.contains(sourceId)) {
           continue;
         }
         if (_queue.any((item) => item.track.id == track.id)) {
@@ -1104,19 +1222,25 @@ class MusicStore extends ChangeNotifier {
       }
       if (filtered.isEmpty) {
         _error = '心动模式暂时没有拿到新的推荐歌曲';
-        _debugState('intelligence.queue.empty', extra: {
-          'playlistId': playlist.id,
-          'rawCount': tracks.length,
-          'queueLength': _queue.length,
-          'recentIntelligenceCount': _recentIntelligenceTrackIds.length,
-        }, force: true, level: 'ERROR');
+        _debugState(
+          'intelligence.queue.empty',
+          extra: {
+            'playlistId': playlist.id,
+            'rawCount': tracks.length,
+            'queueLength': _queue.length,
+            'recentIntelligenceCount': _recentIntelligenceTrackIds.length,
+          },
+          force: true,
+          level: 'ERROR',
+        );
         disableIntelligenceMode();
         return;
       }
       if (keepCurrentTrack) {
-        final currentHead = _queue.isNotEmpty
-            ? _queue.first
-            : PlaybackQueueItem(track: _currentTrack);
+        final currentHead =
+            _queue.isNotEmpty
+                ? _queue.first
+                : PlaybackQueueItem(track: _currentTrack);
         _queue = List<PlaybackQueueItem>.unmodifiable([
           currentHead,
           ...filtered.map((track) => PlaybackQueueItem(track: track)),
@@ -1141,21 +1265,30 @@ class MusicStore extends ChangeNotifier {
       }
       _currentPlaylistId = playlist.id;
       _error = null;
-      _debugState('intelligence.queue.ready', extra: {
-        'playlistId': playlist.id,
-        'addedCount': filtered.length,
-        'queueLength': _queue.length,
-        'recentIntelligenceCount': _recentIntelligenceTrackIds.length,
-      }, force: true);
+      _debugState(
+        'intelligence.queue.ready',
+        extra: {
+          'playlistId': playlist.id,
+          'addedCount': filtered.length,
+          'queueLength': _queue.length,
+          'recentIntelligenceCount': _recentIntelligenceTrackIds.length,
+        },
+        force: true,
+      );
       notifyListeners();
       unawaited(_savePlaybackSnapshot());
     } catch (error) {
-      _debugState('intelligence.queue.error', extra: {
-        'playlistId': playlist.id,
-        'seedTrackId': startTrack.id,
-        'seedSourceTrackId': startTrack.sourceTrackId,
-        'error': error.toString(),
-      }, force: true, level: 'ERROR');
+      _debugState(
+        'intelligence.queue.error',
+        extra: {
+          'playlistId': playlist.id,
+          'seedTrackId': startTrack.id,
+          'seedSourceTrackId': startTrack.sourceTrackId,
+          'error': error.toString(),
+        },
+        force: true,
+        level: 'ERROR',
+      );
       _error = '心动模式加载失败，已退回普通播放';
       disableIntelligenceMode();
     } finally {
@@ -1170,7 +1303,10 @@ class MusicStore extends ChangeNotifier {
     if (sourceId.isEmpty) return;
     if (_intelligenceLastAnchorTrackId == sourceId && _queue.length > 1) return;
     _intelligenceLastAnchorTrackId = sourceId;
-    await _refreshIntelligenceQueue(startTrack: lastTrack, keepCurrentTrack: false);
+    await _refreshIntelligenceQueue(
+      startTrack: lastTrack,
+      keepCurrentTrack: false,
+    );
   }
 
   Future<void> playPrevious() async {
@@ -1193,7 +1329,9 @@ class MusicStore extends ChangeNotifier {
     _duration = previousTrack.duration;
     final queueItem = await _preparePlayback(previousTrack);
     final resolved = queueItem.resolvedSource!;
-    _currentTrack = queueItem.track.copyWith(isFavorite: isTrackLiked(queueItem.track.id));
+    _currentTrack = queueItem.track.copyWith(
+      isFavorite: isTrackLiked(queueItem.track.id),
+    );
     _queue = List<PlaybackQueueItem>.unmodifiable([
       queueItem,
       ..._queue.skip(1),
@@ -1297,17 +1435,29 @@ class MusicStore extends ChangeNotifier {
       _cacheKnownAiPlaylistTracks();
       _currentPlaylistId = _normalizePlaylistId(_currentPlaylistId);
       _rebuildPlaylists(basePlaylists: _playlists);
-      _debugState('ai_playlist.refresh', extra: {
-        'latestAiPlaylistId': _latestAiPlaylist?.id,
-        'latestAiTrackCount': _latestAiPlaylist?.tracks.length ?? 0,
-        'aiHistoryCount': _aiPlaylistHistory.length,
-      }, force: true);
+      final heroTrack = _latestAiPlaylist?.tracks.firstOrNull;
+      _debugState(
+        'ai_playlist.refresh',
+        extra: {
+          'latestAiPlaylistId': _latestAiPlaylist?.id,
+          'latestAiTrackCount': _latestAiPlaylist?.tracks.length ?? 0,
+          'aiHistoryCount': _aiPlaylistHistory.length,
+          'heroTrackId': heroTrack?.id,
+          'heroTrackTitle': heroTrack?.title,
+          'heroTrackArtworkUrl': heroTrack?.artworkUrl,
+          'heroTrackCachedArtworkUrl': heroTrack?.cachedPlayback?.artworkUrl,
+        },
+        force: true,
+      );
       unawaited(_savePlaybackSnapshot());
       notifyListeners();
     } catch (error) {
-      _debugState('ai_playlist.refresh.error', extra: {
-        'error': error.toString(),
-      }, force: true, level: 'ERROR');
+      _debugState(
+        'ai_playlist.refresh.error',
+        extra: {'error': error.toString()},
+        force: true,
+        level: 'ERROR',
+      );
     }
   }
 
@@ -1366,7 +1516,10 @@ class MusicStore extends ChangeNotifier {
     _isAdvancingQueue = true;
     try {
       if (_repeatMode == MusicRepeatMode.one) {
-        await _playCurrentQueueHead(resetPosition: true, clearCachedPlaybackOnRetry: false);
+        await _playCurrentQueueHead(
+          resetPosition: true,
+          clearCachedPlaybackOnRetry: false,
+        );
         return;
       }
       if (_queue.length <= 1) {
@@ -1406,13 +1559,16 @@ class MusicStore extends ChangeNotifier {
     if (cached != null &&
         cached.streamUrl.trim().isNotEmpty &&
         !cached.isExpired) {
-      _debugState('playback.prepare.cached', extra: {
-        'trackId': track.id,
-        'title': track.title,
-        'artist': track.artist,
-        'providerId': cached.providerId,
-        'sourceTrackId': cached.sourceTrackId,
-      });
+      _debugState(
+        'playback.prepare.cached',
+        extra: {
+          'trackId': track.id,
+          'title': track.title,
+          'artist': track.artist,
+          'providerId': cached.providerId,
+          'sourceTrackId': cached.sourceTrackId,
+        },
+      );
       return PlaybackQueueItem(
         track: track.copyWith(
           preferredSourceId: track.preferredSourceId ?? cached.providerId,
@@ -1432,29 +1588,40 @@ class MusicStore extends ChangeNotifier {
     }
 
     try {
-      final resolved = await _repository.resolveTrack(track, allowFallback: false);
-      _debugState('playback.prepare.resolved', extra: {
-        'trackId': track.id,
-        'title': track.title,
-        'artist': track.artist,
-        'preferredSourceId': resolved.track.preferredSourceId,
-        'sourceTrackId': resolved.track.sourceTrackId,
-        'resolvedProviderId': resolved.resolvedSource?.providerId,
-      });
+      final resolved = await _repository.resolveTrack(
+        track,
+        allowFallback: false,
+      );
+      _debugState(
+        'playback.prepare.resolved',
+        extra: {
+          'trackId': track.id,
+          'title': track.title,
+          'artist': track.artist,
+          'preferredSourceId': resolved.track.preferredSourceId,
+          'sourceTrackId': resolved.track.sourceTrackId,
+          'resolvedProviderId': resolved.resolvedSource?.providerId,
+        },
+      );
       return resolved.copyWith(
         track: resolved.track.copyWith(
           isFavorite: isTrackLiked(resolved.track.id),
         ),
       );
     } catch (error) {
-      _debugState('playback.prepare.error', extra: {
-        'trackId': track.id,
-        'title': track.title,
-        'artist': track.artist,
-        'preferredSourceId': track.preferredSourceId,
-        'sourceTrackId': track.sourceTrackId,
-        'error': error.toString(),
-      }, force: true, level: 'ERROR');
+      _debugState(
+        'playback.prepare.error',
+        extra: {
+          'trackId': track.id,
+          'title': track.title,
+          'artist': track.artist,
+          'preferredSourceId': track.preferredSourceId,
+          'sourceTrackId': track.sourceTrackId,
+          'error': error.toString(),
+        },
+        force: true,
+        level: 'ERROR',
+      );
       rethrow;
     }
   }
@@ -1463,7 +1630,10 @@ class MusicStore extends ChangeNotifier {
     await ensureReady();
     if (index < 0 || index >= _queue.length) return;
     if (index == 0) {
-      await _playCurrentQueueHead(resetPosition: true, clearCachedPlaybackOnRetry: false);
+      await _playCurrentQueueHead(
+        resetPosition: true,
+        clearCachedPlaybackOnRetry: false,
+      );
       return;
     }
     final selected = _queue[index];
@@ -1619,7 +1789,9 @@ class MusicStore extends ChangeNotifier {
   }
 
   List<MusicPlaylist> _normalizeRecentPlaylists(List<MusicPlaylist> items) {
-    final normalized = items.map(_normalizeAiPlaylistRef).toList(growable: false);
+    final normalized = items
+        .map(_normalizeAiPlaylistRef)
+        .toList(growable: false);
     final seen = <String>{};
     return List<MusicPlaylist>.unmodifiable(
       normalized.where((item) => seen.add(item.id)).take(6),
@@ -1662,10 +1834,12 @@ class MusicStore extends ChangeNotifier {
       _likedTracks = List<MusicTrack>.unmodifiable(merged);
       _cacheTracksForPlaylist(likedPlaylist.id, _likedTracks);
     } catch (error) {
-      _debugState('liked.remote_merge.error', extra: {
-        'playlistId': playlist.id,
-        'error': error.toString(),
-      }, force: true, level: 'ERROR');
+      _debugState(
+        'liked.remote_merge.error',
+        extra: {'playlistId': playlist.id, 'error': error.toString()},
+        force: true,
+        level: 'ERROR',
+      );
     }
   }
 
@@ -1679,8 +1853,12 @@ class MusicStore extends ChangeNotifier {
   }
 
   String _trackIdentityKey(MusicTrack track) {
-    final providerId = (track.preferredSourceId ?? track.cachedPlayback?.providerId ?? '').trim();
-    final sourceTrackId = (track.sourceTrackId ?? track.cachedPlayback?.sourceTrackId ?? '').trim();
+    final providerId =
+        (track.preferredSourceId ?? track.cachedPlayback?.providerId ?? '')
+            .trim();
+    final sourceTrackId =
+        (track.sourceTrackId ?? track.cachedPlayback?.sourceTrackId ?? '')
+            .trim();
     if (providerId.isNotEmpty && sourceTrackId.isNotEmpty) {
       return '$providerId::$sourceTrackId';
     }
@@ -1720,7 +1898,10 @@ class MusicStore extends ChangeNotifier {
     } catch (error) {
       if (!clearCachedPlaybackOnRetry || _currentTrack.cachedPlayback == null) {
         final friendlyError = _friendlyPlaybackError(error);
-        final skipped = await _skipFailedCurrentTrack(friendlyError, allowSkipOnFailure: allowSkipOnFailure);
+        final skipped = await _skipFailedCurrentTrack(
+          friendlyError,
+          allowSkipOnFailure: allowSkipOnFailure,
+        );
         if (skipped) {
           return;
         }
@@ -1747,7 +1928,10 @@ class MusicStore extends ChangeNotifier {
         );
       } catch (retryError) {
         final friendlyError = _friendlyPlaybackError(retryError);
-        final skipped = await _skipFailedCurrentTrack(friendlyError, allowSkipOnFailure: allowSkipOnFailure);
+        final skipped = await _skipFailedCurrentTrack(
+          friendlyError,
+          allowSkipOnFailure: allowSkipOnFailure,
+        );
         if (skipped) {
           return;
         }
@@ -1769,7 +1953,10 @@ class MusicStore extends ChangeNotifier {
     await _loadLyricsForTrack(_currentTrack, forceRefresh: true);
   }
 
-  Future<void> _loadLyricsForTrack(MusicTrack track, {required bool forceRefresh}) async {
+  Future<void> _loadLyricsForTrack(
+    MusicTrack track, {
+    required bool forceRefresh,
+  }) async {
     final cacheKey = _lyricsCacheKey(track);
     if (cacheKey.isEmpty) {
       _currentLyrics = null;
@@ -1808,8 +1995,12 @@ class MusicStore extends ChangeNotifier {
   }
 
   String _lyricsCacheKey(MusicTrack track) {
-    final preferred = (track.preferredSourceId ?? track.cachedPlayback?.providerId ?? '').trim();
-    final sourceTrackId = (track.sourceTrackId ?? track.cachedPlayback?.sourceTrackId ?? '').trim();
+    final preferred =
+        (track.preferredSourceId ?? track.cachedPlayback?.providerId ?? '')
+            .trim();
+    final sourceTrackId =
+        (track.sourceTrackId ?? track.cachedPlayback?.sourceTrackId ?? '')
+            .trim();
     if (preferred.isEmpty && sourceTrackId.isEmpty) {
       return track.id.trim();
     }
@@ -1817,7 +2008,11 @@ class MusicStore extends ChangeNotifier {
   }
 
   String _friendlyPlaylistLoadError(Object error, MusicPlaylist playlist) {
-    final raw = error.toString().trim().replaceFirst('Exception: ', '').replaceFirst('Bad state: ', '');
+    final raw = error
+        .toString()
+        .trim()
+        .replaceFirst('Exception: ', '')
+        .replaceFirst('Bad state: ', '');
     if (raw.contains('这个歌单暂时没有可播放的歌曲')) {
       if (playlist.id.startsWith('ai-playlist:')) {
         return '这份 AI 歌单里暂时没有可播放的歌曲';
@@ -1843,12 +2038,17 @@ class MusicStore extends ChangeNotifier {
       return false;
     }
     final failedTrack = _currentTrack;
-    _debugState('playback.skip_failed_track', extra: {
-      'trackId': failedTrack.id,
-      'title': failedTrack.title,
-      'error': friendlyError,
-      'remainingQueue': _queue.length - 1,
-    }, force: true, level: 'ERROR');
+    _debugState(
+      'playback.skip_failed_track',
+      extra: {
+        'trackId': failedTrack.id,
+        'title': failedTrack.title,
+        'error': friendlyError,
+        'remainingQueue': _queue.length - 1,
+      },
+      force: true,
+      level: 'ERROR',
+    );
     _playbackHistory.add(failedTrack);
     _queue = List<PlaybackQueueItem>.unmodifiable(_queue.skip(1));
     _currentTrack = _queue.first.track.copyWith(
@@ -1875,7 +2075,8 @@ class MusicStore extends ChangeNotifier {
     if (raw.contains('Source error') || raw.contains('PlayerException')) {
       return fallback ?? '播放失败，已尝试重新解析音源但仍未成功';
     }
-    return fallback ?? raw.replaceFirst('Exception: ', '').replaceFirst('Bad state: ', '');
+    return fallback ??
+        raw.replaceFirst('Exception: ', '').replaceFirst('Bad state: ', '');
   }
 
   Future<void> _savePlaybackSnapshot() {
@@ -1960,7 +2161,9 @@ class MusicStore extends ChangeNotifier {
   }) {
     final now = DateTime.now();
     final lastAt = _lastDebugLogAt[tag];
-    if (!force && lastAt != null && now.difference(lastAt).inMilliseconds < 250) {
+    if (!force &&
+        lastAt != null &&
+        now.difference(lastAt).inMilliseconds < 250) {
       return;
     }
     _lastDebugLogAt[tag] = now;
@@ -1980,7 +2183,9 @@ class MusicStore extends ChangeNotifier {
       'latestAiPlaylistId': _latestAiPlaylist?.id,
       if (extra != null) ...extra,
     };
-    final message = payload.entries.map((e) => '${e.key}=${e.value}').join(' | ');
+    final message = payload.entries
+        .map((e) => '${e.key}=${e.value}')
+        .join(' | ');
     unawaited(NativeDebugBridge.instance.log('music', message, level: level));
     unawaited(_client.sendClientDebugLog(payload));
   }

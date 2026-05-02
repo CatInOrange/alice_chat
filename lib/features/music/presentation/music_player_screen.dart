@@ -29,18 +29,21 @@ class MusicPlayerScreen extends StatelessWidget {
             .toList(growable: false);
         final theme = Theme.of(context);
         final palette = paletteForTone(currentTrack.artworkTone);
-        final nextTracks = currentQueue
-            .where((item) => item.id != currentTrack.id)
-            .take(3)
-            .toList();
-        final totalDuration = store.duration.inMilliseconds > 0
-            ? store.duration
-            : currentTrack.duration;
-        final progress = totalDuration.inMilliseconds <= 0
-            ? 0.0
-            : (store.position.inMilliseconds / totalDuration.inMilliseconds)
-                .clamp(0, 1)
-                .toDouble();
+        final nextTracks =
+            currentQueue
+                .where((item) => item.id != currentTrack.id)
+                .take(3)
+                .toList();
+        final totalDuration =
+            store.duration.inMilliseconds > 0
+                ? store.duration
+                : currentTrack.duration;
+        final progress =
+            totalDuration.inMilliseconds <= 0
+                ? 0.0
+                : (store.position.inMilliseconds / totalDuration.inMilliseconds)
+                    .clamp(0, 1)
+                    .toDouble();
         final currentLyric = store.currentLyricLine;
         final nextLyric = store.nextLyricLine;
 
@@ -101,7 +104,9 @@ class MusicPlayerScreen extends StatelessWidget {
                                     overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.titleMedium,
                                   ),
-                                  if ((store.intelligenceModeHint ?? '').trim().isNotEmpty) ...[
+                                  if ((store.intelligenceModeHint ?? '')
+                                      .trim()
+                                      .isNotEmpty) ...[
                                     const SizedBox(height: 4),
                                     Text(
                                       store.intelligenceModeHint!,
@@ -136,14 +141,21 @@ class MusicPlayerScreen extends StatelessWidget {
                               ),
                               const SizedBox(height: 28),
                               GestureDetector(
-                                onLongPress: () => _showCollectToPlaylistSheet(context, store, currentTrack),
+                                onLongPress:
+                                    () => _showCollectToPlaylistSheet(
+                                      context,
+                                      store,
+                                      currentTrack,
+                                    ),
                                 child: Container(
                                   padding: const EdgeInsets.all(22),
                                   decoration: BoxDecoration(
                                     color: Colors.white.withValues(alpha: 0.72),
                                     borderRadius: BorderRadius.circular(30),
                                     border: Border.all(
-                                      color: Colors.white.withValues(alpha: 0.72),
+                                      color: Colors.white.withValues(
+                                        alpha: 0.72,
+                                      ),
                                     ),
                                     boxShadow: const [
                                       BoxShadow(
@@ -155,103 +167,123 @@ class MusicPlayerScreen extends StatelessWidget {
                                   ),
                                   child: Column(
                                     children: [
-                                    Row(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                currentTrack.title,
-                                                style: theme.textTheme.titleLarge?.copyWith(
-                                                  fontSize: 24,
+                                      Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  currentTrack.title,
+                                                  style: theme
+                                                      .textTheme
+                                                      .titleLarge
+                                                      ?.copyWith(fontSize: 24),
                                                 ),
-                                              ),
-                                              const SizedBox(height: 8),
-                                              Text(
-                                                '${currentTrack.artist} · ${currentTrack.album}',
-                                                style: theme.textTheme.bodyMedium,
-                                              ),
-                                              const SizedBox(height: 4),
-                                              Text(
-                                                store.currentPlaybackSourceLabel,
-                                                style: theme.textTheme.bodySmall,
-                                              ),
-                                              const SizedBox(height: 8),
-                                              Text(
-                                                currentTrack.description,
-                                                style: theme.textTheme.bodySmall?.copyWith(
-                                                  height: 1.5,
+                                                const SizedBox(height: 8),
+                                                Text(
+                                                  '${currentTrack.artist} · ${currentTrack.album}',
+                                                  style:
+                                                      theme
+                                                          .textTheme
+                                                          .bodyMedium,
                                                 ),
-                                              ),
-                                            ],
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  store
+                                                      .currentPlaybackSourceLabel,
+                                                  style:
+                                                      theme.textTheme.bodySmall,
+                                                ),
+                                                const SizedBox(height: 8),
+                                                Text(
+                                                  currentTrack.description,
+                                                  style: theme
+                                                      .textTheme
+                                                      .bodySmall
+                                                      ?.copyWith(height: 1.5),
+                                                ),
+                                              ],
+                                            ),
                                           ),
-                                        ),
-                                        IconButton(
-                                          onPressed: () {
-                                            store.toggleTrackLiked(currentTrack);
+                                          IconButton(
+                                            onPressed: () {
+                                              store.toggleTrackLiked(
+                                                currentTrack,
+                                              );
+                                            },
+                                            icon: Icon(
+                                              currentTrack.isFavorite
+                                                  ? Icons.favorite_rounded
+                                                  : Icons
+                                                      .favorite_border_rounded,
+                                              color:
+                                                  currentTrack.isFavorite
+                                                      ? const Color(0xFFE91E63)
+                                                      : null,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      if (store.error != null &&
+                                          store.error!.trim().isNotEmpty) ...[
+                                        const SizedBox(height: 16),
+                                        _PlaybackErrorBanner(
+                                          message: store.error!,
+                                          onDismiss: store.clearError,
+                                          onRetry: () {
+                                            final raw = store.error ?? '';
+                                            if (raw.contains('加载歌单')) {
+                                              store.retryCurrentPlaylist();
+                                              return;
+                                            }
+                                            store.retryCurrentTrack();
                                           },
-                                          icon: Icon(
-                                            currentTrack.isFavorite
-                                                ? Icons.favorite_rounded
-                                                : Icons.favorite_border_rounded,
-                                            color: currentTrack.isFavorite
-                                                ? const Color(0xFFE91E63)
-                                                : null,
-                                          ),
                                         ),
                                       ],
-                                    ),
-                                    if (store.error != null &&
-                                        store.error!.trim().isNotEmpty) ...[
-                                      const SizedBox(height: 16),
-                                      _PlaybackErrorBanner(
-                                        message: store.error!,
-                                        onDismiss: store.clearError,
-                                        onRetry: () {
-                                          final raw = store.error ?? '';
-                                          if (raw.contains('加载歌单')) {
-                                            store.retryCurrentPlaylist();
-                                            return;
-                                          }
-                                          store.retryCurrentTrack();
-                                        },
-                                      ),
-                                    ],
-                                    const SizedBox(height: 22),
-                                    _ProgressPanel(
-                                      accentColor: palette.gradient.first,
-                                      durationLabel: _formatDuration(totalDuration),
-                                      progress: progress,
-                                      positionLabel: _formatDuration(store.position),
-                                      onSeek: (nextProgress) => store.seekTo(
-                                        Duration(
-                                          milliseconds:
-                                              (totalDuration.inMilliseconds *
-                                                      nextProgress)
-                                                  .round(),
+                                      const SizedBox(height: 22),
+                                      _ProgressPanel(
+                                        accentColor: palette.gradient.first,
+                                        durationLabel: _formatDuration(
+                                          totalDuration,
                                         ),
+                                        progress: progress,
+                                        positionLabel: _formatDuration(
+                                          store.position,
+                                        ),
+                                        onSeek:
+                                            (nextProgress) => store.seekTo(
+                                              Duration(
+                                                milliseconds:
+                                                    (totalDuration
+                                                                .inMilliseconds *
+                                                            nextProgress)
+                                                        .round(),
+                                              ),
+                                            ),
                                       ),
-                                    ),
-                                    const SizedBox(height: 26),
-                                    _PlayerControls(
-                                      accentColor: palette.gradient.first,
-                                      isPlaying: store.isPlaying,
-                                      isBuffering: store.isBuffering,
-                                      shuffleEnabled: store.shuffleEnabled,
-                                      repeatMode: store.repeatMode,
-                                      hasPrevious: store.hasPreviousTrack,
-                                      hasNext: store.hasNextTrack,
-                                      onPlayPause: store.togglePlayPause,
-                                      onPrevious: store.playPrevious,
-                                      onNext: store.playNext,
-                                      onToggleShuffle: store.toggleShuffle,
-                                      onCycleRepeat: store.cycleRepeatMode,
-                                      canEnableIntelligence: store.canEnableIntelligenceMode,
-                                      canAttemptIntelligence: store.canAttemptIntelligenceMode,
-                                    ),
+                                      const SizedBox(height: 26),
+                                      _PlayerControls(
+                                        accentColor: palette.gradient.first,
+                                        isPlaying: store.isPlaying,
+                                        isBuffering: store.isBuffering,
+                                        shuffleEnabled: store.shuffleEnabled,
+                                        repeatMode: store.repeatMode,
+                                        hasPrevious: store.hasPreviousTrack,
+                                        hasNext: store.hasNextTrack,
+                                        onPlayPause: store.togglePlayPause,
+                                        onPrevious: store.playPrevious,
+                                        onNext: store.playNext,
+                                        onToggleShuffle: store.toggleShuffle,
+                                        onCycleRepeat: store.cycleRepeatMode,
+                                        canEnableIntelligence:
+                                            store.canEnableIntelligenceMode,
+                                        canAttemptIntelligence:
+                                            store.canAttemptIntelligenceMode,
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -260,26 +292,35 @@ class MusicPlayerScreen extends StatelessWidget {
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(30),
                                 child: BackdropFilter(
-                                  filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                                  filter: ImageFilter.blur(
+                                    sigmaX: 18,
+                                    sigmaY: 18,
+                                  ),
                                   child: Container(
                                     width: double.infinity,
                                     padding: const EdgeInsets.all(20),
                                     decoration: BoxDecoration(
-                                      color: Colors.white.withValues(alpha: 0.66),
+                                      color: Colors.white.withValues(
+                                        alpha: 0.66,
+                                      ),
                                       borderRadius: BorderRadius.circular(30),
                                       border: Border.all(
-                                        color: Colors.white.withValues(alpha: 0.72),
+                                        color: Colors.white.withValues(
+                                          alpha: 0.72,
+                                        ),
                                       ),
                                     ),
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Row(
                                           children: [
                                             Expanded(
                                               child: Text(
                                                 '接下来播放',
-                                                style: theme.textTheme.titleMedium,
+                                                style:
+                                                    theme.textTheme.titleMedium,
                                               ),
                                             ),
                                             Text(
@@ -297,12 +338,19 @@ class MusicPlayerScreen extends StatelessWidget {
                                         else
                                           for (final item in nextTracks)
                                             Padding(
-                                              padding: const EdgeInsets.only(bottom: 12),
+                                              padding: const EdgeInsets.only(
+                                                bottom: 12,
+                                              ),
                                               child: _QueueItem(
                                                 track: item,
-                                                onTap: () => store.playQueueIndex(
-                                                  currentQueue.indexWhere((queued) => queued.id == item.id),
-                                                ),
+                                                onTap:
+                                                    () => store.playQueueIndex(
+                                                      currentQueue.indexWhere(
+                                                        (queued) =>
+                                                            queued.id ==
+                                                            item.id,
+                                                      ),
+                                                    ),
                                               ),
                                             ),
                                       ],
@@ -355,9 +403,10 @@ Future<void> _showCollectToPlaylistSheet(
                   leading: const Icon(Icons.queue_music_rounded),
                   title: Text(playlist.title),
                   subtitle: Text('${playlist.tracks.length} 首歌曲'),
-                  trailing: playlist.tracks.any((item) => item.id == track.id)
-                      ? const Icon(Icons.check_rounded, color: Colors.green)
-                      : null,
+                  trailing:
+                      playlist.tracks.any((item) => item.id == track.id)
+                          ? const Icon(Icons.check_rounded, color: Colors.green)
+                          : null,
                   onTap: () async {
                     final added = await store.addTrackToCustomPlaylist(
                       playlist.id,
@@ -368,7 +417,9 @@ Future<void> _showCollectToPlaylistSheet(
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text(
-                          added ? '已收藏到 ${playlist.title}' : '这首歌已经在 ${playlist.title} 里了',
+                          added
+                              ? '已收藏到 ${playlist.title}'
+                              : '这首歌已经在 ${playlist.title} 里了',
                         ),
                       ),
                     );
@@ -420,9 +471,10 @@ Future<void> _showCreateAndCollectSheet(
                   final title = controller.text.trim();
                   if (title.isEmpty) return;
                   await store.createCustomPlaylist(title: title);
-                  final created = store.customPlaylists.isEmpty
-                      ? null
-                      : store.customPlaylists.first;
+                  final created =
+                      store.customPlaylists.isEmpty
+                          ? null
+                          : store.customPlaylists.first;
                   if (created != null) {
                     await store.addTrackToCustomPlaylist(created.id, track);
                   }
@@ -591,10 +643,17 @@ class _DiscStageState extends State<_DiscStage>
                     shape: BoxShape.circle,
                     gradient: RadialGradient(
                       colors: [
-                        Colors.white.withValues(alpha: 0.86),
-                        Colors.white.withValues(alpha: 0.22),
+                        Colors.white.withValues(alpha: 0.9),
+                        Colors.white.withValues(alpha: 0.26),
                       ],
                     ),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x16000000),
+                        blurRadius: 18,
+                        offset: Offset(0, 10),
+                      ),
+                    ],
                   ),
                 ),
                 Container(
@@ -603,8 +662,19 @@ class _DiscStageState extends State<_DiscStage>
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.42),
-                      width: 12,
+                      color: Colors.white.withValues(alpha: 0.5),
+                      width: 10,
+                    ),
+                  ),
+                ),
+                Container(
+                  width: 248,
+                  height: 248,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.14),
+                      width: 1.5,
                     ),
                   ),
                 ),
@@ -613,16 +683,22 @@ class _DiscStageState extends State<_DiscStage>
                   size: 238,
                   circular: true,
                   heroTag: 'music-artwork-${widget.track.id}',
+                  showIconBadge: false,
+                  overlayStrength: 0.06,
                 ),
               ],
             ),
           ),
           Container(
-            width: 42,
-            height: 42,
+            width: 46,
+            height: 46,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white.withValues(alpha: 0.92),
+              color: Colors.white.withValues(alpha: 0.94),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.8),
+                width: 1.5,
+              ),
               boxShadow: const [
                 BoxShadow(
                   color: Color(0x22000000),
@@ -630,6 +706,30 @@ class _DiscStageState extends State<_DiscStage>
                   offset: Offset(0, 6),
                 ),
               ],
+            ),
+            child: Center(
+              child: Container(
+                width: 22,
+                height: 22,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: palette.gradient.first.withValues(alpha: 0.22),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.65),
+                    width: 1,
+                  ),
+                ),
+                child: Center(
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Color(0xFF111111),
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
         ],
@@ -748,10 +848,7 @@ class _ProgressPanel extends StatelessWidget {
             thumbColor: accentColor,
             overlayColor: accentColor.withValues(alpha: 0.16),
           ),
-          child: Slider(
-            value: progress,
-            onChanged: onSeek,
-          ),
+          child: Slider(value: progress, onChanged: onSeek),
         ),
         const SizedBox(height: 4),
         Row(
@@ -813,46 +910,50 @@ class _PlayerControls extends StatelessWidget {
         ),
         _PlayerActionButton(
           icon: Icons.skip_previous_rounded,
-          onPressed: hasPrevious
-              ? () {
-                  onPrevious();
-                }
-              : null,
+          onPressed:
+              hasPrevious
+                  ? () {
+                    onPrevious();
+                  }
+                  : null,
         ),
         _PrimaryPlayButton(
           color: accentColor,
           onPressed: () {
             onPlayPause();
           },
-          child: isBuffering
-              ? const SizedBox(
-                  width: 28,
-                  height: 28,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2.8,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+          child:
+              isBuffering
+                  ? const SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.8,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                  : Icon(
+                    isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                    color: Colors.white,
+                    size: 34,
                   ),
-                )
-              : Icon(
-                  isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                  color: Colors.white,
-                  size: 34,
-                ),
         ),
         _PlayerActionButton(
           icon: Icons.skip_next_rounded,
-          onPressed: hasNext
-              ? () {
-                  onNext();
-                }
-              : null,
+          onPressed:
+              hasNext
+                  ? () {
+                    onNext();
+                  }
+                  : null,
         ),
         _PlayerActionButton(
-          icon: repeatMode == MusicRepeatMode.one
-              ? (canAttemptIntelligence
-                  ? Icons.auto_awesome_rounded
-                  : Icons.repeat_one_rounded)
-              : repeatMode == MusicRepeatMode.intelligence
+          icon:
+              repeatMode == MusicRepeatMode.one
+                  ? (canAttemptIntelligence
+                      ? Icons.auto_awesome_rounded
+                      : Icons.repeat_one_rounded)
+                  : repeatMode == MusicRepeatMode.intelligence
                   ? Icons.auto_awesome_rounded
                   : Icons.repeat_rounded,
           isActive: repeatMode != MusicRepeatMode.off,
@@ -883,30 +984,36 @@ class _QueueItem extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
-          MusicArtwork(track: track, size: 56, showMeta: false),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  track.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleMedium,
+              MusicArtwork(track: track, size: 56, showMeta: false),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      track.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(track.artist, style: theme.textTheme.bodySmall),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                Text(track.artist, style: theme.textTheme.bodySmall),
-              ],
-            ),
-          ),
+              ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: palette.gradient.first.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(999),
                 ),
-                child: Text(track.durationLabel, style: theme.textTheme.bodySmall),
+                child: Text(
+                  track.durationLabel,
+                  style: theme.textTheme.bodySmall,
+                ),
               ),
             ],
           ),
@@ -981,9 +1088,10 @@ class _PlayerActionButton extends StatelessWidget {
       width: 52,
       height: 52,
       decoration: BoxDecoration(
-        color: onPressed == null
-            ? Colors.white.withValues(alpha: 0.45)
-            : isActive
+        color:
+            onPressed == null
+                ? Colors.white.withValues(alpha: 0.45)
+                : isActive
                 ? const Color(0xFF111827)
                 : Colors.white.withValues(alpha: 0.9),
         shape: BoxShape.circle,
@@ -1014,7 +1122,9 @@ class _PrimaryPlayButton extends StatelessWidget {
       height: 78,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        gradient: LinearGradient(colors: [color, color.withValues(alpha: 0.84)]),
+        gradient: LinearGradient(
+          colors: [color, color.withValues(alpha: 0.84)],
+        ),
         boxShadow: [
           BoxShadow(
             color: color.withValues(alpha: 0.34),
@@ -1023,10 +1133,7 @@ class _PrimaryPlayButton extends StatelessWidget {
           ),
         ],
       ),
-      child: IconButton(
-        onPressed: onPressed,
-        icon: child,
-      ),
+      child: IconButton(onPressed: onPressed, icon: child),
     );
   }
 }
@@ -1037,4 +1144,3 @@ String _formatDuration(Duration duration) {
   final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
   return '$minutes:$seconds';
 }
-

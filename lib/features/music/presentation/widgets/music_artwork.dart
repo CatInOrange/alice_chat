@@ -1,5 +1,8 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
+import '../../../../core/debug/native_debug_bridge.dart';
 import '../../domain/music_models.dart';
 
 String? effectiveArtworkUrl(MusicTrack track) {
@@ -8,6 +11,14 @@ String? effectiveArtworkUrl(MusicTrack track) {
   final direct = (track.artworkUrl ?? '').trim();
   if (direct.isNotEmpty) return direct;
   return null;
+}
+
+String effectiveArtworkSource(MusicTrack track) {
+  final cached = (track.cachedPlayback?.artworkUrl ?? '').trim();
+  if (cached.isNotEmpty) return 'cachedPlayback';
+  final direct = (track.artworkUrl ?? '').trim();
+  if (direct.isNotEmpty) return 'track.artworkUrl';
+  return 'none';
 }
 
 class MusicArtworkPalette {
@@ -71,6 +82,8 @@ class MusicArtwork extends StatelessWidget {
     this.circular = false,
     this.heroTag,
     this.showMeta = true,
+    this.showIconBadge = true,
+    this.overlayStrength,
   });
 
   final MusicTrack track;
@@ -78,12 +91,16 @@ class MusicArtwork extends StatelessWidget {
   final bool circular;
   final String? heroTag;
   final bool showMeta;
+  final bool showIconBadge;
+  final double? overlayStrength;
 
   @override
   Widget build(BuildContext context) {
     final palette = paletteForTone(track.artworkTone);
     final borderRadius = BorderRadius.circular(circular ? size / 2 : 28);
     final artworkUrl = effectiveArtworkUrl(track);
+    final artworkSource = effectiveArtworkSource(track);
+    final effectiveOverlayStrength = overlayStrength ?? (showMeta ? 0.28 : 0.1);
     final body = Container(
       width: size,
       height: size,
@@ -115,19 +132,58 @@ class MusicArtwork extends StatelessWidget {
                 cacheWidth: (size * 3).round(),
                 cacheHeight: (size * 3).round(),
                 filterQuality: FilterQuality.medium,
-                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                  if (wasSynchronouslyLoaded || frame != null) {
+                    return child;
+                  }
+                  return DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: palette.gradient,
+                      ),
+                    ),
+                  );
+                },
+                errorBuilder: (_, error, stackTrace) {
+                  final payload = <String, dynamic>{
+                    'tag': 'music.artwork.image_error',
+                    'ts': DateTime.now().toIso8601String(),
+                    'trackId': track.id,
+                    'title': track.title,
+                    'artist': track.artist,
+                    'artworkUrl': artworkUrl,
+                    'artworkSource': artworkSource,
+                    'error': error.toString(),
+                  };
+                  final message = payload.entries
+                      .map((e) => '${e.key}=${e.value}')
+                      .join(' | ');
+                  NativeDebugBridge.instance.log(
+                    'music',
+                    message,
+                    level: 'ERROR',
+                  );
+                  return const SizedBox.shrink();
+                },
               ),
             DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: artworkUrl == null
-                      ? palette.gradient
-                      : [
-                          Colors.black.withValues(alpha: showMeta ? 0.12 : 0.02),
-                          Colors.black.withValues(alpha: showMeta ? 0.34 : 0.08),
-                        ],
+                  colors:
+                      artworkUrl == null
+                          ? palette.gradient
+                          : [
+                            Colors.black.withValues(
+                              alpha: effectiveOverlayStrength * 0.45,
+                            ),
+                            Colors.black.withValues(
+                              alpha: effectiveOverlayStrength + 0.08,
+                            ),
+                          ],
                 ),
               ),
               child: Material(
@@ -135,35 +191,43 @@ class MusicArtwork extends StatelessWidget {
                 child: Padding(
                   padding: EdgeInsets.all(circular ? size * 0.16 : 18),
                   child: Column(
-                    crossAxisAlignment: circular
-                        ? CrossAxisAlignment.center
-                        : CrossAxisAlignment.start,
+                    crossAxisAlignment:
+                        circular
+                            ? CrossAxisAlignment.center
+                            : CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Container(
-                        width: circular ? size * 0.24 : 44,
-                        height: circular ? size * 0.24 : 44,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: artworkUrl == null ? 0.18 : 0.24),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          palette.icon,
-                          color: Colors.white,
-                          size: circular ? size * 0.11 : 22,
-                        ),
-                      ),
+                      if (showIconBadge)
+                        Container(
+                          width: circular ? size * 0.24 : 44,
+                          height: circular ? size * 0.24 : 44,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(
+                              alpha: artworkUrl == null ? 0.18 : 0.24,
+                            ),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            palette.icon,
+                            color: Colors.white,
+                            size: circular ? size * 0.11 : 22,
+                          ),
+                        )
+                      else
+                        const SizedBox.shrink(),
                       if (showMeta)
                         Column(
-                          crossAxisAlignment: circular
-                              ? CrossAxisAlignment.center
-                              : CrossAxisAlignment.start,
+                          crossAxisAlignment:
+                              circular
+                                  ? CrossAxisAlignment.center
+                                  : CrossAxisAlignment.start,
                           children: [
                             Text(
                               track.title,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              textAlign: circular ? TextAlign.center : TextAlign.start,
+                              textAlign:
+                                  circular ? TextAlign.center : TextAlign.start,
                               style: TextStyle(
                                 color: Colors.white,
                                 fontSize: circular ? size * 0.08 : 18,
@@ -176,7 +240,8 @@ class MusicArtwork extends StatelessWidget {
                               track.artist,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              textAlign: circular ? TextAlign.center : TextAlign.start,
+                              textAlign:
+                                  circular ? TextAlign.center : TextAlign.start,
                               style: TextStyle(
                                 color: Colors.white.withValues(alpha: 0.84),
                                 fontSize: circular ? size * 0.042 : 13,
@@ -199,5 +264,97 @@ class MusicArtwork extends StatelessWidget {
       return body;
     }
     return Hero(tag: heroTag!, child: body);
+  }
+}
+
+class MusicArtworkBackdrop extends StatelessWidget {
+  const MusicArtworkBackdrop({
+    super.key,
+    required this.track,
+    this.borderRadius,
+    this.blurSigma = 24,
+    this.opacity = 0.22,
+    this.tintOpacity = 0.56,
+    this.darkness = 0.2,
+  });
+
+  final MusicTrack track;
+  final BorderRadius? borderRadius;
+  final double blurSigma;
+  final double opacity;
+  final double tintOpacity;
+  final double darkness;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = paletteForTone(track.artworkTone);
+    final artworkUrl = effectiveArtworkUrl(track);
+    return ClipRRect(
+      borderRadius: borderRadius ?? BorderRadius.zero,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  palette.gradient.first,
+                  Color.lerp(palette.gradient.last, Colors.black, 0.12)!,
+                ],
+              ),
+            ),
+          ),
+          if (artworkUrl != null)
+            Opacity(
+              opacity: opacity,
+              child: ImageFiltered(
+                imageFilter: ImageFilter.blur(
+                  sigmaX: blurSigma,
+                  sigmaY: blurSigma,
+                ),
+                child: Transform.scale(
+                  scale: 1.14,
+                  child: Image.network(
+                    artworkUrl,
+                    fit: BoxFit.cover,
+                    cacheWidth: 1200,
+                    cacheHeight: 1200,
+                    filterQuality: FilterQuality.medium,
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  ),
+                ),
+              ),
+            ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  palette.gradient.first.withValues(alpha: tintOpacity),
+                  palette.gradient.last.withValues(alpha: tintOpacity * 0.82),
+                ],
+              ),
+            ),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withValues(alpha: darkness * 0.4),
+                  Colors.transparent,
+                  Colors.black.withValues(alpha: darkness),
+                ],
+                stops: const [0, 0.45, 1],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
