@@ -736,6 +736,7 @@ class ChatSessionStore extends ChangeNotifier {
             sequence: sequence,
             text: (event['text'] ?? '').toString(),
             mode: (event['mode'] ?? '').toString(),
+            origin: (event['origin'] ?? '').toString(),
             stage: (event['stage'] ?? '').toString(),
             kind: (event['kind'] ?? '').toString(),
             preview: (event['replyPreview'] ?? event['reply'] ?? '').toString(),
@@ -1529,6 +1530,7 @@ class ChatViewState {
   String? assistantProgressMessageId;
   String? assistantProgressText;
   String? assistantProgressMode;
+  String? assistantProgressOrigin;
   String? assistantProgressStage;
   String? assistantProgressKind;
   String? assistantPreviewText;
@@ -1725,6 +1727,7 @@ class ChatViewState {
     required int sequence,
     String? text,
     String? mode,
+    String? origin,
     String? stage,
     String? kind,
     String? preview,
@@ -1743,6 +1746,7 @@ class ChatViewState {
     assistantProgressSequence = sequence;
     assistantProgressText = text;
     assistantProgressMode = mode;
+    assistantProgressOrigin = origin;
     assistantProgressStage = stage;
     assistantProgressKind = kind;
     assistantPreviewText = preview;
@@ -1763,6 +1767,7 @@ class ChatViewState {
     assistantProgressSequence = null;
     assistantProgressText = null;
     assistantProgressMode = null;
+    assistantProgressOrigin = null;
     assistantProgressStage = null;
     assistantProgressKind = null;
     assistantPreviewText = null;

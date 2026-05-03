@@ -46,12 +46,12 @@ class _StreamingHintResolution {
 }
 
 const _fallbackStreamingHints = <String>[
-  '我正偷偷替你整理答案呢',
-  '别急，我在给你拣重点',
-  '让我抖一抖袖子，结果马上来',
-  '我在替你把话说漂亮一点',
-  '先酝酿一下，马上给你端上来',
-  '我已经按住思路了，别让它跑了',
+  '让我想想呀…',
+  '脑袋转转中～',
+  '我去翻翻代码喔',
+  '我帮你扒拉一下线索',
+  '我动手试一下哈',
+  '我在缝缝补补中～',
 ];
 
 class _QuotedMessageDraft {
@@ -1769,6 +1769,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   _StreamingHintResolution _resolveStreamingHint(ChatViewState state) {
     final mode = (state.assistantProgressMode ?? '').trim();
+    final origin = (state.assistantProgressOrigin ?? '').trim();
     final progressText = (state.assistantProgressText ?? '').trim();
     final previewText = (state.assistantPreviewText ?? '').trim();
     final progressKind = (state.assistantProgressKind ?? '').trim();
@@ -1782,9 +1783,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
     String resolved = '';
 
-    if (mode == 'preview') {
+    if (origin == 'llm_text' || mode == 'preview') {
       resolved = _oneLinePreview(
-        previewText.isNotEmpty ? previewText : progressText,
+        progressText.isNotEmpty ? progressText : previewText,
       );
     } else if (mode == 'thinking' && progressText.isNotEmpty) {
       resolved = _oneLinePreview('我在想：$progressText');
@@ -1830,6 +1831,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final decorative = _isDecorativeStreamingHint(resolved);
     final signature = [
       mode,
+      origin,
       progressKind,
       progressStage,
       progressToolName,
@@ -1914,21 +1916,20 @@ class _ChatScreenState extends State<ChatScreen> {
     final normalized = text.replaceAll(RegExp(r'\s+'), ' ').trim();
     if (normalized.isEmpty) return true;
     const decorativeHints = <String>{
-      '我在想你这句呢…',
-      '翻一下文件，别催我嘛',
-      '我去查点东西～',
-      '敲两下命令给你看',
-      '唔，思路顺起来了',
-      '马上给你一个漂亮答案',
-      '再抛个光就发你',
-      '我还在替你忙活呢',
-      '再等我一下下，马上贴过来',
-      '我先替你想一想',
-      '思路在收束了',
-      '快想明白了，别催',
-      '我先给你排个步骤',
-      '方案顺序我在理',
-      '差不多能开工了',
+      '让我想想呀…',
+      '脑袋转转中～',
+      '我去翻翻代码喔',
+      '让我瞅瞅这里写了啥',
+      '我帮你扒拉一下线索',
+      '我去找找看呀',
+      '我动手试一下哈',
+      '我在悄悄跑命令呢',
+      '这个要你点个头呀',
+      '这步我得先乖乖等你',
+      '我在缝缝补补中～',
+      '改一改，很快好呀',
+      '我在偷偷排计划呢',
+      '先理一理思路呀',
     };
     return decorativeHints.contains(normalized);
   }
@@ -1940,35 +1941,36 @@ class _ChatScreenState extends State<ChatScreen> {
   }) {
     switch (kind) {
       case 'search':
-        return const ['我去替你翻翻外面的消息', '在外头替你找线索呢', '搜到点边角料了，再拢一下'][(sequence - 1)
-            .clamp(0, 2)];
+        return const ['我帮你扒拉一下线索', '我去找找看呀', '线索快拢好了'][(sequence - 1).clamp(
+          0,
+          2,
+        )];
       case 'read':
-        return const ['我在翻文件呢…', '先把上下文给你捋顺', '这一页我快看完了'][(sequence - 1).clamp(
+        return const ['我去翻翻代码喔', '让我瞅瞅这里写了啥', '这段我快看明白啦'][(sequence - 1).clamp(
           0,
           2,
         )];
       case 'exec':
-        return const ['我敲两下命令给你看', '先跑一下，别急嘛', '结果快出来了，我盯着呢'][(sequence - 1)
-            .clamp(0, 2)];
-      case 'thinking':
-        return const ['我先替你想一想', '思路在收束了', '快想明白了，别催'][(sequence - 1).clamp(
+        return const ['我动手试一下哈', '我在悄悄跑命令呢', '结果应该快出来啦'][(sequence - 1).clamp(
           0,
           2,
         )];
+      case 'thinking':
+        return const ['让我想想呀…', '脑袋转转中～', '思路快理顺啦'][(sequence - 1).clamp(0, 2)];
       case 'plan':
-        return const ['我先给你排个步骤', '方案顺序我在理', '差不多能开工了'][(sequence - 1).clamp(
+        return const ['我在偷偷排计划呢', '先理一理思路呀', '步骤差不多顺好啦'][(sequence - 1).clamp(
           0,
           2,
         )];
       default:
         const texts = [
-          '我在想你这句呢…',
-          '翻一下文件，别催我嘛',
-          '我去查点东西～',
-          '敲两下命令给你看',
-          '唔，思路顺起来了',
-          '马上给你一个漂亮答案',
-          '再抛个光就发你',
+          '让我想想呀…',
+          '我去翻翻代码喔',
+          '我帮你扒拉一下线索',
+          '我动手试一下哈',
+          '脑袋转转中～',
+          '我在缝缝补补中～',
+          '改一改，很快好呀',
         ];
         if (sequence >= 1 && sequence <= texts.length) {
           return texts[sequence - 1];
@@ -2004,7 +2006,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     if (cleaned.isEmpty) {
       if (toolName.isNotEmpty || toolCallId.isNotEmpty) {
-        return '我在跑 $toolLabel$callSuffix$phaseLabel$commandLabel';
+        return '我在忙 $toolLabel$callSuffix$phaseLabel$commandLabel';
       }
       return _buildProgressLabel(1, kind: kind, stage: stage);
     }
@@ -2013,15 +2015,15 @@ class _ChatScreenState extends State<ChatScreen> {
       case 'search':
         return toolLabel != 'tool'
             ? '我在用 $toolLabel$callSuffix 帮你找：$cleaned$phaseLabel'
-            : '我在替你找资料：$cleaned';
+            : '我在帮你找线索：$cleaned';
       case 'read':
         return toolLabel != 'tool'
             ? '我在用 $toolLabel$callSuffix 翻内容：$cleaned$phaseLabel'
-            : '我在替你翻内容：$cleaned';
+            : '我在翻内容给你看：$cleaned';
       case 'exec':
         return toolLabel != 'tool'
             ? '我在跑 $toolLabel$callSuffix：$cleaned$phaseLabel'
-            : '我在替你跑一跑：$cleaned';
+            : '我在动手试这个：$cleaned';
       case 'tool':
         return '我在用 $toolLabel$callSuffix 忙这个：$cleaned$phaseLabel';
       case 'thinking':
