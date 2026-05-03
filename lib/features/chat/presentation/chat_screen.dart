@@ -33,14 +33,14 @@ enum _PullEdgeState { idle, pulling, armed, loading }
 
 class _StreamingHintResolution {
   const _StreamingHintResolution({
-    required this.rawText,
-    required this.displayText,
+    required this.previewText,
+    required this.statusText,
     required this.decorative,
     required this.signature,
   });
 
-  final String rawText;
-  final String displayText;
+  final String previewText;
+  final String statusText;
   final bool decorative;
   final String signature;
 }
@@ -146,7 +146,7 @@ class _ChatScreenState extends State<ChatScreen> {
   _PullEdgeState _bottomPullState = _PullEdgeState.idle;
   final List<String> _appliedMessageIds = [];
   DateTime? _lastBuildLogAt;
-  String _lastMeaningfulStreamingHint = '';
+  String _lastMeaningfulStreamingStatus = '';
   String _lastStreamingHintSignature = '';
   bool _streamingHintPulseActive = false;
   _QuotedMessageDraft? _quotedMessageDraft;
@@ -459,26 +459,59 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                     child: Builder(
                       builder: (context) {
-                        final hint = _displayStreamingHint(state);
+                        final resolved = _resolveStreamingHint(state);
+                        final previewLine = resolved.previewText.trim();
+                        final statusLine =
+                            _displayStreamingStatus(state).trim();
+                        final showPreview = previewLine.isNotEmpty;
+                        final showStatus = statusLine.isNotEmpty;
                         return AnimatedScale(
                           scale: _streamingHintPulseActive ? 1.015 : 1,
                           duration: const Duration(milliseconds: 420),
                           curve: Curves.easeOutCubic,
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               _buildHeaderAvatar(radius: 12),
                               const SizedBox(width: 8),
-                              Text(
-                                hint,
-                                style: Theme.of(
-                                  context,
-                                ).textTheme.bodySmall?.copyWith(
-                                  color:
-                                      _streamingHintPulseActive
-                                          ? const Color(0xFF7C3AED)
-                                          : const Color(0xFF667085),
-                                  fontWeight: FontWeight.w600,
+                              Flexible(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (showPreview)
+                                      Text(
+                                        previewLine,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall?.copyWith(
+                                          color: const Color(0xFF111827),
+                                          fontWeight: FontWeight.w600,
+                                          height: 1.25,
+                                        ),
+                                      ),
+                                    if (showPreview && showStatus)
+                                      const SizedBox(height: 4),
+                                    if (showStatus)
+                                      Text(
+                                        statusLine,
+                                        maxLines: showPreview ? 1 : 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall?.copyWith(
+                                          color:
+                                              _streamingHintPulseActive
+                                                  ? const Color(0xFF7C3AED)
+                                                  : const Color(0xFF667085),
+                                          fontWeight: FontWeight.w500,
+                                          height: 1.2,
+                                        ),
+                                      ),
+                                  ],
                                 ),
                               ),
                             ],
@@ -1771,7 +1804,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final mode = (state.assistantProgressMode ?? '').trim();
     final origin = (state.assistantProgressOrigin ?? '').trim();
     final progressText = (state.assistantProgressText ?? '').trim();
-    final previewText = (state.assistantPreviewText ?? '').trim();
+    final previewText =
+        (state.assistantReplyPreviewText ?? state.assistantPreviewText ?? '')
+            .trim();
     final progressKind = (state.assistantProgressKind ?? '').trim();
     final progressStage = (state.assistantProgressStage ?? '').trim();
     final progressToolName = (state.assistantProgressToolName ?? '').trim();
@@ -1784,16 +1819,18 @@ class _ChatScreenState extends State<ChatScreen> {
         (state.assistantProgressApprovalSlug ?? '').trim();
     final progressSource = (state.assistantProgressSource ?? '').trim();
 
-    String resolved = '';
+    final resolvedPreview =
+        previewText.isNotEmpty
+            ? _oneLinePreview(previewText)
+            : (origin == 'llm_text' || mode == 'preview')
+            ? _oneLinePreview(progressText)
+            : '';
 
-    if (origin == 'llm_text' || mode == 'preview') {
-      resolved = _oneLinePreview(
-        progressText.isNotEmpty ? progressText : previewText,
-      );
-    } else if (mode == 'thinking' && progressText.isNotEmpty) {
-      resolved = _oneLinePreview('我在想：$progressText');
+    String resolvedStatus = '';
+    if (mode == 'thinking' && progressText.isNotEmpty) {
+      resolvedStatus = _oneLinePreview('我在想：$progressText');
     } else if (mode == 'plan' && progressText.isNotEmpty) {
-      resolved = _oneLinePreview('我在列步骤：$progressText');
+      resolvedStatus = _oneLinePreview('我在列步骤：$progressText');
     } else if (progressText.isNotEmpty) {
       final normalized = _humanizeProgressText(
         text: progressText,
@@ -1808,7 +1845,7 @@ class _ChatScreenState extends State<ChatScreen> {
         approvalSlug: progressApprovalSlug,
         source: progressSource,
       );
-      resolved = _oneLinePreview(normalized);
+      resolvedStatus = _oneLinePreview(normalized);
     } else if (progressToolName.isNotEmpty ||
         progressToolCallId.isNotEmpty ||
         progressApprovalSlug.isNotEmpty ||
@@ -1828,11 +1865,11 @@ class _ChatScreenState extends State<ChatScreen> {
         approvalSlug: progressApprovalSlug,
         source: progressSource,
       );
-      resolved = _oneLinePreview(normalized);
+      resolvedStatus = _oneLinePreview(normalized);
     } else {
       final sequence = state.assistantProgressSequence;
       if (sequence != null) {
-        resolved = _buildProgressLabel(
+        resolvedStatus = _buildProgressLabel(
           sequence,
           kind: progressKind,
           stage: progressStage,
@@ -1840,7 +1877,7 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     }
 
-    final decorative = _isDecorativeStreamingHint(resolved);
+    final decorative = _isDecorativeStreamingHint(resolvedStatus);
     final signature = [
       mode,
       origin,
@@ -1859,18 +1896,18 @@ class _ChatScreenState extends State<ChatScreen> {
       state.assistantProgressSequence?.toString() ?? '',
     ].join('|');
     return _StreamingHintResolution(
-      rawText: resolved,
-      displayText: decorative ? '' : resolved,
+      previewText: resolvedPreview,
+      statusText: decorative ? '' : resolvedStatus,
       decorative: decorative,
       signature: signature,
     );
   }
 
-  String _displayStreamingHint(ChatViewState state) {
+  String _displayStreamingStatus(ChatViewState state) {
     final resolved = _resolveStreamingHint(state);
-    if (resolved.displayText.isNotEmpty) return resolved.displayText;
-    if (_lastMeaningfulStreamingHint.isNotEmpty) {
-      return _lastMeaningfulStreamingHint;
+    if (resolved.statusText.isNotEmpty) return resolved.statusText;
+    if (_lastMeaningfulStreamingStatus.isNotEmpty) {
+      return _lastMeaningfulStreamingStatus;
     }
     return _fallbackStreamingHintFor(state);
   }
@@ -1892,7 +1929,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _syncStreamingHintState(ChatViewState state) {
     if (!state.isAssistantStreaming) {
-      _lastMeaningfulStreamingHint = '';
+      _lastMeaningfulStreamingStatus = '';
       _lastStreamingHintSignature = '';
       _streamingHintPulseActive = false;
       _streamingHintPulseTimer?.cancel();
@@ -1902,8 +1939,8 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     final resolved = _resolveStreamingHint(state);
-    if (resolved.displayText.isNotEmpty) {
-      _lastMeaningfulStreamingHint = resolved.displayText;
+    if (resolved.statusText.isNotEmpty) {
+      _lastMeaningfulStreamingStatus = resolved.statusText;
       _lastStreamingHintSignature = resolved.signature;
       return;
     }

@@ -247,6 +247,7 @@ def create_chat_router(context: AppContext) -> APIRouter:
             delta_seq = 0
             terminal_event_sent = False
             terminal_result_marked = False
+            progress_text_buffers: dict[tuple[str, str, str, str, str], str] = {}
 
             async def publish_failed(reason: str, error_text: str) -> None:
                 nonlocal terminal_event_sent, terminal_result_marked
@@ -314,8 +315,68 @@ def create_chat_router(context: AppContext) -> APIRouter:
                         'source': str(payload.get('source') or '').strip(),
                     }
 
+                    def _should_accumulate_process_text() -> bool:
+                        event_stream = progress_meta['eventStream']
+                        mode_value = str(payload.get('mode') or '').strip()
+                        return (
+                            event_stream == 'thinking'
+                            or progress_kind == 'thinking'
+                            or progress_stage == 'thinking'
+                            or mode_value == 'thinking'
+                        )
+
+                    def _progress_buffer_key() -> tuple[str, str, str, str, str]:
+                        return (
+                            progress_meta['eventStream'],
+                            progress_meta['itemId'],
+                            progress_meta['toolCallId'],
+                            progress_meta['approvalId'],
+                            progress_meta['phase'],
+                        )
+
+                    def _accumulate_process_text(next_text: str) -> tuple[str, str, str]:
+                        if not next_text:
+                            return next_text, '', 'empty'
+                        key = _progress_buffer_key()
+                        previous_text = progress_text_buffers.get(key, '')
+                        incoming = next_text.strip()
+                        if not incoming:
+                            return next_text, previous_text, 'blank'
+                        if previous_text and incoming.startswith(previous_text):
+                            combined = incoming
+                            reason = 'snapshot_replace'
+                        elif previous_text and previous_text.startswith(incoming):
+                            combined = previous_text
+                            reason = 'keep_previous'
+                        else:
+                            combined = previous_text + incoming
+                            reason = 'append_delta'
+                        progress_text_buffers[key] = combined
+                        return combined, previous_text, reason
+
                     if payload_type == 'progress':
+                        should_accumulate = _should_accumulate_process_text()
+                        accumulation_reason = 'not_applicable'
+                        previous_progress_text = ''
+                        original_progress_text = progress_text
+                        raw_payload_reply_preview = progress_reply_preview
+                        latest_reply_preview_before = latest_reply_preview
+                        if should_accumulate and progress_text:
+                            progress_text, previous_progress_text, accumulation_reason = _accumulate_process_text(progress_text)
                         if not progress_text and not progress_reply_preview and not any(progress_meta.values()):
+                            _LOG.warning(
+                                '[alicechat.display.progress.skip] requestId=%s messageId=%s payloadType=%s eventStream=%s stage=%s kind=%s rawText=%r rawReplyPreview=%r latestReplyPreviewBefore=%r metaKeys=%s',
+                                request_id,
+                                assistant_message_id,
+                                payload_type,
+                                progress_meta['eventStream'],
+                                progress_stage,
+                                progress_kind,
+                                original_progress_text[:200],
+                                raw_payload_reply_preview[:200],
+                                latest_reply_preview_before[:200],
+                                ','.join(sorted([key for key, value in progress_meta.items() if value]))[:200],
+                            )
                             return
                         delta_seq += 1
                         mode = 'progress'
@@ -323,6 +384,35 @@ def create_chat_router(context: AppContext) -> APIRouter:
                             mode = 'thinking'
                         elif progress_kind == 'plan' or progress_stage == 'plan':
                             mode = 'plan'
+                        effective_reply_preview = progress_reply_preview or latest_reply_preview
+                        _LOG.warning(
+                            '[alicechat.display.progress.emit] requestId=%s messageId=%s sequence=%s payloadType=%s mode=%s origin=process eventStream=%s stage=%s kind=%s shouldAccumulate=%s reason=%s rawText=%r previousText=%r publishedText=%r rawReplyPreview=%r latestReplyPreviewBefore=%r effectiveReplyPreview=%r title=%r toolName=%r phase=%s status=%s itemId=%s toolCallId=%s approvalId=%s approvalSlug=%s source=%s',
+                            request_id,
+                            assistant_message_id,
+                            delta_seq,
+                            payload_type,
+                            mode,
+                            progress_meta['eventStream'],
+                            progress_stage,
+                            progress_kind,
+                            should_accumulate,
+                            accumulation_reason,
+                            original_progress_text[:200],
+                            previous_progress_text[:200],
+                            progress_text[:200],
+                            raw_payload_reply_preview[:200],
+                            latest_reply_preview_before[:200],
+                            effective_reply_preview[:200],
+                            progress_meta['title'][:120],
+                            progress_meta['toolName'][:120],
+                            progress_meta['phase'],
+                            progress_meta['status'],
+                            progress_meta['itemId'],
+                            progress_meta['toolCallId'],
+                            progress_meta['approvalId'],
+                            progress_meta['approvalSlug'],
+                            progress_meta['source'],
+                        )
                         events_bus.publish_threadsafe(
                             'assistant.progress',
                             {
@@ -336,7 +426,7 @@ def create_chat_router(context: AppContext) -> APIRouter:
                                 'text': progress_text,
                                 'stage': progress_stage,
                                 'kind': progress_kind,
-                                **({'replyPreview': progress_reply_preview} if progress_reply_preview else {}),
+                                **({'replyPreview': effective_reply_preview} if effective_reply_preview else {}),
                                 **{key: value for key, value in progress_meta.items() if value},
                             },
                         )
@@ -345,13 +435,40 @@ def create_chat_router(context: AppContext) -> APIRouter:
                     if not delta_text:
                         delta_text = progress_text
                     if not delta_text:
+                        _LOG.warning(
+                            '[alicechat.display.llm.skip] requestId=%s messageId=%s payloadType=%s rawDelta=%r rawProgressText=%r rawReplyPreview=%r latestReplyPreview=%r assistantRawPartsCount=%s',
+                            request_id,
+                            assistant_message_id,
+                            payload_type,
+                            str(payload.get('delta') or '')[:200],
+                            str(payload.get('text') or '')[:200],
+                            str(payload.get('replyPreview') or '')[:200],
+                            latest_reply_preview[:200],
+                            len(assistant_raw_parts),
+                        )
                         return
 
+                    raw_payload_reply_preview = str(payload.get('replyPreview') or '')
+                    latest_reply_preview_before = latest_reply_preview
                     delta_seq += 1
                     assistant_raw_parts.append(delta_text)
                     preview_text = str(payload.get('replyPreview') or ''.join(assistant_raw_parts))
                     if preview_text.strip():
                         latest_reply_preview = preview_text.strip()
+                    _LOG.warning(
+                        '[alicechat.display.llm.emit] requestId=%s messageId=%s sequence=%s payloadType=%s mode=preview origin=llm_text deltaText=%r rawReplyPreview=%r previewText=%r latestReplyPreviewBefore=%r latestReplyPreviewAfter=%r assistantRawPartsCount=%s assistantRawPreview=%r',
+                        request_id,
+                        assistant_message_id,
+                        delta_seq,
+                        payload_type,
+                        delta_text[:200],
+                        raw_payload_reply_preview[:200],
+                        preview_text[:200],
+                        latest_reply_preview_before[:200],
+                        latest_reply_preview[:200],
+                        len(assistant_raw_parts),
+                        ''.join(assistant_raw_parts)[:200],
+                    )
                     events_bus.publish_threadsafe(
                         'assistant.progress',
                         {

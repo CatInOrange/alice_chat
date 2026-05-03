@@ -1530,6 +1530,8 @@ class ChatViewState {
   bool hasMoreHistory = true;
   int? assistantProgressSequence;
   String? assistantProgressMessageId;
+  String? assistantReplyPreviewText;
+  String? assistantReplyDeltaText;
   String? assistantProgressText;
   String? assistantProgressMode;
   String? assistantProgressOrigin;
@@ -1750,12 +1752,27 @@ class ChatViewState {
   }) {
     assistantProgressMessageId = messageId;
     assistantProgressSequence = sequence;
+    final nextPreview = preview?.trim();
+    final normalizedOrigin = (origin ?? '').trim();
+    final normalizedMode = (mode ?? '').trim();
+    final isReplyPreviewEvent =
+        normalizedOrigin == 'llm_text' || normalizedMode == 'preview';
+
+    if (nextPreview != null && nextPreview.isNotEmpty) {
+      assistantReplyPreviewText = nextPreview;
+      assistantPreviewText = nextPreview;
+    }
+
+    if (isReplyPreviewEvent) {
+      assistantReplyDeltaText = text;
+      return;
+    }
+
     assistantProgressText = text;
     assistantProgressMode = mode;
     assistantProgressOrigin = origin;
     assistantProgressStage = stage;
     assistantProgressKind = kind;
-    assistantPreviewText = preview;
     assistantProgressEventStream = eventStream;
     assistantProgressToolCallId = toolCallId;
     assistantProgressToolName = toolName;
@@ -1773,6 +1790,8 @@ class ChatViewState {
   void clearAssistantProgress() {
     assistantProgressMessageId = null;
     assistantProgressSequence = null;
+    assistantReplyPreviewText = null;
+    assistantReplyDeltaText = null;
     assistantProgressText = null;
     assistantProgressMode = null;
     assistantProgressOrigin = null;

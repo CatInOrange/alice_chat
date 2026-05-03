@@ -92,7 +92,12 @@ class JustAudioPlaybackAdapter implements PlaybackAdapter {
   Future<void> pause() => _player.pause();
 
   @override
-  Future<void> resume() => _player.play();
+  Future<void> resume() async {
+    if (_player.processingState == ProcessingState.completed) {
+      await _player.seek(Duration.zero);
+    }
+    await _player.play();
+  }
 
   @override
   Future<void> seek(Duration position) => _player.seek(position);

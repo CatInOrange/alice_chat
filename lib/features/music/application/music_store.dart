@@ -164,6 +164,11 @@ class MusicStore extends ChangeNotifier {
   String? get error => _error;
   bool get isPlaying => _isPlaying;
   bool get isBuffering => _isBuffering;
+  bool get isStartingPlayback => _isPreparingPlayback && !_isPlaying;
+  bool get isActivelyPlaying => _isPlaying && !_isBuffering;
+  bool get isPlaybackBusy => isStartingPlayback || _isBuffering;
+  bool get hasCompletedCurrentTrack =>
+      _playbackAdapter.state.completed && _currentTrack.id.trim().isNotEmpty;
   Duration get position => _position;
   Duration get duration => _duration;
   MusicTrack get currentTrack => _currentTrack;
@@ -208,7 +213,8 @@ class MusicStore extends ChangeNotifier {
   MusicRepeatMode get repeatMode => _repeatMode;
   MusicPlaylist? get intelligenceSourcePlaylist => _intelligenceSourcePlaylist;
   bool get isIntelligenceMode => _repeatMode == MusicRepeatMode.intelligence;
-  bool get hasPlaybackContext => _queue.isNotEmpty || _isPlaying;
+  bool get hasPlaybackContext =>
+      _queue.isNotEmpty || _isPlaying || _currentTrack.id.trim().isNotEmpty;
 
   MusicPlaylist? get currentPlaylist {
     final playlistId = _currentPlaylistId;
@@ -294,10 +300,10 @@ class MusicStore extends ChangeNotifier {
     if (normalized.isEmpty) return false;
     if (normalized == likedPlaylist.id) {
       return _currentPlaylistId == normalized &&
-          _isPlaying &&
+          isActivelyPlaying &&
           !isIntelligenceMode;
     }
-    return _currentPlaylistId == normalized && _isPlaying;
+    return _currentPlaylistId == normalized && isActivelyPlaying;
   }
 
   Future<void> reloadConfig() async {
@@ -1074,6 +1080,9 @@ class MusicStore extends ChangeNotifier {
     if (queueItems.isEmpty) {
       throw StateError('当前没有可播放的歌曲');
     }
+    _isPreparingPlayback = true;
+    _isPlaying = false;
+    _isBuffering = false;
     final normalizedQueue = queueItems
         .map(
           (item) => PlaybackQueueItem(
@@ -1107,7 +1116,9 @@ class MusicStore extends ChangeNotifier {
     } catch (error) {
       _error ??= _friendlyPlaybackError(error);
       _isPlaying = false;
+      _isBuffering = false;
     } finally {
+      _isPreparingPlayback = false;
       notifyListeners();
       _markSnapshotDirty();
     }
@@ -1372,6 +1383,10 @@ class MusicStore extends ChangeNotifier {
     }
 
     final adapterState = _playbackAdapter.state;
+    if (adapterState.completed) {
+      await _restartCurrentTrackAfterCompletion();
+      return;
+    }
     if (adapterState.currentSource != null && hasLocalPlaybackControl) {
       _isPlaying = true;
       notifyListeners();
@@ -1779,8 +1794,14 @@ class MusicStore extends ChangeNotifier {
       case MusicCommandType.pause:
         await _playbackAdapter.pause();
         _isPlaying = false;
+        _isPreparingPlayback = false;
         break;
       case MusicCommandType.resume:
+        if (_playbackAdapter.state.completed) {
+          await _restartCurrentTrackAfterCompletion();
+          return;
+        }
+        _isPreparingPlayback = true;
         await _playbackAdapter.resume();
         _isPlaying = true;
         break;
@@ -1866,6 +1887,7 @@ class MusicStore extends ChangeNotifier {
   }
 
   void _handlePlaybackState(PlaybackAdapterState state) {
+    _isPreparingPlayback = false;
     final track = state.currentTrack;
     if (track != null) {
       final previousTrackId = _currentTrack.id;
@@ -1886,6 +1908,7 @@ class MusicStore extends ChangeNotifier {
         unawaited(_advanceToNextTrack());
       } else {
         _isPlaying = false;
+        _isBuffering = false;
         _position = _duration;
       }
     }
@@ -1925,6 +1948,8 @@ class MusicStore extends ChangeNotifier {
           _playbackHistory.clear();
         } else {
           _isPlaying = false;
+          _isBuffering = false;
+          _isPreparingPlayback = false;
           _position = _duration;
           return;
         }
@@ -2587,6 +2612,23 @@ class MusicStore extends ChangeNotifier {
     }
   }
 
+  Future<void> _restartCurrentTrackAfterCompletion() async {
+    if (_currentTrack.id.trim().isEmpty) {
+      _isPlaying = false;
+      _isPreparingPlayback = false;
+      _position = Duration.zero;
+      notifyListeners();
+      _markSnapshotDirty();
+      return;
+    }
+    _error = null;
+    _isPreparingPlayback = true;
+    notifyListeners();
+    await _playCurrentQueueHead(resetPosition: true);
+    notifyListeners();
+    _markSnapshotDirty();
+  }
+
   Future<void> _playCurrentQueueHead({
     bool resetPosition = true,
     bool clearCachedPlaybackOnRetry = true,
@@ -2653,6 +2695,7 @@ class MusicStore extends ChangeNotifier {
         rethrow;
       }
     }
+    _isPreparingPlayback = false;
     _isPlaying = true;
     if (resetPosition) {
       _position = Duration.zero;

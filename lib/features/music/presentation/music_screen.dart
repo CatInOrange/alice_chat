@@ -456,7 +456,8 @@ class _MusicScreenState extends State<MusicScreen>
         final currentTrack = store.currentTrack.copyWith(
           isFavorite: store.isTrackLiked(store.currentTrack.id),
         );
-        final isPlaying = store.isPlaying;
+        final isPlaying = store.isActivelyPlaying;
+        final isPlaybackBusy = store.isPlaybackBusy;
         final playlists = store.playlists;
         final recentPlaylists = store.recentPlaylists;
         final likedPlaylist = store.likedPlaylist;
@@ -548,7 +549,7 @@ class _MusicScreenState extends State<MusicScreen>
                     onTap: () => _openPlaylistDetail(store, likedPlaylist),
                     onPlayTap:
                         store.isPlaylistPlaying(likedPlaylist.id)
-                            ? null
+                            ? () => _openPlaylistDetail(store, likedPlaylist)
                             : () => _playPlaylist(store, likedPlaylist),
                   ),
                   const SizedBox(height: 28),
@@ -677,6 +678,7 @@ class _MusicScreenState extends State<MusicScreen>
                     sourceLabel: miniSubtitle,
                     modeBadge: currentPlaybackModeBadge,
                     isPlaying: isPlaying,
+                    isBuffering: isPlaybackBusy,
                     onTap: () => _openPlayer(store),
                     onPlayPause: store.togglePlayPause,
                   ),
@@ -1945,6 +1947,7 @@ class _MiniPlayer extends StatefulWidget {
     required this.track,
     required this.sourceLabel,
     required this.isPlaying,
+    required this.isBuffering,
     required this.onTap,
     required this.onPlayPause,
     required this.backendBaseUrl,
@@ -1955,6 +1958,7 @@ class _MiniPlayer extends StatefulWidget {
   final MusicTrack track;
   final String sourceLabel;
   final bool isPlaying;
+  final bool isBuffering;
   final String? modeBadge;
   final VoidCallback onTap;
   final VoidCallback onPlayPause;
@@ -1976,7 +1980,7 @@ class _MiniPlayerState extends State<_MiniPlayer>
       vsync: this,
       duration: const Duration(seconds: 12),
     );
-    if (widget.isPlaying) {
+    if (widget.isPlaying && !widget.isBuffering) {
       _controller.repeat();
     }
   }
@@ -1984,9 +1988,10 @@ class _MiniPlayerState extends State<_MiniPlayer>
   @override
   void didUpdateWidget(covariant _MiniPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.isPlaying && !_controller.isAnimating) {
+    final shouldSpin = widget.isPlaying && !widget.isBuffering;
+    if (shouldSpin && !_controller.isAnimating) {
       _controller.repeat();
-    } else if (!widget.isPlaying && _controller.isAnimating) {
+    } else if (!shouldSpin && _controller.isAnimating) {
       _controller.stop();
     }
   }
@@ -2116,12 +2121,25 @@ class _MiniPlayerState extends State<_MiniPlayer>
                             shape: BoxShape.circle,
                           ),
                           child: IgnorePointer(
-                            child: Icon(
-                              widget.isPlaying
-                                  ? Icons.pause_rounded
-                                  : Icons.play_arrow_rounded,
-                              color: Colors.white,
-                            ),
+                            child:
+                                widget.isBuffering
+                                    ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                              Colors.white,
+                                            ),
+                                      ),
+                                    )
+                                    : Icon(
+                                      widget.isPlaying
+                                          ? Icons.pause_rounded
+                                          : Icons.play_arrow_rounded,
+                                      color: Colors.white,
+                                    ),
                           ),
                         ),
                       ),

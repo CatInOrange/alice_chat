@@ -48,7 +48,15 @@ class StubPlaybackAdapter implements PlaybackAdapter {
   @override
   Future<void> resume() async {
     if (_state.currentTrack != null && _state.currentSource != null) {
-      _setState(_state.copyWith(isPlaying: true));
+      final restartPosition =
+          _state.completed ? Duration.zero : _state.position;
+      _setState(
+        _state.copyWith(
+          isPlaying: true,
+          completed: false,
+          position: restartPosition,
+        ),
+      );
     }
   }
 

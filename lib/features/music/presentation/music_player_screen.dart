@@ -111,7 +111,9 @@ class MusicPlayerScreen extends StatelessWidget {
                                           textAlign: TextAlign.center,
                                         ),
                                       ),
-                                      if ((modeBadge ?? '').trim().isNotEmpty) ...[
+                                      if ((modeBadge ?? '')
+                                          .trim()
+                                          .isNotEmpty) ...[
                                         const SizedBox(width: 8),
                                         Container(
                                           padding: const EdgeInsets.symmetric(
@@ -119,19 +121,26 @@ class MusicPlayerScreen extends StatelessWidget {
                                             vertical: 3,
                                           ),
                                           decoration: BoxDecoration(
-                                            color: palette.gradient.first.withValues(alpha: 0.10),
-                                            borderRadius: BorderRadius.circular(999),
+                                            color: palette.gradient.first
+                                                .withValues(alpha: 0.10),
+                                            borderRadius: BorderRadius.circular(
+                                              999,
+                                            ),
                                             border: Border.all(
-                                              color: palette.gradient.first.withValues(alpha: 0.14),
+                                              color: palette.gradient.first
+                                                  .withValues(alpha: 0.14),
                                             ),
                                           ),
                                           child: Text(
                                             modeBadge!,
-                                            style: theme.textTheme.bodySmall?.copyWith(
-                                              color: const Color(0xFF5E6780),
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 10.5,
-                                            ),
+                                            style: theme.textTheme.bodySmall
+                                                ?.copyWith(
+                                                  color: const Color(
+                                                    0xFF5E6780,
+                                                  ),
+                                                  fontWeight: FontWeight.w700,
+                                                  fontSize: 10.5,
+                                                ),
                                           ),
                                         ),
                                       ],
@@ -163,8 +172,8 @@ class MusicPlayerScreen extends StatelessWidget {
                             children: [
                               _DiscStage(
                                 track: currentTrack,
-                                isPlaying: store.isPlaying,
-                                isBuffering: store.isBuffering,
+                                isPlaying: store.isActivelyPlaying,
+                                isBuffering: store.isPlaybackBusy,
                                 hasPrevious: store.hasPreviousTrack,
                                 hasNext: store.hasNextTrack,
                                 onPrevious: store.playPrevious,
@@ -305,8 +314,8 @@ class MusicPlayerScreen extends StatelessWidget {
                                       const SizedBox(height: 26),
                                       _PlayerControls(
                                         accentColor: palette.gradient.first,
-                                        isPlaying: store.isPlaying,
-                                        isBuffering: store.isBuffering,
+                                        isPlaying: store.isActivelyPlaying,
+                                        isBuffering: store.isPlaybackBusy,
                                         shuffleEnabled: store.shuffleEnabled,
                                         repeatMode: store.repeatMode,
                                         hasPrevious: store.hasPreviousTrack,
@@ -660,8 +669,10 @@ class _DiscStageState extends State<_DiscStage>
   Future<void> _finishDrag(double velocity) async {
     if (_isSwitchingTrack) return;
     final threshold = 110.0;
-    final shouldNext = (_dragOffset <= -threshold || velocity <= -520) && widget.hasNext;
-    final shouldPrevious = (_dragOffset >= threshold || velocity >= 520) && widget.hasPrevious;
+    final shouldNext =
+        (_dragOffset <= -threshold || velocity <= -520) && widget.hasNext;
+    final shouldPrevious =
+        (_dragOffset >= threshold || velocity >= 520) && widget.hasPrevious;
 
     if (shouldNext || shouldPrevious) {
       setState(() {
@@ -713,13 +724,15 @@ class _DiscStageState extends State<_DiscStage>
           });
         },
         child: AnimatedContainer(
-          duration: _isSwitchingTrack
-              ? const Duration(milliseconds: 180)
-              : const Duration(milliseconds: 260),
+          duration:
+              _isSwitchingTrack
+                  ? const Duration(milliseconds: 180)
+                  : const Duration(milliseconds: 260),
           curve: _isSwitchingTrack ? Curves.easeIn : Curves.easeOutCubic,
-          transform: Matrix4.identity()
-            ..translate(_dragOffset)
-            ..rotateZ(_dragOffset / 1800),
+          transform:
+              Matrix4.identity()
+                ..translate(_dragOffset)
+                ..rotateZ(_dragOffset / 1800),
           child: Stack(
             alignment: Alignment.center,
             children: [
@@ -803,8 +816,10 @@ class _DiscStageState extends State<_DiscStage>
                       showMeta: false,
                       showIconBadge: false,
                       overlayStrength: 0.06,
-                      backendBaseUrl: context.read<MusicStore>().currentConfig.baseUrl,
-                      appPassword: context.read<MusicStore>().currentConfig.appPassword,
+                      backendBaseUrl:
+                          context.read<MusicStore>().currentConfig.baseUrl,
+                      appPassword:
+                          context.read<MusicStore>().currentConfig.appPassword,
                     ),
                   ),
                 ),
@@ -1084,8 +1099,10 @@ class _QueueItem extends StatelessWidget {
                 track: track,
                 size: 56,
                 showMeta: false,
-                backendBaseUrl: context.read<MusicStore>().currentConfig.baseUrl,
-                appPassword: context.read<MusicStore>().currentConfig.appPassword,
+                backendBaseUrl:
+                    context.read<MusicStore>().currentConfig.baseUrl,
+                appPassword:
+                    context.read<MusicStore>().currentConfig.appPassword,
               ),
               const SizedBox(width: 12),
               Expanded(
