@@ -87,6 +87,14 @@ class _MainScaffoldState extends State<_MainScaffold>
       backendSessionId: 'lisuxin',
       isGatewayBacked: true,
     ),
+    const Contact(
+      id: 'guqingge',
+      name: '清歌',
+      subtitle: '软萌小师妹一枚~',
+      avatarAssetPath: 'assets/avatars/qingge.jpg',
+      backendSessionId: 'guqingge',
+      isGatewayBacked: true,
+    ),
   ];
 
   @override

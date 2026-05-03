@@ -189,6 +189,8 @@ class CompanionPanel extends StatelessWidget {
         return const Color(0xFF5BA7FF);
       case 'lisuxin':
         return const Color(0xFF59B38C);
+      case 'guqingge':
+        return const Color(0xFF7BCFA6);
       case 'alice':
       default:
         return const Color(0xFF8B5CF6);
