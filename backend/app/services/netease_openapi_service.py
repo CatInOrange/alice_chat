@@ -6,8 +6,11 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
-from ..music_api_models import MusicTrackDto
+from ..music_api_models import MusicCliLoginSessionDto, MusicTrackDto
 
 
 class NeteaseOpenApiError(RuntimeError):
@@ -20,6 +23,9 @@ class NeteaseOpenApiResult:
     playlist_encrypted_id: str
     song_encrypted_id: str
     fallback_used: bool = False
+    raw_track_count: int = 0
+    dedup_track_count: int = 0
+    source: str = 'unknown'
 
 
 class NeteaseOpenApiService:
@@ -46,39 +52,97 @@ class NeteaseOpenApiService:
         mode: str,
     ) -> NeteaseOpenApiResult:
         self._ensure_ready()
-        encrypted_playlist_id, fallback_used = self._resolve_effective_playlist_encrypted_id(
+        playlist_encrypted_id, fallback_used = self._resolve_effective_playlist_encrypted_id(
             playlist,
             fallback_playlist_id,
         )
-        encrypted_song_id = self._resolve_song_encrypted_id(song, encrypted_playlist_id)
+        playlist_original_id = self._resolve_effective_playlist_original_id(playlist)
+        encrypted_song_id = self._resolve_song_encrypted_id(song, playlist_encrypted_id)
         if not encrypted_song_id:
             raise NeteaseOpenApiError('当前歌曲缺少网易云官方加密ID')
-        if not encrypted_playlist_id:
+        if not playlist_encrypted_id and not playlist_original_id:
             raise NeteaseOpenApiError('缺少可用的网易云推荐歌单上下文')
-        payload = self._run_json(
-            'recommend',
-            'heartbeat',
-            '--playlistId',
-            encrypted_playlist_id,
-            '--songId',
-            encrypted_song_id,
-            '--count',
-            str(max(1, min(count, 150))),
-            '--type',
-            mode or 'fromPlayAll',
-        )
-        data = payload.get('data')
+
+        count_value = max(1, min(count, 150))
+        cli_error: NeteaseOpenApiError | None = None
+        payload: dict[str, Any] | None = None
+        source = 'http-api'
+        try:
+            payload = self._run_intelligence_via_cli(
+                encrypted_playlist_id=playlist_encrypted_id,
+                encrypted_song_id=encrypted_song_id,
+                count=count_value,
+                mode=mode,
+            )
+            source = 'ncm-cli'
+        except NeteaseOpenApiError as exc:
+            cli_error = exc
+            if not self._is_cli_command_missing(exc):
+                raise
+            payload = self._run_intelligence_via_http_api(
+                playlist_original_id=playlist_original_id,
+                source_track_id=self._first_non_empty(
+                    song.get('sourceTrackId'),
+                    song.get('trackId'),
+                    song.get('id'),
+                ),
+                start_track_id=self._first_non_empty(song.get('sourceTrackId')),
+            )
+
+        data = payload.get('data') if isinstance(payload, dict) else None
         if not isinstance(data, list):
             raise NeteaseOpenApiError('网易云心动模式返回为空')
+        raw_track_count = len([item for item in data if isinstance(item, dict)])
         tracks = [self._track_from_openapi_item(item) for item in data if isinstance(item, dict)]
         tracks = [item for item in tracks if item is not None]
-        if not tracks:
+        deduped: list[MusicTrackDto] = []
+        seen: set[str] = set()
+        for track in tracks:
+            key = str(track.sourceTrackId or track.id or '').strip()
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
+            deduped.append(track)
+        if not deduped:
+            if cli_error is not None and source == 'http-api':
+                raise NeteaseOpenApiError(
+                    f'网易云心动模式暂时没有返回可播放歌曲（CLI回退原因: {cli_error}）'
+                )
             raise NeteaseOpenApiError('网易云心动模式暂时没有返回可播放歌曲')
         return NeteaseOpenApiResult(
-            tracks=tracks,
-            playlist_encrypted_id=encrypted_playlist_id,
+            tracks=deduped,
+            playlist_encrypted_id=playlist_encrypted_id,
             song_encrypted_id=encrypted_song_id,
             fallback_used=fallback_used,
+            raw_track_count=raw_track_count,
+            dedup_track_count=len(deduped),
+            source=source,
+        )
+
+    def start_cli_login(self) -> MusicCliLoginSessionDto:
+        self._ensure_cli_runtime()
+        payload = self._run_json_allow_missing_login('login')
+        if payload.get('success') is not True:
+            message = self._first_non_empty(payload.get('message'), payload.get('msg')) or '网易云 CLI 登录启动失败'
+            raise NeteaseOpenApiError(message)
+        login_url = self._first_non_empty(payload.get('clickableUrl'), payload.get('qrCodeUrl'))
+        return MusicCliLoginSessionDto(
+            providerId='netease',
+            loginUrl=login_url or None,
+            clickableUrl=login_url or None,
+            message=self._first_non_empty(payload.get('message')) or '请打开链接完成网易云官方授权登录',
+            loginValid=False,
+        )
+
+    def get_cli_login_status(self) -> MusicCliLoginSessionDto:
+        self._ensure_cli_runtime()
+        payload = self._run_json_allow_missing_login('login', '--check')
+        success = payload.get('success') is True
+        return MusicCliLoginSessionDto(
+            providerId='netease',
+            message=self._first_non_empty(payload.get('message'), payload.get('msg')) or ('CLI 登录有效' if success else 'CLI 未登录'),
+            loginValid=success,
         )
 
     def get_favorite_playlist(self) -> dict[str, Any]:
@@ -146,6 +210,15 @@ class NeteaseOpenApiService:
             return fallback_encrypted_id, True
         return '', False
 
+    def _resolve_effective_playlist_original_id(self, playlist: dict[str, Any] | None) -> str:
+        if not isinstance(playlist, dict):
+            return ''
+        return self._first_non_empty(
+            playlist.get('sourcePlaylistId'),
+            playlist.get('originalPlaylistId'),
+            playlist.get('playlistId'),
+        )
+
     def _resolve_playlist_encrypted_id(self, playlist: dict[str, Any] | None) -> str:
         if not isinstance(playlist, dict):
             return ''
@@ -160,37 +233,6 @@ class NeteaseOpenApiService:
         return ''
 
     def _lookup_song_encrypted_id(self, *, playlist_encrypted_id: str, source_track_id: str) -> str:
-        offset = 0
-        limit = 200
-        normalized_source_track_id = str(source_track_id or '').strip()
-        if not normalized_source_track_id:
-            return ''
-        for _ in range(5):
-            payload = self._run_json(
-                'playlist',
-                'tracks',
-                '--playlistId',
-                playlist_encrypted_id,
-                '--limit',
-                str(limit),
-                '--offset',
-                str(offset),
-            )
-            data = payload.get('data')
-            if not isinstance(data, list) or not data:
-                return ''
-            for item in data:
-                if not isinstance(item, dict):
-                    continue
-                original_id = self._first_non_empty(item.get('originalId'))
-                item_id = self._first_non_empty(item.get('id'))
-                if original_id == normalized_source_track_id:
-                    return self._normalize_encrypted_id(item_id)
-                if item_id == normalized_source_track_id:
-                    return self._normalize_encrypted_id(item_id)
-            if len(data) < limit:
-                return ''
-            offset += limit
         return ''
 
     def _track_from_openapi_item(self, item: dict[str, Any]) -> MusicTrackDto | None:
@@ -242,7 +284,91 @@ class NeteaseOpenApiService:
             }
         )
 
-    def _ensure_ready(self) -> None:
+    def _run_intelligence_via_cli(
+        self,
+        *,
+        encrypted_playlist_id: str,
+        encrypted_song_id: str,
+        count: int,
+        mode: str,
+    ) -> dict[str, Any]:
+        return self._run_json(
+            'recommend',
+            'heartbeat',
+            '--playlistId',
+            encrypted_playlist_id,
+            '--songId',
+            encrypted_song_id,
+            '--count',
+            str(count),
+            '--type',
+            mode or 'fromPlayAll',
+        )
+
+    def _run_intelligence_via_http_api(
+        self,
+        *,
+        playlist_original_id: str,
+        source_track_id: str,
+        start_track_id: str,
+    ) -> dict[str, Any]:
+        normalized_playlist_id = str(playlist_original_id or '').strip()
+        normalized_song_id = str(source_track_id or '').strip()
+        normalized_start_track_id = str(start_track_id or '').strip()
+        if not normalized_playlist_id:
+            raise NeteaseOpenApiError('缺少可用的网易云原始歌单ID')
+        if not normalized_song_id:
+            raise NeteaseOpenApiError('缺少可用的网易云原始歌曲ID')
+        cookie_header = self._load_cookie_header()
+        query = {
+            'pid': normalized_playlist_id,
+            'id': normalized_song_id,
+        }
+        if normalized_start_track_id:
+            query['sid'] = normalized_start_track_id
+        url = f"https://music.163.com/api/playmode/intelligence/list?{urlencode(query)}"
+        request = Request(
+            url,
+            headers={
+                'User-Agent': 'Mozilla/5.0 (Linux; Android 14; AliceChat) AppleWebKit/537.36',
+                'Accept': 'application/json, text/plain, */*',
+                'Referer': 'https://music.163.com/',
+                'Origin': 'https://music.163.com',
+                'Cookie': cookie_header,
+            },
+        )
+        try:
+            with urlopen(request, timeout=20) as resp:
+                text = resp.read().decode('utf-8', 'ignore')
+        except HTTPError as exc:
+            detail = exc.read().decode('utf-8', 'ignore') if hasattr(exc, 'read') else str(exc)
+            raise NeteaseOpenApiError(f'加载网易云心动模式失败: {detail or exc}') from exc
+        except URLError as exc:
+            raise NeteaseOpenApiError(f'加载网易云心动模式失败: {exc}') from exc
+        except Exception as exc:
+            raise NeteaseOpenApiError(f'加载网易云心动模式失败: {exc}') from exc
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise NeteaseOpenApiError(f'网易云心动模式响应解析失败: {exc}') from exc
+        if not isinstance(payload, dict):
+            raise NeteaseOpenApiError('网易云心动模式返回为空')
+        return payload
+
+    def _load_cookie_header(self) -> str:
+        cookie_path = self._cli_home / '.netease_cookie'
+        if not cookie_path.exists():
+            raise NeteaseOpenApiError(f'网易云 Cookie 缺失：{cookie_path}')
+        text = cookie_path.read_text(encoding='utf-8', errors='ignore').strip()
+        if not text:
+            raise NeteaseOpenApiError('网易云 Cookie 为空')
+        return text
+
+    def _is_cli_command_missing(self, error: NeteaseOpenApiError) -> bool:
+        message = str(error or '')
+        return "unknown command 'recommend'" in message or "unknown command 'playlist'" in message or "unknown command 'user'" in message
+
+    def _ensure_cli_runtime(self) -> None:
         if not self._cli_package_dir.exists():
             raise NeteaseOpenApiError(
                 f'未找到 ncm-cli 运行目录：{self._cli_package_dir}。'
@@ -258,6 +384,9 @@ class NeteaseOpenApiService:
                 f'未找到网易云官方数据目录：{self._cli_home}。'
                 f'当前约定 HOME 目录应为 {self.DEFAULT_CLI_HOME}'
             )
+
+    def _ensure_ready(self) -> None:
+        self._ensure_cli_runtime()
         credentials_path = self._cli_home / '.config' / 'ncm-cli' / 'credentials.enc.json'
         tokens_path = self._cli_home / '.config' / 'ncm-cli' / 'tokens.enc.json'
         if not credentials_path.exists():
@@ -298,6 +427,29 @@ class NeteaseOpenApiService:
             message = self._first_non_empty(payload.get('message'), payload.get('msg')) or '网易云官方接口调用失败'
             raise NeteaseOpenApiError(message)
         return payload
+
+    def _run_json_allow_missing_login(self, *args: str) -> dict[str, Any]:
+        env = dict(os.environ)
+        env['HOME'] = str(self._cli_home)
+        process = subprocess.run(
+            ['node', 'dist/index.js', *args, '--output', 'json'],
+            cwd=str(self._cli_package_dir),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        text = (process.stdout or process.stderr or '').strip()
+        if not text:
+            raise NeteaseOpenApiError('网易云 CLI 没有返回结果')
+        start = text.find('{')
+        if start < 0:
+            raise NeteaseOpenApiError(self._extract_error(text))
+        try:
+            payload = json.loads(text[start:])
+        except json.JSONDecodeError as exc:
+            raise NeteaseOpenApiError(f'网易云 CLI 响应解析失败: {exc}') from exc
+        return payload if isinstance(payload, dict) else {}
 
     def _extract_error(self, raw: str) -> str:
         text = (raw or '').strip()

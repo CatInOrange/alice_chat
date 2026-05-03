@@ -6,6 +6,7 @@ from time import sleep, time
 
 from ..music_api_models import (
     MusicAiPlaylistDraftDto,
+    MusicCliLoginSessionDto,
     MusicCommandRequest,
     MusicHomeDto,
     MusicIntelligenceRequestDto,
@@ -185,13 +186,16 @@ class MusicService:
                     mode=request.mode,
                 )
                 _LOG.info(
-                    '[music.intelligence.success] attempt=%s/%s trackCount=%s playlistEncryptedId=%s songEncryptedId=%s fallbackUsed=%s',
+                    '[music.intelligence.success] attempt=%s/%s trackCount=%s rawTrackCount=%s dedupTrackCount=%s playlistEncryptedId=%s songEncryptedId=%s fallbackUsed=%s source=%s',
                     attempt,
                     max_attempts,
                     len(result.tracks),
+                    result.raw_track_count,
+                    result.dedup_track_count,
                     result.playlist_encrypted_id,
                     result.song_encrypted_id,
                     result.fallback_used,
+                    result.source,
                 )
                 patch: dict[str, object] = {}
                 if result.playlist_encrypted_id and result.playlist_encrypted_id != fallback_playlist_id:
@@ -222,6 +226,12 @@ class MusicService:
         assert last_error is not None
         raise last_error
 
+    def start_netease_cli_login(self) -> MusicCliLoginSessionDto:
+        return self.netease_openapi.start_cli_login()
+
+    def get_netease_cli_login_status(self) -> MusicCliLoginSessionDto:
+        return self.netease_openapi.get_cli_login_status()
+
     def sync_netease_favorite_playlist(self) -> dict:
         playlist = self.netease_openapi.get_favorite_playlist()
         encrypted_id = str(playlist.get('id') or '').strip()
@@ -244,13 +254,13 @@ class MusicService:
                 providerId='netease',
                 displayName='网易云音乐',
                 authMode='client',
-                supportedAuthMethods=['cookieImport', 'qrCode'],
+                supportedAuthMethods=['cookieImport', 'qrCode', 'cliLogin'],
                 supportsSearch=True,
                 supportsLyrics=True,
                 supportsResolve=True,
                 supportsPlaylistLookup=True,
                 supportsUserLibrary=True,
-                notes='优先平台；已接搜索、播放解析、歌单读取与 Cookie/二维码登录。',
+                notes='优先平台；已接搜索、播放解析、歌单读取与 Cookie / 二维码登录 / 官方 CLI 登录。',
             ),
             MusicProviderDto(
                 providerId='migu',

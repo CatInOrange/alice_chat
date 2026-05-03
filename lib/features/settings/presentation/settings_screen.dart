@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/debug/native_debug_bridge.dart';
 import '../../../core/openclaw/openclaw_http_client.dart';
@@ -400,6 +401,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Future<void> _startCliLogin(MusicPlatformLocalState platform) async {
+    final store = context.read<MusicPlatformStore>();
+    await store.startCliLogin(platform.provider.providerId);
+    if (!mounted) return;
+    final cliState = store.cliStateFor(platform.provider.providerId);
+    final url = (cliState?.loginUrl ?? '').trim();
+    if (url.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('还没有拿到 CLI 登录链接')),
+      );
+      return;
+    }
+    final uri = Uri.tryParse(url);
+    if (uri == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('CLI 登录链接无效：$url')),
+      );
+      return;
+    }
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          launched ? '已打开网易云官方授权网页，请完成登录后回来点“检查 CLI 状态”' : '无法自动打开网页，请手动访问：$url',
+        ),
+      ),
+    );
+  }
+
   Future<void> _saveQrImage(String displayName, String qrData) async {
     try {
       final qrPainter = QrPainter(
@@ -541,7 +572,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      '平台登录属于全局能力，统一放在设置页管理。现在已经接入第一版网易云二维码登录，成功后会把 Cookie 保存到本地。',
+                      '平台登录属于全局能力，统一放在设置页管理。网易云这里现在分成三条独立链路：Cookie 导入、二维码登录（拿 Cookie）、官方 CLI 登录（给心动模式 / 官方能力用）。三者不要混用。',
                     ),
                     const SizedBox(height: 16),
                     if (musicPlatforms.isLoading)
@@ -566,6 +597,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             onQrLogin: platform.provider.supportedAuthMethods
                                     .contains('qrCode')
                                 ? () => _showQrLoginDialog(platform)
+                                : null,
+                            cliState: musicPlatforms.cliStateFor(
+                              platform.provider.providerId,
+                            ),
+                            onCliLogin: platform.provider.supportedAuthMethods
+                                    .contains('cliLogin')
+                                ? () => _startCliLogin(platform)
+                                : null,
+                            onRefreshCliLogin: platform.provider.supportedAuthMethods
+                                    .contains('cliLogin')
+                                ? () => context
+                                    .read<MusicPlatformStore>()
+                                    .refreshCliLoginStatus(
+                                      platform.provider.providerId,
+                                    )
                                 : null,
                             onClearCookie: platform.hasCookie
                                 ? () async {
@@ -689,13 +735,19 @@ class _MusicProviderCard extends StatelessWidget {
     required this.qrState,
     required this.onImportCookie,
     required this.onQrLogin,
+    required this.cliState,
+    required this.onCliLogin,
+    required this.onRefreshCliLogin,
     required this.onClearCookie,
   });
 
   final MusicPlatformLocalState platform;
   final MusicPlatformQrLoginState? qrState;
+  final MusicPlatformCliLoginState? cliState;
   final Future<void> Function() onImportCookie;
   final Future<void> Function()? onQrLogin;
+  final Future<void> Function()? onCliLogin;
+  final Future<void> Function()? onRefreshCliLogin;
   final Future<void> Function()? onClearCookie;
 
   @override
@@ -782,6 +834,10 @@ class _MusicProviderCard extends StatelessWidget {
             const SizedBox(height: 12),
             _InlineQrStateBanner(state: qrState!),
           ],
+          if (cliState != null) ...[
+            const SizedBox(height: 12),
+            _InlineCliStateBanner(state: cliState!),
+          ],
           const SizedBox(height: 14),
           Row(
             children: [
@@ -802,6 +858,28 @@ class _MusicProviderCard extends StatelessWidget {
               ),
             ],
           ),
+          if (onCliLogin != null || onRefreshCliLogin != null) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onCliLogin,
+                    icon: const Icon(Icons.open_in_browser_rounded),
+                    label: const Text('CLI 官方登录'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextButton.icon(
+                    onPressed: onRefreshCliLogin,
+                    icon: const Icon(Icons.verified_user_outlined),
+                    label: const Text('检查 CLI 状态'),
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (onClearCookie != null) ...[
             const SizedBox(height: 10),
             Align(
@@ -838,6 +916,74 @@ class _QrLoginStatusCard extends StatelessWidget {
       );
     }
     return _InlineQrStateBanner(state: currentState, dense: false);
+  }
+}
+
+class _InlineCliStateBanner extends StatelessWidget {
+  const _InlineCliStateBanner({required this.state});
+
+  final MusicPlatformCliLoginState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = state.loginValid
+        ? const Color(0xFF2E7D32)
+        : state.statusLabel.contains('失败')
+        ? const Color(0xFFC62828)
+        : const Color(0xFFB26A00);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            state.loginValid
+                ? Icons.verified_user_rounded
+                : Icons.open_in_browser_rounded,
+            color: color,
+            size: 18,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  state.statusLabel,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(state.detail, style: Theme.of(context).textTheme.bodySmall),
+                if (state.hasLoginUrl) ...[
+                  const SizedBox(height: 6),
+                  SelectableText(
+                    state.loginUrl!,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (state.isLoading)
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+        ],
+      ),
+    );
   }
 }
 

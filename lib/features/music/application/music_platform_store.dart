@@ -26,6 +26,26 @@ enum MusicPlatformQrLoginPhase {
   failed,
 }
 
+class MusicPlatformCliLoginState {
+  const MusicPlatformCliLoginState({
+    required this.providerId,
+    required this.statusLabel,
+    required this.detail,
+    this.loginUrl,
+    this.loginValid = false,
+    this.isLoading = false,
+  });
+
+  final String providerId;
+  final String statusLabel;
+  final String detail;
+  final String? loginUrl;
+  final bool loginValid;
+  final bool isLoading;
+
+  bool get hasLoginUrl => (loginUrl ?? '').trim().isNotEmpty;
+}
+
 class MusicPlatformLocalState {
   const MusicPlatformLocalState({
     required this.provider,
@@ -100,6 +120,7 @@ class MusicPlatformStore extends ChangeNotifier with WidgetsBindingObserver {
   List<MusicProviderInfo> _providers = const [];
   Map<String, MusicPlatformLocalState> _localStates = const {};
   Map<String, MusicPlatformQrLoginState> _qrStates = const {};
+  Map<String, MusicPlatformCliLoginState> _cliStates = const {};
   final Map<String, Timer> _qrPollTimers = <String, Timer>{};
   final Map<String, _NeteaseQrSession> _qrSessions =
       <String, _NeteaseQrSession>{};
@@ -126,6 +147,9 @@ class MusicPlatformStore extends ChangeNotifier with WidgetsBindingObserver {
 
   MusicPlatformQrLoginState? qrStateFor(String providerId) =>
       _qrStates[providerId];
+
+  MusicPlatformCliLoginState? cliStateFor(String providerId) =>
+      _cliStates[providerId];
 
   Future<void> reloadConfig() async {
     final config = await OpenClawSettingsStore.load();
@@ -165,6 +189,7 @@ class MusicPlatformStore extends ChangeNotifier with WidgetsBindingObserver {
       }
       _providers = providers;
       _localStates = localStates;
+      await _refreshCliStates(providers);
       _isReady = true;
     } catch (error) {
       _error = error.toString();
@@ -191,6 +216,89 @@ class MusicPlatformStore extends ChangeNotifier with WidgetsBindingObserver {
       cookie: '',
     );
     await _refreshProviderLocalState(providerId);
+  }
+
+  Future<void> startCliLogin(String providerId) async {
+    if (providerId != 'netease') return;
+    _setCliState(
+      MusicPlatformCliLoginState(
+        providerId: providerId,
+        statusLabel: '准备中',
+        detail: '正在向后端申请网易云官方 CLI 登录链接…',
+        isLoading: true,
+      ),
+    );
+    try {
+      final response = await _client.startNeteaseCliLogin();
+      final session =
+          (response['session'] as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      final loginUrl = (session['clickableUrl'] ?? session['loginUrl'] ?? '')
+          .toString()
+          .trim();
+      _setCliState(
+        MusicPlatformCliLoginState(
+          providerId: providerId,
+          statusLabel: '待授权',
+          detail: (session['message'] ?? '请打开链接完成网易云官方授权登录').toString(),
+          loginUrl: loginUrl.isEmpty ? null : loginUrl,
+          loginValid: false,
+          isLoading: false,
+        ),
+      );
+    } catch (error) {
+      _setCliState(
+        MusicPlatformCliLoginState(
+          providerId: providerId,
+          statusLabel: '启动失败',
+          detail: '网易云官方 CLI 登录启动失败：$error',
+          isLoading: false,
+        ),
+      );
+    }
+  }
+
+  Future<void> refreshCliLoginStatus(String providerId) async {
+    if (providerId != 'netease') return;
+    final previous = _cliStates[providerId];
+    _setCliState(
+      MusicPlatformCliLoginState(
+        providerId: providerId,
+        statusLabel: previous?.statusLabel ?? '检查中',
+        detail: '正在检查网易云官方 CLI 登录状态…',
+        loginUrl: previous?.loginUrl,
+        loginValid: previous?.loginValid ?? false,
+        isLoading: true,
+      ),
+    );
+    try {
+      final response = await _client.getNeteaseCliLoginStatus();
+      final session =
+          (response['session'] as Map?)?.cast<String, dynamic>() ??
+          const <String, dynamic>{};
+      final valid = session['loginValid'] == true;
+      _setCliState(
+        MusicPlatformCliLoginState(
+          providerId: providerId,
+          statusLabel: valid ? 'CLI 已登录' : 'CLI 未登录',
+          detail: (session['message'] ?? (valid ? 'CLI 登录有效' : 'CLI 未登录')).toString(),
+          loginUrl: previous?.loginUrl,
+          loginValid: valid,
+          isLoading: false,
+        ),
+      );
+    } catch (error) {
+      _setCliState(
+        MusicPlatformCliLoginState(
+          providerId: providerId,
+          statusLabel: '检查失败',
+          detail: '检查网易云官方 CLI 登录状态失败：$error',
+          loginUrl: previous?.loginUrl,
+          loginValid: previous?.loginValid ?? false,
+          isLoading: false,
+        ),
+      );
+    }
   }
 
   Future<void> startQrLogin(String providerId) async {
@@ -262,6 +370,37 @@ class MusicPlatformStore extends ChangeNotifier with WidgetsBindingObserver {
       _qrStates = nextStates;
       notifyListeners();
     }
+  }
+
+  Future<void> _refreshCliStates(List<MusicProviderInfo> providers) async {
+    final next = Map<String, MusicPlatformCliLoginState>.from(_cliStates);
+    for (final provider in providers) {
+      if (provider.providerId != 'netease' ||
+          !provider.supportedAuthMethods.contains('cliLogin')) {
+        continue;
+      }
+      try {
+        final response = await _client.getNeteaseCliLoginStatus();
+        final session =
+            (response['session'] as Map?)?.cast<String, dynamic>() ??
+            const <String, dynamic>{};
+        final valid = session['loginValid'] == true;
+        next[provider.providerId] = MusicPlatformCliLoginState(
+          providerId: provider.providerId,
+          statusLabel: valid ? 'CLI 已登录' : 'CLI 未登录',
+          detail: (session['message'] ?? (valid ? 'CLI 登录有效' : 'CLI 未登录')).toString(),
+          loginValid: valid,
+        );
+      } catch (error) {
+        next[provider.providerId] = MusicPlatformCliLoginState(
+          providerId: provider.providerId,
+          statusLabel: 'CLI 检查失败',
+          detail: '网易云官方 CLI 状态检查失败：$error',
+          loginValid: false,
+        );
+      }
+    }
+    _cliStates = next;
   }
 
   Future<void> _refreshProviderLocalState(String providerId) async {
@@ -675,6 +814,14 @@ class MusicPlatformStore extends ChangeNotifier with WidgetsBindingObserver {
   void _setQrState(MusicPlatformQrLoginState state) {
     _qrStates = {
       ..._qrStates,
+      state.providerId: state,
+    };
+    notifyListeners();
+  }
+
+  void _setCliState(MusicPlatformCliLoginState state) {
+    _cliStates = {
+      ..._cliStates,
       state.providerId: state,
     };
     notifyListeners();

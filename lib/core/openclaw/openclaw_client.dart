@@ -105,6 +105,10 @@ abstract class OpenClawClient {
     required Map<String, dynamic> payload,
   });
 
+  Future<Map<String, dynamic>> startNeteaseCliLogin();
+
+  Future<Map<String, dynamic>> getNeteaseCliLoginStatus();
+
   Future<Map<String, dynamic>> requestNeteaseIntelligence({
     required Map<String, dynamic> payload,
   });

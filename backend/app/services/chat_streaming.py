@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import uuid
 
 from fastapi.responses import StreamingResponse
 
@@ -24,6 +25,7 @@ from ..web.sse import format_sse
 class ChatStreamingService:
     def __init__(self, context: AppContext):
         self.context = context
+        self.events_bus = context.events_bus
 
     def create_response(self, body: dict) -> StreamingResponse:
         return StreamingResponse(
@@ -92,6 +94,11 @@ class ChatStreamingService:
         loop = asyncio.get_running_loop()
         delta_q: asyncio.Queue[dict] = asyncio.Queue(maxsize=200)
         result_fut: asyncio.Future[dict] = loop.create_future()
+        session_id_for_events = session_id
+        request_id_for_events = str(body.get('requestId') or '').strip()
+        client_message_id_for_events = str(body.get('clientMessageId') or '').strip()
+        assistant_message_id_for_events = f'msg_ai_{uuid.uuid4().hex[:12]}'
+        delta_seq = 0
 
         def put_delta(payload: dict) -> None:
             with contextlib.suppress(Exception):
@@ -108,8 +115,78 @@ class ChatStreamingService:
                     result_fut.set_exception(exc)
 
         def emit(payload: dict) -> None:
+            nonlocal delta_seq
             try:
                 loop.call_soon_threadsafe(put_delta, payload)
+            except Exception:
+                pass
+            # Also publish progress events to the events bus for SSE subscribers
+            try:
+                payload_type = str(payload.get('type') or 'delta').strip().lower()
+                progress_text = str(payload.get('text') or '')
+                progress_stage = str(payload.get('stage') or 'working')
+                progress_kind = str(payload.get('kind') or progress_stage or 'progress')
+                progress_reply_preview = str(payload.get('replyPreview') or '').strip()
+                progress_meta = {
+                    'eventStream': str(payload.get('eventStream') or '').strip(),
+                    'toolCallId': str(payload.get('toolCallId') or '').strip(),
+                    'toolName': str(payload.get('toolName') or '').strip(),
+                    'phase': str(payload.get('phase') or '').strip(),
+                    'status': str(payload.get('status') or '').strip(),
+                    'itemId': str(payload.get('itemId') or '').strip(),
+                    'approvalId': str(payload.get('approvalId') or '').strip(),
+                    'approvalSlug': str(payload.get('approvalSlug') or '').strip(),
+                    'command': str(payload.get('command') or '').strip(),
+                    'output': str(payload.get('output') or '').strip(),
+                    'title': str(payload.get('title') or '').strip(),
+                    'source': str(payload.get('source') or '').strip(),
+                }
+
+                if payload_type == 'progress':
+                    if not progress_text and not progress_reply_preview and not any(progress_meta.values()):
+                        return
+                    delta_seq += 1
+                    mode = 'progress'
+                    if progress_kind == 'thinking' or progress_stage == 'thinking':
+                        mode = 'thinking'
+                    elif progress_kind == 'plan' or progress_stage == 'plan':
+                        mode = 'plan'
+                    progress_payload = {
+                        'sessionId': session_id_for_events,
+                        'clientMessageId': client_message_id_for_events,
+                        'requestId': request_id_for_events,
+                        'messageId': assistant_message_id_for_events,
+                        'sequence': delta_seq,
+                        'mode': mode,
+                        'text': progress_text,
+                        'stage': progress_stage,
+                        'kind': progress_kind,
+                    }
+                    if progress_reply_preview:
+                        progress_payload['replyPreview'] = progress_reply_preview
+                    progress_payload.update({key: value for key, value in progress_meta.items() if value})
+                    self.events_bus.publish_threadsafe('assistant.progress', progress_payload)
+                    return
+
+                # For delta/type=delta, also publish a preview progress event
+                delta_text = str(payload.get('delta') or payload.get('text') or '')
+                if delta_text:
+                    delta_seq += 1
+                    self.events_bus.publish_threadsafe(
+                        'assistant.progress',
+                        {
+                            'sessionId': session_id_for_events,
+                            'clientMessageId': client_message_id_for_events,
+                            'requestId': request_id_for_events,
+                            'messageId': assistant_message_id_for_events,
+                            'sequence': delta_seq,
+                            'mode': 'preview',
+                            'text': delta_text,
+                            'stage': 'assistant',
+                            'kind': 'assistant',
+                            'replyPreview': delta_text,
+                        },
+                    )
             except Exception:
                 pass
 

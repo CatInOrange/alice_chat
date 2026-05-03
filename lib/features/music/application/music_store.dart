@@ -1395,13 +1395,17 @@ class MusicStore extends ChangeNotifier {
         );
       }
       final filtered = <MusicTrack>[];
+      var filteredByRecent = 0;
+      var filteredByQueue = 0;
       for (final track in tracks) {
         final sourceId = (track.sourceTrackId ?? '').trim();
         if (sourceId.isNotEmpty &&
             _recentIntelligenceTrackIds.contains(sourceId)) {
+          filteredByRecent += 1;
           continue;
         }
         if (_queue.any((item) => item.track.id == track.id)) {
+          filteredByQueue += 1;
           continue;
         }
         filtered.add(track.copyWith(isFavorite: isTrackLiked(track.id)));
@@ -1413,6 +1417,8 @@ class MusicStore extends ChangeNotifier {
           extra: {
             'playlistId': playlist.id,
             'rawCount': tracks.length,
+            'filteredByRecent': filteredByRecent,
+            'filteredByQueue': filteredByQueue,
             'queueLength': _queue.length,
             'recentIntelligenceCount': _recentIntelligenceTrackIds.length,
             'currentTrackId': _currentTrack.id,

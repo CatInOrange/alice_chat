@@ -183,6 +183,28 @@ def create_music_router(context: AppContext) -> APIRouter:
             'playlist': payload,
         }
 
+    @router.post('/api/music/netease/cli-login/start')
+    async def start_netease_cli_login() -> dict:
+        try:
+            session = context.music_service.start_netease_cli_login()
+        except NeteaseOpenApiError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            'ok': True,
+            'session': session.model_dump(exclude_none=True),
+        }
+
+    @router.get('/api/music/netease/cli-login/status')
+    async def get_netease_cli_login_status() -> dict:
+        try:
+            session = context.music_service.get_netease_cli_login_status()
+        except NeteaseOpenApiError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            'ok': True,
+            'session': session.model_dump(exclude_none=True),
+        }
+
     @router.post('/api/music/netease/intelligence')
     async def get_netease_intelligence(body: MusicIntelligenceRequestDto) -> dict:
         try:
@@ -196,6 +218,9 @@ def create_music_router(context: AppContext) -> APIRouter:
                 'playlistEncryptedId': result.playlist_encrypted_id,
                 'songEncryptedId': result.song_encrypted_id,
                 'fallbackUsed': result.fallback_used,
+                'rawTrackCount': result.raw_track_count,
+                'dedupTrackCount': result.dedup_track_count,
+                'source': result.source,
             },
         }
 

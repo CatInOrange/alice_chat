@@ -157,6 +157,7 @@ class MusicStateDto(MusicApiModel):
     currentPlaylistId: str | None = None
     neteaseLikedPlaylistId: str | None = None
     neteaseLikedPlaylistEncryptedId: str | None = None
+    neteaseLikedPlaylistOriginalId: str | None = None
     localRevision: int | None = None
     updatedAt: float | None = None
 
@@ -170,6 +171,7 @@ class MusicHomeDto(MusicApiModel):
     customPlaylists: list[CustomMusicPlaylistDto] = Field(default_factory=list)
     neteaseLikedPlaylistId: str | None = None
     neteaseLikedPlaylistEncryptedId: str | None = None
+    neteaseLikedPlaylistOriginalId: str | None = None
     localRevision: int | None = None
     updatedAt: float | None = None
 
@@ -189,6 +191,7 @@ class MusicStatePatchDto(MusicApiModel):
     currentPlaylistId: str | None = None
     neteaseLikedPlaylistId: str | None = None
     neteaseLikedPlaylistEncryptedId: str | None = None
+    neteaseLikedPlaylistOriginalId: str | None = None
     localRevision: int | None = None
 
 
@@ -203,6 +206,14 @@ class MusicProviderDto(MusicApiModel):
     supportsPlaylistLookup: bool = False
     supportsUserLibrary: bool = False
     notes: str = ''
+
+
+class MusicCliLoginSessionDto(MusicApiModel):
+    providerId: str
+    loginUrl: str | None = None
+    clickableUrl: str | None = None
+    message: str = ''
+    loginValid: bool = False
 
 
 class MusicIntelligenceTrackRefDto(MusicApiModel):

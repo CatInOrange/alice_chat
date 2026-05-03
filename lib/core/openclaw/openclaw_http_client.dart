@@ -328,6 +328,31 @@ class OpenClawHttpClient implements OpenClawClient {
   }
 
   @override
+  Future<Map<String, dynamic>> startNeteaseCliLogin() async {
+    final response = await _httpClient.post(
+      _uri('/api/music/netease/cli-login/start'),
+      headers: _headers,
+      body: jsonEncode(const {}),
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('启动网易云 CLI 登录失败', response);
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  @override
+  Future<Map<String, dynamic>> getNeteaseCliLoginStatus() async {
+    final response = await _httpClient.get(
+      _uri('/api/music/netease/cli-login/status'),
+      headers: _headers,
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('检查网易云 CLI 登录状态失败', response);
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  @override
   Future<Map<String, dynamic>> requestNeteaseIntelligence({
     required Map<String, dynamic> payload,
   }) async {
