@@ -783,6 +783,8 @@ class _MusicScreenState extends State<MusicScreen>
                                 () => _showCreatePlaylistSheet(context, store),
                             onOpenLiked:
                                 () => _openPlaylistDetail(store, likedPlaylist),
+                            onPlayPlaylist:
+                                (playlist) => _playPlaylist(store, playlist),
                             onOpenPlaylist: (playlist) {
                               if (playlist.id == 'netease-fm') {
                                 _playPlaylist(store, playlist);
@@ -3379,6 +3381,7 @@ class _DesktopLibrarySidebar extends StatelessWidget {
     required this.onRefresh,
     required this.onCreatePlaylist,
     required this.onOpenLiked,
+    required this.onPlayPlaylist,
     required this.onOpenPlaylist,
     this.onPlaylistLongPress,
   });
@@ -3393,6 +3396,7 @@ class _DesktopLibrarySidebar extends StatelessWidget {
   final VoidCallback onRefresh;
   final VoidCallback onCreatePlaylist;
   final VoidCallback onOpenLiked;
+  final ValueChanged<MusicPlaylist> onPlayPlaylist;
   final ValueChanged<MusicPlaylist> onOpenPlaylist;
   final ValueChanged<MusicPlaylist>? onPlaylistLongPress;
 
@@ -3494,6 +3498,7 @@ class _DesktopLibrarySidebar extends StatelessWidget {
                       playlist: playlist,
                       isActive: currentPlaylistId == playlist.id,
                       onTap: () => onOpenPlaylist(playlist),
+                      onPlay: () => onPlayPlaylist(playlist),
                       onLongPress:
                           onPlaylistLongPress == null
                               ? null
@@ -3515,6 +3520,7 @@ class _DesktopLibrarySidebar extends StatelessWidget {
                             isActive: currentPlaylistId == playlist.id,
                             dense: true,
                             onTap: () => onOpenPlaylist(playlist),
+                            onPlay: () => onPlayPlaylist(playlist),
                           ),
                         ),
                       ),
@@ -3542,6 +3548,7 @@ class _DesktopSidebarPlaylistTile extends StatelessWidget {
     required this.playlist,
     required this.isActive,
     required this.onTap,
+    required this.onPlay,
     this.onLongPress,
     this.dense = false,
   });
@@ -3549,6 +3556,7 @@ class _DesktopSidebarPlaylistTile extends StatelessWidget {
   final MusicPlaylist playlist;
   final bool isActive;
   final VoidCallback onTap;
+  final VoidCallback onPlay;
   final VoidCallback? onLongPress;
   final bool dense;
 
@@ -3614,6 +3622,13 @@ class _DesktopSidebarPlaylistTile extends StatelessWidget {
                     ),
                   ],
                 ),
+              ),
+              IconButton(
+                onPressed: onPlay,
+                icon: const Icon(Icons.play_circle_fill_rounded),
+                iconSize: dense ? 22 : 24,
+                splashRadius: 18,
+                visualDensity: VisualDensity.compact,
               ),
             ],
           ),
@@ -3712,10 +3727,17 @@ class _DesktopNowPlayingStage extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Text(track.title, style: theme.textTheme.headlineMedium),
+                    Text(
+                      track.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.headlineMedium,
+                    ),
                     const SizedBox(height: 8),
                     Text(
                       '${track.artist} · ${track.album}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.titleMedium?.copyWith(
                         color: const Color(0xFF5E6780),
                       ),
@@ -3723,37 +3745,43 @@ class _DesktopNowPlayingStage extends StatelessWidget {
                   ],
                 ),
               ),
-              Row(
-                children: [
-                  if ((modeBadge ?? '').trim().isNotEmpty)
-                    Container(
-                      margin: const EdgeInsets.only(right: 10),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: accentColor.withValues(alpha: 0.10),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        modeBadge!,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: accentColor,
-                          fontWeight: FontWeight.w700,
+              const SizedBox(width: 12),
+              Flexible(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  alignment: WrapAlignment.end,
+                  children: [
+                    if ((modeBadge ?? '').trim().isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: accentColor.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          modeBadge!,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: accentColor,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
+                    IconButton(
+                      onPressed: onToggleLike,
+                      icon: Icon(
+                        isFavorite
+                            ? Icons.favorite_rounded
+                            : Icons.favorite_border_rounded,
+                        color: isFavorite ? const Color(0xFFE91E63) : null,
+                      ),
                     ),
-                  IconButton(
-                    onPressed: onToggleLike,
-                    icon: Icon(
-                      isFavorite
-                          ? Icons.favorite_rounded
-                          : Icons.favorite_border_rounded,
-                      color: isFavorite ? const Color(0xFFE91E63) : null,
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
@@ -3767,18 +3795,18 @@ class _DesktopNowPlayingStage extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(
-                  flex: 9,
+                  flex: 11,
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       SizedBox(
-                        height: 360,
+                        height: 340,
                         child: _DesktopDiscStage(
                           track: track,
                           isPlaying: isPlaying,
                         ),
                       ),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 16),
                       ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 520),
                         child: Text(
@@ -3797,9 +3825,9 @@ class _DesktopNowPlayingStage extends StatelessWidget {
                 ),
                 const SizedBox(width: 24),
                 Expanded(
-                  flex: 8,
+                  flex: 9,
                   child: Container(
-                    padding: const EdgeInsets.all(24),
+                    padding: const EdgeInsets.fromLTRB(22, 20, 22, 20),
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.54),
                       borderRadius: BorderRadius.circular(28),
@@ -3807,44 +3835,47 @@ class _DesktopNowPlayingStage extends StatelessWidget {
                         color: Colors.white.withValues(alpha: 0.72),
                       ),
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('歌词与控制', style: theme.textTheme.titleMedium),
-                        const SizedBox(height: 18),
-                        Expanded(
-                          child: _DesktopLyricsPane(
-                            currentLyric: currentLyric,
-                            nextLyric: nextLyric,
-                            isLoading: isLyricsLoading,
-                          ),
-                        ),
-                        const SizedBox(height: 18),
-                        _DesktopProgressPanel(
-                          accentColor: accentColor,
-                          durationLabel: durationLabel,
-                          progress: progress,
-                          positionLabel: positionLabel,
-                          onSeek: onSeek,
-                        ),
-                        const SizedBox(height: 22),
-                        _DesktopPlayerControls(
-                          accentColor: accentColor,
-                          isPlaying: isPlaying,
-                          isBuffering: isBuffering,
-                          shuffleEnabled: shuffleEnabled,
-                          repeatMode: repeatMode,
-                          hasPrevious: hasPrevious,
-                          hasNext: hasNext,
-                          onPlayPause: onPlayPause,
-                          onPrevious: onPrevious,
-                          onNext: onNext,
-                          onToggleShuffle: onToggleShuffle,
-                          onCycleRepeat: onCycleRepeat,
-                        ),
-                      ],
+                    child: _DesktopLyricsPane(
+                      currentLyric: currentLyric,
+                      nextLyric: nextLyric,
+                      isLoading: isLyricsLoading,
                     ),
                   ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          Container(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.78),
+              borderRadius: BorderRadius.circular(26),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.88)),
+            ),
+            child: Column(
+              children: [
+                _DesktopProgressPanel(
+                  accentColor: accentColor,
+                  durationLabel: durationLabel,
+                  progress: progress,
+                  positionLabel: positionLabel,
+                  onSeek: onSeek,
+                ),
+                const SizedBox(height: 14),
+                _DesktopPlayerControls(
+                  accentColor: accentColor,
+                  isPlaying: isPlaying,
+                  isBuffering: isBuffering,
+                  shuffleEnabled: shuffleEnabled,
+                  repeatMode: repeatMode,
+                  hasPrevious: hasPrevious,
+                  hasNext: hasNext,
+                  onPlayPause: onPlayPause,
+                  onPrevious: onPrevious,
+                  onNext: onNext,
+                  onToggleShuffle: onToggleShuffle,
+                  onCycleRepeat: onCycleRepeat,
                 ),
               ],
             ),
@@ -3881,28 +3912,33 @@ class _DesktopLyricsPane extends StatelessWidget {
         ),
       );
     }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Text(
-          currentLyric!.replaceAll('\n', ' · '),
-          style: theme.textTheme.headlineSmall?.copyWith(
-            height: 1.45,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        if ((nextLyric ?? '').trim().isNotEmpty) ...[
-          const SizedBox(height: 18),
-          Text(
-            nextLyric!.replaceAll('\n', ' · '),
-            style: theme.textTheme.titleMedium?.copyWith(
-              height: 1.5,
-              color: const Color(0xFF7F889B),
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              currentLyric!.replaceAll('\n', ' · '),
+              style: theme.textTheme.headlineSmall?.copyWith(
+                height: 1.45,
+                fontWeight: FontWeight.w800,
+              ),
             ),
-          ),
-        ],
-      ],
+            if ((nextLyric ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 18),
+              Text(
+                nextLyric!.replaceAll('\n', ' · '),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  height: 1.5,
+                  color: const Color(0xFF7F889B),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -3941,7 +3977,7 @@ class _DesktopQueueSidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final nextTracks = queue.where((item) => item.id != currentTrackId).take(6);
+    final nextTracks = queue.where((item) => item.id != currentTrackId).take(6).toList(growable: false);
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -4042,7 +4078,14 @@ class _DesktopQueueTile extends StatelessWidget {
           padding: const EdgeInsets.all(10),
           child: Row(
             children: [
-              MusicArtwork(track: track, size: 52, showMeta: false),
+              SizedBox(
+                width: 52,
+                height: 52,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: MusicArtwork(track: track, size: 52, showMeta: false),
+                ),
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -4065,7 +4108,14 @@ class _DesktopQueueTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Text(track.durationLabel, style: theme.textTheme.bodySmall),
+              Flexible(
+                child: Text(
+                  track.durationLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
             ],
           ),
         ),
@@ -4425,8 +4475,11 @@ class _DesktopPlayerControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+    return Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 12,
+      runSpacing: 12,
       children: [
         _DesktopActionButton(
           icon: Icons.shuffle_rounded,
