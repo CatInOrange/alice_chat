@@ -3817,57 +3817,67 @@ class _DesktopNowPlayingStage extends StatelessWidget {
           ),
           const SizedBox(height: 22),
           Expanded(
-            child: Row(
-              children: [
-                Expanded(
-                  flex: 11,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      SizedBox(
-                        height: 340,
-                        child: _DesktopDiscStage(
-                          track: track,
-                          isPlaying: isPlaying,
-                        ),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final stageHeight = (constraints.maxHeight - 20).clamp(220.0, 340.0);
+                final discSize = (stageHeight * 0.82).clamp(180.0, 280.0);
+                return Row(
+                  children: [
+                    Expanded(
+                      flex: 11,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            height: stageHeight,
+                            child: _DesktopDiscStage(
+                              track: track,
+                              isPlaying: isPlaying,
+                              discSize: discSize,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Flexible(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 520),
+                              child: Text(
+                                description,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  height: 1.45,
+                                  color: const Color(0xFF687284),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 16),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 520),
-                        child: Text(
-                          description,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            height: 1.5,
-                            color: const Color(0xFF687284),
+                    ),
+                    const SizedBox(width: 24),
+                    Expanded(
+                      flex: 9,
+                      child: Container(
+                        padding: const EdgeInsets.fromLTRB(22, 20, 22, 20),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.54),
+                          borderRadius: BorderRadius.circular(28),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.72),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 24),
-                Expanded(
-                  flex: 9,
-                  child: Container(
-                    padding: const EdgeInsets.fromLTRB(22, 20, 22, 20),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.54),
-                      borderRadius: BorderRadius.circular(28),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.72),
+                        child: _DesktopLyricsPane(
+                          currentLyric: currentLyric,
+                          nextLyric: nextLyric,
+                          isLoading: isLyricsLoading,
+                        ),
                       ),
                     ),
-                    child: _DesktopLyricsPane(
-                      currentLyric: currentLyric,
-                      nextLyric: nextLyric,
-                      isLoading: isLyricsLoading,
-                    ),
-                  ),
-                ),
-              ],
+                  ],
+                );
+              },
             ),
           ),
           const SizedBox(height: 18),
@@ -4102,18 +4112,26 @@ class _DesktopQueueTile extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(10),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               SizedBox(
                 width: 52,
                 height: 52,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(14),
-                  child: MusicArtwork(track: track, size: 52, showMeta: false),
+                  child: MusicArtwork(
+                    track: track,
+                    size: 52,
+                    showMeta: false,
+                    showIconBadge: false,
+                    overlayStrength: 0.04,
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
@@ -4133,11 +4151,13 @@ class _DesktopQueueTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 8),
-              Flexible(
+              SizedBox(
+                width: 40,
                 child: Text(
                   track.durationLabel,
+                  textAlign: TextAlign.right,
                   maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  overflow: TextOverflow.clip,
                   style: theme.textTheme.bodySmall,
                 ),
               ),
@@ -4316,10 +4336,15 @@ class _DesktopAiPlaylistRow extends StatelessWidget {
 }
 
 class _DesktopDiscStage extends StatefulWidget {
-  const _DesktopDiscStage({required this.track, required this.isPlaying});
+  const _DesktopDiscStage({
+    required this.track,
+    required this.isPlaying,
+    required this.discSize,
+  });
 
   final MusicTrack track;
   final bool isPlaying;
+  final double discSize;
 
   @override
   State<_DesktopDiscStage> createState() => _DesktopDiscStageState();
@@ -4360,13 +4385,18 @@ class _DesktopDiscStageState extends State<_DesktopDiscStage>
   @override
   Widget build(BuildContext context) {
     final palette = paletteForTone(widget.track.artworkTone);
+    final glowSize = widget.discSize + 40;
+    final artworkSize = widget.discSize;
+    final artworkInnerSize = (artworkSize - 24).clamp(120.0, 260.0);
+    final hubSize = (artworkSize * 0.12).clamp(24.0, 34.0);
+
     return Center(
       child: Stack(
         alignment: Alignment.center,
         children: [
           Container(
-            width: 320,
-            height: 320,
+            width: glowSize,
+            height: glowSize,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: RadialGradient(
@@ -4380,8 +4410,8 @@ class _DesktopDiscStageState extends State<_DesktopDiscStage>
           RotationTransition(
             turns: _controller,
             child: Container(
-              width: 280,
-              height: 280,
+              width: artworkSize,
+              height: artworkSize,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 border: Border.all(
@@ -4401,7 +4431,7 @@ class _DesktopDiscStageState extends State<_DesktopDiscStage>
                 child: ClipOval(
                   child: MusicArtwork(
                     track: widget.track,
-                    size: 256,
+                    size: artworkInnerSize,
                     circular: true,
                     showMeta: false,
                     showIconBadge: false,
@@ -4411,8 +4441,8 @@ class _DesktopDiscStageState extends State<_DesktopDiscStage>
             ),
           ),
           Container(
-            width: 34,
-            height: 34,
+            width: hubSize,
+            height: hubSize,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: Colors.white.withValues(alpha: 0.86),
