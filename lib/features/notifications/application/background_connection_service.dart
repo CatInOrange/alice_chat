@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -9,6 +10,9 @@ import '../../../core/openclaw/openclaw_settings.dart';
 
 class BackgroundConnectionService {
   BackgroundConnectionService._();
+
+  bool get _supportsNativeForegroundService =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
   static final BackgroundConnectionService instance =
       BackgroundConnectionService._();
@@ -45,6 +49,13 @@ class BackgroundConnectionService {
       'bg-service',
       'start requested session=$_activeSessionId appForeground=$_appForeground launchMode=background-notify-all prevRequested=$previousRequested',
     );
+    if (!_supportsNativeForegroundService) {
+      await NativeDebugBridge.instance.log(
+        'bg-service',
+        'start skipped native foreground service on platform=$defaultTargetPlatform',
+      );
+      return;
+    }
     try {
       await _channel.invokeMethod('startForegroundService', {
         'sessionId': _activeSessionId,
@@ -71,6 +82,13 @@ class BackgroundConnectionService {
       'bg-service',
       'stop requested prevRequested=$previousRequested active=$_activeSessionId',
     );
+    if (!_supportsNativeForegroundService) {
+      await NativeDebugBridge.instance.log(
+        'bg-service',
+        'stop skipped native foreground service on platform=$defaultTargetPlatform',
+      );
+      return;
+    }
     try {
       await _channel.invokeMethod('stopForegroundService');
       await NativeDebugBridge.instance.log(
@@ -93,7 +111,7 @@ class BackgroundConnectionService {
       'bg-service',
       'updateActiveSession session=$_activeSessionId appForeground=$_appForeground serviceRequested=$_serviceRequested',
     );
-    if (!_serviceRequested) return;
+    if (!_serviceRequested || !_supportsNativeForegroundService) return;
     try {
       await _channel.invokeMethod('updateActiveSession', {
         'sessionId': _activeSessionId,
@@ -127,7 +145,7 @@ class BackgroundConnectionService {
       'bg-service',
       'updateSessionMetadata session=$normalizedSessionId title=${title.trim()} avatar=${avatarAssetPath.trim()}',
     );
-    if (!_serviceRequested) return;
+    if (!_serviceRequested || !_supportsNativeForegroundService) return;
     try {
       await _channel.invokeMethod('updateSessionMetadata', {
         'sessionId': normalizedSessionId,
@@ -154,7 +172,7 @@ class BackgroundConnectionService {
       'bg-service',
       'updateAppForeground foreground=$_appForeground active=$_activeSessionId serviceRequested=$_serviceRequested',
     );
-    if (!_serviceRequested) return;
+    if (!_serviceRequested || !_supportsNativeForegroundService) return;
     try {
       await _channel.invokeMethod('updateAppForeground', {
         'isForeground': _appForeground,
@@ -174,6 +192,9 @@ class BackgroundConnectionService {
   }
 
   Future<Map<String, dynamic>?> consumePendingNotificationOpen() async {
+    if (!_supportsNativeForegroundService) {
+      return null;
+    }
     try {
       final result = await _channel.invokeMethod<String>(
         'consumePendingNotificationOpen',

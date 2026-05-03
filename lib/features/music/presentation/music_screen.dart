@@ -159,11 +159,15 @@ class _MusicScreenState extends State<MusicScreen>
     return _pendingPlaylistActions.contains(playlistId);
   }
 
-  Future<void> _playPlaylist(MusicStore store, MusicPlaylist playlist) async {
+  Future<void> _playPlaylist(
+    MusicStore store,
+    MusicPlaylist playlist, {
+    bool openPlayer = true,
+  }) async {
     if (!_beginPlaylistAction(playlist.id)) return;
     try {
       await store.playPlaylist(playlist, awaitPlaybackStart: false);
-      if (!mounted) return;
+      if (!mounted || !openPlayer) return;
       unawaited(_openPlayer(store));
     } catch (_) {
       // store.error already updated; keep user on current screen
@@ -784,7 +788,11 @@ class _MusicScreenState extends State<MusicScreen>
                             onOpenLiked:
                                 () => _openPlaylistDetail(store, likedPlaylist),
                             onPlayPlaylist:
-                                (playlist) => _playPlaylist(store, playlist),
+                                (playlist) => _playPlaylist(
+                                  store,
+                                  playlist,
+                                  openPlayer: false,
+                                ),
                             onOpenPlaylist: (playlist) {
                               if (playlist.id == 'netease-fm') {
                                 _playPlaylist(store, playlist);
@@ -904,7 +912,11 @@ class _MusicScreenState extends State<MusicScreen>
                                 (playlist) =>
                                     _openPlaylistDetail(store, playlist),
                             onPlayPlaylist:
-                                (playlist) => _playPlaylist(store, playlist),
+                                (playlist) => _playPlaylist(
+                                  store,
+                                  playlist,
+                                  openPlayer: false,
+                                ),
                           ),
                         ),
                       ],
