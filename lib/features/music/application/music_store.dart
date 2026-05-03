@@ -271,6 +271,8 @@ class MusicStore extends ChangeNotifier {
       (_repeatMode == MusicRepeatMode.all &&
           (_queue.isNotEmpty || _playbackHistory.isNotEmpty)) ||
       (_repeatMode == MusicRepeatMode.intelligence && _queue.isNotEmpty);
+  bool get hasLocalPlaybackControl =>
+      _playbackAdapter.state.initialized || _queue.isNotEmpty || _isReady;
 
   bool isPlaylistLoading(String playlistId) => _loadingPlaylistId == playlistId;
 
@@ -1161,41 +1163,59 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> togglePlayPause() async {
-    await ensurePlaybackReady();
-    if (_isPlaying) {
-      await _playbackAdapter.pause();
+    if (_isPlaying && hasLocalPlaybackControl) {
       _isPlaying = false;
-    } else {
-      if (_queue.isEmpty) {
-        if (_currentTrack.id.trim().isEmpty) {
-          _error = '当前没有可播放的歌曲';
-          notifyListeners();
-          return;
-        }
-        await handleCommand(
-          MusicCommand.play(
-            queue: [PlaybackQueueItem(track: _currentTrack)],
-            source: MusicCommandSource.manual,
-          ),
-        );
-        return;
+      notifyListeners();
+      try {
+        await _playbackAdapter.pause();
+      } catch (_) {
+        _isPlaying = true;
+        notifyListeners();
+        rethrow;
       }
-      final adapterState = _playbackAdapter.state;
-      if (adapterState.currentSource == null) {
-        await handleCommand(
-          MusicCommand.play(queue: _queue, source: MusicCommandSource.manual),
-        );
-        return;
-      }
-      await _playbackAdapter.resume();
-      _isPlaying = true;
+      _markSnapshotDirty();
+      return;
     }
-    notifyListeners();
-    _markSnapshotDirty();
+
+    if (_queue.isEmpty) {
+      if (_currentTrack.id.trim().isEmpty) {
+        _error = '当前没有可播放的歌曲';
+        notifyListeners();
+        return;
+      }
+      await handleCommand(
+        MusicCommand.play(
+          queue: [PlaybackQueueItem(track: _currentTrack)],
+          source: MusicCommandSource.manual,
+        ),
+      );
+      return;
+    }
+
+    final adapterState = _playbackAdapter.state;
+    if (adapterState.currentSource != null && hasLocalPlaybackControl) {
+      _isPlaying = true;
+      notifyListeners();
+      try {
+        await _playbackAdapter.resume();
+      } catch (_) {
+        _isPlaying = false;
+        notifyListeners();
+        rethrow;
+      }
+      _markSnapshotDirty();
+      return;
+    }
+
+    await handleCommand(
+      MusicCommand.play(queue: _queue, source: MusicCommandSource.manual),
+    );
   }
 
   Future<void> seekTo(Duration position) async {
-    await ensurePlaybackReady();
+    if (!hasLocalPlaybackControl) {
+      await ensurePlaybackReady();
+    }
     final maxMs =
         _duration.inMilliseconds > 0
             ? _duration.inMilliseconds
@@ -1487,7 +1507,6 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> playPrevious() async {
-    await ensurePlaybackReady();
     if (_position >= const Duration(seconds: 3)) {
       await seekTo(Duration.zero);
       return;
@@ -1496,6 +1515,7 @@ class MusicStore extends ChangeNotifier {
       await seekTo(Duration.zero);
       return;
     }
+    await ensurePlaybackReady();
 
     final previousTrack = _playbackHistory.removeLast();
     _queue = List<PlaybackQueueItem>.unmodifiable([
@@ -1821,7 +1841,6 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> playQueueIndex(int index) async {
-    await ensurePlaybackReady();
     if (index < 0 || index >= _queue.length) return;
     if (index == 0) {
       await _playCurrentQueueHead(
@@ -1830,6 +1849,7 @@ class MusicStore extends ChangeNotifier {
       );
       return;
     }
+    await ensurePlaybackReady();
     final selected = _queue[index];
     _playbackHistory.addAll(_queue.take(index).map((item) => item.track));
     _queue = List<PlaybackQueueItem>.unmodifiable([
