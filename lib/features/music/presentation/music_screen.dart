@@ -96,7 +96,10 @@ class _MusicScreenState extends State<MusicScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await context.read<MusicStore>().ensureReady();
+      final store = context.read<MusicStore>();
+      unawaited(store.warmLikedPlaylist());
+      await store.ensureReady();
+      store.warmPlayback();
     });
   }
 
@@ -159,7 +162,7 @@ class _MusicScreenState extends State<MusicScreen>
   Future<void> _playPlaylist(MusicStore store, MusicPlaylist playlist) async {
     if (!_beginPlaylistAction(playlist.id)) return;
     try {
-      await store.playPlaylist(playlist);
+      await store.playPlaylist(playlist, awaitPlaybackStart: false);
       if (!mounted) return;
       unawaited(_openPlayer(store));
     } catch (_) {
@@ -174,6 +177,9 @@ class _MusicScreenState extends State<MusicScreen>
     MusicPlaylist playlist,
   ) async {
     if (!_beginPlaylistAction(playlist.id)) return;
+    if (playlist.id == store.likedPlaylist.id) {
+      unawaited(store.warmLikedPlaylist());
+    }
     final immediateTracks = store.peekPlaylistTracks(playlist);
     try {
       if (!mounted) return;

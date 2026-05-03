@@ -7,6 +7,8 @@ import 'music_local_cache_store.dart';
 abstract class MusicRepository {
   Future<MusicLocalCacheSnapshot?> loadLocalCache();
 
+  Future<MusicLikedCacheBucket?> loadLikedCache();
+
   Future<void> saveLocalCache(MusicLocalCacheSnapshot snapshot);
 
   Future<MusicStateSnapshot> loadMusicState();

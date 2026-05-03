@@ -31,6 +31,11 @@ class MusicRepositoryImpl implements MusicRepository {
   }
 
   @override
+  Future<MusicLikedCacheBucket?> loadLikedCache() {
+    return _localCacheStore.loadLikedCache();
+  }
+
+  @override
   Future<void> saveLocalCache(MusicLocalCacheSnapshot snapshot) {
     return _localCacheStore.save(snapshot);
   }

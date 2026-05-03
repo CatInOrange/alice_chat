@@ -28,12 +28,27 @@ class MusicLocalCacheSnapshot {
   final bool hasPendingSync;
 }
 
+class MusicLikedCacheBucket {
+  const MusicLikedCacheBucket({
+    this.likedTracks = const [],
+    this.neteaseLikedPlaylistId,
+    this.neteaseLikedPlaylistOpaqueId,
+    this.cachedAt,
+  });
+
+  final List<MusicTrack> likedTracks;
+  final String? neteaseLikedPlaylistId;
+  final String? neteaseLikedPlaylistOpaqueId;
+  final DateTime? cachedAt;
+}
+
 class MusicLocalCacheStore {
   static const String _legacyCacheKey = 'alicechat.music.local_cache.v1';
   static const String _v2Prefix = 'alicechat.music.local_cache.v2';
   static const String _metaKey = '$_v2Prefix.meta';
   static const String _playbackKey = '$_v2Prefix.playback';
   static const String _libraryKey = '$_v2Prefix.library';
+  static const String _likedKey = '$_v2Prefix.liked';
   static const String _aiKey = '$_v2Prefix.ai';
   static const String _playlistTracksKey = '$_v2Prefix.playlist_tracks';
 
@@ -78,6 +93,16 @@ class MusicLocalCacheStore {
         'neteaseLikedPlaylistOpaqueId':
             snapshot.state.neteaseLikedPlaylistOpaqueId,
     };
+    final likedPayload = <String, dynamic>{
+      'likedTracks':
+          snapshot.state.likedTracks.map((item) => item.toMap()).toList(),
+      if (snapshot.state.neteaseLikedPlaylistId != null)
+        'neteaseLikedPlaylistId': snapshot.state.neteaseLikedPlaylistId,
+      if (snapshot.state.neteaseLikedPlaylistOpaqueId != null)
+        'neteaseLikedPlaylistOpaqueId':
+            snapshot.state.neteaseLikedPlaylistOpaqueId,
+      'cachedAt': (snapshot.cachedAt ?? DateTime.now()).toIso8601String(),
+    };
     final aiPayload = <String, dynamic>{
       if (snapshot.latestAiPlaylist != null)
         'latestAiPlaylist': snapshot.latestAiPlaylist!.toMap(),
@@ -101,6 +126,7 @@ class MusicLocalCacheStore {
     await _setStringIfChanged(prefs, _metaKey, jsonEncode(metaPayload));
     await _setStringIfChanged(prefs, _playbackKey, jsonEncode(playbackPayload));
     await _setStringIfChanged(prefs, _libraryKey, jsonEncode(libraryPayload));
+    await _setStringIfChanged(prefs, _likedKey, jsonEncode(likedPayload));
     await _setStringIfChanged(prefs, _aiKey, jsonEncode(aiPayload));
     await _setStringIfChanged(
       prefs,
@@ -183,6 +209,55 @@ class MusicLocalCacheStore {
       lastAckedRevision: _intValue(meta?['lastAckedRevision']),
       hasPendingSync: meta?['hasPendingSync'] == true,
     );
+  }
+
+  Future<MusicLikedCacheBucket?> loadLikedCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final liked = _decodeMap(prefs.getString(_likedKey));
+      if (liked != null) {
+        return MusicLikedCacheBucket(
+          likedTracks: _tracksFromList(liked['likedTracks'] as List<dynamic>?),
+          neteaseLikedPlaylistId: _nullableString(
+            liked['neteaseLikedPlaylistId'],
+          ),
+          neteaseLikedPlaylistOpaqueId: _nullableString(
+            liked['neteaseLikedPlaylistOpaqueId'] ??
+                liked['neteaseLikedPlaylistEncryptedId'],
+          ),
+          cachedAt: _nullableDateTime(liked['cachedAt']),
+        );
+      }
+
+      final library = _decodeMap(prefs.getString(_libraryKey));
+      if (library != null) {
+        return MusicLikedCacheBucket(
+          likedTracks: _tracksFromList(
+            library['likedTracks'] as List<dynamic>?,
+          ),
+          neteaseLikedPlaylistId: _nullableString(
+            library['neteaseLikedPlaylistId'],
+          ),
+          neteaseLikedPlaylistOpaqueId: _nullableString(
+            library['neteaseLikedPlaylistOpaqueId'] ??
+                library['neteaseLikedPlaylistEncryptedId'],
+          ),
+        );
+      }
+
+      final legacy = _loadLegacyV1(prefs);
+      if (legacy == null) {
+        return null;
+      }
+      return MusicLikedCacheBucket(
+        likedTracks: legacy.state.likedTracks,
+        neteaseLikedPlaylistId: legacy.state.neteaseLikedPlaylistId,
+        neteaseLikedPlaylistOpaqueId: legacy.state.neteaseLikedPlaylistOpaqueId,
+        cachedAt: legacy.cachedAt,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   MusicLocalCacheSnapshot? _loadLegacyV1(SharedPreferences prefs) {
