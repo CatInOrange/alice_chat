@@ -98,13 +98,15 @@ class MusicLocalCacheStore {
       'hasPendingSync': snapshot.hasPendingSync,
     };
 
-    await Future.wait([
-      prefs.setString(_metaKey, jsonEncode(metaPayload)),
-      prefs.setString(_playbackKey, jsonEncode(playbackPayload)),
-      prefs.setString(_libraryKey, jsonEncode(libraryPayload)),
-      prefs.setString(_aiKey, jsonEncode(aiPayload)),
-      prefs.setString(_playlistTracksKey, jsonEncode(playlistTracksPayload)),
-    ]);
+    await _setStringIfChanged(prefs, _metaKey, jsonEncode(metaPayload));
+    await _setStringIfChanged(prefs, _playbackKey, jsonEncode(playbackPayload));
+    await _setStringIfChanged(prefs, _libraryKey, jsonEncode(libraryPayload));
+    await _setStringIfChanged(prefs, _aiKey, jsonEncode(aiPayload));
+    await _setStringIfChanged(
+      prefs,
+      _playlistTracksKey,
+      jsonEncode(playlistTracksPayload),
+    );
   }
 
   MusicLocalCacheSnapshot? _loadV2(SharedPreferences prefs) {
@@ -251,6 +253,17 @@ class MusicLocalCacheStore {
       lastAckedRevision: _intValue(map['lastAckedRevision']),
       hasPendingSync: map['hasPendingSync'] == true,
     );
+  }
+
+  static Future<void> _setStringIfChanged(
+    SharedPreferences prefs,
+    String key,
+    String nextValue,
+  ) async {
+    if (prefs.getString(key) == nextValue) {
+      return;
+    }
+    await prefs.setString(key, nextValue);
   }
 
   static Map<String, dynamic>? _decodeMap(String? raw) {
