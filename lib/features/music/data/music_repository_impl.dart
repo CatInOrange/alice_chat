@@ -117,13 +117,17 @@ class MusicRepositoryImpl implements MusicRepository {
           (response['neteaseLikedPlaylistId'] ?? '').toString().trim().isEmpty
               ? null
               : (response['neteaseLikedPlaylistId'] ?? '').toString().trim(),
-      neteaseLikedPlaylistEncryptedId:
-          (response['neteaseLikedPlaylistEncryptedId'] ?? '')
+      neteaseLikedPlaylistOpaqueId:
+          ((response['neteaseLikedPlaylistOpaqueId'] ??
+                          response['neteaseLikedPlaylistEncryptedId']) ??
+                      '')
                   .toString()
                   .trim()
                   .isEmpty
               ? null
-              : (response['neteaseLikedPlaylistEncryptedId'] ?? '')
+              : ((response['neteaseLikedPlaylistOpaqueId'] ??
+                          response['neteaseLikedPlaylistEncryptedId']) ??
+                      '')
                   .toString()
                   .trim(),
       serverUpdatedAt:
@@ -160,9 +164,6 @@ class MusicRepositoryImpl implements MusicRepository {
           nextTrack.copyWith(
             preferredSourceId: candidate.providerId,
             sourceTrackId: candidate.sourceTrackId,
-            encryptedSourceTrackId:
-                candidate.track.encryptedSourceTrackId ??
-                nextTrack.encryptedSourceTrackId,
             artworkUrl: candidate.track.artworkUrl ?? nextTrack.artworkUrl,
             album:
                 candidate.track.album.isNotEmpty
@@ -307,7 +308,7 @@ class MusicRepositoryImpl implements MusicRepository {
   }
 
   @override
-  Future<String?> syncNeteaseFavoritePlaylistEncryptedId() async {
+  Future<String?> syncNeteaseFavoritePlaylistOpaqueId() async {
     try {
       final response = await _client.syncNeteaseFavoritePlaylist();
       final playlist =
@@ -396,20 +397,19 @@ class MusicRepositoryImpl implements MusicRepository {
     required MusicPlaylist playlist,
     required MusicTrack seedTrack,
     MusicTrack? startTrack,
-    String? fallbackEncryptedPlaylistId,
+    String? fallbackPlaylistOpaqueId,
   }) async {
     final providerId = _providerIdForPlaylist(playlist.id);
     if (providerId != 'netease') {
       return const <MusicTrack>[];
     }
     final sourceTrackId = (seedTrack.sourceTrackId ?? '').trim();
-    final encryptedSongId = (seedTrack.encryptedSourceTrackId ?? '').trim();
-    final encryptedPlaylistId = _encryptedPlaylistIdFor(playlist.id);
-    final effectiveEncryptedPlaylistId =
-        fallbackEncryptedPlaylistId?.trim().isNotEmpty == true
-            ? fallbackEncryptedPlaylistId!.trim()
-            : encryptedPlaylistId;
-    if (sourceTrackId.isEmpty && encryptedSongId.isEmpty) {
+    final opaquePlaylistId = _opaquePlaylistIdFor(playlist.id);
+    final effectiveOpaquePlaylistId =
+        fallbackPlaylistOpaqueId?.trim().isNotEmpty == true
+            ? fallbackPlaylistOpaqueId!.trim()
+            : opaquePlaylistId;
+    if (sourceTrackId.isEmpty) {
       return const <MusicTrack>[];
     }
 
@@ -419,10 +419,9 @@ class MusicRepositoryImpl implements MusicRepository {
         'playlistId': playlist.id,
         'seedTrackId': seedTrack.id,
         'songId': sourceTrackId,
-        'encryptedSongId': encryptedSongId,
-        'encryptedPlaylistId': encryptedPlaylistId,
-        'effectiveEncryptedPlaylistId': effectiveEncryptedPlaylistId,
-        'fallbackEncryptedPlaylistId': fallbackEncryptedPlaylistId,
+        'opaquePlaylistId': opaquePlaylistId,
+        'effectiveOpaquePlaylistId': effectiveOpaquePlaylistId,
+        'fallbackPlaylistOpaqueId': fallbackPlaylistOpaqueId,
         'attempt': attempt,
       });
       final response = await _client.requestNeteaseIntelligence(
@@ -433,8 +432,6 @@ class MusicRepositoryImpl implements MusicRepository {
             'title': seedTrack.title,
             'artist': seedTrack.artist,
             if (sourceTrackId.isNotEmpty) 'sourceTrackId': sourceTrackId,
-            if (encryptedSongId.isNotEmpty)
-              'encryptedSourceTrackId': encryptedSongId,
           },
           'playlist': {
             'providerId': 'netease',
@@ -442,8 +439,8 @@ class MusicRepositoryImpl implements MusicRepository {
             'title': playlist.title,
             if (_playlistOriginalIdFor(playlist.id).isNotEmpty)
               'sourcePlaylistId': _playlistOriginalIdFor(playlist.id),
-            if (effectiveEncryptedPlaylistId.isNotEmpty)
-              'encryptedPlaylistId': effectiveEncryptedPlaylistId,
+            if (effectiveOpaquePlaylistId.isNotEmpty)
+              'opaquePlaylistId': effectiveOpaquePlaylistId,
           },
           'count': 20,
           'mode': 'fromPlayAll',
@@ -469,7 +466,7 @@ class MusicRepositoryImpl implements MusicRepository {
         'dedupTrackCount': context['dedupTrackCount'],
         'fetchSource': context['source'],
         'fallbackUsed': context['fallbackUsed'],
-        'contextPlaylistEncryptedId': context['playlistEncryptedId'],
+        'contextPlaylistOpaqueId': context['playlistEncryptedId'],
         'attempt': attempt,
       });
       return rawTracks;
@@ -486,7 +483,6 @@ class MusicRepositoryImpl implements MusicRepository {
           'playlistId': playlist.id,
           'seedTrackId': seedTrack.id,
           'songId': sourceTrackId,
-          'encryptedSongId': encryptedSongId,
           'attempt': attemptIndex,
           'willRetry': false,
           'error': error.toString(),
@@ -547,7 +543,7 @@ class MusicRepositoryImpl implements MusicRepository {
     List<CustomMusicPlaylist>? customPlaylists,
     String? currentPlaylistId,
     String? neteaseLikedPlaylistId,
-    String? neteaseLikedPlaylistEncryptedId,
+    String? neteaseLikedPlaylistOpaqueId,
     int? localRevision,
   }) async {
     try {
@@ -568,8 +564,8 @@ class MusicRepositoryImpl implements MusicRepository {
           if (currentPlaylistId != null) 'currentPlaylistId': currentPlaylistId,
           if (neteaseLikedPlaylistId != null)
             'neteaseLikedPlaylistId': neteaseLikedPlaylistId,
-          if (neteaseLikedPlaylistEncryptedId != null)
-            'neteaseLikedPlaylistEncryptedId': neteaseLikedPlaylistEncryptedId,
+          if (neteaseLikedPlaylistOpaqueId != null)
+            'neteaseLikedPlaylistOpaqueId': neteaseLikedPlaylistOpaqueId,
           if (localRevision != null) 'localRevision': localRevision,
         },
       );
@@ -620,7 +616,7 @@ class MusicRepositoryImpl implements MusicRepository {
     return '';
   }
 
-  String _encryptedPlaylistIdFor(String playlistId) {
+  String _opaquePlaylistIdFor(String playlistId) {
     if (!playlistId.startsWith('netease-playlist:enc:')) {
       return '';
     }
@@ -738,8 +734,12 @@ class MusicRepositoryImpl implements MusicRepository {
         (response['currentPlaylistId'] ?? '').toString().trim();
     final neteaseLikedPlaylistId =
         (response['neteaseLikedPlaylistId'] ?? '').toString().trim();
-    final neteaseLikedPlaylistEncryptedId =
-        (response['neteaseLikedPlaylistEncryptedId'] ?? '').toString().trim();
+    final neteaseLikedPlaylistOpaqueId =
+        ((response['neteaseLikedPlaylistOpaqueId'] ??
+                    response['neteaseLikedPlaylistEncryptedId']) ??
+                '')
+            .toString()
+            .trim();
     final latestAiPlaylistMap =
         (response['latestAiPlaylist'] as Map?)?.cast<String, dynamic>();
     final aiPlaylistHistory =
@@ -764,10 +764,10 @@ class MusicRepositoryImpl implements MusicRepository {
       currentPlaylistId: currentPlaylistId.isEmpty ? null : currentPlaylistId,
       neteaseLikedPlaylistId:
           neteaseLikedPlaylistId.isEmpty ? null : neteaseLikedPlaylistId,
-      neteaseLikedPlaylistEncryptedId:
-          neteaseLikedPlaylistEncryptedId.isEmpty
+      neteaseLikedPlaylistOpaqueId:
+          neteaseLikedPlaylistOpaqueId.isEmpty
               ? null
-              : neteaseLikedPlaylistEncryptedId,
+              : neteaseLikedPlaylistOpaqueId,
       latestAiPlaylist:
           latestAiPlaylistMap == null
               ? null

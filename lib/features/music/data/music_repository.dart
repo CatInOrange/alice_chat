@@ -35,7 +35,7 @@ abstract class MusicRepository {
 
   Future<void> saveCustomPlaylists(List<CustomMusicPlaylist> playlists);
 
-  Future<String?> syncNeteaseFavoritePlaylistEncryptedId();
+  Future<String?> syncNeteaseFavoritePlaylistOpaqueId();
 
   Future<List<MusicTrack>> loadNeteaseFmTracks({int limit = 20});
 
@@ -49,7 +49,7 @@ abstract class MusicRepository {
     required MusicPlaylist playlist,
     required MusicTrack seedTrack,
     MusicTrack? startTrack,
-    String? fallbackEncryptedPlaylistId,
+    String? fallbackPlaylistOpaqueId,
   });
 
   Future<DateTime?> savePlaybackSnapshot({
@@ -62,7 +62,7 @@ abstract class MusicRepository {
     List<CustomMusicPlaylist>? customPlaylists,
     String? currentPlaylistId,
     String? neteaseLikedPlaylistId,
-    String? neteaseLikedPlaylistEncryptedId,
+    String? neteaseLikedPlaylistOpaqueId,
     int? localRevision,
   });
 }

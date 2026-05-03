@@ -1,11 +1,4 @@
-enum MusicArtworkTone {
-  twilight,
-  sunset,
-  aurora,
-  ocean,
-  rose,
-  midnight,
-}
+enum MusicArtworkTone { twilight, sunset, aurora, ocean, rose, midnight }
 
 class CachedPlaybackSource {
   const CachedPlaybackSource({
@@ -36,7 +29,8 @@ class CachedPlaybackSource {
       'providerId': providerId,
       'sourceTrackId': sourceTrackId,
       'streamUrl': streamUrl,
-      if (artworkUrl != null && artworkUrl!.isNotEmpty) 'artworkUrl': artworkUrl,
+      if (artworkUrl != null && artworkUrl!.isNotEmpty)
+        'artworkUrl': artworkUrl,
       if (mimeType != null && mimeType!.isNotEmpty) 'mimeType': mimeType,
       if (headers.isNotEmpty) 'headers': headers,
       if (expiresAt != null) 'expiresAt': expiresAt!.toIso8601String(),
@@ -45,24 +39,29 @@ class CachedPlaybackSource {
   }
 
   factory CachedPlaybackSource.fromMap(Map<String, dynamic> map) {
-    final rawHeaders = (map['headers'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final rawHeaders =
+        (map['headers'] as Map?)?.cast<String, dynamic>() ?? const {};
     return CachedPlaybackSource(
       providerId: (map['providerId'] ?? '').toString(),
       sourceTrackId: (map['sourceTrackId'] ?? '').toString(),
       streamUrl: (map['streamUrl'] ?? '').toString(),
-      artworkUrl: (map['artworkUrl'] ?? '').toString().trim().isEmpty
-          ? null
-          : (map['artworkUrl'] ?? '').toString(),
-      mimeType: (map['mimeType'] ?? '').toString().trim().isEmpty
-          ? null
-          : (map['mimeType'] ?? '').toString(),
+      artworkUrl:
+          (map['artworkUrl'] ?? '').toString().trim().isEmpty
+              ? null
+              : (map['artworkUrl'] ?? '').toString(),
+      mimeType:
+          (map['mimeType'] ?? '').toString().trim().isEmpty
+              ? null
+              : (map['mimeType'] ?? '').toString(),
       headers: rawHeaders.map((key, value) => MapEntry(key, '$value')),
-      expiresAt: (map['expiresAt'] ?? '').toString().trim().isEmpty
-          ? null
-          : DateTime.tryParse((map['expiresAt'] ?? '').toString()),
-      resolvedAt: (map['resolvedAt'] ?? '').toString().trim().isEmpty
-          ? null
-          : DateTime.tryParse((map['resolvedAt'] ?? '').toString()),
+      expiresAt:
+          (map['expiresAt'] ?? '').toString().trim().isEmpty
+              ? null
+              : DateTime.tryParse((map['expiresAt'] ?? '').toString()),
+      resolvedAt:
+          (map['resolvedAt'] ?? '').toString().trim().isEmpty
+              ? null
+              : DateTime.tryParse((map['resolvedAt'] ?? '').toString()),
     );
   }
 }
@@ -88,7 +87,6 @@ class MusicTrack {
     this.artworkUrl,
     this.preferredSourceId,
     this.sourceTrackId,
-    this.encryptedSourceTrackId,
     this.cachedPlayback,
   });
 
@@ -104,7 +102,6 @@ class MusicTrack {
   final String? artworkUrl;
   final String? preferredSourceId;
   final String? sourceTrackId;
-  final String? encryptedSourceTrackId;
   final CachedPlaybackSource? cachedPlayback;
 
   String get durationLabel {
@@ -124,13 +121,12 @@ class MusicTrack {
       'description': description,
       'artworkTone': artworkTone.name,
       'isFavorite': isFavorite,
-      if (artworkUrl != null && artworkUrl!.isNotEmpty) 'artworkUrl': artworkUrl,
+      if (artworkUrl != null && artworkUrl!.isNotEmpty)
+        'artworkUrl': artworkUrl,
       if (preferredSourceId != null && preferredSourceId!.isNotEmpty)
         'preferredSourceId': preferredSourceId,
       if (sourceTrackId != null && sourceTrackId!.isNotEmpty)
         'sourceTrackId': sourceTrackId,
-      if (encryptedSourceTrackId != null && encryptedSourceTrackId!.isNotEmpty)
-        'encryptedSourceTrackId': encryptedSourceTrackId,
       if (cachedPlayback != null) 'cachedPlayback': cachedPlayback!.toMap(),
     };
   }
@@ -153,26 +149,26 @@ class MusicTrack {
         (map['artworkTone'] ?? MusicArtworkTone.twilight.name).toString(),
       ),
       isFavorite: map['isFavorite'] == true,
-      artworkUrl: (map['artworkUrl'] ?? '').toString().trim().isEmpty
-          ? null
-          : (map['artworkUrl'] ?? '').toString(),
-      preferredSourceId: (map['preferredSourceId'] ?? '').toString().trim().isEmpty
-          ? null
-          : (map['preferredSourceId'] ?? '').toString(),
-      sourceTrackId: (map['sourceTrackId'] ?? '').toString().trim().isEmpty
-          ? null
-          : (map['sourceTrackId'] ?? '').toString(),
-      encryptedSourceTrackId:
-          (map['encryptedSourceTrackId'] ?? '').toString().trim().isEmpty
+      artworkUrl:
+          (map['artworkUrl'] ?? '').toString().trim().isEmpty
               ? null
-              : (map['encryptedSourceTrackId'] ?? '').toString(),
-      cachedPlayback: map['cachedPlayback'] is Map
-          ? CachedPlaybackSource.fromMap(
-              Map<String, dynamic>.from(
-                (map['cachedPlayback'] as Map).cast<String, dynamic>(),
-              ),
-            )
-          : null,
+              : (map['artworkUrl'] ?? '').toString(),
+      preferredSourceId:
+          (map['preferredSourceId'] ?? '').toString().trim().isEmpty
+              ? null
+              : (map['preferredSourceId'] ?? '').toString(),
+      sourceTrackId:
+          (map['sourceTrackId'] ?? '').toString().trim().isEmpty
+              ? null
+              : (map['sourceTrackId'] ?? '').toString(),
+      cachedPlayback:
+          map['cachedPlayback'] is Map
+              ? CachedPlaybackSource.fromMap(
+                Map<String, dynamic>.from(
+                  (map['cachedPlayback'] as Map).cast<String, dynamic>(),
+                ),
+              )
+              : null,
     );
   }
 
@@ -189,7 +185,6 @@ class MusicTrack {
     String? artworkUrl,
     String? preferredSourceId,
     String? sourceTrackId,
-    String? encryptedSourceTrackId,
     CachedPlaybackSource? cachedPlayback,
   }) {
     return MusicTrack(
@@ -205,27 +200,19 @@ class MusicTrack {
       artworkUrl: artworkUrl ?? this.artworkUrl,
       preferredSourceId: preferredSourceId ?? this.preferredSourceId,
       sourceTrackId: sourceTrackId ?? this.sourceTrackId,
-      encryptedSourceTrackId:
-          encryptedSourceTrackId ?? this.encryptedSourceTrackId,
       cachedPlayback: cachedPlayback ?? this.cachedPlayback,
     );
   }
 }
 
 class MusicLyricsLine {
-  const MusicLyricsLine({
-    required this.timestamp,
-    required this.text,
-  });
+  const MusicLyricsLine({required this.timestamp, required this.text});
 
   final Duration timestamp;
   final String text;
 
   Map<String, dynamic> toMap() {
-    return {
-      'timestampMs': timestamp.inMilliseconds,
-      'text': text,
-    };
+    return {'timestampMs': timestamp.inMilliseconds, 'text': text};
   }
 
   factory MusicLyricsLine.fromMap(Map<String, dynamic> map) {
@@ -265,7 +252,10 @@ class MusicLyrics {
     if (current != null) return current;
     final plain = (plainText ?? '').trim();
     if (plain.isEmpty) return null;
-    return MusicLyricsLine(timestamp: Duration.zero, text: plain.split('\n').first.trim());
+    return MusicLyricsLine(
+      timestamp: Duration.zero,
+      text: plain.split('\n').first.trim(),
+    );
   }
 
   MusicLyricsLine? nextLineAfter(Duration position) {
@@ -336,9 +326,10 @@ class MusicPlaylist {
       title: (map['title'] ?? '').toString(),
       subtitle: (map['subtitle'] ?? '').toString(),
       tag: (map['tag'] ?? '').toString(),
-      trackCount: trackCountRaw is num
-          ? trackCountRaw.toInt()
-          : int.tryParse('$trackCountRaw') ?? 0,
+      trackCount:
+          trackCountRaw is num
+              ? trackCountRaw.toInt()
+              : int.tryParse('$trackCountRaw') ?? 0,
       artworkTone: musicArtworkToneFromName(
         (map['artworkTone'] ?? MusicArtworkTone.twilight.name).toString(),
       ),
@@ -374,9 +365,10 @@ class MusicAiPlaylistDraft {
 
   MusicPlaylist get asPlaylist {
     final stamp = updatedAt ?? createdAt;
-    final timeLabel = stamp == null
-        ? subtitle
-        : '${_formatMonthDayTime(stamp)} · ${subtitle.isEmpty ? 'AI 歌单' : subtitle}';
+    final timeLabel =
+        stamp == null
+            ? subtitle
+            : '${_formatMonthDayTime(stamp)} · ${subtitle.isEmpty ? 'AI 歌单' : subtitle}';
     return MusicPlaylist(
       id: id,
       title: title,
@@ -407,8 +399,10 @@ class MusicAiPlaylistDraft {
       'artworkTone': artworkTone.name,
       'isAiGenerated': isAiGenerated,
       'tracks': tracks.map((item) => item.toMap()).toList(),
-      if (createdAt != null) 'createdAt': createdAt!.millisecondsSinceEpoch / 1000,
-      if (updatedAt != null) 'updatedAt': updatedAt!.millisecondsSinceEpoch / 1000,
+      if (createdAt != null)
+        'createdAt': createdAt!.millisecondsSinceEpoch / 1000,
+      if (updatedAt != null)
+        'updatedAt': updatedAt!.millisecondsSinceEpoch / 1000,
     };
   }
 
@@ -470,15 +464,16 @@ class CustomMusicPlaylist {
   final DateTime? updatedAt;
 
   MusicPlaylist get asPlaylist => MusicPlaylist(
-        id: id,
-        title: title,
-        subtitle: subtitle.isNotEmpty
+    id: id,
+    title: title,
+    subtitle:
+        subtitle.isNotEmpty
             ? subtitle
             : (description.isNotEmpty ? description : '手动整理的收藏歌单'),
-        tag: tag,
-        trackCount: tracks.length,
-        artworkTone: artworkTone,
-      );
+    tag: tag,
+    trackCount: tracks.length,
+    artworkTone: artworkTone,
+  );
 
   CustomMusicPlaylist copyWith({
     String? id,
@@ -513,8 +508,10 @@ class CustomMusicPlaylist {
       'tag': tag,
       'artworkTone': artworkTone.name,
       'tracks': tracks.map((item) => item.toMap()).toList(growable: false),
-      if (createdAt != null) 'createdAt': createdAt!.millisecondsSinceEpoch / 1000,
-      if (updatedAt != null) 'updatedAt': updatedAt!.millisecondsSinceEpoch / 1000,
+      if (createdAt != null)
+        'createdAt': createdAt!.millisecondsSinceEpoch / 1000,
+      if (updatedAt != null)
+        'updatedAt': updatedAt!.millisecondsSinceEpoch / 1000,
     };
   }
 

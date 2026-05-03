@@ -173,7 +173,7 @@ class NeteaseOpenApiService:
     def _resolve_song_encrypted_id(self, song: dict[str, Any], playlist_encrypted_id: str) -> str:
         encrypted = self._normalize_encrypted_id(
             self._first_non_empty(
-                song.get('encryptedSourceTrackId'),
+                song.get('opaqueTrackId'),
                 song.get('encryptedTrackId'),
                 song.get('sourceEncryptedId'),
             )
@@ -224,8 +224,8 @@ class NeteaseOpenApiService:
             return ''
         encrypted = self._normalize_encrypted_id(
             self._first_non_empty(
+                playlist.get('opaquePlaylistId'),
                 playlist.get('encryptedPlaylistId'),
-                playlist.get('encryptedSourcePlaylistId'),
             )
         )
         if encrypted:
@@ -233,6 +233,28 @@ class NeteaseOpenApiService:
         return ''
 
     def _lookup_song_encrypted_id(self, *, playlist_encrypted_id: str, source_track_id: str) -> str:
+        normalized_playlist_id = self._normalize_encrypted_id(playlist_encrypted_id)
+        normalized_source_track_id = str(source_track_id or '').strip()
+        if not normalized_playlist_id or not normalized_source_track_id:
+            return ''
+        payload = self._run_json(
+            'playlist',
+            'tracks',
+            '--playlistId',
+            normalized_playlist_id,
+            '--limit',
+            '500',
+        )
+        data = payload.get('data')
+        if not isinstance(data, list):
+            return ''
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            original_id = str(item.get('originalId') or '').strip()
+            if original_id != normalized_source_track_id:
+                continue
+            return self._normalize_encrypted_id(self._first_non_empty(item.get('id')))
         return ''
 
     def _track_from_openapi_item(self, item: dict[str, Any]) -> MusicTrackDto | None:
@@ -255,7 +277,7 @@ class NeteaseOpenApiService:
         duration_ms = item.get('duration')
         if not isinstance(duration_ms, int):
             duration_ms = int(duration_ms or 0)
-        source_track_id = original_id or ''
+        source_track_id = original_id or track_id or ''
         return MusicTrackDto(
             id=f'netease:{source_track_id or track_id or title}',
             title=title,
@@ -268,7 +290,6 @@ class NeteaseOpenApiService:
             artworkUrl=cover or None,
             preferredSourceId='netease',
             sourceTrackId=source_track_id or None,
-            encryptedSourceTrackId=track_id or None,
             isFavorite=bool(item.get('liked') is True),
         )
 

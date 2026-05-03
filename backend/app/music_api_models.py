@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class MusicApiModel(BaseModel):
@@ -33,7 +33,6 @@ class MusicTrackDto(MusicApiModel):
     artworkUrl: str | None = None
     preferredSourceId: str | None = None
     sourceTrackId: str | None = None
-    encryptedSourceTrackId: str | None = None
     cachedPlayback: CachedPlaybackSourceDto | None = None
 
 
@@ -156,7 +155,11 @@ class MusicStateDto(MusicApiModel):
     positionMs: int = 0
     currentPlaylistId: str | None = None
     neteaseLikedPlaylistId: str | None = None
-    neteaseLikedPlaylistEncryptedId: str | None = None
+    neteaseLikedPlaylistOpaqueId: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices('neteaseLikedPlaylistOpaqueId', 'neteaseLikedPlaylistEncryptedId'),
+        serialization_alias='neteaseLikedPlaylistOpaqueId',
+    )
     neteaseLikedPlaylistOriginalId: str | None = None
     localRevision: int | None = None
     updatedAt: float | None = None
@@ -170,7 +173,11 @@ class MusicHomeDto(MusicApiModel):
     likedTracks: list[MusicTrackDto] = Field(default_factory=list)
     customPlaylists: list[CustomMusicPlaylistDto] = Field(default_factory=list)
     neteaseLikedPlaylistId: str | None = None
-    neteaseLikedPlaylistEncryptedId: str | None = None
+    neteaseLikedPlaylistOpaqueId: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices('neteaseLikedPlaylistOpaqueId', 'neteaseLikedPlaylistEncryptedId'),
+        serialization_alias='neteaseLikedPlaylistOpaqueId',
+    )
     neteaseLikedPlaylistOriginalId: str | None = None
     localRevision: int | None = None
     updatedAt: float | None = None
@@ -190,7 +197,11 @@ class MusicStatePatchDto(MusicApiModel):
     positionMs: int | None = None
     currentPlaylistId: str | None = None
     neteaseLikedPlaylistId: str | None = None
-    neteaseLikedPlaylistEncryptedId: str | None = None
+    neteaseLikedPlaylistOpaqueId: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices('neteaseLikedPlaylistOpaqueId', 'neteaseLikedPlaylistEncryptedId'),
+        serialization_alias='neteaseLikedPlaylistOpaqueId',
+    )
     neteaseLikedPlaylistOriginalId: str | None = None
     localRevision: int | None = None
 
@@ -222,7 +233,11 @@ class MusicIntelligenceTrackRefDto(MusicApiModel):
     title: str | None = None
     artist: str | None = None
     sourceTrackId: str | None = None
-    encryptedSourceTrackId: str | None = None
+    opaqueTrackId: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices('opaqueTrackId', 'encryptedSourceTrackId'),
+        serialization_alias='opaqueTrackId',
+    )
 
 
 class MusicIntelligencePlaylistRefDto(MusicApiModel):
@@ -230,7 +245,11 @@ class MusicIntelligencePlaylistRefDto(MusicApiModel):
     playlistId: str | None = None
     title: str | None = None
     sourcePlaylistId: str | None = None
-    encryptedPlaylistId: str | None = None
+    opaquePlaylistId: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices('opaquePlaylistId', 'encryptedPlaylistId'),
+        serialization_alias='opaquePlaylistId',
+    )
 
 
 class MusicIntelligenceRequestDto(MusicApiModel):

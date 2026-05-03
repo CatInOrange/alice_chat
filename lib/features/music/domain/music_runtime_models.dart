@@ -4,21 +4,17 @@ class MusicSourceRef {
   const MusicSourceRef({
     required this.providerId,
     required this.sourceTrackId,
-    this.encryptedSourceTrackId,
     this.sourceUrl,
   });
 
   final String providerId;
   final String sourceTrackId;
-  final String? encryptedSourceTrackId;
   final String? sourceUrl;
 
   Map<String, dynamic> toMap() {
     return {
       'providerId': providerId,
       'sourceTrackId': sourceTrackId,
-      if (encryptedSourceTrackId != null && encryptedSourceTrackId!.isNotEmpty)
-        'encryptedSourceTrackId': encryptedSourceTrackId,
       if (sourceUrl != null && sourceUrl!.isNotEmpty) 'sourceUrl': sourceUrl,
     };
   }
@@ -27,10 +23,6 @@ class MusicSourceRef {
     return MusicSourceRef(
       providerId: (map['providerId'] ?? '').toString(),
       sourceTrackId: (map['sourceTrackId'] ?? '').toString(),
-      encryptedSourceTrackId:
-          (map['encryptedSourceTrackId'] ?? '').toString().trim().isEmpty
-              ? null
-              : (map['encryptedSourceTrackId'] ?? '').toString(),
       sourceUrl:
           (map['sourceUrl'] ?? '').toString().trim().isEmpty
               ? null
@@ -64,9 +56,6 @@ class CanonicalTrack {
   final String? artworkUrl;
   final List<MusicSourceRef> sourceRefs;
 
-  String? get encryptedSourceTrackId =>
-      sourceRefs.isNotEmpty ? sourceRefs.first.encryptedSourceTrackId : null;
-
   MusicTrack toMusicTrack({bool isFavorite = false}) {
     final preferredRef = sourceRefs.isNotEmpty ? sourceRefs.first : null;
     return MusicTrack(
@@ -82,7 +71,6 @@ class CanonicalTrack {
       artworkUrl: artworkUrl,
       preferredSourceId: preferredRef?.providerId,
       sourceTrackId: preferredRef?.sourceTrackId,
-      encryptedSourceTrackId: preferredRef?.encryptedSourceTrackId,
     );
   }
 
@@ -93,7 +81,6 @@ class CanonicalTrack {
               MusicSourceRef(
                 providerId: track.preferredSourceId!,
                 sourceTrackId: track.sourceTrackId!,
-                encryptedSourceTrackId: track.encryptedSourceTrackId,
               ),
             ]
             : const <MusicSourceRef>[];

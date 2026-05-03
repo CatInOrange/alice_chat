@@ -118,8 +118,9 @@ class MusicLocalCacheStore {
           neteaseLikedPlaylistId: _nullableString(
             stateMap['neteaseLikedPlaylistId'],
           ),
-          neteaseLikedPlaylistEncryptedId: _nullableString(
-            stateMap['neteaseLikedPlaylistEncryptedId'],
+          neteaseLikedPlaylistOpaqueId: _nullableString(
+            stateMap['neteaseLikedPlaylistOpaqueId'] ??
+                stateMap['neteaseLikedPlaylistEncryptedId'],
           ),
           isPlaying: stateMap['isPlaying'] == true,
           position: Duration(milliseconds: _intValue(stateMap['positionMs'])),
@@ -181,9 +182,9 @@ class MusicLocalCacheStore {
           'currentPlaylistId': snapshot.state.currentPlaylistId,
         if (snapshot.state.neteaseLikedPlaylistId != null)
           'neteaseLikedPlaylistId': snapshot.state.neteaseLikedPlaylistId,
-        if (snapshot.state.neteaseLikedPlaylistEncryptedId != null)
-          'neteaseLikedPlaylistEncryptedId':
-              snapshot.state.neteaseLikedPlaylistEncryptedId,
+        if (snapshot.state.neteaseLikedPlaylistOpaqueId != null)
+          'neteaseLikedPlaylistOpaqueId':
+              snapshot.state.neteaseLikedPlaylistOpaqueId,
         'isPlaying': snapshot.state.isPlaying,
         'positionMs': snapshot.state.position.inMilliseconds,
       },

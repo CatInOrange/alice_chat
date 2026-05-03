@@ -137,7 +137,7 @@ class MusicStore extends ChangeNotifier {
   String? _loadingPlaylistId;
   String? _currentPlaylistId;
   String? _neteaseLikedPlaylistId;
-  String? _neteaseLikedPlaylistEncryptedId;
+  String? _neteaseLikedPlaylistOpaqueId;
   bool _shuffleEnabled = false;
   MusicRepeatMode _repeatMode = MusicRepeatMode.off;
   MusicPlaylist? _intelligenceSourcePlaylist;
@@ -1269,9 +1269,8 @@ class MusicStore extends ChangeNotifier {
         'title': _currentTrack.title,
         'providerId': _currentTrackProviderId(),
         'sourceTrackId': sourceTrackId,
-        'encryptedSourceTrackId': _currentTrack.encryptedSourceTrackId,
         'neteaseLikedPlaylistId': _neteaseLikedPlaylistId,
-        'neteaseLikedPlaylistEncryptedId': _neteaseLikedPlaylistEncryptedId,
+        'neteaseLikedPlaylistOpaqueId': _neteaseLikedPlaylistOpaqueId,
       },
       force: true,
     );
@@ -1304,9 +1303,8 @@ class MusicStore extends ChangeNotifier {
         'intelligence.enable.blocked_no_context',
         extra: {
           'sourceTrackId': sourceTrackId,
-          'encryptedSourceTrackId': _currentTrack.encryptedSourceTrackId,
           'neteaseLikedPlaylistId': _neteaseLikedPlaylistId,
-          'neteaseLikedPlaylistEncryptedId': _neteaseLikedPlaylistEncryptedId,
+          'neteaseLikedPlaylistOpaqueId': _neteaseLikedPlaylistOpaqueId,
         },
         force: true,
         level: 'ERROR',
@@ -1324,11 +1322,10 @@ class MusicStore extends ChangeNotifier {
       'intelligence.enable.ready',
       extra: {
         'sourceTrackId': sourceTrackId,
-        'encryptedSourceTrackId': _currentTrack.encryptedSourceTrackId,
         'playlistId': playlist.id,
         'playlistTitle': playlist.title,
         'playlistTag': playlist.tag,
-        'neteaseLikedPlaylistEncryptedId': _neteaseLikedPlaylistEncryptedId,
+        'neteaseLikedPlaylistOpaqueId': _neteaseLikedPlaylistOpaqueId,
       },
       force: true,
     );
@@ -1381,7 +1378,7 @@ class MusicStore extends ChangeNotifier {
           playlist: playlist,
           seedTrack: startTrack,
           startTrack: startTrack,
-          fallbackEncryptedPlaylistId: _neteaseLikedPlaylistEncryptedId,
+          fallbackPlaylistOpaqueId: _neteaseLikedPlaylistOpaqueId,
         );
         _intelligenceCache[cacheKey] = tracks;
         _debugState(
@@ -2059,15 +2056,15 @@ class MusicStore extends ChangeNotifier {
 
   Future<void> syncLikedPlaylistFromNetease() async {
     await ensurePlaybackReady();
-    await _repository.syncNeteaseFavoritePlaylistEncryptedId();
+    await _repository.syncNeteaseFavoritePlaylistOpaqueId();
     final remotePlaylists = await _repository.loadUserPlaylists();
     final remoteLikedPlaylist = _findNeteaseLikedPlaylist(remotePlaylists);
     if (remoteLikedPlaylist == null) {
       throw Exception('未获取到网易云喜欢歌单');
     }
     _neteaseLikedPlaylistId = remoteLikedPlaylist.id;
-    _neteaseLikedPlaylistEncryptedId =
-        await _repository.syncNeteaseFavoritePlaylistEncryptedId();
+    _neteaseLikedPlaylistOpaqueId =
+        await _repository.syncNeteaseFavoritePlaylistOpaqueId();
     await _mergeRemoteLikedTracks(remoteLikedPlaylist);
     final basePlaylists =
         remotePlaylists.isNotEmpty
@@ -2231,10 +2228,6 @@ class MusicStore extends ChangeNotifier {
           (candidate.sourceTrackId ?? '').trim().isNotEmpty
               ? candidate.sourceTrackId
               : base.sourceTrackId,
-      encryptedSourceTrackId:
-          (candidate.encryptedSourceTrackId ?? '').trim().isNotEmpty
-              ? candidate.encryptedSourceTrackId
-              : base.encryptedSourceTrackId,
       cachedPlayback:
           (candidate.cachedPlayback?.artworkUrl ?? '').trim().isNotEmpty ||
                   (candidate.cachedPlayback?.streamUrl ?? '').trim().isNotEmpty
@@ -2661,8 +2654,7 @@ class MusicStore extends ChangeNotifier {
           customPlaylists: payload.customPlaylists,
           currentPlaylistId: payload.currentPlaylistId,
           neteaseLikedPlaylistId: payload.neteaseLikedPlaylistId,
-          neteaseLikedPlaylistEncryptedId:
-              payload.neteaseLikedPlaylistEncryptedId,
+          neteaseLikedPlaylistOpaqueId: payload.neteaseLikedPlaylistOpaqueId,
           localRevision: payload.localRevision,
         );
         if (payload.localRevision >= _lastAckedRevision) {
@@ -2691,7 +2683,7 @@ class MusicStore extends ChangeNotifier {
         customPlaylists: _customPlaylists,
         currentPlaylistId: _currentPlaylistId,
         neteaseLikedPlaylistId: _neteaseLikedPlaylistId,
-        neteaseLikedPlaylistEncryptedId: _neteaseLikedPlaylistEncryptedId,
+        neteaseLikedPlaylistOpaqueId: _neteaseLikedPlaylistOpaqueId,
         isPlaying: _isPlaying,
         position: _position,
       ),
@@ -2717,7 +2709,7 @@ class MusicStore extends ChangeNotifier {
         customPlaylists: _customPlaylists,
         currentPlaylistId: _currentPlaylistId,
         neteaseLikedPlaylistId: _neteaseLikedPlaylistId,
-        neteaseLikedPlaylistEncryptedId: _neteaseLikedPlaylistEncryptedId,
+        neteaseLikedPlaylistOpaqueId: _neteaseLikedPlaylistOpaqueId,
         localRevision: _localRevision,
       ),
     );
@@ -2937,8 +2929,7 @@ class MusicStore extends ChangeNotifier {
     );
     _currentPlaylistId = _normalizePlaylistId(state.currentPlaylistId);
     _neteaseLikedPlaylistId = state.neteaseLikedPlaylistId?.trim();
-    _neteaseLikedPlaylistEncryptedId =
-        state.neteaseLikedPlaylistEncryptedId?.trim();
+    _neteaseLikedPlaylistOpaqueId = state.neteaseLikedPlaylistOpaqueId?.trim();
     _latestAiPlaylist = state.latestAiPlaylist ?? _latestAiPlaylist;
     _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
       state.aiPlaylistHistory,
@@ -2983,8 +2974,7 @@ class MusicStore extends ChangeNotifier {
         home.customPlaylists,
       );
       _neteaseLikedPlaylistId = home.neteaseLikedPlaylistId?.trim();
-      _neteaseLikedPlaylistEncryptedId =
-          home.neteaseLikedPlaylistEncryptedId?.trim();
+      _neteaseLikedPlaylistOpaqueId = home.neteaseLikedPlaylistOpaqueId?.trim();
       _latestAiPlaylist = home.latestAiPlaylist ?? _latestAiPlaylist;
       _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
         home.aiPlaylistHistory,
@@ -3018,8 +3008,8 @@ class MusicStore extends ChangeNotifier {
     final remoteLikedPlaylist = _findNeteaseLikedPlaylist(remotePlaylists);
     if (remoteLikedPlaylist != null) {
       _neteaseLikedPlaylistId = remoteLikedPlaylist.id;
-      _neteaseLikedPlaylistEncryptedId ??=
-          await _repository.syncNeteaseFavoritePlaylistEncryptedId();
+      _neteaseLikedPlaylistOpaqueId ??=
+          await _repository.syncNeteaseFavoritePlaylistOpaqueId();
       await _mergeRemoteLikedTracks(remoteLikedPlaylist);
     }
     final basePlaylists =
@@ -3047,7 +3037,7 @@ class MusicStateSnapshot {
     this.customPlaylists = const [],
     this.currentPlaylistId,
     this.neteaseLikedPlaylistId,
-    this.neteaseLikedPlaylistEncryptedId,
+    this.neteaseLikedPlaylistOpaqueId,
     this.latestAiPlaylist,
     this.aiPlaylistHistory = const [],
     this.serverUpdatedAt,
@@ -3065,7 +3055,7 @@ class MusicStateSnapshot {
   final List<CustomMusicPlaylist> customPlaylists;
   final String? currentPlaylistId;
   final String? neteaseLikedPlaylistId;
-  final String? neteaseLikedPlaylistEncryptedId;
+  final String? neteaseLikedPlaylistOpaqueId;
   final MusicAiPlaylistDraft? latestAiPlaylist;
   final List<MusicAiPlaylistDraft> aiPlaylistHistory;
   final DateTime? serverUpdatedAt;

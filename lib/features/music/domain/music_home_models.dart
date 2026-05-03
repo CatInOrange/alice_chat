@@ -9,7 +9,7 @@ class MusicHomeBundle {
     this.likedTracks = const [],
     this.customPlaylists = const [],
     this.neteaseLikedPlaylistId,
-    this.neteaseLikedPlaylistEncryptedId,
+    this.neteaseLikedPlaylistOpaqueId,
     this.serverUpdatedAt,
     this.remoteRevision = 0,
   });
@@ -21,7 +21,7 @@ class MusicHomeBundle {
   final List<MusicTrack> likedTracks;
   final List<CustomMusicPlaylist> customPlaylists;
   final String? neteaseLikedPlaylistId;
-  final String? neteaseLikedPlaylistEncryptedId;
+  final String? neteaseLikedPlaylistOpaqueId;
   final DateTime? serverUpdatedAt;
   final int remoteRevision;
 }

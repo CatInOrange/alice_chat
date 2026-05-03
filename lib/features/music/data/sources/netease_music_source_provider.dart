@@ -50,8 +50,6 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
       final hydratedTrack = (detailTrack ?? track).copyWith(
         preferredSourceId: id,
         sourceTrackId: sourceTrackId,
-        encryptedSourceTrackId:
-            detailTrack?.encryptedSourceTrackId ?? track.encryptedSourceTrackId,
       );
       return SourceCandidate(
         providerId: id,
@@ -376,11 +374,10 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
   }
 
   SourceCandidate? _candidateFromSong(Map<String, dynamic> song) {
-    final encryptedTrackId = (song['id'] ?? '').toString().trim();
     final originalTrackId =
         (song['originalId'] ?? song['id'] ?? '').toString().trim();
     final title = (song['name'] ?? '').toString().trim();
-    if (encryptedTrackId.isEmpty || title.isEmpty) {
+    if (originalTrackId.isEmpty || title.isEmpty) {
       return null;
     }
 
@@ -415,7 +412,6 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
       artworkUrl: artworkUrl.isEmpty ? null : artworkUrl,
       preferredSourceId: id,
       sourceTrackId: originalTrackId,
-      encryptedSourceTrackId: encryptedTrackId,
     );
 
     return SourceCandidate(

@@ -78,7 +78,7 @@ class MusicService:
                     'likedTracks': liked_tracks_payload if isinstance(liked_tracks_payload, list) else [],
                     'customPlaylists': custom_playlists_payload if isinstance(custom_playlists_payload, list) else [],
                     'neteaseLikedPlaylistId': state.get('neteaseLikedPlaylistId'),
-                    'neteaseLikedPlaylistEncryptedId': state.get('neteaseLikedPlaylistEncryptedId'),
+                    'neteaseLikedPlaylistOpaqueId': state.get('neteaseLikedPlaylistOpaqueId') or state.get('neteaseLikedPlaylistEncryptedId'),
                     'localRevision': state.get('localRevision'),
                     'updatedAt': state.get('updatedAt'),
                 }
@@ -158,7 +158,7 @@ class MusicService:
 
     def load_netease_intelligence(self, request: MusicIntelligenceRequestDto) -> NeteaseOpenApiResult:
         state = self.store.load_state()
-        fallback_playlist_id = str(state.get('neteaseLikedPlaylistEncryptedId') or '').strip()
+        fallback_playlist_id = str(state.get('neteaseLikedPlaylistOpaqueId') or state.get('neteaseLikedPlaylistEncryptedId') or '').strip()
         song_payload = request.song.model_dump(exclude_none=True)
         playlist_payload = None if request.playlist is None else request.playlist.model_dump(exclude_none=True)
         last_error: Exception | None = None
@@ -167,12 +167,12 @@ class MusicService:
         for attempt in range(1, max_attempts + 1):
             try:
                 _LOG.info(
-                    '[music.intelligence.request] attempt=%s/%s song=%s sourceTrackId=%s encryptedSongId=%s playlistId=%s fallbackPlaylistId=%s mode=%s count=%s',
+                    '[music.intelligence.request] attempt=%s/%s song=%s sourceTrackId=%s opaqueTrackId=%s playlistId=%s fallbackPlaylistId=%s mode=%s count=%s',
                     attempt,
                     max_attempts,
                     song_payload.get('trackId') or song_payload.get('id'),
                     song_payload.get('sourceTrackId'),
-                    song_payload.get('encryptedSourceTrackId') or song_payload.get('encryptedTrackId'),
+                    song_payload.get('opaqueTrackId'),
                     None if playlist_payload is None else playlist_payload.get('playlistId'),
                     fallback_playlist_id or None,
                     request.mode,
@@ -199,7 +199,7 @@ class MusicService:
                 )
                 patch: dict[str, object] = {}
                 if result.playlist_encrypted_id and result.playlist_encrypted_id != fallback_playlist_id:
-                    patch['neteaseLikedPlaylistEncryptedId'] = result.playlist_encrypted_id
+                    patch['neteaseLikedPlaylistOpaqueId'] = result.playlist_encrypted_id
                 if patch:
                     self.store.save_state(patch)
                 return result
@@ -208,14 +208,14 @@ class MusicService:
                 will_retry = attempt < max_attempts
                 next_delay = retry_delays[attempt - 1] if will_retry else None
                 _LOG.warning(
-                    '[music.intelligence.failure] attempt=%s/%s willRetry=%s nextDelaySeconds=%s song=%s sourceTrackId=%s encryptedSongId=%s playlistId=%s fallbackPlaylistId=%s error=%s',
+                    '[music.intelligence.failure] attempt=%s/%s willRetry=%s nextDelaySeconds=%s song=%s sourceTrackId=%s opaqueTrackId=%s playlistId=%s fallbackPlaylistId=%s error=%s',
                     attempt,
                     max_attempts,
                     will_retry,
                     next_delay,
                     song_payload.get('trackId') or song_payload.get('id'),
                     song_payload.get('sourceTrackId'),
-                    song_payload.get('encryptedSourceTrackId') or song_payload.get('encryptedTrackId'),
+                    song_payload.get('opaqueTrackId'),
                     None if playlist_payload is None else playlist_payload.get('playlistId'),
                     fallback_playlist_id or None,
                     str(exc),
@@ -238,7 +238,7 @@ class MusicService:
         original_id = str(playlist.get('originalId') or '').strip()
         patch = {}
         if encrypted_id:
-            patch['neteaseLikedPlaylistEncryptedId'] = encrypted_id
+            patch['neteaseLikedPlaylistOpaqueId'] = encrypted_id
         if original_id:
             patch['neteaseLikedPlaylistOriginalId'] = original_id
         if patch:

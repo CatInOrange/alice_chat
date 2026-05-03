@@ -15,7 +15,7 @@ class MusicRemoteSnapshotPayload {
     required this.customPlaylists,
     required this.currentPlaylistId,
     required this.neteaseLikedPlaylistId,
-    required this.neteaseLikedPlaylistEncryptedId,
+    required this.neteaseLikedPlaylistOpaqueId,
     required this.localRevision,
   });
 
@@ -28,7 +28,7 @@ class MusicRemoteSnapshotPayload {
   final List<CustomMusicPlaylist> customPlaylists;
   final String? currentPlaylistId;
   final String? neteaseLikedPlaylistId;
-  final String? neteaseLikedPlaylistEncryptedId;
+  final String? neteaseLikedPlaylistOpaqueId;
   final int localRevision;
 }
 
