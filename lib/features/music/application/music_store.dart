@@ -1919,8 +1919,27 @@ class MusicStore extends ChangeNotifier {
   }
 
   void _handlePlaybackState(PlaybackAdapterState state) {
-    _isPreparingPlayback = false;
     final track = state.currentTrack;
+    final expectedQueueHeadId =
+        _queue.isNotEmpty
+            ? _queue.first.track.id.trim()
+            : _currentTrack.id.trim();
+    final incomingTrackId = track?.id.trim() ?? '';
+    final shouldIgnoreStaleTrackDuringSwitch =
+        _isPreparingPlayback &&
+        expectedQueueHeadId.isNotEmpty &&
+        incomingTrackId.isNotEmpty &&
+        incomingTrackId != expectedQueueHeadId;
+
+    if (shouldIgnoreStaleTrackDuringSwitch) {
+      if (state.error != null && state.error!.trim().isNotEmpty) {
+        _error = state.error;
+      }
+      notifyListeners();
+      return;
+    }
+
+    _isPreparingPlayback = false;
     if (track != null) {
       final previousTrackId = _currentTrack.id;
       _currentTrack = track.copyWith(isFavorite: isTrackLiked(track.id));
