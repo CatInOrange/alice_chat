@@ -3582,68 +3582,81 @@ class _DesktopSidebarPlaylistTile extends StatelessWidget {
               ? palette.gradient.first.withValues(alpha: 0.12)
               : Colors.transparent,
       borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: dense ? 10 : 12,
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: dense ? 36 : 40,
-                height: dense ? 36 : 40,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: palette.gradient),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(
-                  playlist.isAiGenerated
-                      ? Icons.auto_awesome_rounded
-                      : playlist.id == 'netease-fm'
-                      ? Icons.radio_rounded
-                      : palette.icon,
-                  color: Colors.white,
-                  size: dense ? 18 : 20,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      playlist.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: dense ? 10 : 12,
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: onTap,
+                onLongPress: onLongPress,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 2,
+                    vertical: 2,
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: dense ? 36 : 40,
+                        height: dense ? 36 : 40,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(colors: palette.gradient),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Icon(
+                          playlist.isAiGenerated
+                              ? Icons.auto_awesome_rounded
+                              : playlist.id == 'netease-fm'
+                              ? Icons.radio_rounded
+                              : palette.icon,
+                          color: Colors.white,
+                          size: dense ? 18 : 20,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      playlist.id == 'netease-fm'
-                          ? '连续播放'
-                          : '${playlist.trackCount} 首',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  ],
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              playlist.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              playlist.id == 'netease-fm'
+                                  ? '连续播放'
+                                  : '${playlist.trackCount} 首',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-              IconButton(
-                onPressed: onPlay,
-                icon: const Icon(Icons.play_circle_fill_rounded),
-                iconSize: dense ? 22 : 24,
-                splashRadius: 18,
-                visualDensity: VisualDensity.compact,
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(width: 6),
+            IconButton(
+              onPressed: onPlay,
+              icon: const Icon(Icons.play_circle_fill_rounded),
+              iconSize: dense ? 22 : 24,
+              splashRadius: 18,
+              visualDensity: VisualDensity.compact,
+            ),
+          ],
         ),
       ),
     );
