@@ -306,6 +306,31 @@ class MusicStore extends ChangeNotifier {
     return _currentPlaylistId == normalized && isActivelyPlaying;
   }
 
+  void debugLikedPlaylistButtonState({
+    required String source,
+    bool? pendingAction,
+    bool? widgetBusy,
+    bool? widgetPlaying,
+    bool? widgetActive,
+  }) {
+    _debugState(
+      'liked_playlist.button_state',
+      extra: {
+        'source': source,
+        'likedPlaylistId': likedPlaylist.id,
+        'likedTrackCount': _likedTracks.length,
+        'pendingAction': pendingAction,
+        'widgetBusy': widgetBusy,
+        'widgetPlaying': widgetPlaying,
+        'widgetActive': widgetActive,
+        'storePlaylistLoading': isPlaylistLoading(likedPlaylist.id),
+        'storePlaylistPlaying': isPlaylistPlaying(likedPlaylist.id),
+        'storePlaylistActive': isPlaylistActive(likedPlaylist.id),
+      },
+      force: true,
+    );
+  }
+
   Future<void> reloadConfig() async {
     final config = await OpenClawSettingsStore.load();
     _client = OpenClawHttpClient(config);

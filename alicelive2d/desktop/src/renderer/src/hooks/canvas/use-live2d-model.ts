@@ -18,6 +18,7 @@ import {
 } from "@/runtime/live2d-init-scheduler-utils.ts";
 import { FLIRT_TRIGGER_LINES, pickRandomTeaseLine } from "@/runtime/tease-lines";
 import { playTeaseAudio } from "@/runtime/tease-playback";
+import { isLive2DActive } from "@/runtime/live2d-visibility-runtime";
 
 interface UseLive2DModelProps {
   modelInfo: ModelInfo | undefined;
@@ -308,7 +309,41 @@ export const useLive2DModel = ({
     return { x, y };
   }, [getCanvasScale]);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+  const relayTouchEvent = useCallback((phase: 'begin' | 'move' | 'end', clientX: number, clientY: number) => {
+    const view = LAppDelegate.getInstance().getView();
+    const canvas = canvasRef.current;
+    if (!view || !canvas) {
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    const localX = clientX - rect.left;
+    const localY = clientY - rect.top;
+
+    if (phase === 'begin' && view.onTouchesBegan) {
+      view.onTouchesBegan(localX, localY);
+      return;
+    }
+
+    if (phase === 'move' && view.onTouchesMoved) {
+      view.onTouchesMoved(localX, localY);
+      return;
+    }
+
+    if (phase === 'end' && view.onTouchesEnded) {
+      view.onTouchesEnded(localX, localY);
+    }
+  }, [canvasRef]);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (!isLive2DActive()) {
+      return;
+    }
+
+    if (e.pointerType === 'mouse' && e.button !== 0) {
+      return;
+    }
+
     const adapter = (window as any).getLAppAdapter?.();
     if (!adapter || !canvasRef.current) return;
 
@@ -348,6 +383,10 @@ export const useLive2DModel = ({
       isPotentialTapRef.current = true;
       setIsDragging(false); // Ensure dragging is false initially
 
+      if (!isPet) {
+        relayTouchEvent('begin', e.clientX, e.clientY);
+      }
+
       // Store initial model position IF drag starts later
       if (model._modelMatrix) {
         const matrix = model._modelMatrix.getArray();
@@ -362,9 +401,9 @@ export const useLive2DModel = ({
         isHitOnModel,
       });
     }
-  }, [canvasRef, modelInfo]);
+  }, [canvasRef, isPet, modelInfo, relayTouchEvent]);
 
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
     const adapter = (window as any).getLAppAdapter?.();
     const view = LAppDelegate.getInstance().getView();
     const model = adapter?.getModel();
@@ -401,8 +440,12 @@ export const useLive2DModel = ({
     }
     // --- End Start Drag Logic ---
 
+    if (!isPet && (isPotentialTapRef.current || isDragging) && adapter && view && model && canvasRef.current) {
+      relayTouchEvent('move', e.clientX, e.clientY);
+    }
+
     // --- Continue Drag Logic ---
-    if (isDragging && adapter && view && model && canvasRef.current) {
+    if (isPet && isDragging && adapter && view && model && canvasRef.current) {
       const canvas = canvasRef.current;
       const rect = canvas.getBoundingClientRect();
       const currentX = e.clientX - rect.left; // Current screen X relative to canvas
@@ -462,9 +505,9 @@ export const useLive2DModel = ({
       }
     }
     // --- End Pet Hover Logic ---
-  }, [isPet, isDragging, electronApi, canvasRef]);
+  }, [isPet, isDragging, electronApi, canvasRef, relayTouchEvent]);
 
-  const handleMouseUp = useCallback((e: React.MouseEvent) => {
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
     const maybeTriggerFlirtyReply = () => {
       LAppDelegate.getInstance().showTouchDebug("[DEBUG] maybeTriggerFlirtyReply called");
       const state = useAppStore.getState();
@@ -517,23 +560,28 @@ export const useLive2DModel = ({
     const model = adapter?.getModel();
     const view = LAppDelegate.getInstance().getView();
 
+    if (!isPet && (isDragging || isPotentialTapRef.current)) {
+      relayTouchEvent('end', e.clientX, e.clientY);
+    }
+
     if (isDragging) {
       LAppDelegate.getInstance().showTouchDebug("[DEBUG] isDragging=true, calling maybeTriggerFlirtyReply...");
       reportLive2DDragDebug("drag_finished", {
         clientX: e.clientX,
         clientY: e.clientY,
       });
-      // Finalize drag
       setIsDragging(false);
-      maybeTriggerFlirtyReply();
-      if (adapter) {
-        const currentModel = adapter.getModel(); // Re-get model in case adapter changed
-        if (currentModel && currentModel._modelMatrix) {
-          const matrix = currentModel._modelMatrix.getArray();
-          const finalPos = { x: matrix[12], y: matrix[13] };
-          modelPositionRef.current = finalPos;
-          modelStartPos.current = finalPos; // Update base position for next potential drag
-          setPosition(finalPos);
+      if (isPet) {
+        maybeTriggerFlirtyReply();
+        if (adapter) {
+          const currentModel = adapter.getModel(); // Re-get model in case adapter changed
+          if (currentModel && currentModel._modelMatrix) {
+            const matrix = currentModel._modelMatrix.getArray();
+            const finalPos = { x: matrix[12], y: matrix[13] };
+            modelPositionRef.current = finalPos;
+            modelStartPos.current = finalPos; // Update base position for next potential drag
+            setPosition(finalPos);
+          }
         }
       }
     } else if (isPotentialTapRef.current && adapter && model && view && canvasRef.current) {
@@ -571,12 +619,15 @@ export const useLive2DModel = ({
 
     // Reset potential tap flag regardless of outcome
     isPotentialTapRef.current = false;
-  }, [isDragging, canvasRef, modelInfo]);
+  }, [isDragging, canvasRef, isPet, modelInfo, relayTouchEvent]);
 
-  const handleMouseLeave = useCallback(() => {
+  const handlePointerCancel = useCallback((e?: React.PointerEvent) => {
+    if (!isPet && (isDragging || isPotentialTapRef.current)) {
+      relayTouchEvent('end', e?.clientX ?? mouseDownPosRef.current.x, e?.clientY ?? mouseDownPosRef.current.y);
+    }
+
     if (isDragging) {
-      // If dragging and mouse leaves, treat it like a mouse up to end drag
-      handleMouseUp({} as React.MouseEvent); // Pass a dummy event or adjust handleMouseUp signature
+      setIsDragging(false);
     }
     // Reset potential tap if mouse leaves before mouse up
     if (isPotentialTapRef.current) {
@@ -587,7 +638,7 @@ export const useLive2DModel = ({
       isHoveringModelRef.current = false;
       electronApi.ipcRenderer.send('update-component-hover', 'live2d-model', false);
     }
-  }, [isPet, isDragging, electronApi, handleMouseUp]);
+  }, [isPet, isDragging, electronApi, relayTouchEvent]);
 
   useEffect(() => {
     if (!isPet && electronApi && isHoveringModelRef.current) {
@@ -734,10 +785,10 @@ Live2DDebug.playRandomMotion("")  // Play random motion from default group
     position,
     isDragging,
     handlers: {
-      onMouseDown: handleMouseDown,
-      onMouseMove: handleMouseMove,
-      onMouseUp: handleMouseUp,
-      onMouseLeave: handleMouseLeave,
+      onPointerDown: handlePointerDown,
+      onPointerMove: handlePointerMove,
+      onPointerUp: handlePointerUp,
+      onPointerCancel: handlePointerCancel,
     },
   };
 };

@@ -494,196 +494,423 @@ class _MusicScreenState extends State<MusicScreen>
               ),
             ],
           ),
-          body: Stack(
-            children: [
-              const _MusicScreenBackdrop(),
-              ListView(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 148),
-                children: [
-                  _MusicHeroCard(
-                    track: store.heroTrack,
-                    backendBaseUrl: currentConfig.baseUrl,
-                    appPassword: currentConfig.appPassword,
-                    title:
-                        latestAiPlaylist == null
-                            ? '今晚推荐'
-                            : (latestAiPlaylist.subtitle.trim().isNotEmpty
-                                ? latestAiPlaylist.subtitle
-                                : 'AI 为你生成'),
-                    headline: latestAiPlaylist?.title ?? '给工作和夜色留一点音乐。',
-                    subtitle: null,
-                    description:
-                        latestAiPlaylist?.description ??
-                        store.heroTrack.description,
-                    buttonLabel: latestAiPlaylist != null ? '播放歌单' : '播放',
-                    badgeLabel: latestAiPlaylist != null ? 'AI 最新歌单' : '今晚推荐',
-                    timestampLabel: _formatAiPlaylistTime(latestAiPlaylist),
-                    isBusy: latestAiPlaylistActionPending,
-                    onPlayTap: () async {
-                      if (latestAiPlaylist != null) {
-                        await _playPlaylist(store, latestAiPlaylist.asPlaylist);
-                        return;
-                      }
-                      await _openPlayer(store, store.heroTrack);
-                    },
-                    onDetailTap:
-                        latestAiPlaylist != null
-                            ? () => _openPlaylistDetail(
-                              store,
-                              latestAiPlaylist.asPlaylist,
-                            )
-                            : null,
-                  ),
-                  const SizedBox(height: 24),
-                  _FavoritePlaylistCard(
-                    playlist: likedPlaylist,
-                    currentTrack:
-                        store.likedTracks.isNotEmpty
-                            ? store.likedTracks.first
-                            : currentTrack,
-                    isLoading:
-                        store.isPlaylistLoading(likedPlaylist.id) ||
-                        _isPlaylistActionPending(likedPlaylist.id),
-                    isActive: store.isPlaylistActive(likedPlaylist.id),
-                    isPlaying: store.isPlaylistPlaying(likedPlaylist.id),
-                    onTap: () => _openPlaylistDetail(store, likedPlaylist),
-                    onPlayTap:
-                        store.isPlaylistPlaying(likedPlaylist.id)
-                            ? () => _openPlaylistDetail(store, likedPlaylist)
-                            : () => _playPlaylist(store, likedPlaylist),
-                  ),
-                  const SizedBox(height: 28),
-                  _SectionHeader(
-                    title: '我的歌单',
-                    subtitle: '你慢慢收下的歌 都在这里',
-                    actionLabel: '添加',
-                    isBusy: false,
-                    onActionTap: () {
-                      _showCreatePlaylistSheet(context, store);
-                    },
-                  ),
-                  const SizedBox(height: 14),
-                  _CompactPlaylistGrid(
-                    playlists: displayedCustomPlaylists,
-                    currentPlaylistId: store.currentPlaylistId,
-                    onPlaylistTap: (playlist) {
-                      if (playlist.id == 'netease-fm') {
-                        _playPlaylist(store, playlist);
-                        return;
-                      }
-                      _openPlaylistDetail(store, playlist);
-                    },
-                    onPlaylistLongPress: (playlist) {
-                      if (playlist.id == 'netease-fm') {
-                        return;
-                      }
-                      _showCustomPlaylistActions(context, store, playlist);
-                    },
-                  ),
-                  if ((store.error ?? '').trim().isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 20, bottom: 12),
-                      child: _InlineNotice(
-                        message: _friendlyHomeError(store.error!),
-                        tone: _noticeToneForError(store.error!),
-                        onDismiss: store.clearError,
-                        primaryActionLabel: _primaryActionLabelForError(
-                          store.error!,
+          body: LayoutBuilder(
+            builder: (context, constraints) {
+              final isDesktop = constraints.maxWidth >= 1180;
+              if (!isDesktop) {
+                return Stack(
+                  children: [
+                    const _MusicScreenBackdrop(),
+                    ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 148),
+                      children: [
+                        _MusicHeroCard(
+                          track: store.heroTrack,
+                          backendBaseUrl: currentConfig.baseUrl,
+                          appPassword: currentConfig.appPassword,
+                          title:
+                              latestAiPlaylist == null
+                                  ? '今晚推荐'
+                                  : (latestAiPlaylist.subtitle.trim().isNotEmpty
+                                      ? latestAiPlaylist.subtitle
+                                      : 'AI 为你生成'),
+                          headline: latestAiPlaylist?.title ?? '给工作和夜色留一点音乐。',
+                          subtitle: null,
+                          description:
+                              latestAiPlaylist?.description ??
+                              store.heroTrack.description,
+                          buttonLabel: latestAiPlaylist != null ? '播放歌单' : '播放',
+                          badgeLabel:
+                              latestAiPlaylist != null ? 'AI 最新歌单' : '今晚推荐',
+                          timestampLabel: _formatAiPlaylistTime(
+                            latestAiPlaylist,
+                          ),
+                          isBusy: latestAiPlaylistActionPending,
+                          onPlayTap: () async {
+                            if (latestAiPlaylist != null) {
+                              await _playPlaylist(
+                                store,
+                                latestAiPlaylist.asPlaylist,
+                              );
+                              return;
+                            }
+                            await _openPlayer(store, store.heroTrack);
+                          },
+                          onDetailTap:
+                              latestAiPlaylist != null
+                                  ? () => _openPlaylistDetail(
+                                    store,
+                                    latestAiPlaylist.asPlaylist,
+                                  )
+                                  : null,
                         ),
-                        onPrimaryAction:
-                            () => _handlePrimaryErrorAction(
+                        const SizedBox(height: 24),
+                        Builder(
+                          builder: (context) {
+                            final likedPending = _isPlaylistActionPending(
+                              likedPlaylist.id,
+                            );
+                            final likedStoreLoading = store.isPlaylistLoading(
+                              likedPlaylist.id,
+                            );
+                            final likedIsPlaying = store.isPlaylistPlaying(
+                              likedPlaylist.id,
+                            );
+                            final likedIsActive = store.isPlaylistActive(
+                              likedPlaylist.id,
+                            );
+                            final likedIsBusy =
+                                likedStoreLoading || likedPending;
+                            unawaited(
+                              Future<void>.microtask(
+                                () => store.debugLikedPlaylistButtonState(
+                                  source: 'favorite_card.build',
+                                  pendingAction: likedPending,
+                                  widgetBusy: likedIsBusy,
+                                  widgetPlaying: likedIsPlaying,
+                                  widgetActive: likedIsActive,
+                                ),
+                              ),
+                            );
+                            return _FavoritePlaylistCard(
+                              playlist: likedPlaylist,
+                              currentTrack:
+                                  store.likedTracks.isNotEmpty
+                                      ? store.likedTracks.first
+                                      : currentTrack,
+                              isLoading: likedIsBusy,
+                              isActive: likedIsActive,
+                              isPlaying: likedIsPlaying,
+                              onTap: () {
+                                store.debugLikedPlaylistButtonState(
+                                  source: 'favorite_card.tap',
+                                  pendingAction: likedPending,
+                                  widgetBusy: likedIsBusy,
+                                  widgetPlaying: likedIsPlaying,
+                                  widgetActive: likedIsActive,
+                                );
+                                _openPlaylistDetail(store, likedPlaylist);
+                              },
+                              onPlayTap: () {
+                                store.debugLikedPlaylistButtonState(
+                                  source: 'favorite_card.play_tap',
+                                  pendingAction: likedPending,
+                                  widgetBusy: likedIsBusy,
+                                  widgetPlaying: likedIsPlaying,
+                                  widgetActive: likedIsActive,
+                                );
+                                if (likedIsPlaying) {
+                                  _openPlaylistDetail(store, likedPlaylist);
+                                  return;
+                                }
+                                _playPlaylist(store, likedPlaylist);
+                              },
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 28),
+                        _SectionHeader(
+                          title: '我的歌单',
+                          subtitle: '你慢慢收下的歌 都在这里',
+                          actionLabel: '添加',
+                          isBusy: false,
+                          onActionTap: () {
+                            _showCreatePlaylistSheet(context, store);
+                          },
+                        ),
+                        const SizedBox(height: 14),
+                        _CompactPlaylistGrid(
+                          playlists: displayedCustomPlaylists,
+                          currentPlaylistId: store.currentPlaylistId,
+                          onPlaylistTap: (playlist) {
+                            if (playlist.id == 'netease-fm') {
+                              _playPlaylist(store, playlist);
+                              return;
+                            }
+                            _openPlaylistDetail(store, playlist);
+                          },
+                          onPlaylistLongPress: (playlist) {
+                            if (playlist.id == 'netease-fm') {
+                              return;
+                            }
+                            _showCustomPlaylistActions(
                               context,
                               store,
-                              store.error!,
+                              playlist,
+                            );
+                          },
+                        ),
+                        if ((store.error ?? '').trim().isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 20, bottom: 12),
+                            child: _InlineNotice(
+                              message: _friendlyHomeError(store.error!),
+                              tone: _noticeToneForError(store.error!),
+                              onDismiss: store.clearError,
+                              primaryActionLabel: _primaryActionLabelForError(
+                                store.error!,
+                              ),
+                              onPrimaryAction:
+                                  () => _handlePrimaryErrorAction(
+                                    context,
+                                    store,
+                                    store.error!,
+                                  ),
                             ),
-                      ),
+                          ),
+                        if (recentPlaylists.isNotEmpty) ...[
+                          const SizedBox(height: 28),
+                          _SectionHeader(
+                            title: '最近播放',
+                            subtitle: '刚刚听过的感觉 还能从这里回去',
+                            actionLabel: '刷新',
+                            isBusy: store.isRefreshingLibrary,
+                            onActionTap: () {
+                              store.refreshLibrary();
+                            },
+                          ),
+                          const SizedBox(height: 14),
+                          ...recentPlaylists.map(
+                            (playlist) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: _RecentPlaylistTile(
+                                playlist: playlist,
+                                isActive: store.isPlaylistActive(playlist.id),
+                                isBusy: _isPlaylistActionPending(playlist.id),
+                                onTap:
+                                    () => _openPlaylistDetail(store, playlist),
+                                onPlayTap: () => _playPlaylist(store, playlist),
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (aiPlaylistHistory.isNotEmpty) ...[
+                          const SizedBox(height: 28),
+                          _SectionHeader(
+                            title: 'AI 历史歌单',
+                            subtitle: '这次为你整理的在 之前的也还留着',
+                            actionLabel: '刷新',
+                            isBusy: store.isRefreshingLibrary,
+                            onActionTap: () {
+                              store.refreshLibrary();
+                            },
+                          ),
+                          const SizedBox(height: 14),
+                          ...aiPlaylistHistory.map(
+                            (draft) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: _RecentPlaylistTile(
+                                playlist: draft.asPlaylist,
+                                isActive: store.isPlaylistActive(
+                                  draft.asPlaylist.id,
+                                ),
+                                isBusy: _isPlaylistActionPending(
+                                  draft.asPlaylist.id,
+                                ),
+                                metaLabel: _formatAiPlaylistTime(draft),
+                                onTap:
+                                    () => _openPlaylistDetail(
+                                      store,
+                                      draft.asPlaylist,
+                                    ),
+                                onPlayTap:
+                                    () =>
+                                        _playPlaylist(store, draft.asPlaylist),
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (playlists.isEmpty &&
+                            recentPlaylists.isEmpty &&
+                            latestAiPlaylist == null)
+                          const _EmptyMusicState()
+                        else if (recentPlaylists.isEmpty &&
+                            aiPlaylistHistory.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 24),
+                            child: _SectionPlaceholder(
+                              title: '等你听过几首 这里就会慢慢热闹起来',
+                              subtitle: currentPlaybackSourceLabel,
+                            ),
+                          ),
+                      ],
                     ),
-                  if (recentPlaylists.isNotEmpty) ...[
-                    const SizedBox(height: 28),
-                    _SectionHeader(
-                      title: '最近播放',
-                      subtitle: '刚刚听过的感觉 还能从这里回去',
-                      actionLabel: '刷新',
-                      isBusy: store.isRefreshingLibrary,
-                      onActionTap: () {
-                        store.refreshLibrary();
-                      },
-                    ),
-                    const SizedBox(height: 14),
-                    ...recentPlaylists.map(
-                      (playlist) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _RecentPlaylistTile(
-                          playlist: playlist,
-                          isActive: store.isPlaylistActive(playlist.id),
-                          isBusy: _isPlaylistActionPending(playlist.id),
-                          onTap: () => _openPlaylistDetail(store, playlist),
-                          onPlayTap: () => _playPlaylist(store, playlist),
+                    if (store.hasPlaybackContext)
+                      Positioned(
+                        left: 16,
+                        right: 16,
+                        bottom: 16,
+                        child: _MiniPlayer(
+                          track: currentTrack,
+                          backendBaseUrl: currentConfig.baseUrl,
+                          appPassword: currentConfig.appPassword,
+                          sourceLabel: miniSubtitle,
+                          modeBadge: currentPlaybackModeBadge,
+                          isPlaying: isPlaying,
+                          isBuffering: isPlaybackBusy,
+                          onTap: () => _openPlayer(store),
+                          onPlayPause: store.togglePlayPause,
                         ),
                       ),
-                    ),
                   ],
-                  if (aiPlaylistHistory.isNotEmpty) ...[
-                    const SizedBox(height: 28),
-                    _SectionHeader(
-                      title: 'AI 历史歌单',
-                      subtitle: '这次为你整理的在 之前的也还留着',
-                      actionLabel: '刷新',
-                      isBusy: store.isRefreshingLibrary,
-                      onActionTap: () {
-                        store.refreshLibrary();
-                      },
-                    ),
-                    const SizedBox(height: 14),
-                    ...aiPlaylistHistory.map(
-                      (draft) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _RecentPlaylistTile(
-                          playlist: draft.asPlaylist,
-                          isActive: store.isPlaylistActive(draft.asPlaylist.id),
-                          isBusy: _isPlaylistActionPending(draft.asPlaylist.id),
-                          metaLabel: _formatAiPlaylistTime(draft),
-                          onTap:
-                              () =>
-                                  _openPlaylistDetail(store, draft.asPlaylist),
-                          onPlayTap:
-                              () => _playPlaylist(store, draft.asPlaylist),
+                );
+              }
+
+              return Stack(
+                children: [
+                  const _MusicScreenBackdrop(),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(
+                          width: 250,
+                          child: _DesktopLibrarySidebar(
+                            likedPlaylist: likedPlaylist,
+                            displayedCustomPlaylists: displayedCustomPlaylists,
+                            recentPlaylists: recentPlaylists,
+                            currentPlaylistId: store.currentPlaylistId,
+                            isRefreshing: store.isRefreshingLibrary,
+                            currentPlaybackSourceLabel:
+                                currentPlaybackSourceLabel,
+                            onSearch:
+                                _isOpeningSearch
+                                    ? null
+                                    : () => _openSearch(context, store),
+                            onRefresh: store.refreshLibrary,
+                            onCreatePlaylist:
+                                () => _showCreatePlaylistSheet(context, store),
+                            onOpenLiked:
+                                () => _openPlaylistDetail(store, likedPlaylist),
+                            onOpenPlaylist: (playlist) {
+                              if (playlist.id == 'netease-fm') {
+                                _playPlaylist(store, playlist);
+                                return;
+                              }
+                              _openPlaylistDetail(store, playlist);
+                            },
+                            onPlaylistLongPress: (playlist) {
+                              if (playlist.id == 'netease-fm') return;
+                              _showCustomPlaylistActions(
+                                context,
+                                store,
+                                playlist,
+                              );
+                            },
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 20),
+                        Expanded(
+                          flex: 12,
+                          child: _DesktopNowPlayingStage(
+                            track: currentTrack,
+                            isPlaying: isPlaying,
+                            isBuffering: isPlaybackBusy,
+                            hasPrevious: store.hasPreviousTrack,
+                            hasNext: store.hasNextTrack,
+                            onPrevious: store.playPrevious,
+                            onNext: store.playNext,
+                            sourceLabel: currentPlaybackSourceLabel,
+                            modeBadge: currentPlaybackModeBadge,
+                            description: currentTrack.description,
+                            currentLyric: store.currentLyricLine,
+                            nextLyric: store.nextLyricLine,
+                            isLyricsLoading: store.isLyricsLoading,
+                            accentColor:
+                                paletteForTone(
+                                  currentTrack.artworkTone,
+                                ).gradient.first,
+                            durationLabel: _desktopFormatDuration(
+                              store.duration.inMilliseconds > 0
+                                  ? store.duration
+                                  : currentTrack.duration,
+                            ),
+                            positionLabel: _desktopFormatDuration(
+                              store.position,
+                            ),
+                            progress:
+                                (store.duration.inMilliseconds > 0
+                                            ? store.duration.inMilliseconds
+                                            : currentTrack
+                                                .duration
+                                                .inMilliseconds) <=
+                                        0
+                                    ? 0.0
+                                    : (store.position.inMilliseconds /
+                                            (store.duration.inMilliseconds > 0
+                                                ? store.duration.inMilliseconds
+                                                : currentTrack
+                                                    .duration
+                                                    .inMilliseconds))
+                                        .clamp(0, 1)
+                                        .toDouble(),
+                            onSeek:
+                                (nextProgress) => store.seekTo(
+                                  Duration(
+                                    milliseconds:
+                                        (((store.duration.inMilliseconds > 0
+                                                    ? store
+                                                        .duration
+                                                        .inMilliseconds
+                                                    : currentTrack
+                                                        .duration
+                                                        .inMilliseconds) *
+                                                nextProgress)
+                                            .round()),
+                                  ),
+                                ),
+                            shuffleEnabled: store.shuffleEnabled,
+                            repeatMode: store.repeatMode,
+                            onPlayPause: store.togglePlayPause,
+                            onToggleShuffle: store.toggleShuffle,
+                            onCycleRepeat: store.cycleRepeatMode,
+                            isFavorite: currentTrack.isFavorite,
+                            onToggleLike:
+                                () => store.toggleTrackLiked(currentTrack),
+                          ),
+                        ),
+                        const SizedBox(width: 20),
+                        SizedBox(
+                          width: 340,
+                          child: _DesktopQueueSidebar(
+                            queue: store.queue
+                                .map((item) => item.track)
+                                .toList(growable: false),
+                            currentTrackId: currentTrack.id,
+                            aiPlaylistHistory: aiPlaylistHistory
+                                .map((item) => item.asPlaylist)
+                                .toList(growable: false),
+                            latestAiPlaylist: latestAiPlaylist?.asPlaylist,
+                            latestAiPlaylistTime: _formatAiPlaylistTime(
+                              latestAiPlaylist,
+                            ),
+                            currentPlaybackSourceLabel:
+                                currentPlaybackSourceLabel,
+                            hasError: (store.error ?? '').trim().isNotEmpty,
+                            errorMessage: store.error,
+                            onDismissError: store.clearError,
+                            onRetryError:
+                                () => _handlePrimaryErrorAction(
+                                  context,
+                                  store,
+                                  store.error ?? '',
+                                ),
+                            onSelectTrack:
+                                (index) => store.playQueueIndex(index),
+                            onOpenPlaylist:
+                                (playlist) =>
+                                    _openPlaylistDetail(store, playlist),
+                            onPlayPlaylist:
+                                (playlist) => _playPlaylist(store, playlist),
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                  if (playlists.isEmpty &&
-                      recentPlaylists.isEmpty &&
-                      latestAiPlaylist == null)
-                    const _EmptyMusicState()
-                  else if (recentPlaylists.isEmpty && aiPlaylistHistory.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 24),
-                      child: _SectionPlaceholder(
-                        title: '等你听过几首 这里就会慢慢热闹起来',
-                        subtitle: currentPlaybackSourceLabel,
-                      ),
-                    ),
-                ],
-              ),
-              if (store.hasPlaybackContext)
-                Positioned(
-                  left: 16,
-                  right: 16,
-                  bottom: 16,
-                  child: _MiniPlayer(
-                    track: currentTrack,
-                    backendBaseUrl: currentConfig.baseUrl,
-                    appPassword: currentConfig.appPassword,
-                    sourceLabel: miniSubtitle,
-                    modeBadge: currentPlaybackModeBadge,
-                    isPlaying: isPlaying,
-                    isBuffering: isPlaybackBusy,
-                    onTap: () => _openPlayer(store),
-                    onPlayPause: store.togglePlayPause,
                   ),
-                ),
-            ],
+                ],
+              );
+            },
           ),
         );
       },
@@ -1399,7 +1626,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               FilledButton(
-                onPressed: isLoading ? null : onPlayTap,
+                onPressed: onPlayTap,
                 style: FilledButton.styleFrom(
                   backgroundColor: palette.gradient.first,
                   foregroundColor: Colors.white,
@@ -3138,4 +3365,1200 @@ class _SearchResultTile extends StatelessWidget {
       ),
     );
   }
+}
+
+class _DesktopLibrarySidebar extends StatelessWidget {
+  const _DesktopLibrarySidebar({
+    required this.likedPlaylist,
+    required this.displayedCustomPlaylists,
+    required this.recentPlaylists,
+    required this.currentPlaylistId,
+    required this.isRefreshing,
+    required this.currentPlaybackSourceLabel,
+    required this.onSearch,
+    required this.onRefresh,
+    required this.onCreatePlaylist,
+    required this.onOpenLiked,
+    required this.onOpenPlaylist,
+    this.onPlaylistLongPress,
+  });
+
+  final MusicPlaylist likedPlaylist;
+  final List<MusicPlaylist> displayedCustomPlaylists;
+  final List<MusicPlaylist> recentPlaylists;
+  final String? currentPlaylistId;
+  final bool isRefreshing;
+  final String currentPlaybackSourceLabel;
+  final VoidCallback? onSearch;
+  final VoidCallback onRefresh;
+  final VoidCallback onCreatePlaylist;
+  final VoidCallback onOpenLiked;
+  final ValueChanged<MusicPlaylist> onOpenPlaylist;
+  final ValueChanged<MusicPlaylist>? onPlaylistLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.76),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.78)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x120B1220),
+            blurRadius: 24,
+            offset: Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF7C4DFF), Color(0xFF4F8CFF)],
+                  ),
+                ),
+                child: const Icon(
+                  Icons.library_music_rounded,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('音乐空间', style: theme.textTheme.titleMedium),
+                    const SizedBox(height: 2),
+                    Text(
+                      currentPlaybackSourceLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          OutlinedButton.icon(
+            onPressed: onSearch,
+            icon: const Icon(Icons.search_rounded),
+            label: const Text('搜索音乐'),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.tonalIcon(
+                  onPressed: onOpenLiked,
+                  icon: const Icon(Icons.favorite_rounded),
+                  label: const Text('喜欢'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.outlined(
+                onPressed: isRefreshing ? null : onRefresh,
+                icon:
+                    isRefreshing
+                        ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                        : const Icon(Icons.refresh_rounded),
+              ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          Text('你的歌单', style: theme.textTheme.titleSmall),
+          const SizedBox(height: 10),
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                ...displayedCustomPlaylists.map(
+                  (playlist) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _DesktopSidebarPlaylistTile(
+                      playlist: playlist,
+                      isActive: currentPlaylistId == playlist.id,
+                      onTap: () => onOpenPlaylist(playlist),
+                      onLongPress:
+                          onPlaylistLongPress == null
+                              ? null
+                              : () => onPlaylistLongPress!(playlist),
+                    ),
+                  ),
+                ),
+                if (recentPlaylists.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text('最近播放', style: theme.textTheme.titleSmall),
+                  const SizedBox(height: 10),
+                  ...recentPlaylists
+                      .take(4)
+                      .map(
+                        (playlist) => Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _DesktopSidebarPlaylistTile(
+                            playlist: playlist,
+                            isActive: currentPlaylistId == playlist.id,
+                            dense: true,
+                            onTap: () => onOpenPlaylist(playlist),
+                          ),
+                        ),
+                      ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: onCreatePlaylist,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('新建歌单'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopSidebarPlaylistTile extends StatelessWidget {
+  const _DesktopSidebarPlaylistTile({
+    required this.playlist,
+    required this.isActive,
+    required this.onTap,
+    this.onLongPress,
+    this.dense = false,
+  });
+
+  final MusicPlaylist playlist;
+  final bool isActive;
+  final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+  final bool dense;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = paletteForTone(playlist.artworkTone);
+    final theme = Theme.of(context);
+    return Material(
+      color:
+          isActive
+              ? palette.gradient.first.withValues(alpha: 0.12)
+              : Colors.transparent,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: dense ? 10 : 12,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: dense ? 36 : 40,
+                height: dense ? 36 : 40,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: palette.gradient),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  playlist.isAiGenerated
+                      ? Icons.auto_awesome_rounded
+                      : playlist.id == 'netease-fm'
+                      ? Icons.radio_rounded
+                      : palette.icon,
+                  color: Colors.white,
+                  size: dense ? 18 : 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      playlist.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      playlist.id == 'netease-fm'
+                          ? '连续播放'
+                          : '${playlist.trackCount} 首',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopNowPlayingStage extends StatelessWidget {
+  const _DesktopNowPlayingStage({
+    required this.track,
+    required this.isPlaying,
+    required this.isBuffering,
+    required this.hasPrevious,
+    required this.hasNext,
+    required this.onPrevious,
+    required this.onNext,
+    required this.sourceLabel,
+    required this.modeBadge,
+    required this.description,
+    required this.currentLyric,
+    required this.nextLyric,
+    required this.isLyricsLoading,
+    required this.accentColor,
+    required this.durationLabel,
+    required this.positionLabel,
+    required this.progress,
+    required this.onSeek,
+    required this.shuffleEnabled,
+    required this.repeatMode,
+    required this.onPlayPause,
+    required this.onToggleShuffle,
+    required this.onCycleRepeat,
+    required this.isFavorite,
+    required this.onToggleLike,
+  });
+
+  final MusicTrack track;
+  final bool isPlaying;
+  final bool isBuffering;
+  final bool hasPrevious;
+  final bool hasNext;
+  final Future<void> Function() onPrevious;
+  final Future<void> Function() onNext;
+  final String sourceLabel;
+  final String? modeBadge;
+  final String description;
+  final String? currentLyric;
+  final String? nextLyric;
+  final bool isLyricsLoading;
+  final Color accentColor;
+  final String durationLabel;
+  final String positionLabel;
+  final double progress;
+  final ValueChanged<double> onSeek;
+  final bool shuffleEnabled;
+  final MusicRepeatMode repeatMode;
+  final Future<void> Function() onPlayPause;
+  final Future<void> Function() onToggleShuffle;
+  final VoidCallback onCycleRepeat;
+  final bool isFavorite;
+  final VoidCallback onToggleLike;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(26, 24, 26, 24),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.68),
+        borderRadius: BorderRadius.circular(34),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.74)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x140B1220),
+            blurRadius: 28,
+            offset: Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Now Playing',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.6,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(track.title, style: theme.textTheme.headlineMedium),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${track.artist} · ${track.album}',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: const Color(0xFF5E6780),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Row(
+                children: [
+                  if ((modeBadge ?? '').trim().isNotEmpty)
+                    Container(
+                      margin: const EdgeInsets.only(right: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: accentColor.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        modeBadge!,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: accentColor,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  IconButton(
+                    onPressed: onToggleLike,
+                    icon: Icon(
+                      isFavorite
+                          ? Icons.favorite_rounded
+                          : Icons.favorite_border_rounded,
+                      color: isFavorite ? const Color(0xFFE91E63) : null,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(sourceLabel, style: theme.textTheme.bodySmall),
+          ),
+          const SizedBox(height: 22),
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(
+                  flex: 9,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        height: 360,
+                        child: _DesktopDiscStage(
+                          track: track,
+                          isPlaying: isPlaying,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 520),
+                        child: Text(
+                          description,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            height: 1.5,
+                            color: const Color(0xFF687284),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 24),
+                Expanded(
+                  flex: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(24),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.54),
+                      borderRadius: BorderRadius.circular(28),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.72),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('歌词与控制', style: theme.textTheme.titleMedium),
+                        const SizedBox(height: 18),
+                        Expanded(
+                          child: _DesktopLyricsPane(
+                            currentLyric: currentLyric,
+                            nextLyric: nextLyric,
+                            isLoading: isLyricsLoading,
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        _DesktopProgressPanel(
+                          accentColor: accentColor,
+                          durationLabel: durationLabel,
+                          progress: progress,
+                          positionLabel: positionLabel,
+                          onSeek: onSeek,
+                        ),
+                        const SizedBox(height: 22),
+                        _DesktopPlayerControls(
+                          accentColor: accentColor,
+                          isPlaying: isPlaying,
+                          isBuffering: isBuffering,
+                          shuffleEnabled: shuffleEnabled,
+                          repeatMode: repeatMode,
+                          hasPrevious: hasPrevious,
+                          hasNext: hasNext,
+                          onPlayPause: onPlayPause,
+                          onPrevious: onPrevious,
+                          onNext: onNext,
+                          onToggleShuffle: onToggleShuffle,
+                          onCycleRepeat: onCycleRepeat,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopLyricsPane extends StatelessWidget {
+  const _DesktopLyricsPane({
+    required this.currentLyric,
+    required this.nextLyric,
+    required this.isLoading,
+  });
+
+  final String? currentLyric;
+  final String? nextLyric;
+  final bool isLoading;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    if (isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if ((currentLyric ?? '').trim().isEmpty) {
+      return Center(
+        child: Text(
+          '这首歌的歌词暂时还没来，先听听气氛也不错。',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodyMedium,
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          currentLyric!.replaceAll('\n', ' · '),
+          style: theme.textTheme.headlineSmall?.copyWith(
+            height: 1.45,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        if ((nextLyric ?? '').trim().isNotEmpty) ...[
+          const SizedBox(height: 18),
+          Text(
+            nextLyric!.replaceAll('\n', ' · '),
+            style: theme.textTheme.titleMedium?.copyWith(
+              height: 1.5,
+              color: const Color(0xFF7F889B),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _DesktopQueueSidebar extends StatelessWidget {
+  const _DesktopQueueSidebar({
+    required this.queue,
+    required this.currentTrackId,
+    required this.aiPlaylistHistory,
+    required this.latestAiPlaylist,
+    required this.latestAiPlaylistTime,
+    required this.currentPlaybackSourceLabel,
+    required this.hasError,
+    required this.errorMessage,
+    required this.onDismissError,
+    required this.onRetryError,
+    required this.onSelectTrack,
+    required this.onOpenPlaylist,
+    required this.onPlayPlaylist,
+  });
+
+  final List<MusicTrack> queue;
+  final String currentTrackId;
+  final List<MusicPlaylist> aiPlaylistHistory;
+  final MusicPlaylist? latestAiPlaylist;
+  final String? latestAiPlaylistTime;
+  final String currentPlaybackSourceLabel;
+  final bool hasError;
+  final String? errorMessage;
+  final VoidCallback onDismissError;
+  final VoidCallback onRetryError;
+  final ValueChanged<int> onSelectTrack;
+  final ValueChanged<MusicPlaylist> onOpenPlaylist;
+  final ValueChanged<MusicPlaylist> onPlayPlaylist;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final nextTracks = queue.where((item) => item.id != currentTrackId).take(6);
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.76),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.78)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x120B1220),
+            blurRadius: 24,
+            offset: Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('接下来播放', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 4),
+          Text(currentPlaybackSourceLabel, style: theme.textTheme.bodySmall),
+          if (hasError && (errorMessage ?? '').trim().isNotEmpty) ...[
+            const SizedBox(height: 14),
+            _InlineNotice(
+              message: errorMessage!,
+              tone: _NoticeTone.error,
+              onDismiss: onDismissError,
+              primaryActionLabel: '重试',
+              onPrimaryAction: onRetryError,
+            ),
+          ],
+          const SizedBox(height: 16),
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                if (nextTracks.isEmpty)
+                  Text('这一轮先听到这里。', style: theme.textTheme.bodyMedium)
+                else
+                  ...nextTracks.map(
+                    (track) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _DesktopQueueTile(
+                        track: track,
+                        onTap:
+                            () => onSelectTrack(
+                              queue.indexWhere((item) => item.id == track.id),
+                            ),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 18),
+                Text('AI 歌单', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 10),
+                if (latestAiPlaylist != null)
+                  _DesktopAiPlaylistCard(
+                    playlist: latestAiPlaylist!,
+                    metaLabel: latestAiPlaylistTime,
+                    onOpen: () => onOpenPlaylist(latestAiPlaylist!),
+                    onPlay: () => onPlayPlaylist(latestAiPlaylist!),
+                  ),
+                const SizedBox(height: 12),
+                ...aiPlaylistHistory
+                    .take(3)
+                    .map(
+                      (playlist) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _DesktopAiPlaylistRow(
+                          playlist: playlist,
+                          onOpen: () => onOpenPlaylist(playlist),
+                        ),
+                      ),
+                    ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopQueueTile extends StatelessWidget {
+  const _DesktopQueueTile({required this.track, required this.onTap});
+
+  final MusicTrack track;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: Colors.white.withValues(alpha: 0.74),
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(
+            children: [
+              MusicArtwork(track: track, size: 52, showMeta: false),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      track.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      track.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(track.durationLabel, style: theme.textTheme.bodySmall),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopAiPlaylistCard extends StatelessWidget {
+  const _DesktopAiPlaylistCard({
+    required this.playlist,
+    required this.onOpen,
+    required this.onPlay,
+    this.metaLabel,
+  });
+
+  final MusicPlaylist playlist;
+  final VoidCallback onOpen;
+  final VoidCallback onPlay;
+  final String? metaLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = paletteForTone(playlist.artworkTone);
+    final theme = Theme.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: onOpen,
+        child: Ink(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(colors: palette.gradient),
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: palette.glowColor.withValues(alpha: 0.28),
+                blurRadius: 18,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.auto_awesome_rounded,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'AI 最新歌单',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.92),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  if ((metaLabel ?? '').trim().isNotEmpty)
+                    Text(
+                      metaLabel!,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.75),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                playlist.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                playlist.subtitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: Colors.white.withValues(alpha: 0.82),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton.tonalIcon(
+                  onPressed: onPlay,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: palette.gradient.first,
+                  ),
+                  icon: const Icon(Icons.play_arrow_rounded),
+                  label: const Text('播放'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopAiPlaylistRow extends StatelessWidget {
+  const _DesktopAiPlaylistRow({required this.playlist, required this.onOpen});
+
+  final MusicPlaylist playlist;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final palette = paletteForTone(playlist.artworkTone);
+    return Material(
+      color: Colors.white.withValues(alpha: 0.74),
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onOpen,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: palette.gradient),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.auto_awesome_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      playlist.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      playlist.subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopDiscStage extends StatefulWidget {
+  const _DesktopDiscStage({required this.track, required this.isPlaying});
+
+  final MusicTrack track;
+  final bool isPlaying;
+
+  @override
+  State<_DesktopDiscStage> createState() => _DesktopDiscStageState();
+}
+
+class _DesktopDiscStageState extends State<_DesktopDiscStage>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 12),
+    );
+    if (widget.isPlaying) {
+      _controller.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _DesktopDiscStage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isPlaying && !_controller.isAnimating) {
+      _controller.repeat();
+    } else if (!widget.isPlaying && _controller.isAnimating) {
+      _controller.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = paletteForTone(widget.track.artworkTone);
+    return Center(
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Container(
+            width: 320,
+            height: 320,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                colors: [
+                  palette.glowColor.withValues(alpha: 0.30),
+                  Colors.transparent,
+                ],
+              ),
+            ),
+          ),
+          RotationTransition(
+            turns: _controller,
+            child: Container(
+              width: 280,
+              height: 280,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.7),
+                  width: 12,
+                ),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x14000000),
+                    blurRadius: 22,
+                    offset: Offset(0, 12),
+                  ),
+                ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: ClipOval(
+                  child: MusicArtwork(
+                    track: widget.track,
+                    size: 256,
+                    circular: true,
+                    showMeta: false,
+                    showIconBadge: false,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.white.withValues(alpha: 0.86),
+              border: Border.all(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesktopProgressPanel extends StatelessWidget {
+  const _DesktopProgressPanel({
+    required this.accentColor,
+    required this.durationLabel,
+    required this.progress,
+    required this.positionLabel,
+    required this.onSeek,
+  });
+
+  final Color accentColor;
+  final String durationLabel;
+  final double progress;
+  final String positionLabel;
+  final ValueChanged<double> onSeek;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      children: [
+        SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            trackHeight: 7,
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+            inactiveTrackColor: const Color(0xFFE7EBF4),
+            activeTrackColor: accentColor,
+            thumbColor: accentColor,
+            overlayColor: accentColor.withValues(alpha: 0.16),
+          ),
+          child: Slider(value: progress, onChanged: onSeek),
+        ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(positionLabel, style: theme.textTheme.bodySmall),
+            Text(durationLabel, style: theme.textTheme.bodySmall),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _DesktopPlayerControls extends StatelessWidget {
+  const _DesktopPlayerControls({
+    required this.accentColor,
+    required this.isPlaying,
+    required this.isBuffering,
+    required this.shuffleEnabled,
+    required this.repeatMode,
+    required this.hasPrevious,
+    required this.hasNext,
+    required this.onPlayPause,
+    required this.onPrevious,
+    required this.onNext,
+    required this.onToggleShuffle,
+    required this.onCycleRepeat,
+  });
+
+  final Color accentColor;
+  final bool isPlaying;
+  final bool isBuffering;
+  final bool shuffleEnabled;
+  final MusicRepeatMode repeatMode;
+  final bool hasPrevious;
+  final bool hasNext;
+  final Future<void> Function() onPlayPause;
+  final Future<void> Function() onPrevious;
+  final Future<void> Function() onNext;
+  final Future<void> Function() onToggleShuffle;
+  final VoidCallback onCycleRepeat;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _DesktopActionButton(
+          icon: Icons.shuffle_rounded,
+          isActive: shuffleEnabled,
+          onPressed: () {
+            onToggleShuffle();
+          },
+        ),
+        _DesktopActionButton(
+          icon: Icons.skip_previous_rounded,
+          onPressed:
+              hasPrevious
+                  ? () {
+                    onPrevious();
+                  }
+                  : null,
+        ),
+        _DesktopPrimaryPlayButton(
+          color: accentColor,
+          onPressed: () {
+            onPlayPause();
+          },
+          child:
+              isBuffering
+                  ? const SizedBox(
+                    width: 26,
+                    height: 26,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.6,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                  : Icon(
+                    isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                    color: Colors.white,
+                    size: 34,
+                  ),
+        ),
+        _DesktopActionButton(
+          icon: Icons.skip_next_rounded,
+          onPressed:
+              hasNext
+                  ? () {
+                    onNext();
+                  }
+                  : null,
+        ),
+        _DesktopActionButton(
+          icon:
+              repeatMode == MusicRepeatMode.one
+                  ? Icons.repeat_one_rounded
+                  : repeatMode == MusicRepeatMode.intelligence
+                  ? Icons.auto_awesome_rounded
+                  : Icons.repeat_rounded,
+          isActive: repeatMode != MusicRepeatMode.off,
+          onPressed: onCycleRepeat,
+        ),
+      ],
+    );
+  }
+}
+
+class _DesktopActionButton extends StatelessWidget {
+  const _DesktopActionButton({
+    required this.icon,
+    required this.onPressed,
+    this.isActive = false,
+  });
+
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final bool isActive;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 54,
+      height: 54,
+      decoration: BoxDecoration(
+        color:
+            onPressed == null
+                ? Colors.white.withValues(alpha: 0.45)
+                : isActive
+                ? const Color(0xFF111827)
+                : Colors.white,
+        shape: BoxShape.circle,
+      ),
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Icon(icon, color: isActive ? Colors.white : null),
+      ),
+    );
+  }
+}
+
+class _DesktopPrimaryPlayButton extends StatelessWidget {
+  const _DesktopPrimaryPlayButton({
+    required this.color,
+    required this.onPressed,
+    required this.child,
+  });
+
+  final Color color;
+  final VoidCallback onPressed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 82,
+      height: 82,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          colors: [color, color.withValues(alpha: 0.84)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.34),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: IconButton(onPressed: onPressed, icon: child),
+    );
+  }
+}
+
+String _desktopFormatDuration(Duration duration) {
+  final totalSeconds = duration.inSeconds;
+  final minutes = totalSeconds ~/ 60;
+  final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+  return '$minutes:$seconds';
 }

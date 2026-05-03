@@ -7,6 +7,7 @@ import { useLive2DModel } from "@/hooks/canvas/use-live2d-model";
 import { useLive2DResize } from "@/hooks/canvas/use-live2d-resize";
 import { useForceIgnoreMouse } from "@/hooks/utils/use-force-ignore-mouse";
 import { useMode } from "@/context/mode-context";
+import { resetTrackedPointerToCenter } from "@/runtime/live2d-bridge";
 
 interface Live2DProps {
   showSidebar?: boolean;
@@ -55,8 +56,34 @@ export const Live2D = memo(
     //   };
     // }, [setExpression]);
 
-    const handlePointerDown = (e: React.PointerEvent) => {
-      handlers.onMouseDown(e);
+    const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.pointerType === "mouse" && e.button !== 0) {
+        return;
+      }
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+      handlers.onPointerDown(e);
+    };
+
+    const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+      handlers.onPointerMove(e);
+    };
+
+    const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+      handlers.onPointerUp(e);
+      e.currentTarget.releasePointerCapture?.(e.pointerId);
+    };
+
+    const handlePointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+      handlers.onPointerCancel(e);
+      e.currentTarget.releasePointerCapture?.(e.pointerId);
+    };
+
+    const handlePointerLeave = (e: React.PointerEvent<HTMLDivElement>) => {
+      handlers.onPointerCancel(e);
+      e.currentTarget.releasePointerCapture?.(e.pointerId);
+      if (e.pointerType === "mouse") {
+        resetTrackedPointerToCenter();
+      }
     };
 
     const handleContextMenu = (e: React.MouseEvent) => {
@@ -82,10 +109,16 @@ export const Live2D = memo(
           overflow: "hidden",
           position: "relative",
           cursor: isDragging ? "grabbing" : "default",
+          touchAction: "none",
+          userSelect: "none",
+          WebkitUserSelect: "none",
         }}
         onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        onPointerLeave={handlePointerLeave}
         onContextMenu={handleContextMenu}
-        {...handlers}
       >
         <canvas
           id="canvas"
@@ -96,6 +129,9 @@ export const Live2D = memo(
             pointerEvents: isPet && forceIgnoreMouse ? "none" : "auto",
             display: "block",
             cursor: isDragging ? "grabbing" : "default",
+            touchAction: "none",
+            userSelect: "none",
+            WebkitUserSelect: "none",
           }}
         />
       </div>
