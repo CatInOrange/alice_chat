@@ -1923,21 +1923,41 @@ class MusicStore extends ChangeNotifier {
             ? _queue.first.track.id.trim()
             : _currentTrack.id.trim();
     final incomingTrackId = track?.id.trim() ?? '';
-    final shouldIgnoreStaleTrackDuringSwitch =
-        _isPreparingPlayback &&
-        expectedQueueHeadId.isNotEmpty &&
-        incomingTrackId.isNotEmpty &&
+    final hasExpectedQueueHead = expectedQueueHeadId.isNotEmpty;
+    final hasIncomingTrack = incomingTrackId.isNotEmpty;
+    final incomingTrackMatchesQueueHead =
+        !hasExpectedQueueHead ||
+        !hasIncomingTrack ||
+        incomingTrackId == expectedQueueHeadId;
+    final shouldIgnoreIncomingTrack =
+        hasExpectedQueueHead &&
+        hasIncomingTrack &&
         incomingTrackId != expectedQueueHeadId;
 
-    if (shouldIgnoreStaleTrackDuringSwitch) {
+    if (shouldIgnoreIncomingTrack) {
       if (state.error != null && state.error!.trim().isNotEmpty) {
         _error = state.error;
+      }
+      _isPlaying = state.isPlaying && state.currentSource != null;
+      _isBuffering = state.isBuffering;
+      _position = state.position;
+      _duration = state.duration ?? _currentTrack.duration;
+      if (state.completed && !_isAdvancingQueue) {
+        if (_queue.length > 1) {
+          unawaited(_advanceToNextTrack());
+        } else {
+          _isPlaying = false;
+          _isBuffering = false;
+          _position = _duration;
+        }
       }
       notifyListeners();
       return;
     }
 
-    _isPreparingPlayback = false;
+    if (incomingTrackMatchesQueueHead) {
+      _isPreparingPlayback = false;
+    }
     if (track != null) {
       final previousTrackId = _currentTrack.id;
       _currentTrack = track.copyWith(isFavorite: isTrackLiked(track.id));
@@ -2683,7 +2703,13 @@ class MusicStore extends ChangeNotifier {
     bool clearCachedPlaybackOnRetry = true,
     bool allowSkipOnFailure = true,
   }) async {
-    final prepared = await _preparePlayback(_currentTrack);
+    final targetTrack =
+        _queue.isNotEmpty
+            ? _queue.first.track.copyWith(
+              isFavorite: isTrackLiked(_queue.first.track.id),
+            )
+            : _currentTrack;
+    final prepared = await _preparePlayback(targetTrack);
     final preparedTrack = prepared.track.copyWith(
       isFavorite: isTrackLiked(prepared.track.id),
     );
@@ -2700,7 +2726,7 @@ class MusicStore extends ChangeNotifier {
         source: prepared.resolvedSource!,
       );
     } catch (error) {
-      if (!clearCachedPlaybackOnRetry || _currentTrack.cachedPlayback == null) {
+      if (!clearCachedPlaybackOnRetry || targetTrack.cachedPlayback == null) {
         final friendlyError = _friendlyPlaybackError(error);
         final skipped = await _skipFailedCurrentTrack(
           friendlyError,
@@ -2714,7 +2740,7 @@ class MusicStore extends ChangeNotifier {
         rethrow;
       }
       final refreshed = await _preparePlayback(
-        _currentTrack.copyWith(cachedPlayback: null),
+        targetTrack.copyWith(cachedPlayback: null),
       );
       _currentTrack = refreshed.track.copyWith(
         isFavorite: isTrackLiked(refreshed.track.id),
