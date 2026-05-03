@@ -1070,10 +1070,39 @@ class MusicStore extends ChangeNotifier {
       return;
     }
 
+    await _pausePlaybackForPlaylistSwitch(nextQueue: queueItems);
     _applyQueuedPlaybackState(queueItems);
     notifyListeners();
     _markSnapshotDirty();
     unawaited(_startQueuedPlaybackInBackground());
+  }
+
+  Future<void> _pausePlaybackForPlaylistSwitch({
+    List<PlaybackQueueItem> nextQueue = const <PlaybackQueueItem>[],
+  }) async {
+    final adapterState = _playbackAdapter.state;
+    final nextTrackId =
+        nextQueue.isNotEmpty ? nextQueue.first.track.id.trim() : '';
+    final currentTrackId = _currentTrack.id.trim();
+    final isSameHeadTrack =
+        nextTrackId.isNotEmpty && nextTrackId == currentTrackId;
+    final shouldPauseCurrentPlayback =
+        !isSameHeadTrack &&
+        (adapterState.isPlaying ||
+            adapterState.isBuffering ||
+            adapterState.currentSource != null);
+    if (!shouldPauseCurrentPlayback) {
+      return;
+    }
+    try {
+      await _playbackAdapter.pause();
+    } catch (_) {
+      // best effort: switching to a new playlist should still proceed
+    }
+    _isPlaying = false;
+    _isBuffering = false;
+    _isPreparingPlayback = false;
+    _position = Duration.zero;
   }
 
   void _applyQueuedPlaybackState(List<PlaybackQueueItem> queueItems) {
@@ -1744,6 +1773,9 @@ class MusicStore extends ChangeNotifier {
       case MusicCommandType.play:
       case MusicCommandType.replaceQueue:
         final incomingQueue = command.queue;
+        if (command.type == MusicCommandType.replaceQueue) {
+          await _pausePlaybackForPlaylistSwitch(nextQueue: incomingQueue);
+        }
         if (incomingQueue.isNotEmpty) {
           final normalizedQueue = incomingQueue
               .map(

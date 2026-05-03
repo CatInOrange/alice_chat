@@ -15,6 +15,7 @@ import 'package:markdown/markdown.dart' as md;
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../app/theme.dart';
 import '../../../core/debug/native_debug_bridge.dart';
 import '../application/chat_session_store.dart';
 import '../domain/chat_session.dart';
@@ -1452,6 +1453,9 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   MarkdownStyleSheet _buildMarkdownStyleSheet(ThemeData theme) {
+    final monoFontFamily =
+        theme.extension<AliceChatFontScheme>()?.monospaceFontFamily ??
+        'monospace';
     final bodyStyle =
         theme.textTheme.bodyLarge?.copyWith(
           color: const Color(0xFF1F2430),
@@ -1467,13 +1471,13 @@ class _ChatScreenState extends State<ChatScreen> {
 
     final mono =
         theme.textTheme.bodyMedium?.copyWith(
-          fontFamily: 'monospace',
+          fontFamily: monoFontFamily,
           color: const Color(0xFF2B2F3A),
           height: 1.25,
         ) ??
-        const TextStyle(
-          fontFamily: 'monospace',
-          color: Color(0xFF2B2F3A),
+        TextStyle(
+          fontFamily: monoFontFamily,
+          color: const Color(0xFF2B2F3A),
           fontSize: 14,
           height: 1.25,
         );
