@@ -43,9 +43,18 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
   @override
   Future<SourceCandidate?> matchTrack(MusicTrack track) async {
     final sourceTrackId = track.sourceTrackId?.trim();
-    if ((track.preferredSourceId == id || sourceTrackId != null) &&
+    if (track.preferredSourceId == id &&
         sourceTrackId != null &&
         sourceTrackId.isNotEmpty) {
+      if (!_shouldHydrateTrackDetail(track)) {
+        return SourceCandidate(
+          providerId: id,
+          sourceTrackId: sourceTrackId,
+          track: CanonicalTrack.fromMusicTrack(
+            track.copyWith(preferredSourceId: id, sourceTrackId: sourceTrackId),
+          ),
+        );
+      }
       final detailTrack = await _loadTrackDetailById(sourceTrackId);
       final hydratedTrack = (detailTrack ?? track).copyWith(
         preferredSourceId: id,
@@ -338,6 +347,10 @@ class NeteaseMusicSourceProvider extends MusicSourceProvider {
     final codeRaw = payload['code'];
     final code = codeRaw is num ? codeRaw.toInt() : int.tryParse('$codeRaw');
     return code == 200;
+  }
+
+  bool _shouldHydrateTrackDetail(MusicTrack track) {
+    return (track.artworkUrl ?? '').trim().isEmpty;
   }
 
   Future<MusicTrack?> _loadTrackDetailById(String sourceTrackId) async {

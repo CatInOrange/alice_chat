@@ -8,7 +8,11 @@ class MusicSourceResolverImpl implements MusicSourceResolver {
   MusicSourceResolverImpl({required MusicSourceRegistry registry})
     : _registry = registry;
 
+  static const Duration _resolveMemoTtl = Duration(seconds: 20);
+
   final MusicSourceRegistry _registry;
+  final Map<String, PlaybackQueueItem> _resolveMemo =
+      <String, PlaybackQueueItem>{};
 
   MusicSourceRegistry get registry => _registry;
 
@@ -50,6 +54,12 @@ class MusicSourceResolverImpl implements MusicSourceResolver {
     MusicTrack track, {
     bool allowFallback = true,
   }) async {
+    final memoKey = _resolveMemoKey(track);
+    final memoized = _resolveMemoized(track, memoKey);
+    if (memoized != null) {
+      return memoized;
+    }
+
     final providers = _orderedProviders(track, allowFallback: allowFallback);
 
     for (final provider in providers) {
@@ -60,7 +70,7 @@ class MusicSourceResolverImpl implements MusicSourceResolver {
       }
       final resolved = await provider.resolvePlayback(candidate);
       if (resolved != null) {
-        return PlaybackQueueItem(
+        final item = PlaybackQueueItem(
           track: track.copyWith(
             preferredSourceId: provider.id,
             sourceTrackId: candidate.sourceTrackId,
@@ -79,6 +89,8 @@ class MusicSourceResolverImpl implements MusicSourceResolver {
           candidate: candidate,
           resolvedSource: resolved,
         );
+        _resolveMemo[memoKey] = item;
+        return item;
       }
     }
 
@@ -109,5 +121,38 @@ class MusicSourceResolverImpl implements MusicSourceResolver {
         ),
       ),
     );
+  }
+
+  PlaybackQueueItem? _resolveMemoized(MusicTrack track, String memoKey) {
+    final memoized = _resolveMemo[memoKey];
+    final cached = memoized?.track.cachedPlayback;
+    if (memoized == null || cached == null) {
+      return null;
+    }
+    final resolvedAt = cached.resolvedAt;
+    if (cached.streamUrl.trim().isEmpty || cached.isExpired) {
+      _resolveMemo.remove(memoKey);
+      return null;
+    }
+    if (resolvedAt != null &&
+        DateTime.now().difference(resolvedAt) > _resolveMemoTtl) {
+      _resolveMemo.remove(memoKey);
+      return null;
+    }
+    return memoized.copyWith(
+      track: memoized.track.copyWith(
+        isFavorite: track.isFavorite,
+        artworkUrl: memoized.track.artworkUrl ?? track.artworkUrl,
+      ),
+    );
+  }
+
+  String _resolveMemoKey(MusicTrack track) {
+    final providerId = track.preferredSourceId?.trim() ?? '';
+    final sourceTrackId = track.sourceTrackId?.trim() ?? '';
+    if (providerId.isNotEmpty && sourceTrackId.isNotEmpty) {
+      return '$providerId::$sourceTrackId';
+    }
+    return '${track.id}::${track.title}::${track.artist}';
   }
 }
