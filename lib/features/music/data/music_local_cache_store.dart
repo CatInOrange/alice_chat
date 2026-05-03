@@ -29,132 +29,22 @@ class MusicLocalCacheSnapshot {
 }
 
 class MusicLocalCacheStore {
-  static const String _cacheKey = 'alicechat.music.local_cache.v1';
+  static const String _legacyCacheKey = 'alicechat.music.local_cache.v1';
+  static const String _v2Prefix = 'alicechat.music.local_cache.v2';
+  static const String _metaKey = '$_v2Prefix.meta';
+  static const String _playbackKey = '$_v2Prefix.playback';
+  static const String _libraryKey = '$_v2Prefix.library';
+  static const String _aiKey = '$_v2Prefix.ai';
+  static const String _playlistTracksKey = '$_v2Prefix.playlist_tracks';
 
   Future<MusicLocalCacheSnapshot?> load() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_cacheKey)?.trim();
-      if (raw == null || raw.isEmpty) {
-        return null;
+      final snapshot = _loadV2(prefs);
+      if (snapshot != null) {
+        return snapshot;
       }
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map) {
-        return null;
-      }
-      final map = Map<String, dynamic>.from(decoded.cast<String, dynamic>());
-      final stateMap =
-          (map['state'] as Map?)?.cast<String, dynamic>() ??
-          const <String, dynamic>{};
-      final latestAiMap =
-          (map['latestAiPlaylist'] as Map?)?.cast<String, dynamic>();
-      final aiHistoryRaw =
-          (map['aiPlaylistHistory'] as List<dynamic>?) ?? const [];
-      final playlistCacheRaw =
-          (map['playlistTracksCache'] as Map?)?.cast<String, dynamic>() ??
-          const <String, dynamic>{};
-      return MusicLocalCacheSnapshot(
-        state: MusicStateSnapshot(
-          currentTrack:
-              stateMap['currentTrack'] is Map
-                  ? MusicTrack.fromMap(
-                    Map<String, dynamic>.from(
-                      (stateMap['currentTrack'] as Map).cast<String, dynamic>(),
-                    ),
-                  )
-                  : null,
-          queue: ((stateMap['queue'] as List<dynamic>?) ?? const [])
-              .whereType<Map>()
-              .map(
-                (item) => PlaybackQueueItem.fromMap(
-                  Map<String, dynamic>.from(item.cast<String, dynamic>()),
-                ),
-              )
-              .toList(growable: false),
-          playlists: ((stateMap['playlists'] as List<dynamic>?) ?? const [])
-              .whereType<Map>()
-              .map(
-                (item) => MusicPlaylist.fromMap(
-                  Map<String, dynamic>.from(item.cast<String, dynamic>()),
-                ),
-              )
-              .toList(growable: false),
-          recentTracks: ((stateMap['recentTracks'] as List<dynamic>?) ??
-                  const [])
-              .whereType<Map>()
-              .map(
-                (item) => MusicTrack.fromMap(
-                  Map<String, dynamic>.from(item.cast<String, dynamic>()),
-                ),
-              )
-              .toList(growable: false),
-          likedTracks: ((stateMap['likedTracks'] as List<dynamic>?) ?? const [])
-              .whereType<Map>()
-              .map(
-                (item) => MusicTrack.fromMap(
-                  Map<String, dynamic>.from(item.cast<String, dynamic>()),
-                ),
-              )
-              .toList(growable: false),
-          recentPlaylists: ((stateMap['recentPlaylists'] as List<dynamic>?) ??
-                  const [])
-              .whereType<Map>()
-              .map(
-                (item) => MusicPlaylist.fromMap(
-                  Map<String, dynamic>.from(item.cast<String, dynamic>()),
-                ),
-              )
-              .toList(growable: false),
-          customPlaylists: ((stateMap['customPlaylists'] as List<dynamic>?) ??
-                  const [])
-              .whereType<Map>()
-              .map(
-                (item) => CustomMusicPlaylist.fromMap(
-                  Map<String, dynamic>.from(item.cast<String, dynamic>()),
-                ),
-              )
-              .toList(growable: false),
-          currentPlaylistId: _nullableString(stateMap['currentPlaylistId']),
-          neteaseLikedPlaylistId: _nullableString(
-            stateMap['neteaseLikedPlaylistId'],
-          ),
-          neteaseLikedPlaylistOpaqueId: _nullableString(
-            stateMap['neteaseLikedPlaylistOpaqueId'] ??
-                stateMap['neteaseLikedPlaylistEncryptedId'],
-          ),
-          isPlaying: stateMap['isPlaying'] == true,
-          position: Duration(milliseconds: _intValue(stateMap['positionMs'])),
-        ),
-        latestAiPlaylist:
-            latestAiMap == null
-                ? null
-                : MusicAiPlaylistDraft.fromMap(latestAiMap),
-        aiPlaylistHistory: aiHistoryRaw
-            .whereType<Map>()
-            .map(
-              (item) => MusicAiPlaylistDraft.fromMap(
-                Map<String, dynamic>.from(item.cast<String, dynamic>()),
-              ),
-            )
-            .toList(growable: false),
-        playlistTracksCache: playlistCacheRaw.map(
-          (key, value) => MapEntry(
-            key,
-            ((value as List<dynamic>?) ?? const [])
-                .whereType<Map>()
-                .map(
-                  (item) => MusicTrack.fromMap(
-                    Map<String, dynamic>.from(item.cast<String, dynamic>()),
-                  ),
-                )
-                .toList(growable: false),
-          ),
-        ),
-        cachedAt: _nullableDateTime(map['cachedAt']),
-        localRevision: _intValue(map['localRevision']),
-        lastAckedRevision: _intValue(map['lastAckedRevision']),
-        hasPendingSync: map['hasPendingSync'] == true,
-      );
+      return _loadLegacyV1(prefs);
     } catch (_) {
       return null;
     }
@@ -162,47 +52,263 @@ class MusicLocalCacheStore {
 
   Future<void> save(MusicLocalCacheSnapshot snapshot) async {
     final prefs = await SharedPreferences.getInstance();
-    final payload = <String, dynamic>{
-      'cachedAt': (snapshot.cachedAt ?? DateTime.now()).toIso8601String(),
-      'state': {
-        if (snapshot.state.currentTrack != null)
-          'currentTrack': snapshot.state.currentTrack!.toMap(),
-        'queue': snapshot.state.queue.map((item) => item.toMap()).toList(),
-        'playlists':
-            snapshot.state.playlists.map((item) => item.toMap()).toList(),
-        'recentTracks':
-            snapshot.state.recentTracks.map((item) => item.toMap()).toList(),
-        'likedTracks':
-            snapshot.state.likedTracks.map((item) => item.toMap()).toList(),
-        'recentPlaylists':
-            snapshot.state.recentPlaylists.map((item) => item.toMap()).toList(),
-        'customPlaylists':
-            snapshot.state.customPlaylists.map((item) => item.toMap()).toList(),
-        if (snapshot.state.currentPlaylistId != null)
-          'currentPlaylistId': snapshot.state.currentPlaylistId,
-        if (snapshot.state.neteaseLikedPlaylistId != null)
-          'neteaseLikedPlaylistId': snapshot.state.neteaseLikedPlaylistId,
-        if (snapshot.state.neteaseLikedPlaylistOpaqueId != null)
-          'neteaseLikedPlaylistOpaqueId':
-              snapshot.state.neteaseLikedPlaylistOpaqueId,
-        'isPlaying': snapshot.state.isPlaying,
-        'positionMs': snapshot.state.position.inMilliseconds,
-      },
+    final playbackPayload = <String, dynamic>{
+      if (snapshot.state.currentTrack != null)
+        'currentTrack': snapshot.state.currentTrack!.toMap(),
+      'queue': snapshot.state.queue.map((item) => item.toMap()).toList(),
+      if (snapshot.state.currentPlaylistId != null)
+        'currentPlaylistId': snapshot.state.currentPlaylistId,
+      'isPlaying': snapshot.state.isPlaying,
+      'positionMs': snapshot.state.position.inMilliseconds,
+    };
+    final libraryPayload = <String, dynamic>{
+      'playlists':
+          snapshot.state.playlists.map((item) => item.toMap()).toList(),
+      'recentTracks':
+          snapshot.state.recentTracks.map((item) => item.toMap()).toList(),
+      'likedTracks':
+          snapshot.state.likedTracks.map((item) => item.toMap()).toList(),
+      'recentPlaylists':
+          snapshot.state.recentPlaylists.map((item) => item.toMap()).toList(),
+      'customPlaylists':
+          snapshot.state.customPlaylists.map((item) => item.toMap()).toList(),
+      if (snapshot.state.neteaseLikedPlaylistId != null)
+        'neteaseLikedPlaylistId': snapshot.state.neteaseLikedPlaylistId,
+      if (snapshot.state.neteaseLikedPlaylistOpaqueId != null)
+        'neteaseLikedPlaylistOpaqueId':
+            snapshot.state.neteaseLikedPlaylistOpaqueId,
+    };
+    final aiPayload = <String, dynamic>{
       if (snapshot.latestAiPlaylist != null)
         'latestAiPlaylist': snapshot.latestAiPlaylist!.toMap(),
       'aiPlaylistHistory':
           snapshot.aiPlaylistHistory.map((item) => item.toMap()).toList(),
-      'playlistTracksCache': snapshot.playlistTracksCache.map(
-        (key, value) => MapEntry(
-          key,
-          value.map((item) => item.toMap()).toList(growable: false),
-        ),
+    };
+    final playlistTracksPayload = snapshot.playlistTracksCache.map(
+      (key, value) => MapEntry(
+        key,
+        value.map((item) => item.toMap()).toList(growable: false),
       ),
+    );
+    final metaPayload = <String, dynamic>{
+      'version': 2,
+      'cachedAt': (snapshot.cachedAt ?? DateTime.now()).toIso8601String(),
       'localRevision': snapshot.localRevision,
       'lastAckedRevision': snapshot.lastAckedRevision,
       'hasPendingSync': snapshot.hasPendingSync,
     };
-    await prefs.setString(_cacheKey, jsonEncode(payload));
+
+    await Future.wait([
+      prefs.setString(_metaKey, jsonEncode(metaPayload)),
+      prefs.setString(_playbackKey, jsonEncode(playbackPayload)),
+      prefs.setString(_libraryKey, jsonEncode(libraryPayload)),
+      prefs.setString(_aiKey, jsonEncode(aiPayload)),
+      prefs.setString(_playlistTracksKey, jsonEncode(playlistTracksPayload)),
+    ]);
+  }
+
+  MusicLocalCacheSnapshot? _loadV2(SharedPreferences prefs) {
+    final meta = _decodeMap(prefs.getString(_metaKey));
+    final playback = _decodeMap(prefs.getString(_playbackKey));
+    final library = _decodeMap(prefs.getString(_libraryKey));
+    final ai = _decodeMap(prefs.getString(_aiKey));
+    final playlistTracks = _decodeMap(prefs.getString(_playlistTracksKey));
+    if (meta == null &&
+        playback == null &&
+        library == null &&
+        ai == null &&
+        playlistTracks == null) {
+      return null;
+    }
+
+    final latestAiMap =
+        (ai?['latestAiPlaylist'] as Map?)?.cast<String, dynamic>();
+    final aiHistoryRaw =
+        (ai?['aiPlaylistHistory'] as List<dynamic>?) ?? const [];
+    final playlistCacheRaw =
+        (playlistTracks ?? const <String, dynamic>{}).cast<String, dynamic>();
+
+    return MusicLocalCacheSnapshot(
+      state: MusicStateSnapshot(
+        currentTrack:
+            playback?['currentTrack'] is Map
+                ? MusicTrack.fromMap(
+                  Map<String, dynamic>.from(
+                    (playback!['currentTrack'] as Map).cast<String, dynamic>(),
+                  ),
+                )
+                : null,
+        queue: _queueFromList(playback?['queue'] as List<dynamic>?),
+        playlists: _playlistsFromList(library?['playlists'] as List<dynamic>?),
+        recentTracks: _tracksFromList(
+          library?['recentTracks'] as List<dynamic>?,
+        ),
+        likedTracks: _tracksFromList(library?['likedTracks'] as List<dynamic>?),
+        recentPlaylists: _playlistsFromList(
+          library?['recentPlaylists'] as List<dynamic>?,
+        ),
+        customPlaylists: _customPlaylistsFromList(
+          library?['customPlaylists'] as List<dynamic>?,
+        ),
+        currentPlaylistId: _nullableString(playback?['currentPlaylistId']),
+        neteaseLikedPlaylistId: _nullableString(
+          library?['neteaseLikedPlaylistId'],
+        ),
+        neteaseLikedPlaylistOpaqueId: _nullableString(
+          library?['neteaseLikedPlaylistOpaqueId'] ??
+              library?['neteaseLikedPlaylistEncryptedId'],
+        ),
+        isPlaying: playback?['isPlaying'] == true,
+        position: Duration(milliseconds: _intValue(playback?['positionMs'])),
+      ),
+      latestAiPlaylist:
+          latestAiMap == null
+              ? null
+              : MusicAiPlaylistDraft.fromMap(latestAiMap),
+      aiPlaylistHistory: aiHistoryRaw
+          .whereType<Map>()
+          .map(
+            (item) => MusicAiPlaylistDraft.fromMap(
+              Map<String, dynamic>.from(item.cast<String, dynamic>()),
+            ),
+          )
+          .toList(growable: false),
+      playlistTracksCache: playlistCacheRaw.map(
+        (key, value) => MapEntry(key, _tracksFromList(value as List<dynamic>?)),
+      ),
+      cachedAt: _nullableDateTime(meta?['cachedAt']),
+      localRevision: _intValue(meta?['localRevision']),
+      lastAckedRevision: _intValue(meta?['lastAckedRevision']),
+      hasPendingSync: meta?['hasPendingSync'] == true,
+    );
+  }
+
+  MusicLocalCacheSnapshot? _loadLegacyV1(SharedPreferences prefs) {
+    final map = _decodeMap(prefs.getString(_legacyCacheKey));
+    if (map == null) {
+      return null;
+    }
+    final stateMap =
+        (map['state'] as Map?)?.cast<String, dynamic>() ??
+        const <String, dynamic>{};
+    final latestAiMap =
+        (map['latestAiPlaylist'] as Map?)?.cast<String, dynamic>();
+    final aiHistoryRaw =
+        (map['aiPlaylistHistory'] as List<dynamic>?) ?? const [];
+    final playlistCacheRaw =
+        (map['playlistTracksCache'] as Map?)?.cast<String, dynamic>() ??
+        const <String, dynamic>{};
+    return MusicLocalCacheSnapshot(
+      state: MusicStateSnapshot(
+        currentTrack:
+            stateMap['currentTrack'] is Map
+                ? MusicTrack.fromMap(
+                  Map<String, dynamic>.from(
+                    (stateMap['currentTrack'] as Map).cast<String, dynamic>(),
+                  ),
+                )
+                : null,
+        queue: _queueFromList(stateMap['queue'] as List<dynamic>?),
+        playlists: _playlistsFromList(stateMap['playlists'] as List<dynamic>?),
+        recentTracks: _tracksFromList(
+          stateMap['recentTracks'] as List<dynamic>?,
+        ),
+        likedTracks: _tracksFromList(stateMap['likedTracks'] as List<dynamic>?),
+        recentPlaylists: _playlistsFromList(
+          stateMap['recentPlaylists'] as List<dynamic>?,
+        ),
+        customPlaylists: _customPlaylistsFromList(
+          stateMap['customPlaylists'] as List<dynamic>?,
+        ),
+        currentPlaylistId: _nullableString(stateMap['currentPlaylistId']),
+        neteaseLikedPlaylistId: _nullableString(
+          stateMap['neteaseLikedPlaylistId'],
+        ),
+        neteaseLikedPlaylistOpaqueId: _nullableString(
+          stateMap['neteaseLikedPlaylistOpaqueId'] ??
+              stateMap['neteaseLikedPlaylistEncryptedId'],
+        ),
+        isPlaying: stateMap['isPlaying'] == true,
+        position: Duration(milliseconds: _intValue(stateMap['positionMs'])),
+      ),
+      latestAiPlaylist:
+          latestAiMap == null
+              ? null
+              : MusicAiPlaylistDraft.fromMap(latestAiMap),
+      aiPlaylistHistory: aiHistoryRaw
+          .whereType<Map>()
+          .map(
+            (item) => MusicAiPlaylistDraft.fromMap(
+              Map<String, dynamic>.from(item.cast<String, dynamic>()),
+            ),
+          )
+          .toList(growable: false),
+      playlistTracksCache: playlistCacheRaw.map(
+        (key, value) => MapEntry(key, _tracksFromList(value as List<dynamic>?)),
+      ),
+      cachedAt: _nullableDateTime(map['cachedAt']),
+      localRevision: _intValue(map['localRevision']),
+      lastAckedRevision: _intValue(map['lastAckedRevision']),
+      hasPendingSync: map['hasPendingSync'] == true,
+    );
+  }
+
+  static Map<String, dynamic>? _decodeMap(String? raw) {
+    final value = raw?.trim();
+    if (value == null || value.isEmpty) {
+      return null;
+    }
+    final decoded = jsonDecode(value);
+    if (decoded is! Map) {
+      return null;
+    }
+    return Map<String, dynamic>.from(decoded.cast<String, dynamic>());
+  }
+
+  static List<MusicTrack> _tracksFromList(List<dynamic>? raw) {
+    return (raw ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => MusicTrack.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  static List<MusicPlaylist> _playlistsFromList(List<dynamic>? raw) {
+    return (raw ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => MusicPlaylist.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  static List<CustomMusicPlaylist> _customPlaylistsFromList(
+    List<dynamic>? raw,
+  ) {
+    return (raw ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => CustomMusicPlaylist.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  static List<PlaybackQueueItem> _queueFromList(List<dynamic>? raw) {
+    return (raw ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => PlaybackQueueItem.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
   }
 
   static int _intValue(dynamic raw) {
