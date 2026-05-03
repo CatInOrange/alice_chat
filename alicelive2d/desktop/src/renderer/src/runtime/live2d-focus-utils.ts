@@ -25,32 +25,44 @@ export function applyLive2DFocus({
 
   const width = Number(canvasRect.width);
   const height = Number(canvasRect.height);
-  // In pet mode, pointer.x is in screen/renderer coordinates (0 to renderer width),
-  // while canvasRect.width is the canvas width. We need to scale pointer.x from
-  // renderer coordinates to canvas coordinates.
-  const rendererWidth = typeof window !== 'undefined' ? window.innerWidth : width;
-  const localX = clamp(
-    ((Number(pointer.x) - Number(canvasRect.left || 0)) * width) / rendererWidth,
-    0,
-    width
-  );
+  const localX = clamp(Number(pointer.x) - Number(canvasRect.left || 0), 0, width);
   const localY = clamp(Number(pointer.y) - Number(canvasRect.top || 0), 0, height);
   const focusedY = localY;
+
+  const canUseManagerDrag = typeof manager?.onDrag === "function"
+    && typeof view?.transformViewX === "function"
+    && typeof view?.transformViewY === "function";
+
+  if (pointer?.pointerType === 'mouse' && canUseManagerDrag) {
+    const scaledX = localX;
+    const scaledY = focusedY;
+    const dragX = view.transformViewX(scaledX);
+    const dragY = view.transformViewY(scaledY);
+
+    if (typeof console !== 'undefined') {
+      console.log('[live2d-focus]', {
+        mode: 'hover-drag',
+        pointerType: pointer?.pointerType ?? null,
+        buttons: Number(pointer?.buttons ?? 0),
+        localX,
+        localY,
+        dragX,
+        dragY,
+      });
+    }
+
+    if (Number.isFinite(Number(dragX)) && Number.isFinite(Number(dragY))) {
+      manager.onDrag(dragX, dragY);
+      return true;
+    }
+  }
 
   if (typeof model?.focus === "function") {
     model.focus(localX, focusedY, false);
     return true;
   }
 
-  // Only apply drag (gaze tracking) when left mouse button is pressed (bit 0)
-  const leftButtonPressed = pointer && (Number(pointer.buttons) & 1) !== 0;
-
-  if (
-    leftButtonPressed
-    && typeof manager?.onDrag === "function"
-    && typeof view?.transformViewX === "function"
-    && typeof view?.transformViewY === "function"
-  ) {
+  if (canUseManagerDrag) {
     const scaledX = localX;
     const scaledY = focusedY;
     const dragX = view.transformViewX(scaledX);
@@ -80,7 +92,7 @@ export function applyLive2DFocus({
       pointerY_raw: Number(pointer.y),
 
       // Calculated local position
-      rendererWidth,
+      rendererWidth: width,
       localX,
       localY,
       focusedY,

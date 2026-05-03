@@ -106,6 +106,9 @@ const api = {
   updateConfigFiles: (files: ConfigFile[]) => {
     ipcRenderer.send('update-config-files', files);
   },
+  debugLog: (payload: unknown) => {
+    ipcRenderer.send('debug-log', payload);
+  },
 };
 
 if (process.contextIsolated) {

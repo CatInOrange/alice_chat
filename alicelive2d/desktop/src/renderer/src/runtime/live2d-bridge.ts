@@ -12,6 +12,24 @@ function getAdapter(): any {
   return (window as any).getLAppAdapter?.();
 }
 
+let lastDebugLogAt = 0;
+
+function debugLog(payload: Record<string, unknown>): void {
+  const now = Date.now();
+  if ((payload.event === 'applyFocusCenter' || payload.event === 'setTrackedPointerPosition') && now - lastDebugLogAt < 250) {
+    return;
+  }
+  lastDebugLogAt = now;
+  const entry = {
+    scope: 'live2d-bridge',
+    ...payload,
+  };
+  (window as any).api?.debugLog?.(entry);
+  if (typeof console !== 'undefined') {
+    console.log('[live2d-bridge]', entry);
+  }
+}
+
 function getModel(): any {
   return getAdapter()?.getModel?.();
 }
@@ -214,6 +232,10 @@ let lastPointer: {
   pointerType: null,
 };
 
+let constrainPointerToCanvasHover = false;
+let isPointerInsideCanvas = false;
+let forceCenterUntilPointerReenters = false;
+
 export function setTrackedPointerPosition(pointer: { x: number; y: number; buttons?: number; pointerType?: string | null } | null | undefined): void {
   if (
     !pointer
@@ -229,11 +251,35 @@ export function setTrackedPointerPosition(pointer: { x: number; y: number; butto
     buttons: pointer.buttons ?? lastPointer.buttons,
     pointerType: pointer.pointerType ?? lastPointer.pointerType ?? null,
   };
+  debugLog({
+    event: 'setTrackedPointerPosition',
+    x: lastPointer.x,
+    y: lastPointer.y,
+    buttons: lastPointer.buttons,
+    pointerType: lastPointer.pointerType,
+  });
 }
 
-export function resetTrackedPointerToCenter(): void {
+function focusModelCenter(): void {
   const canvas = document.getElementById("canvas") as HTMLCanvasElement | null;
   const rect = canvas?.getBoundingClientRect();
+  const model = getModel();
+  const manager = getAdapter()?.getMgr?.();
+
+  if (rect && model && typeof model.focus === "function") {
+    model.focus(rect.width * 0.5, rect.height * 0.5, false);
+  }
+
+  if (manager && typeof manager.onDrag === 'function') {
+    manager.onDrag(0, 0);
+  }
+}
+
+export function resetTrackedPointerToCenter(reason?: string): void {
+  const canvas = document.getElementById("canvas") as HTMLCanvasElement | null;
+  const rect = canvas?.getBoundingClientRect();
+
+  forceCenterUntilPointerReenters = true;
 
   if (rect && Number.isFinite(rect.left) && Number.isFinite(rect.top)) {
     lastPointer = {
@@ -251,9 +297,47 @@ export function resetTrackedPointerToCenter(): void {
     };
   }
 
-  const manager = getAdapter()?.getMgr?.();
-  if (manager && typeof manager.onDrag === 'function') {
-    manager.onDrag(0, 0);
+  debugLog({
+    event: 'resetTrackedPointerToCenter',
+    reason: reason ?? null,
+    x: lastPointer.x,
+    y: lastPointer.y,
+    forceCenterUntilPointerReenters,
+  });
+  focusModelCenter();
+}
+
+export function setConstrainPointerToCanvasHover(value: boolean): void {
+  constrainPointerToCanvasHover = value;
+  if (!value) {
+    isPointerInsideCanvas = false;
+    forceCenterUntilPointerReenters = false;
+  }
+  debugLog({ event: 'setConstrainPointerToCanvasHover', value, isPointerInsideCanvas, forceCenterUntilPointerReenters });
+}
+
+export function setPointerInsideCanvas(
+  inside: boolean,
+  pointer?: { x: number; y: number; buttons?: number; pointerType?: string | null } | null,
+): void {
+  isPointerInsideCanvas = inside;
+  if (pointer) {
+    setTrackedPointerPosition(pointer);
+  }
+  if (inside) {
+    forceCenterUntilPointerReenters = false;
+  }
+  debugLog({
+    event: 'setPointerInsideCanvas',
+    inside,
+    x: pointer?.x ?? null,
+    y: pointer?.y ?? null,
+    buttons: pointer?.buttons ?? null,
+    pointerType: pointer?.pointerType ?? null,
+    forceCenterUntilPointerReenters,
+  });
+  if (!inside) {
+    resetTrackedPointerToCenter('pointer-left-canvas');
   }
 }
 
@@ -325,10 +409,26 @@ if (typeof window !== "undefined" && !(window as any).__OPENCLAW_POINTER_TRACKIN
     }
   });
 
+  const forceCenterFromWindowExit = (reason: string) => {
+    isPointerInsideCanvas = false;
+    debugLog({ event: 'window-exit', reason, forceCenterUntilPointerReenters });
+    resetTrackedPointerToCenter(reason);
+  };
+
   window.addEventListener("mouseout", (event) => {
     const related = event.relatedTarget as Node | null;
     if (!related) {
-      resetTrackedPointerToCenter();
+      forceCenterFromWindowExit('window-mouseout-relatedTarget-null');
+    }
+  });
+
+  window.addEventListener("blur", () => {
+    forceCenterFromWindowExit('window-blur');
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== 'visible') {
+      forceCenterFromWindowExit(`visibility-${document.visibilityState}`);
     }
   });
 }
@@ -337,12 +437,16 @@ export function isLeftButtonPressed(): boolean {
   return (lastPointer.buttons & 1) !== 0;
 }
 
-function isPointerInsideCanvasRect(rect: DOMRect, pointer: { x: number; y: number }): boolean {
+function isPointerInsideRect(
+  rect: { left: number; right: number; top: number; bottom: number },
+  pointer: { x: number; y: number },
+): boolean {
   return pointer.x >= rect.left
     && pointer.x <= rect.right
     && pointer.y >= rect.top
     && pointer.y <= rect.bottom;
 }
+
 
 export function applyFocusCenter(config: FocusCenterConfig | null | undefined): void {
   const next = config || {};
@@ -359,16 +463,67 @@ export function applyFocusCenter(config: FocusCenterConfig | null | undefined): 
   }
 
   if (lastPointer.pointerType === 'touch' || isLeftButtonPressed()) {
+    debugLog({
+      event: 'applyFocusCenter-skip',
+      reason: lastPointer.pointerType === 'touch' ? 'touch' : 'left-button-pressed',
+      inside: isPointerInsideCanvas,
+      pointerType: lastPointer.pointerType,
+      buttons: lastPointer.buttons,
+    });
     return;
   }
 
   const canvasRect = canvas.getBoundingClientRect();
-  if (lastPointer.pointerType === 'mouse' && !isPointerInsideCanvasRect(canvasRect, lastPointer)) {
-    if (manager && typeof manager.onDrag === 'function') {
-      manager.onDrag(0, 0);
+  const live2dRect = (document.getElementById("live2d") as HTMLElement | null)?.getBoundingClientRect() ?? canvasRect;
+  const modelBounds = getModelBounds();
+  if (lastPointer.pointerType === 'mouse') {
+    const insideModelBounds = modelBounds ? isPointerInsideRect(modelBounds, lastPointer) : null;
+    const insideCanvasRect = isPointerInsideRect(canvasRect, lastPointer);
+    const insideLive2DRect = isPointerInsideRect(live2dRect, lastPointer);
+
+    if (constrainPointerToCanvasHover && forceCenterUntilPointerReenters) {
+      debugLog({
+        event: 'applyFocusCenter-center',
+        reason: 'force-center-until-pointer-reenters',
+        inside: isPointerInsideCanvas,
+        x: lastPointer.x,
+        y: lastPointer.y,
+        insideModelBounds,
+        insideCanvasRect,
+        insideLive2DRect,
+      });
+      focusModelCenter();
+      return;
     }
-    return;
+
+    const isOutsideActiveRegion = !insideLive2DRect;
+
+    if (constrainPointerToCanvasHover && isOutsideActiveRegion) {
+      forceCenterUntilPointerReenters = true;
+      debugLog({
+        event: 'applyFocusCenter-center',
+        reason: 'outside-live2d-rect',
+        inside: isPointerInsideCanvas,
+        x: lastPointer.x,
+        y: lastPointer.y,
+        insideModelBounds,
+        insideCanvasRect,
+        insideLive2DRect,
+        live2dRect,
+      });
+      focusModelCenter();
+      return;
+    }
   }
+
+  debugLog({
+    event: 'applyFocusCenter',
+    x: lastPointer.x,
+    y: lastPointer.y,
+    inside: isPointerInsideCanvas,
+    pointerType: lastPointer.pointerType,
+    buttons: lastPointer.buttons,
+  });
 
   try {
     applyLive2DFocus({

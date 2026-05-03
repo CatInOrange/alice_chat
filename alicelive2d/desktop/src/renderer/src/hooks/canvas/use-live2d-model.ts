@@ -383,7 +383,7 @@ export const useLive2DModel = ({
       isPotentialTapRef.current = true;
       setIsDragging(false); // Ensure dragging is false initially
 
-      if (!isPet) {
+      if (!isPet && e.pointerType === 'touch') {
         relayTouchEvent('begin', e.clientX, e.clientY);
       }
 
@@ -409,7 +409,7 @@ export const useLive2DModel = ({
     const model = adapter?.getModel();
 
     // --- Start Drag Logic ---
-    if (isPotentialTapRef.current && adapter && view && model && canvasRef.current) {
+    if ((isPet || e.pointerType === 'touch') && isPotentialTapRef.current && adapter && view && model && canvasRef.current) {
       const timeElapsed = Date.now() - mouseDownTimeRef.current;
       const deltaX = e.clientX - mouseDownPosRef.current.x;
       const deltaY = e.clientY - mouseDownPosRef.current.y;
@@ -440,7 +440,7 @@ export const useLive2DModel = ({
     }
     // --- End Start Drag Logic ---
 
-    if (!isPet && (isPotentialTapRef.current || isDragging) && adapter && view && model && canvasRef.current) {
+    if (!isPet && e.pointerType === 'touch' && (isPotentialTapRef.current || isDragging) && adapter && view && model && canvasRef.current) {
       relayTouchEvent('move', e.clientX, e.clientY);
     }
 
@@ -560,7 +560,7 @@ export const useLive2DModel = ({
     const model = adapter?.getModel();
     const view = LAppDelegate.getInstance().getView();
 
-    if (!isPet && (isDragging || isPotentialTapRef.current)) {
+    if (!isPet && e.pointerType === 'touch' && (isDragging || isPotentialTapRef.current)) {
       relayTouchEvent('end', e.clientX, e.clientY);
     }
 
@@ -622,7 +622,7 @@ export const useLive2DModel = ({
   }, [isDragging, canvasRef, isPet, modelInfo, relayTouchEvent]);
 
   const handlePointerCancel = useCallback((e?: React.PointerEvent) => {
-    if (!isPet && (isDragging || isPotentialTapRef.current)) {
+    if (!isPet && e?.pointerType === 'touch' && (isDragging || isPotentialTapRef.current)) {
       relayTouchEvent('end', e?.clientX ?? mouseDownPosRef.current.x, e?.clientY ?? mouseDownPosRef.current.y);
     }
 

@@ -444,6 +444,15 @@ function setupIPC(): void {
     menuManager.updateConfigFiles(files);
   });
 
+  ipcMain.on("debug-log", (_event, payload) => {
+    try {
+      const stamp = new Date().toISOString();
+      console.log(`[renderer-debug ${stamp}]`, payload);
+    } catch (error) {
+      console.log("[renderer-debug]", payload, error);
+    }
+  });
+
   ipcMain.handle('get-screen-capture', async () => {
     const sources = await desktopCapturer.getSources({ types: ['screen'] });
     return sources[0].id;

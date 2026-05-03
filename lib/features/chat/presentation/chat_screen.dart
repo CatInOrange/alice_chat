@@ -997,6 +997,11 @@ class _ChatScreenState extends State<ChatScreen> {
               subtitle: '切换 reasoning 模式',
             ),
             const _SlashSuggestionItem(
+              insertText: '/think ',
+              label: '/think',
+              subtitle: '调整思考强度',
+            ),
+            const _SlashSuggestionItem(
               insertText: '/model ',
               label: '/model',
               subtitle: '切换默认模型',
@@ -1037,6 +1042,29 @@ class _ChatScreenState extends State<ChatScreen> {
               insertText: '/reasoning $item',
               label: item,
               subtitle: '/reasoning $item',
+            ),
+          )
+          .toList(growable: false);
+    }
+
+    if (text.startsWith('/think ')) {
+      final query = text.substring('/think '.length).trim().toLowerCase();
+      return [
+            'off',
+            'minimal',
+            'low',
+            'medium',
+            'high',
+            'xhigh',
+            'adaptive',
+            'max',
+          ]
+          .where((item) => query.isEmpty || item.contains(query))
+          .map(
+            (item) => _SlashSuggestionItem(
+              insertText: '/think $item',
+              label: item,
+              subtitle: '/think $item',
             ),
           )
           .toList(growable: false);

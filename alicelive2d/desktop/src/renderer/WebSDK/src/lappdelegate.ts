@@ -120,6 +120,9 @@ export class LAppDelegate {
     console.log('[DEBUG] Touch debug window initialized');
 
     const supportTouch: boolean = 'ontouchend' in canvas!;
+    const enableSdkMouseEvents = typeof window !== 'undefined'
+      ? (window as any).__OPENCLAW_ENABLE_SDK_MOUSE_EVENTS__ === true
+      : false;
 
     if (supportTouch) {
       // タッチ関連コールバック関数登録
@@ -128,7 +131,9 @@ export class LAppDelegate {
       canvas!.addEventListener('touchmove', onTouchMoved, { passive: false });
       canvas!.addEventListener('touchend', onTouchEnded, { passive: false });
       canvas!.addEventListener('touchcancel', onTouchCancel, { passive: false });
-    } else {
+    }
+
+    if (enableSdkMouseEvents) {
       // マウス関連コールバック関数登録
       // 注册鼠标相关回调函数
       canvas!.addEventListener('mousedown', onClickBegan, { passive: true });

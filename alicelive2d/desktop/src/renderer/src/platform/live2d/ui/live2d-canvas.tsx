@@ -1,13 +1,17 @@
 /* eslint-disable no-shadow */
 /* eslint-disable no-underscore-dangle */
 /* eslint-disable @typescript-eslint/ban-ts-comment */
-import { memo, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import { useLive2DConfig } from "@/context/live2d-config-context";
 import { useLive2DModel } from "@/hooks/canvas/use-live2d-model";
 import { useLive2DResize } from "@/hooks/canvas/use-live2d-resize";
 import { useForceIgnoreMouse } from "@/hooks/utils/use-force-ignore-mouse";
 import { useMode } from "@/context/mode-context";
-import { resetTrackedPointerToCenter } from "@/runtime/live2d-bridge";
+import {
+  resetTrackedPointerToCenter,
+  setConstrainPointerToCanvasHover,
+  setPointerInsideCanvas,
+} from "@/runtime/live2d-bridge";
 
 interface Live2DProps {
   showSidebar?: boolean;
@@ -20,6 +24,18 @@ export const Live2D = memo(
     const { mode } = useMode();
     const internalContainerRef = useRef<HTMLDivElement>(null);
     const isPet = mode === 'pet';
+    const lastDebugMoveRef = useRef(0);
+
+    const debugLog = (payload: Record<string, unknown>) => {
+      const entry = {
+        scope: 'live2d-canvas',
+        mode,
+        isPet,
+        ...payload,
+      };
+      window.api?.debugLog?.(entry);
+      console.log('[live2d-canvas]', entry);
+    };
 
     // Get canvasRef from useLive2DResize
     const { canvasRef } = useLive2DResize({
@@ -56,33 +72,82 @@ export const Live2D = memo(
     //   };
     // }, [setExpression]);
 
+    useEffect(() => {
+      setConstrainPointerToCanvasHover(!isPet);
+      debugLog({ event: 'setConstrainPointerToCanvasHover', enabled: !isPet });
+      return () => {
+        setConstrainPointerToCanvasHover(false);
+      };
+    }, [isPet]);
+
+    const handlePointerEnter = (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.pointerType === "mouse") {
+        setPointerInsideCanvas(true, {
+          x: e.clientX,
+          y: e.clientY,
+          buttons: e.buttons,
+          pointerType: e.pointerType,
+        });
+        debugLog({ event: 'pointerenter', x: e.clientX, y: e.clientY, buttons: e.buttons });
+      }
+    };
+
     const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
       if (e.pointerType === "mouse" && e.button !== 0) {
         return;
       }
-      e.currentTarget.setPointerCapture?.(e.pointerId);
+      if (isPet) {
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+      }
+      debugLog({ event: 'pointerdown', x: e.clientX, y: e.clientY, buttons: e.buttons, captured: isPet });
       handlers.onPointerDown(e);
     };
 
     const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.pointerType === "mouse") {
+        setPointerInsideCanvas(true, {
+          x: e.clientX,
+          y: e.clientY,
+          buttons: e.buttons,
+          pointerType: e.pointerType,
+        });
+        const now = Date.now();
+        if (now - lastDebugMoveRef.current >= 250) {
+          lastDebugMoveRef.current = now;
+          debugLog({ event: 'pointermove', x: e.clientX, y: e.clientY, buttons: e.buttons });
+        }
+      }
       handlers.onPointerMove(e);
     };
 
     const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+      debugLog({ event: 'pointerup', x: e.clientX, y: e.clientY, buttons: e.buttons, captured: isPet });
       handlers.onPointerUp(e);
-      e.currentTarget.releasePointerCapture?.(e.pointerId);
+      if (isPet) {
+        e.currentTarget.releasePointerCapture?.(e.pointerId);
+      }
     };
 
     const handlePointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
       handlers.onPointerCancel(e);
-      e.currentTarget.releasePointerCapture?.(e.pointerId);
+      if (isPet) {
+        e.currentTarget.releasePointerCapture?.(e.pointerId);
+      }
     };
 
     const handlePointerLeave = (e: React.PointerEvent<HTMLDivElement>) => {
       handlers.onPointerCancel(e);
-      e.currentTarget.releasePointerCapture?.(e.pointerId);
+      if (isPet) {
+        e.currentTarget.releasePointerCapture?.(e.pointerId);
+      }
       if (e.pointerType === "mouse") {
-        resetTrackedPointerToCenter();
+        debugLog({ event: 'pointerleave', x: e.clientX, y: e.clientY, buttons: e.buttons });
+        setPointerInsideCanvas(false, {
+          x: e.clientX,
+          y: e.clientY,
+          buttons: e.buttons,
+          pointerType: e.pointerType,
+        });
       }
     };
 
@@ -113,6 +178,7 @@ export const Live2D = memo(
           userSelect: "none",
           WebkitUserSelect: "none",
         }}
+        onPointerEnter={handlePointerEnter}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
