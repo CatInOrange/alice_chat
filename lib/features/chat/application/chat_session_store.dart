@@ -747,9 +747,11 @@ class ChatSessionStore extends ChangeNotifier {
             status: (event['status'] ?? '').toString(),
             itemId: (event['itemId'] ?? '').toString(),
             approvalId: (event['approvalId'] ?? '').toString(),
+            approvalSlug: (event['approvalSlug'] ?? '').toString(),
             command: (event['command'] ?? '').toString(),
             output: (event['output'] ?? '').toString(),
             title: (event['title'] ?? '').toString(),
+            source: (event['source'] ?? '').toString(),
           );
           state.streamingMessageIds
             ..clear()
@@ -1541,9 +1543,11 @@ class ChatViewState {
   String? assistantProgressStatus;
   String? assistantProgressItemId;
   String? assistantProgressApprovalId;
+  String? assistantProgressApprovalSlug;
   String? assistantProgressCommand;
   String? assistantProgressOutput;
   String? assistantProgressTitle;
+  String? assistantProgressSource;
   String? oldestLoadedMessageId;
   String? newestLoadedMessageId;
   List<core.Message> messages = const [];
@@ -1738,9 +1742,11 @@ class ChatViewState {
     String? status,
     String? itemId,
     String? approvalId,
+    String? approvalSlug,
     String? command,
     String? output,
     String? title,
+    String? source,
   }) {
     assistantProgressMessageId = messageId;
     assistantProgressSequence = sequence;
@@ -1757,9 +1763,11 @@ class ChatViewState {
     assistantProgressStatus = status;
     assistantProgressItemId = itemId;
     assistantProgressApprovalId = approvalId;
+    assistantProgressApprovalSlug = approvalSlug;
     assistantProgressCommand = command;
     assistantProgressOutput = output;
     assistantProgressTitle = title;
+    assistantProgressSource = source;
   }
 
   void clearAssistantProgress() {
@@ -1778,9 +1786,11 @@ class ChatViewState {
     assistantProgressStatus = null;
     assistantProgressItemId = null;
     assistantProgressApprovalId = null;
+    assistantProgressApprovalSlug = null;
     assistantProgressCommand = null;
     assistantProgressOutput = null;
     assistantProgressTitle = null;
+    assistantProgressSource = null;
   }
 
   void trackMessageWindow(String? messageId) {

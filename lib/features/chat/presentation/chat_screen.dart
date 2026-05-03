@@ -1780,6 +1780,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final progressStatus = (state.assistantProgressStatus ?? '').trim();
     final progressTitle = (state.assistantProgressTitle ?? '').trim();
     final progressCommand = (state.assistantProgressCommand ?? '').trim();
+    final progressApprovalSlug =
+        (state.assistantProgressApprovalSlug ?? '').trim();
+    final progressSource = (state.assistantProgressSource ?? '').trim();
 
     String resolved = '';
 
@@ -1802,9 +1805,16 @@ class _ChatScreenState extends State<ChatScreen> {
         status: progressStatus,
         title: progressTitle,
         command: progressCommand,
+        approvalSlug: progressApprovalSlug,
+        source: progressSource,
       );
       resolved = _oneLinePreview(normalized);
-    } else if (progressToolName.isNotEmpty || progressToolCallId.isNotEmpty) {
+    } else if (progressToolName.isNotEmpty ||
+        progressToolCallId.isNotEmpty ||
+        progressApprovalSlug.isNotEmpty ||
+        progressSource.isNotEmpty ||
+        progressKind == 'plan' ||
+        progressStage == 'approval') {
       final normalized = _humanizeProgressText(
         text: '',
         kind: progressKind,
@@ -1815,6 +1825,8 @@ class _ChatScreenState extends State<ChatScreen> {
         status: progressStatus,
         title: progressTitle,
         command: progressCommand,
+        approvalSlug: progressApprovalSlug,
+        source: progressSource,
       );
       resolved = _oneLinePreview(normalized);
     } else {
@@ -1840,6 +1852,8 @@ class _ChatScreenState extends State<ChatScreen> {
       progressStatus,
       progressTitle,
       progressCommand,
+      progressApprovalSlug,
+      progressSource,
       progressText,
       previewText,
       state.assistantProgressSequence?.toString() ?? '',
@@ -1990,6 +2004,8 @@ class _ChatScreenState extends State<ChatScreen> {
     String status = '',
     String title = '',
     String command = '',
+    String approvalSlug = '',
+    String source = '',
   }) {
     final cleaned = text.replaceAll(RegExp(r'\s+'), ' ').trim();
     final phaseLabel =
@@ -2003,10 +2019,18 @@ class _ChatScreenState extends State<ChatScreen> {
             ? ' #${toolCallId.length > 8 ? toolCallId.substring(0, 8) : toolCallId}'
             : '';
     final commandLabel = command.isNotEmpty ? ' $command' : '';
+    final approvalLabel = approvalSlug.isNotEmpty ? '（等待$approvalSlug）' : '';
+    final sourceLabel = source.isNotEmpty ? '（$source）' : '';
 
     if (cleaned.isEmpty) {
       if (toolName.isNotEmpty || toolCallId.isNotEmpty) {
-        return '我在忙 $toolLabel$callSuffix$phaseLabel$commandLabel';
+        return '我在忙 $toolLabel$callSuffix$phaseLabel$commandLabel$approvalLabel';
+      }
+      if (kind == 'plan' && sourceLabel.isNotEmpty) {
+        return '我在排执行步骤$sourceLabel';
+      }
+      if (approvalLabel.isNotEmpty) {
+        return '这步我得先等你确认$approvalLabel';
       }
       return _buildProgressLabel(1, kind: kind, stage: stage);
     }
@@ -2025,11 +2049,11 @@ class _ChatScreenState extends State<ChatScreen> {
             ? '我在跑 $toolLabel$callSuffix：$cleaned$phaseLabel'
             : '我在动手试这个：$cleaned';
       case 'tool':
-        return '我在用 $toolLabel$callSuffix 忙这个：$cleaned$phaseLabel';
+        return '我在用 $toolLabel$callSuffix 忙这个：$cleaned$phaseLabel$approvalLabel';
       case 'thinking':
         return '我在想这个怎么最稳：$cleaned';
       case 'plan':
-        return '我在排执行步骤：$cleaned';
+        return '我在排执行步骤${sourceLabel.isNotEmpty ? sourceLabel : ''}：$cleaned';
       default:
         return cleaned;
     }
