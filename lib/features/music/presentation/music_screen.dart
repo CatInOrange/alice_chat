@@ -174,8 +174,8 @@ class _MusicScreenState extends State<MusicScreen>
     MusicPlaylist playlist,
   ) async {
     if (!_beginPlaylistAction(playlist.id)) return;
+    final immediateTracks = store.peekPlaylistTracks(playlist);
     try {
-      final tracks = await store.loadPlaylistTracks(playlist);
       if (!mounted) return;
       unawaited(
         Navigator.of(context).push(
@@ -185,7 +185,7 @@ class _MusicScreenState extends State<MusicScreen>
                   value: store,
                   child: _PlaylistDetailScreen(
                     playlist: playlist,
-                    tracks: tracks,
+                    initialTracks: immediateTracks,
                   ),
                 ),
           ),
@@ -566,13 +566,12 @@ class _MusicScreenState extends State<MusicScreen>
                       }
                       _openPlaylistDetail(store, playlist);
                     },
-                    onPlaylistLongPress:
-                        (playlist) {
-                          if (playlist.id == 'netease-fm') {
-                            return;
-                          }
-                          _showCustomPlaylistActions(context, store, playlist);
-                        },
+                    onPlaylistLongPress: (playlist) {
+                      if (playlist.id == 'netease-fm') {
+                        return;
+                      }
+                      _showCustomPlaylistActions(context, store, playlist);
+                    },
                   ),
                   if ((store.error ?? '').trim().isNotEmpty)
                     Padding(
@@ -876,7 +875,9 @@ class _MusicHeroCard extends StatelessWidget {
                                     decoration: BoxDecoration(
                                       borderRadius: BorderRadius.circular(40),
                                       border: Border.all(
-                                        color: Colors.white.withValues(alpha: 0.22),
+                                        color: Colors.white.withValues(
+                                          alpha: 0.22,
+                                        ),
                                       ),
                                       gradient: LinearGradient(
                                         begin: Alignment.topLeft,
@@ -921,9 +922,13 @@ class _MusicHeroCard extends StatelessWidget {
                                               begin: Alignment.topCenter,
                                               end: Alignment.bottomCenter,
                                               colors: [
-                                                Colors.white.withValues(alpha: 0.12),
+                                                Colors.white.withValues(
+                                                  alpha: 0.12,
+                                                ),
                                                 Colors.transparent,
-                                                Colors.black.withValues(alpha: 0.12),
+                                                Colors.black.withValues(
+                                                  alpha: 0.12,
+                                                ),
                                               ],
                                             ),
                                           ),
@@ -1097,7 +1102,9 @@ class _MusicHeroCard extends StatelessWidget {
                                     shape: BoxShape.circle,
                                     color: Colors.white.withValues(alpha: 0.1),
                                     border: Border.all(
-                                      color: Colors.white.withValues(alpha: 0.12),
+                                      color: Colors.white.withValues(
+                                        alpha: 0.12,
+                                      ),
                                     ),
                                   ),
                                   child: Icon(
@@ -1109,36 +1116,44 @@ class _MusicHeroCard extends StatelessWidget {
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Text(
                                         '当前主打',
-                                        style: theme.textTheme.bodySmall?.copyWith(
-                                          color: Colors.white.withValues(alpha: 0.66),
-                                          fontWeight: FontWeight.w700,
-                                          letterSpacing: 0.3,
-                                        ),
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                              color: Colors.white.withValues(
+                                                alpha: 0.66,
+                                              ),
+                                              fontWeight: FontWeight.w700,
+                                              letterSpacing: 0.3,
+                                            ),
                                       ),
                                       const SizedBox(height: 3),
                                       Text(
                                         track.title,
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
-                                        style: theme.textTheme.titleMedium?.copyWith(
-                                          color: Colors.white,
-                                          fontSize: 17,
-                                          fontWeight: FontWeight.w700,
-                                        ),
+                                        style: theme.textTheme.titleMedium
+                                            ?.copyWith(
+                                              color: Colors.white,
+                                              fontSize: 17,
+                                              fontWeight: FontWeight.w700,
+                                            ),
                                       ),
                                       const SizedBox(height: 3),
                                       Text(
                                         '${track.artist} · ${track.album}',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
-                                        style: theme.textTheme.bodySmall?.copyWith(
-                                          color: Colors.white.withValues(alpha: 0.74),
-                                        ),
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                              color: Colors.white.withValues(
+                                                alpha: 0.74,
+                                              ),
+                                            ),
                                       ),
                                     ],
                                   ),
@@ -1167,20 +1182,25 @@ class _MusicHeroCard extends StatelessWidget {
                                                 child: CircularProgressIndicator(
                                                   strokeWidth: 2,
                                                   valueColor:
-                                                      AlwaysStoppedAnimation<Color>(
-                                                        palette.gradient.first,
-                                                      ),
+                                                      AlwaysStoppedAnimation<
+                                                        Color
+                                                      >(palette.gradient.first),
                                                 ),
                                               )
-                                              : const Icon(Icons.play_arrow_rounded),
-                                      label: Text(isBusy ? '处理中...' : buttonLabel),
+                                              : const Icon(
+                                                Icons.play_arrow_rounded,
+                                              ),
+                                      label: Text(
+                                        isBusy ? '处理中...' : buttonLabel,
+                                      ),
                                     ),
                                     if (onDetailTap != null) ...[
                                       const SizedBox(height: 4),
                                       TextButton(
                                         onPressed: isBusy ? null : onDetailTap,
                                         style: TextButton.styleFrom(
-                                          foregroundColor: Colors.white.withValues(alpha: 0.92),
+                                          foregroundColor: Colors.white
+                                              .withValues(alpha: 0.92),
                                           visualDensity: VisualDensity.compact,
                                           padding: const EdgeInsets.symmetric(
                                             horizontal: 8,
@@ -1323,7 +1343,9 @@ class _FavoritePlaylistCard extends StatelessWidget {
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: palette.gradient.first.withValues(alpha: 0.12),
+                              color: palette.gradient.first.withValues(
+                                alpha: 0.12,
+                              ),
                               borderRadius: BorderRadius.circular(999),
                             ),
                             child: Text(
@@ -1681,7 +1703,9 @@ class _RecentPlaylistTile extends StatelessWidget {
                               vertical: 3,
                             ),
                             decoration: BoxDecoration(
-                              color: palette.gradient.first.withValues(alpha: 0.12),
+                              color: palette.gradient.first.withValues(
+                                alpha: 0.12,
+                              ),
                               borderRadius: BorderRadius.circular(999),
                             ),
                             child: Text(
@@ -2039,10 +2063,14 @@ class _MiniPlayerState extends State<_MiniPlayer>
                                   vertical: 3,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: palette.gradient.first.withValues(alpha: 0.10),
+                                  color: palette.gradient.first.withValues(
+                                    alpha: 0.10,
+                                  ),
                                   borderRadius: BorderRadius.circular(999),
                                   border: Border.all(
-                                    color: palette.gradient.first.withValues(alpha: 0.14),
+                                    color: palette.gradient.first.withValues(
+                                      alpha: 0.14,
+                                    ),
                                   ),
                                 ),
                                 child: Text(
@@ -2104,10 +2132,13 @@ class _MiniPlayerState extends State<_MiniPlayer>
 }
 
 class _PlaylistDetailScreen extends StatefulWidget {
-  const _PlaylistDetailScreen({required this.playlist, required this.tracks});
+  const _PlaylistDetailScreen({
+    required this.playlist,
+    this.initialTracks = const <MusicTrack>[],
+  });
 
   final MusicPlaylist playlist;
-  final List<MusicTrack> tracks;
+  final List<MusicTrack> initialTracks;
 
   @override
   State<_PlaylistDetailScreen> createState() => _PlaylistDetailScreenState();
@@ -2116,7 +2147,9 @@ class _PlaylistDetailScreen extends StatefulWidget {
 class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
   bool _isPlayingAll = false;
   bool _isSyncingLikedPlaylist = false;
+  bool _isLoadingTracks = false;
   final Set<int> _pendingTrackIndexes = <int>{};
+  List<MusicTrack> _tracks = const <MusicTrack>[];
 
   Future<void> _showTrackActions(
     BuildContext context,
@@ -2140,8 +2173,8 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                     Navigator.of(sheetContext).pop();
                     await store.playLoadedPlaylist(
                       playlist,
-                      widget.tracks,
-                      startIndex: widget.tracks.indexWhere(
+                      _tracks,
+                      startIndex: _tracks.indexWhere(
                         (item) => item.id == track.id,
                       ),
                     );
@@ -2180,7 +2213,7 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                               value: store,
                               child: _PlaylistDetailScreen(
                                 playlist: updatedPlaylist,
-                                tracks: updatedTracks,
+                                initialTracks: updatedTracks,
                               ),
                             ),
                       ),
@@ -2204,11 +2237,44 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    _tracks = widget.initialTracks;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_loadTracks());
+    });
+  }
+
+  Future<void> _loadTracks() async {
+    if (_isLoadingTracks) return;
+    setState(() {
+      _isLoadingTracks = true;
+    });
+    try {
+      final store = context.read<MusicStore>();
+      final tracks = await store.loadPlaylistTracks(widget.playlist);
+      if (!mounted) return;
+      setState(() {
+        _tracks = tracks;
+      });
+    } catch (_) {
+      // store.error already updated
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingTracks = false;
+        });
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Consumer<MusicStore>(
       builder: (context, store, _) {
         final playlist = widget.playlist;
-        final tracks = widget.tracks;
+        final liveTracks = store.peekPlaylistTracks(playlist);
+        final tracks = liveTracks.isNotEmpty ? liveTracks : _tracks;
         return Scaffold(
           appBar: AppBar(
             title: Text(playlist.title),
@@ -2258,14 +2324,21 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                                       _isSyncingLikedPlaylist = true;
                                     });
                                     try {
-                                      await store.syncLikedPlaylistFromNetease();
+                                      await store
+                                          .syncLikedPlaylistFromNetease();
                                       if (!context.mounted) return;
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('已同步网易云喜欢歌单')),
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('已同步网易云喜欢歌单'),
+                                        ),
                                       );
                                     } catch (error) {
                                       if (!context.mounted) return;
-                                      ScaffoldMessenger.of(context).showSnackBar(
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
                                         SnackBar(content: Text('同步失败：$error')),
                                       );
                                     } finally {
@@ -2332,7 +2405,9 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
               const Divider(height: 1),
               Expanded(
                 child:
-                    tracks.isEmpty
+                    tracks.isEmpty && _isLoadingTracks
+                        ? const Center(child: CircularProgressIndicator())
+                        : tracks.isEmpty
                         ? Center(
                           child: Text(
                             store.isCustomPlaylist(playlist.id)
@@ -2357,9 +2432,10 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                                       ? BoxDecoration(
                                         border: Border(
                                           left: BorderSide(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .primary,
+                                            color:
+                                                Theme.of(
+                                                  context,
+                                                ).colorScheme.primary,
                                             width: 3,
                                           ),
                                         ),
@@ -2370,110 +2446,116 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                                       )
                                       : null,
                               child: ListTile(
-                              dense: true,
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 2,
-                              ),
-                              minLeadingWidth: 0,
-                              horizontalTitleGap: 12,
-                              visualDensity: const VisualDensity(
-                                horizontal: 0,
-                                vertical: -2,
-                              ),
-                              enabled: !_pendingTrackIndexes.contains(index),
-                              onLongPress:
-                                  store.isCustomPlaylist(playlist.id)
-                                      ? () => _showTrackActions(
-                                        context,
-                                        store,
-                                        playlist,
-                                        track,
-                                      )
-                                      : null,
-                              onTap:
-                                  _pendingTrackIndexes.contains(index)
-                                      ? null
-                                      : () async {
-                                        setState(() {
-                                          _pendingTrackIndexes.add(index);
-                                        });
-                                        try {
-                                          await store.playLoadedPlaylist(
-                                            playlist,
-                                            tracks,
-                                            startIndex: index,
-                                          );
-                                          if (!context.mounted) return;
-                                          unawaited(_openPlayer(context, store));
-                                        } finally {
-                                          if (mounted) {
-                                            setState(() {
-                                              _pendingTrackIndexes.remove(
-                                                index,
-                                              );
-                                            });
+                                dense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 2,
+                                ),
+                                minLeadingWidth: 0,
+                                horizontalTitleGap: 12,
+                                visualDensity: const VisualDensity(
+                                  horizontal: 0,
+                                  vertical: -2,
+                                ),
+                                enabled: !_pendingTrackIndexes.contains(index),
+                                onLongPress:
+                                    store.isCustomPlaylist(playlist.id)
+                                        ? () => _showTrackActions(
+                                          context,
+                                          store,
+                                          playlist,
+                                          track,
+                                        )
+                                        : null,
+                                onTap:
+                                    _pendingTrackIndexes.contains(index)
+                                        ? null
+                                        : () async {
+                                          setState(() {
+                                            _pendingTrackIndexes.add(index);
+                                          });
+                                          try {
+                                            await store.playLoadedPlaylist(
+                                              playlist,
+                                              tracks,
+                                              startIndex: index,
+                                            );
+                                            if (!context.mounted) return;
+                                            unawaited(
+                                              _openPlayer(context, store),
+                                            );
+                                          } finally {
+                                            if (mounted) {
+                                              setState(() {
+                                                _pendingTrackIndexes.remove(
+                                                  index,
+                                                );
+                                              });
+                                            }
                                           }
-                                        }
-                                      },
-                              leading: MusicArtwork(
-                                track: track,
-                                size: 46,
-                                showMeta: false,
-                                overlayStrength: 0.08,
-                                backendBaseUrl: store.currentConfig.baseUrl,
-                                appPassword: store.currentConfig.appPassword,
-                              ),
-                              title: Text(
-                                track.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.bodyLarge
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                      color:
-                                          isCurrentTrack
-                                              ? Theme.of(context)
-                                                  .colorScheme
-                                                  .primary
-                                              : null,
-                                    ),
-                              ),
-                              subtitle: Text(
-                                '${track.artist} · ${track.album}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.bodySmall
-                                    ?.copyWith(color: const Color(0xFF7D879A)),
-                              ),
-                              trailing:
-                                  _pendingTrackIndexes.contains(index)
-                                      ? const SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
+                                        },
+                                leading: MusicArtwork(
+                                  track: track,
+                                  size: 46,
+                                  showMeta: false,
+                                  overlayStrength: 0.08,
+                                  backendBaseUrl: store.currentConfig.baseUrl,
+                                  appPassword: store.currentConfig.appPassword,
+                                ),
+                                title: Text(
+                                  track.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.bodyLarge?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                    color:
+                                        isCurrentTrack
+                                            ? Theme.of(
+                                              context,
+                                            ).colorScheme.primary
+                                            : null,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  '${track.artist} · ${track.album}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.bodySmall?.copyWith(
+                                    color: const Color(0xFF7D879A),
+                                  ),
+                                ),
+                                trailing:
+                                    _pendingTrackIndexes.contains(index)
+                                        ? const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                        : isCurrentTrack
+                                        ? Icon(
+                                          Icons.graphic_eq_rounded,
+                                          size: 18,
+                                          color:
+                                              Theme.of(
+                                                context,
+                                              ).colorScheme.primary,
+                                        )
+                                        : Text(
+                                          track.durationLabel,
+                                          style: Theme.of(
+                                            context,
+                                          ).textTheme.bodySmall?.copyWith(
+                                            color: const Color(0xFF8A93A5),
+                                            fontFeatures: const [],
+                                          ),
                                         ),
-                                      )
-                                      : isCurrentTrack
-                                      ? Icon(
-                                        Icons.graphic_eq_rounded,
-                                        size: 18,
-                                        color: Theme.of(context)
-                                            .colorScheme
-                                            .primary,
-                                      )
-                                      : Text(
-                                        track.durationLabel,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall
-                                            ?.copyWith(
-                                              color: const Color(0xFF8A93A5),
-                                              fontFeatures: const [],
-                                            ),
-                                      ),
-                            ),
+                              ),
                             );
                           },
                         ),
@@ -2690,10 +2772,7 @@ class _MusicSearchSheetState extends State<_MusicSearchSheet> {
           children: [
             Text('搜索音乐', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
-            Text(
-              '先帮你把想听的歌找回来',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            Text('先帮你把想听的歌找回来', style: Theme.of(context).textTheme.bodySmall),
             const SizedBox(height: 16),
             Row(
               children: [
@@ -2847,8 +2926,10 @@ Future<void> _showSearchTrackPreview(
                   track: track,
                   size: 72,
                   showMeta: false,
-                  backendBaseUrl: context.read<MusicStore>().currentConfig.baseUrl,
-                  appPassword: context.read<MusicStore>().currentConfig.appPassword,
+                  backendBaseUrl:
+                      context.read<MusicStore>().currentConfig.baseUrl,
+                  appPassword:
+                      context.read<MusicStore>().currentConfig.appPassword,
                 ),
                 const SizedBox(width: 14),
                 Expanded(
