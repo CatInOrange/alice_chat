@@ -443,7 +443,6 @@ class _MainScaffoldState extends State<_MainScaffold>
     required bool isDesktop,
   }) {
     final theme = Theme.of(context);
-    final page = _buildWorkbenchPage();
     final selectedContactId = _activeChatSession?.id;
     final companion = CompanionPanel(
       session: _activeChatSession,
@@ -459,6 +458,8 @@ class _MainScaffoldState extends State<_MainScaffold>
         setState(() => _currentIndex = 1);
       },
     );
+    final showSidebar = _currentIndex != 1;
+    final centerPane = _buildCenterPane(activeState);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6FB),
@@ -491,103 +492,106 @@ class _MainScaffoldState extends State<_MainScaffold>
                   },
                 ),
                 Container(width: 1, color: const Color(0xFFE1E6F0)),
-                SizedBox(
-                  width: 300,
-                  child: Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(18, 18, 18, 10),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _currentIndex == 0
-                                        ? '消息'
-                                        : _navTitle(_currentIndex),
-                                    style: theme.textTheme.titleLarge?.copyWith(
-                                      fontWeight: FontWeight.w800,
-                                      color: const Color(0xFF2D3443),
+                if (showSidebar) ...[
+                  SizedBox(
+                    width: 300,
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(18, 18, 18, 10),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _currentIndex == 0
+                                          ? '消息'
+                                          : _navTitle(_currentIndex),
+                                      style: theme.textTheme.titleLarge?.copyWith(
+                                        fontWeight: FontWeight.w800,
+                                        color: const Color(0xFF2D3443),
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    _currentIndex == 0
-                                        ? '像微信桌面版一样利落，再加一点陪伴感。'
-                                        : '保留统一功能，不做花哨分叉。',
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: const Color(0xFF98A1B3),
-                                      fontWeight: FontWeight.w600,
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _currentIndex == 0
+                                          ? '像微信桌面版一样利落，再加一点陪伴感。'
+                                          : '保留统一功能，不做花哨分叉。',
+                                      style: theme.textTheme.bodySmall?.copyWith(
+                                        color: const Color(0xFF98A1B3),
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Expanded(
-                        child:
-                            _currentIndex == 0
-                                ? ContactsScreen(
-                                  contacts: _contacts,
-                                  onContactTap: _navigateToChat,
-                                  selectedContactId: selectedContactId,
-                                  embedded: true,
-                                )
-                                : Padding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    12,
-                                    4,
-                                    12,
-                                    12,
-                                  ),
-                                  child: _WorkbenchPlaceholderCard(child: page),
+                                  ],
                                 ),
-                      ),
-                    ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        Expanded(
+                          child:
+                              _currentIndex == 0
+                                  ? ContactsScreen(
+                                    contacts: _contacts,
+                                    onContactTap: _navigateToChat,
+                                    selectedContactId: selectedContactId,
+                                    embedded: true,
+                                  )
+                                  : Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      12,
+                                      4,
+                                      12,
+                                      12,
+                                    ),
+                                    child: _WorkbenchPlaceholderCard(
+                                      child: _buildWorkbenchPage(),
+                                    ),
+                                  ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                Container(width: 1, color: const Color(0xFFE1E6F0)),
+                  Container(width: 1, color: const Color(0xFFE1E6F0)),
+                ],
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.all(12),
-                    child: _WorkbenchPlaceholderCard(
-                      removePadding: _activeChatSession != null,
-                      child: _buildCenterPane(activeState),
-                    ),
+                    child: centerPane,
                   ),
                 ),
-                Container(width: 1, color: const Color(0xFFE1E6F0)),
-                SizedBox(
-                  width: isDesktop ? 340 : 300,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: _WorkbenchPlaceholderCard(
-                      removePadding: _desktopLive2dVisible,
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 220),
-                        switchInCurve: Curves.easeOutCubic,
-                        switchOutCurve: Curves.easeInCubic,
-                        child:
-                            _desktopLive2dVisible
-                                ? WebviewScreen(
-                                  key: const ValueKey(
-                                    'webview-live2d-full-panel',
+                if (showSidebar) ...[
+                  Container(width: 1, color: const Color(0xFFE1E6F0)),
+                  SizedBox(
+                    width: isDesktop ? 340 : 300,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: _WorkbenchPlaceholderCard(
+                        removePadding: _desktopLive2dVisible,
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 220),
+                          switchInCurve: Curves.easeOutCubic,
+                          switchOutCurve: Curves.easeInCubic,
+                          child:
+                              _desktopLive2dVisible
+                                  ? WebviewScreen(
+                                    key: const ValueKey(
+                                      'webview-live2d-full-panel',
+                                    ),
+                                    active: true,
+                                    embedded: true,
+                                  )
+                                  : SizedBox.expand(
+                                    key: const ValueKey('companion-only'),
+                                    child: companion,
                                   ),
-                                  active: true,
-                                  embedded: true,
-                                )
-                                : SizedBox.expand(
-                                  key: const ValueKey('companion-only'),
-                                  child: companion,
-                                ),
+                        ),
                       ),
                     ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -597,30 +601,36 @@ class _MainScaffoldState extends State<_MainScaffold>
   }
 
   Widget _buildCenterPane(ChatViewState? activeState) {
+    if (_currentIndex == 1) {
+      return const MusicScreen();
+    }
     if (_currentIndex == 0 && _activeChatSession != null) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(26),
-        child: ChatScreen(
-          key: ValueKey('chat-desktop-${_activeChatSession!.id}'),
-          session: _activeChatSession!,
-          onBack: _closeChat,
+      return _WorkbenchPlaceholderCard(
+        removePadding: true,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(26),
+          child: ChatScreen(
+            key: ValueKey('chat-desktop-${_activeChatSession!.id}'),
+            session: _activeChatSession!,
+            onBack: _closeChat,
+          ),
         ),
       );
     }
-    return _WorkbenchEmptyState(
-      title: _currentIndex == 0 ? '选一个联系人开始聊天' : _navTitle(_currentIndex),
-      subtitle:
-          _currentIndex == 0
-              ? '桌面版保持专业聊天工具的骨架，中间专心干正事。'
-              : '这里沿用现有 Flutter 功能，后面再逐步做桌面优化。',
-      icon: _navIcon(_currentIndex),
+    return _WorkbenchPlaceholderCard(
+      child: _WorkbenchEmptyState(
+        title: _currentIndex == 0 ? '选一个联系人开始聊天' : _navTitle(_currentIndex),
+        subtitle:
+            _currentIndex == 0
+                ? '桌面版保持专业聊天工具的骨架，中间专心干正事。'
+                : '这里沿用现有 Flutter 功能，后面再逐步做桌面优化。',
+        icon: _navIcon(_currentIndex),
+      ),
     );
   }
 
   Widget _buildWorkbenchPage() {
     switch (_currentIndex) {
-      case 1:
-        return const MusicScreen();
       case 2:
       default:
         return const SettingsScreen();
