@@ -536,10 +536,12 @@ class MusicStore extends ChangeNotifier {
       ),
     );
     if (autoplay) {
-      await handleCommand(
-        MusicCommand.play(
-          queue: [PlaybackQueueItem(track: track)],
-          source: MusicCommandSource.manual,
+      unawaited(
+        handleCommand(
+          MusicCommand.play(
+            queue: [PlaybackQueueItem(track: track)],
+            source: MusicCommandSource.manual,
+          ),
         ),
       );
     }
@@ -1810,29 +1812,26 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<PlaybackQueueItem> _preparePlayback(MusicTrack track) async {
-    track = await _ensureTrackArtwork(
-      track,
-      reason: 'prepare_playback',
-      persist: track.id == _currentTrack.id,
-    );
-    final cached = track.cachedPlayback;
+    final normalizedTrack = _normalizeTrackArtwork(track);
+    final cached = normalizedTrack.cachedPlayback;
     if (cached != null &&
         cached.streamUrl.trim().isNotEmpty &&
         !cached.isExpired) {
       _debugState(
         'playback.prepare.cached',
         extra: {
-          'trackId': track.id,
-          'title': track.title,
-          'artist': track.artist,
+          'trackId': normalizedTrack.id,
+          'title': normalizedTrack.title,
+          'artist': normalizedTrack.artist,
           'providerId': cached.providerId,
           'sourceTrackId': cached.sourceTrackId,
         },
       );
       return PlaybackQueueItem(
-        track: track.copyWith(
-          preferredSourceId: track.preferredSourceId ?? cached.providerId,
-          sourceTrackId: track.sourceTrackId ?? cached.sourceTrackId,
+        track: normalizedTrack.copyWith(
+          preferredSourceId:
+              normalizedTrack.preferredSourceId ?? cached.providerId,
+          sourceTrackId: normalizedTrack.sourceTrackId ?? cached.sourceTrackId,
           cachedPlayback: cached,
         ),
         resolvedSource: ResolvedPlaybackSource(
@@ -1849,15 +1848,22 @@ class MusicStore extends ChangeNotifier {
 
     try {
       final resolved = await _repository.resolveTrack(
-        track,
+        normalizedTrack,
         allowFallback: false,
+      );
+      unawaited(
+        _ensureTrackArtwork(
+          resolved.track,
+          reason: 'prepare_playback',
+          persist: resolved.track.id == _currentTrack.id,
+        ),
       );
       _debugState(
         'playback.prepare.resolved',
         extra: {
-          'trackId': track.id,
-          'title': track.title,
-          'artist': track.artist,
+          'trackId': normalizedTrack.id,
+          'title': normalizedTrack.title,
+          'artist': normalizedTrack.artist,
           'preferredSourceId': resolved.track.preferredSourceId,
           'sourceTrackId': resolved.track.sourceTrackId,
           'resolvedProviderId': resolved.resolvedSource?.providerId,
@@ -1872,11 +1878,11 @@ class MusicStore extends ChangeNotifier {
       _debugState(
         'playback.prepare.error',
         extra: {
-          'trackId': track.id,
-          'title': track.title,
-          'artist': track.artist,
-          'preferredSourceId': track.preferredSourceId,
-          'sourceTrackId': track.sourceTrackId,
+          'trackId': normalizedTrack.id,
+          'title': normalizedTrack.title,
+          'artist': normalizedTrack.artist,
+          'preferredSourceId': normalizedTrack.preferredSourceId,
+          'sourceTrackId': normalizedTrack.sourceTrackId,
           'error': error.toString(),
         },
         force: true,
@@ -2451,7 +2457,6 @@ class MusicStore extends ChangeNotifier {
     bool clearCachedPlaybackOnRetry = true,
     bool allowSkipOnFailure = true,
   }) async {
-    unawaited(_warmUpcomingQueueTracks());
     final prepared = await _preparePlayback(_currentTrack);
     final preparedTrack = prepared.track.copyWith(
       isFavorite: isTrackLiked(prepared.track.id),
@@ -2520,6 +2525,14 @@ class MusicStore extends ChangeNotifier {
     _duration = _currentTrack.duration;
     _error = null;
     unawaited(_loadLyricsForTrack(_currentTrack, forceRefresh: false));
+    unawaited(_warmUpcomingQueueTracks());
+    unawaited(
+      _ensureTrackArtwork(
+        _currentTrack,
+        reason: 'playback_started',
+        persist: true,
+      ),
+    );
   }
 
   Future<void> refreshCurrentLyrics() async {

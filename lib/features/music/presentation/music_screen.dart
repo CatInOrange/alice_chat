@@ -119,7 +119,7 @@ class _MusicScreenState extends State<MusicScreen>
     _isNavigatingToPlayer = true;
     try {
       if (track != null) {
-        await store.selectTrack(track, autoplay: true);
+        unawaited(store.selectTrack(track, autoplay: true));
       }
       if (!mounted) return;
       await Navigator.of(context).push(
@@ -2713,7 +2713,7 @@ class _MusicSearchSheetState extends State<_MusicSearchSheet> {
     });
     final store = context.read<MusicStore>();
     try {
-      await store.selectTrack(track);
+      unawaited(store.selectTrack(track));
       if (!context.mounted) return;
       Navigator.of(context).pop();
       await Navigator.of(context).push(
