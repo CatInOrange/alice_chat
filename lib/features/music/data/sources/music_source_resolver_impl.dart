@@ -53,7 +53,8 @@ class MusicSourceResolverImpl implements MusicSourceResolver {
     final providers = _orderedProviders(track, allowFallback: allowFallback);
 
     for (final provider in providers) {
-      final candidate = await provider.matchTrack(track);
+      final directCandidate = _directCandidateForProvider(provider, track);
+      final candidate = directCandidate ?? await provider.matchTrack(track);
       if (candidate == null || !candidate.available) {
         continue;
       }
@@ -86,5 +87,27 @@ class MusicSourceResolverImpl implements MusicSourceResolver {
     }
 
     throw StateError('未能为《${track.title} - ${track.artist}》解析可播放音源');
+  }
+
+  SourceCandidate? _directCandidateForProvider(
+    MusicSourceProvider provider,
+    MusicTrack track,
+  ) {
+    final sourceTrackId = track.sourceTrackId?.trim();
+    if (track.preferredSourceId != provider.id ||
+        sourceTrackId == null ||
+        sourceTrackId.isEmpty) {
+      return null;
+    }
+    return SourceCandidate(
+      providerId: provider.id,
+      sourceTrackId: sourceTrackId,
+      track: CanonicalTrack.fromMusicTrack(
+        track.copyWith(
+          preferredSourceId: provider.id,
+          sourceTrackId: sourceTrackId,
+        ),
+      ),
+    );
   }
 }
