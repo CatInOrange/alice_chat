@@ -2,31 +2,20 @@ import 'dart:async';
 
 import '../data/music_local_cache_store.dart';
 import '../domain/music_models.dart';
-import '../domain/music_runtime_models.dart';
 
 class MusicRemoteSnapshotPayload {
   const MusicRemoteSnapshotPayload({
-    required this.currentTrack,
-    required this.queue,
-    required this.isPlaying,
-    required this.position,
     required this.likedTracks,
     required this.recentPlaylists,
     required this.customPlaylists,
-    required this.currentPlaylistId,
     required this.neteaseLikedPlaylistId,
     required this.neteaseLikedPlaylistOpaqueId,
     required this.localRevision,
   });
 
-  final MusicTrack currentTrack;
-  final List<PlaybackQueueItem> queue;
-  final bool isPlaying;
-  final Duration position;
   final List<MusicTrack> likedTracks;
   final List<MusicPlaylist> recentPlaylists;
   final List<CustomMusicPlaylist> customPlaylists;
-  final String? currentPlaylistId;
   final String? neteaseLikedPlaylistId;
   final String? neteaseLikedPlaylistOpaqueId;
   final int localRevision;

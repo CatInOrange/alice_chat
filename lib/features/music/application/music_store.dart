@@ -473,9 +473,7 @@ class MusicStore extends ChangeNotifier {
       );
       final state = await _repository.loadMusicState();
       _applyRemoteStateSnapshot(state);
-      _isPlaying = state.isPlaying && _queue.isNotEmpty;
-      _position = state.position;
-      _duration = state.currentTrack?.duration ?? _currentTrack.duration;
+      _duration = _currentTrack.duration;
       unawaited(_loadLyricsForTrack(_currentTrack, forceRefresh: false));
       unawaited(_repairPlaybackArtworkIfNeeded());
       _isReady = true;
@@ -2979,14 +2977,9 @@ class MusicStore extends ChangeNotifier {
       saveLocal: _repository.saveLocalCache,
       saveRemote: (payload) async {
         final ackedAt = await _repository.savePlaybackSnapshot(
-          currentTrack: payload.currentTrack,
-          queue: payload.queue,
-          isPlaying: payload.isPlaying,
-          position: payload.position,
           likedTracks: payload.likedTracks,
           recentPlaylists: payload.recentPlaylists,
           customPlaylists: payload.customPlaylists,
-          currentPlaylistId: payload.currentPlaylistId,
           neteaseLikedPlaylistId: payload.neteaseLikedPlaylistId,
           neteaseLikedPlaylistOpaqueId: payload.neteaseLikedPlaylistOpaqueId,
           localRevision: payload.localRevision,
@@ -3034,14 +3027,9 @@ class MusicStore extends ChangeNotifier {
     return MusicSnapshotBundle(
       localSnapshot: localSnapshot,
       remoteSnapshot: MusicRemoteSnapshotPayload(
-        currentTrack: _currentTrack,
-        queue: _queue,
-        isPlaying: _isPlaying,
-        position: _position,
         likedTracks: _likedTracks,
         recentPlaylists: _recentPlaylists,
         customPlaylists: _customPlaylists,
-        currentPlaylistId: _currentPlaylistId,
         neteaseLikedPlaylistId: _neteaseLikedPlaylistId,
         neteaseLikedPlaylistOpaqueId: _neteaseLikedPlaylistOpaqueId,
         localRevision: _localRevision,
@@ -3245,12 +3233,6 @@ class MusicStore extends ChangeNotifier {
         );
         return;
       }
-    }
-    if (state.currentTrack != null) {
-      _currentTrack = state.currentTrack!;
-    }
-    if (state.queue.isNotEmpty) {
-      _queue = List<PlaybackQueueItem>.unmodifiable(state.queue);
     }
     if (state.playlists.isNotEmpty) {
       _playlists = List<MusicPlaylist>.unmodifiable(state.playlists);

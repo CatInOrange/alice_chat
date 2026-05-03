@@ -55,14 +55,9 @@ abstract class MusicRepository {
   });
 
   Future<DateTime?> savePlaybackSnapshot({
-    required MusicTrack currentTrack,
-    required List<PlaybackQueueItem> queue,
-    required bool isPlaying,
-    required Duration position,
     List<MusicTrack>? likedTracks,
     List<MusicPlaylist>? recentPlaylists,
     List<CustomMusicPlaylist>? customPlaylists,
-    String? currentPlaylistId,
     String? neteaseLikedPlaylistId,
     String? neteaseLikedPlaylistOpaqueId,
     int? localRevision,

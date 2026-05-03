@@ -539,14 +539,9 @@ class MusicRepositoryImpl implements MusicRepository {
 
   @override
   Future<DateTime?> savePlaybackSnapshot({
-    required MusicTrack currentTrack,
-    required List<PlaybackQueueItem> queue,
-    required bool isPlaying,
-    required Duration position,
     List<MusicTrack>? likedTracks,
     List<MusicPlaylist>? recentPlaylists,
     List<CustomMusicPlaylist>? customPlaylists,
-    String? currentPlaylistId,
     String? neteaseLikedPlaylistId,
     String? neteaseLikedPlaylistOpaqueId,
     int? localRevision,
@@ -554,10 +549,6 @@ class MusicRepositoryImpl implements MusicRepository {
     try {
       final response = await _client.saveMusicState(
         payload: {
-          'currentTrack': currentTrack.toMap(),
-          'queue': queue.map((item) => item.toMap()).toList(),
-          'isPlaying': isPlaying,
-          'positionMs': position.inMilliseconds,
           if (likedTracks != null)
             'likedTracks': likedTracks.map((item) => item.toMap()).toList(),
           if (recentPlaylists != null)
@@ -566,7 +557,6 @@ class MusicRepositoryImpl implements MusicRepository {
           if (customPlaylists != null)
             'customPlaylists':
                 customPlaylists.map((item) => item.toMap()).toList(),
-          if (currentPlaylistId != null) 'currentPlaylistId': currentPlaylistId,
           if (neteaseLikedPlaylistId != null)
             'neteaseLikedPlaylistId': neteaseLikedPlaylistId,
           if (neteaseLikedPlaylistOpaqueId != null)
@@ -681,16 +671,6 @@ class MusicRepositoryImpl implements MusicRepository {
   }
 
   MusicStateSnapshot _parseMusicStateSnapshot(Map<String, dynamic> response) {
-    final currentTrackMap =
-        (response['currentTrack'] as Map?)?.cast<String, dynamic>();
-    final queue = ((response['queue'] as List<dynamic>?) ?? const [])
-        .whereType<Map>()
-        .map(
-          (item) => PlaybackQueueItem.fromMap(
-            Map<String, dynamic>.from(item.cast<String, dynamic>()),
-          ),
-        )
-        .toList(growable: false);
     final playlists = ((response['playlists'] as List<dynamic>?) ?? const [])
         .whereType<Map>()
         .map(
@@ -756,11 +736,9 @@ class MusicRepositoryImpl implements MusicRepository {
               ),
             )
             .toList(growable: false);
-    final positionMsRaw = response['positionMs'] ?? 0;
     return MusicStateSnapshot(
-      currentTrack:
-          currentTrackMap == null ? null : MusicTrack.fromMap(currentTrackMap),
-      queue: queue,
+      currentTrack: null,
+      queue: const [],
       playlists: playlists,
       recentTracks: recentTracks,
       likedTracks: likedTracks,
@@ -783,13 +761,8 @@ class MusicRepositoryImpl implements MusicRepository {
           (response['localRevision'] is num)
               ? (response['localRevision'] as num).toInt()
               : int.tryParse('${response['localRevision']}') ?? 0,
-      isPlaying: response['isPlaying'] == true,
-      position: Duration(
-        milliseconds:
-            positionMsRaw is num
-                ? positionMsRaw.toInt()
-                : int.tryParse('$positionMsRaw') ?? 0,
-      ),
+      isPlaying: false,
+      position: Duration.zero,
     );
   }
 
