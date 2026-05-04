@@ -479,229 +479,648 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final musicPlatforms = context.watch<MusicPlatformStore>();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Connection Settings')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('OpenClaw Base URL'),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _urlController,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: 'https://your-openclaw-host',
-              ),
+      appBar: AppBar(title: const Text('设置')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        children: [
+          _SettingsHeroCard(
+            title: 'AliceChat 控制台',
+            subtitle: '把连接、音乐平台、服务控制和调试入口拆开，常用设置更好找，危险操作也不会混在一起。',
+            icon: Icons.tune_rounded,
+            accentColor: Theme.of(context).colorScheme.primary,
+          ),
+          const SizedBox(height: 16),
+          _SettingsEntryCard(
+            icon: Icons.link_rounded,
+            accentColor: const Color(0xFF4F46E5),
+            title: '连接设置',
+            subtitle: _connectionSummary(),
+            onTap: () => _openDetailPage(
+              title: '连接设置',
+              icon: Icons.link_rounded,
+              accentColor: const Color(0xFF4F46E5),
+              builder: (context) => _buildConnectionSettingsContent(context),
             ),
-            const SizedBox(height: 24),
-            const Text('Password'),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _passwordController,
-              obscureText: _obscurePassword,
-              decoration: InputDecoration(
-                border: const OutlineInputBorder(),
-                hintText: 'Enter password',
-                helperText: '该密码会随请求发送到 AliceChat 后端，用于访问校验。',
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      _obscurePassword = !_obscurePassword;
-                    });
-                  },
+          ),
+          const SizedBox(height: 12),
+          _SettingsEntryCard(
+            icon: Icons.library_music_rounded,
+            accentColor: const Color(0xFF0F766E),
+            title: '音乐平台',
+            subtitle: _musicSummary(musicPlatforms),
+            badge: musicPlatforms.isLoading ? '刷新中' : null,
+            onTap: () => _openDetailPage(
+              title: '音乐平台',
+              icon: Icons.library_music_rounded,
+              accentColor: const Color(0xFF0F766E),
+              builder: (context) => _buildMusicPlatformsContent(context),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _SettingsEntryCard(
+            icon: Icons.admin_panel_settings_rounded,
+            accentColor: const Color(0xFFD97706),
+            title: '服务管理',
+            subtitle: _serviceSummary(),
+            badge: (_adminActionMessage ?? '').trim().isNotEmpty ? '进行中' : null,
+            onTap: () => _openDetailPage(
+              title: '服务管理',
+              icon: Icons.admin_panel_settings_rounded,
+              accentColor: const Color(0xFFD97706),
+              builder: (context) => _buildServiceManagementContent(context),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _SettingsEntryCard(
+            icon: Icons.bug_report_rounded,
+            accentColor: const Color(0xFF7C3AED),
+            title: '调试与日志',
+            subtitle: '查看客户端调试日志，方便排查聊天链路和连接问题。',
+            onTap: () => _openDetailPage(
+              title: '调试与日志',
+              icon: Icons.bug_report_rounded,
+              accentColor: const Color(0xFF7C3AED),
+              builder: (context) => const DebugLogsPanel(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _connectionSummary() {
+    final baseUrl = _urlController.text.trim();
+    final host = Uri.tryParse(baseUrl)?.host ?? baseUrl;
+    final parts = <String>[];
+    parts.add(host.isEmpty ? '未配置 OpenClaw 地址' : host);
+    parts.add((_passwordController.text).isEmpty ? '未设置密码' : '已设置密码');
+    parts.add(_backgroundServiceEnabled ? '后台常驻已开启' : '后台常驻已关闭');
+    return parts.join(' · ');
+  }
+
+  String _musicSummary(MusicPlatformStore store) {
+    if (store.isLoading) return '正在刷新平台状态…';
+    if ((store.error ?? '').trim().isNotEmpty) return '平台状态读取失败';
+    final total = store.platformStates.length;
+    if (total == 0) return '暂未发现可用音乐平台';
+    final active = store.platformStates.where((item) => item.hasCookie).length;
+    final cliReady = store.platformStates.where((item) {
+      final cli = store.cliStateFor(item.provider.providerId);
+      return cli?.loginValid == true;
+    }).length;
+    return '$total 个平台 · $active 个已接入 Cookie · $cliReady 个 CLI 可用';
+  }
+
+  String _serviceSummary() {
+    if (_isRestartingBackend) return 'Backend 正在重启中';
+    if (_isRestartingGateway) return 'Gateway 正在重启中';
+    if ((_adminActionMessage ?? '').trim().isNotEmpty) {
+      return _adminActionMessage!.trim();
+    }
+    return '重启 Chat Backend、Live2D Backend 与 OpenClaw Gateway';
+  }
+
+  Future<void> _openDetailPage({
+    required String title,
+    required IconData icon,
+    required Color accentColor,
+    required WidgetBuilder builder,
+  }) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => _SettingsDetailScaffold(
+          title: title,
+          icon: icon,
+          accentColor: accentColor,
+          child: builder(context),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    setState(() {});
+  }
+
+  Widget _buildConnectionSettingsContent(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SettingsSectionCard(
+          title: '连接凭据',
+          subtitle: '这里管理 AliceChat 连接 OpenClaw 所需的地址和访问密码。',
+          icon: Icons.vpn_key_rounded,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('OpenClaw Base URL'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _urlController,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: 'https://your-openclaw-host',
                 ),
               ),
-            ),
-            const SizedBox(height: 24),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('后台常驻连接'),
-              subtitle: const Text('退到后台后启用 Android 前台服务维持消息监听'),
-              value: _backgroundServiceEnabled,
-              onChanged: (value) {
-                setState(() {
-                  _backgroundServiceEnabled = value;
-                });
-              },
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isSaving ? null : _saveSettings,
-                child: Text(_isSaving ? 'Saving...' : 'Save'),
+              const SizedBox(height: 20),
+              const Text('Password'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _passwordController,
+                obscureText: _obscurePassword,
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
+                  hintText: 'Enter password',
+                  helperText: '该密码会随请求发送到 AliceChat 后端，用于访问校验。',
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _obscurePassword = !_obscurePassword;
+                      });
+                    },
+                  ),
+                ),
               ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _SettingsSectionCard(
+          title: '后台连接',
+          subtitle: '控制应用退到后台后是否继续维持长连接监听。',
+          icon: Icons.notifications_active_rounded,
+          child: SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('后台常驻连接'),
+            subtitle: const Text('退到后台后启用 Android 前台服务维持消息监听'),
+            value: _backgroundServiceEnabled,
+            onChanged: (value) {
+              setState(() {
+                _backgroundServiceEnabled = value;
+              });
+            },
+          ),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _isSaving ? null : _saveSettings,
+            icon: _isSaving
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save_rounded),
+            label: Text(_isSaving ? '保存中…' : '保存连接设置'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMusicPlatformsContent(BuildContext context) {
+    final musicPlatforms = context.watch<MusicPlatformStore>();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SettingsSectionCard(
+          title: '音乐平台状态',
+          subtitle: '网易云相关登录集中在这里管理。Cookie、二维码登录、CLI 登录是三条独立链路，别混用。',
+          icon: Icons.library_music_rounded,
+          trailing: IconButton(
+            onPressed: musicPlatforms.isLoading
+                ? null
+                : () => context
+                    .read<MusicPlatformStore>()
+                    .ensureReady(forceRefresh: true),
+            icon: const Icon(Icons.refresh),
+            tooltip: '刷新平台状态',
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (musicPlatforms.isLoading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: LinearProgressIndicator(),
+                )
+              else if ((musicPlatforms.error ?? '').trim().isNotEmpty)
+                _PlatformErrorBanner(message: musicPlatforms.error!)
+              else if (musicPlatforms.platformStates.isEmpty)
+                const Text('暂未发现可用音乐平台')
+              else
+                ...musicPlatforms.platformStates.map(
+                  (platform) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _MusicProviderCard(
+                      platform: platform,
+                      qrState: musicPlatforms.qrStateFor(
+                        platform.provider.providerId,
+                      ),
+                      onImportCookie: () => _showCookieImportSheet(platform),
+                      onQrLogin: platform.provider.supportedAuthMethods
+                              .contains('qrCode')
+                          ? () => _showQrLoginDialog(platform)
+                          : null,
+                      cliState: musicPlatforms.cliStateFor(
+                        platform.provider.providerId,
+                      ),
+                      onCliLogin: platform.provider.supportedAuthMethods
+                              .contains('cliLogin')
+                          ? () => _startCliLogin(platform)
+                          : null,
+                      onRefreshCliLogin: platform.provider.supportedAuthMethods
+                              .contains('cliLogin')
+                          ? () => context
+                              .read<MusicPlatformStore>()
+                              .refreshCliLoginStatus(
+                                platform.provider.providerId,
+                              )
+                          : null,
+                      onClearCookie: platform.hasCookie
+                          ? () async {
+                              await context
+                                  .read<MusicPlatformStore>()
+                                  .clearProviderCookie(
+                                    platform.provider.providerId,
+                                  );
+                            }
+                          : null,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildServiceManagementContent(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SettingsSectionCard(
+          title: '敏感操作',
+          subtitle: '下面的操作会重启服务，可能造成短暂断连。确认影响范围后再执行。',
+          icon: Icons.warning_amber_rounded,
+          accentColor: Colors.orange.shade700,
+          child: Column(
+            children: [
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: (_isRestartingBackend || _isRestartingGateway)
+                      ? null
+                      : () => _runAdminAction(
+                            actionLabel: '重启 Backend',
+                            submit: () => OpenClawHttpClient(
+                              context.read<ChatSessionStore>().currentConfig,
+                            ).restartBackend(),
+                            isBackend: true,
+                          ),
+                  icon: _isRestartingBackend
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.restart_alt),
+                  label: Text(
+                    _isRestartingBackend ? '后端重启中…' : '重启后端（Chat + Live2D）',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: (_isRestartingBackend || _isRestartingGateway)
+                      ? null
+                      : () => _runAdminAction(
+                            actionLabel: '重启 Gateway',
+                            submit: () => OpenClawHttpClient(
+                              context.read<ChatSessionStore>().currentConfig,
+                            ).restartGateway(),
+                            isBackend: false,
+                          ),
+                  icon: _isRestartingGateway
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.settings_ethernet),
+                  label: Text(_isRestartingGateway ? 'Gateway 重启中…' : '重启 Gateway'),
+                ),
+              ),
+              if ((_adminActionMessage ?? '').trim().isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.shade50,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.orange.shade200),
+                  ),
+                  child: Text(
+                    _adminActionMessage!,
+                    style: TextStyle(color: Colors.orange.shade900),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SettingsHeroCard extends StatelessWidget {
+  const _SettingsHeroCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.accentColor,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color accentColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: LinearGradient(
+          colors: [
+            accentColor.withValues(alpha: 0.16),
+            accentColor.withValues(alpha: 0.06),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(color: accentColor.withValues(alpha: 0.12)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: accentColor.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(16),
             ),
-            const SizedBox(height: 24),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
+            child: Icon(icon, color: accentColor),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  subtitle,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: const Color(0xFF5B6475),
+                    height: 1.45,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsEntryCard extends StatelessWidget {
+  const _SettingsEntryCard({
+    required this.icon,
+    required this.accentColor,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.badge,
+  });
+
+  final IconData icon;
+  final Color accentColor;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final String? badge;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(22),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(22),
+        onTap: onTap,
+        child: Ink(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: const Color(0xFFE8ECF4)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x0A101828),
+                blurRadius: 18,
+                offset: Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: accentColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(icon, color: accentColor),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       children: [
-                        Icon(
-                          Icons.library_music_rounded,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                        const SizedBox(width: 10),
-                        const Expanded(
+                        Expanded(
                           child: Text(
-                            '音乐平台',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                            ),
+                            title,
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w700),
                           ),
                         ),
-                        IconButton(
-                          onPressed: musicPlatforms.isLoading
-                              ? null
-                              : () => context
-                                  .read<MusicPlatformStore>()
-                                  .ensureReady(forceRefresh: true),
-                          icon: const Icon(Icons.refresh),
-                          tooltip: '刷新平台状态',
-                        ),
+                        if ((badge ?? '').trim().isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: accentColor.withValues(alpha: 0.10),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              badge!,
+                              style: TextStyle(
+                                color: accentColor,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
                       ],
                     ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      '平台登录属于全局能力，统一放在设置页管理。网易云这里现在分成三条独立链路：Cookie 导入、二维码登录（拿 Cookie）、官方 CLI 登录（给心动模式 / 官方能力用）。三者不要混用。',
-                    ),
-                    const SizedBox(height: 16),
-                    if (musicPlatforms.isLoading)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 8),
-                        child: LinearProgressIndicator(),
-                      )
-                    else if ((musicPlatforms.error ?? '').trim().isNotEmpty)
-                      _PlatformErrorBanner(message: musicPlatforms.error!)
-                    else if (musicPlatforms.platformStates.isEmpty)
-                      const Text('暂未发现可用音乐平台')
-                    else
-                      ...musicPlatforms.platformStates.map(
-                        (platform) => Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: _MusicProviderCard(
-                            platform: platform,
-                            qrState: musicPlatforms.qrStateFor(
-                              platform.provider.providerId,
-                            ),
-                            onImportCookie: () => _showCookieImportSheet(platform),
-                            onQrLogin: platform.provider.supportedAuthMethods
-                                    .contains('qrCode')
-                                ? () => _showQrLoginDialog(platform)
-                                : null,
-                            cliState: musicPlatforms.cliStateFor(
-                              platform.provider.providerId,
-                            ),
-                            onCliLogin: platform.provider.supportedAuthMethods
-                                    .contains('cliLogin')
-                                ? () => _startCliLogin(platform)
-                                : null,
-                            onRefreshCliLogin: platform.provider.supportedAuthMethods
-                                    .contains('cliLogin')
-                                ? () => context
-                                    .read<MusicPlatformStore>()
-                                    .refreshCliLoginStatus(
-                                      platform.provider.providerId,
-                                    )
-                                : null,
-                            onClearCookie: platform.hasCookie
-                                ? () async {
-                                    await context
-                                        .read<MusicPlatformStore>()
-                                        .clearProviderCookie(platform.provider.providerId);
-                                  }
-                                : null,
-                          ),
-                        ),
+                    const SizedBox(height: 6),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF667085),
+                        height: 1.4,
                       ),
+                    ),
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 24),
-            Card(
-              color: Colors.orange.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
+              const SizedBox(width: 12),
+              const Icon(Icons.chevron_right_rounded, color: Color(0xFF98A2B3)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsDetailScaffold extends StatelessWidget {
+  const _SettingsDetailScaffold({
+    required this.title,
+    required this.icon,
+    required this.accentColor,
+    required this.child,
+  });
+
+  final String title;
+  final IconData icon;
+  final Color accentColor;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        children: [
+          _SettingsHeroCard(
+            title: title,
+            subtitle: '这一页只保留和“$title”相关的内容，减少来回滚动和误触。',
+            icon: icon,
+            accentColor: accentColor,
+          ),
+          const SizedBox(height: 16),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsSectionCard extends StatelessWidget {
+  const _SettingsSectionCard({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.child,
+    this.trailing,
+    this.accentColor,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Widget child;
+  final Widget? trailing;
+  final Color? accentColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = accentColor ?? Theme.of(context).colorScheme.primary;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE8ECF4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: color, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      '敏感操作',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text('下面的操作会重启服务，可能造成短暂断连。请确认后再执行。'),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: (_isRestartingBackend || _isRestartingGateway)
-                            ? null
-                            : () => _runAdminAction(
-                                  actionLabel: '重启 Backend',
-                                  submit: () => OpenClawHttpClient(
-                                    context.read<ChatSessionStore>().currentConfig,
-                                  ).restartBackend(),
-                                  isBackend: true,
-                                ),
-                        icon: _isRestartingBackend
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Icon(Icons.restart_alt),
-                        label: Text(_isRestartingBackend ? '后端重启中…' : '重启后端（Chat + Live2D）'),
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: (_isRestartingBackend || _isRestartingGateway)
-                            ? null
-                            : () => _runAdminAction(
-                                  actionLabel: '重启 Gateway',
-                                  submit: () => OpenClawHttpClient(
-                                    context.read<ChatSessionStore>().currentConfig,
-                                  ).restartGateway(),
-                                  isBackend: false,
-                                ),
-                        icon: _isRestartingGateway
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Icon(Icons.settings_ethernet),
-                        label: Text(_isRestartingGateway ? 'Gateway 重启中…' : '重启 Gateway'),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF667085),
+                        height: 1.4,
                       ),
                     ),
-                    if ((_adminActionMessage ?? '').trim().isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      Text(
-                        _adminActionMessage!,
-                        style: TextStyle(color: Colors.orange.shade900),
-                      ),
-                    ],
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 24),
-            const DebugLogsPanel(),
-          ],
-        ),
+              if (trailing != null) trailing!,
+            ],
+          ),
+          const SizedBox(height: 16),
+          child,
+        ],
       ),
     );
   }
