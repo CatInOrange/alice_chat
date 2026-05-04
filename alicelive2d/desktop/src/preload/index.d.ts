@@ -20,6 +20,7 @@ declare global {
         virtualBounds: { x: number; y: number; width: number; height: number }
       }>
       getCursorScreenPoint: () => Promise<{ x: number; y: number }>
+      getWindowContentBounds: () => Promise<{ x: number; y: number; width: number; height: number } | null>
       onPetOverlayBoundsChanged: (callback: () => void) => () => void
       capturePrimaryScreen: () => Promise<string | null>
       startScreenshotSelection: () => Promise<{

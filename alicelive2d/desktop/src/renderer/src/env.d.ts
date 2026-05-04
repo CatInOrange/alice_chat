@@ -27,6 +27,7 @@ interface Window {
     deleteTempScreenshotFile?: (cleanupToken: string) => Promise<void>
     getPetOverlayBounds?: () => Promise<any>
     getCursorScreenPoint?: () => Promise<{ x: number; y: number }>
+    getWindowContentBounds?: () => Promise<{ x: number; y: number; width: number; height: number } | null>
     onInterrupt?: (callback: () => void) => () => void
     onSwitchCharacter?: (callback: (filename: string) => void) => () => void
     onToggleScrollToResize?: (callback: () => void) => () => void

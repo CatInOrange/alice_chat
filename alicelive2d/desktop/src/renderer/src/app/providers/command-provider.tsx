@@ -49,6 +49,7 @@ import { reduceChatStreamEvent } from "@/runtime/chat-stream-event-handlers.ts";
 import {
   shouldUseGlobalCursorTracking,
   toRendererPointerFromScreenPoint,
+  toRendererPointerFromWindowContentPoint,
 } from "@/runtime/global-cursor-utils.ts";
 import {
   createRealtimeLipSyncCleanup,
@@ -370,6 +371,12 @@ export function RendererCommandProvider({
   const [petOverlayBounds, setPetOverlayBounds] = useState<{
     workArea: { x: number; y: number; width: number; height: number };
     virtualBounds: { x: number; y: number; width: number; height: number };
+  } | null>(null);
+  const [windowContentBounds, setWindowContentBounds] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
   } | null>(null);
   const currentModelId = manifest?.selectedModelId || manifest?.model.id || "";
   const assistantDisplayName = resolveAssistantDisplayName({
@@ -1392,13 +1399,16 @@ export function RendererCommandProvider({
   }, []);
 
   useEffect(() => {
+    const needsGlobalTracking = shouldUseGlobalCursorTracking({
+      mode,
+      focusCenter: currentFocusCenter,
+    });
+    const hasRequiredBounds = mode === "pet" ? !!petOverlayBounds : !!windowContentBounds;
+
     if (
       !window.api?.getCursorScreenPoint
-      || !petOverlayBounds
-      || !shouldUseGlobalCursorTracking({
-        mode,
-        focusCenter: currentFocusCenter,
-      })
+      || !needsGlobalTracking
+      || !hasRequiredBounds
     ) {
       return undefined;
     }
@@ -1419,10 +1429,15 @@ export function RendererCommandProvider({
             return;
           }
 
-          const pointer = toRendererPointerFromScreenPoint({
-            screenPoint,
-            virtualBounds: petOverlayBounds.virtualBounds,
-          });
+          const pointer = mode === "pet"
+            ? toRendererPointerFromScreenPoint({
+              screenPoint,
+              virtualBounds: petOverlayBounds?.virtualBounds,
+            })
+            : toRendererPointerFromWindowContentPoint({
+              screenPoint,
+              contentBounds: windowContentBounds,
+            });
           setTrackedPointerPosition(pointer);
         })
         .catch((error) => {
@@ -1440,7 +1455,7 @@ export function RendererCommandProvider({
       disposed = true;
       window.clearInterval(timer);
     };
-  }, [currentFocusCenter, mode, petOverlayBounds]);
+  }, [currentFocusCenter, mode, petOverlayBounds, windowContentBounds]);
 
   useEffect(() => {
     if (mode !== "pet" || !window.api?.getPetOverlayBounds) {
@@ -1466,6 +1481,34 @@ export function RendererCommandProvider({
     return () => {
       disposed = true;
       cleanup?.();
+    };
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode !== "window" || !window.api?.getWindowContentBounds) {
+      setWindowContentBounds(null);
+      return;
+    }
+
+    let disposed = false;
+
+    const refreshWindowContentBounds = () => {
+      void window.api?.getWindowContentBounds?.().then((bounds) => {
+        if (disposed) {
+          return;
+        }
+        setWindowContentBounds(bounds);
+      }).catch((error) => {
+        console.warn("Failed to get window content bounds:", error);
+      });
+    };
+
+    refreshWindowContentBounds();
+    window.addEventListener("resize", refreshWindowContentBounds);
+
+    return () => {
+      disposed = true;
+      window.removeEventListener("resize", refreshWindowContentBounds);
     };
   }, [mode]);
 

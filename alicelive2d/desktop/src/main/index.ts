@@ -486,6 +486,21 @@ function setupIPC(): void {
     };
   });
 
+  ipcMain.handle('get-window-content-bounds', () => {
+    const window = windowManager.getWindow();
+    if (!window) {
+      return null;
+    }
+
+    const bounds = window.getContentBounds();
+    return {
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+    };
+  });
+
   const emitPetOverlayBoundsChanged = () => {
     const window = windowManager.getWindow();
     window?.webContents.send('pet-overlay-bounds-changed');

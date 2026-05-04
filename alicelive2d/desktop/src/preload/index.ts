@@ -76,6 +76,12 @@ const api = {
     x: number;
     y: number;
   }>,
+  getWindowContentBounds: () => ipcRenderer.invoke('get-window-content-bounds') as Promise<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>,
   onPetOverlayBoundsChanged: (callback: () => void) => {
     const handler = () => callback();
     ipcRenderer.on('pet-overlay-bounds-changed', handler);

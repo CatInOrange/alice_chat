@@ -4,15 +4,16 @@ import assert from "node:assert/strict";
 import {
   shouldUseGlobalCursorTracking,
   toRendererPointerFromScreenPoint,
+  toRendererPointerFromWindowContentPoint,
 } from "../global-cursor-utils.ts";
 
-test("shouldUseGlobalCursorTracking only enables polling for pet mode when mouse follow is on", () => {
+test("shouldUseGlobalCursorTracking enables polling for window and pet modes when mouse follow is on", () => {
   assert.equal(
     shouldUseGlobalCursorTracking({
       mode: "window",
       focusCenter: { enabled: true },
     }),
-    false,
+    true,
   );
 
   assert.equal(
@@ -47,6 +48,26 @@ test("toRendererPointerFromScreenPoint returns null when point data is missing",
     toRendererPointerFromScreenPoint({
       screenPoint: null,
       virtualBounds: { x: 0, y: 0, width: 1920, height: 1080 },
+    }),
+    null,
+  );
+});
+
+test("toRendererPointerFromWindowContentPoint converts screen coordinates into window-content-local coordinates", () => {
+  assert.deepEqual(
+    toRendererPointerFromWindowContentPoint({
+      screenPoint: { x: 980, y: 620 },
+      contentBounds: { x: 320, y: 140, width: 900, height: 670 },
+    }),
+    { x: 660, y: 480 },
+  );
+});
+
+test("toRendererPointerFromWindowContentPoint returns null when bounds are missing", () => {
+  assert.equal(
+    toRendererPointerFromWindowContentPoint({
+      screenPoint: { x: 980, y: 620 },
+      contentBounds: null,
     }),
     null,
   );
