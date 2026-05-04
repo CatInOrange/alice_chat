@@ -447,6 +447,19 @@ function isPointerInsideRect(
     && pointer.y <= rect.bottom;
 }
 
+function expandRect(
+  rect: { left: number; right: number; top: number; bottom: number; width?: number; height?: number },
+  paddingX: number,
+  paddingY: number,
+): { left: number; right: number; top: number; bottom: number } {
+  return {
+    left: rect.left - paddingX,
+    right: rect.right + paddingX,
+    top: rect.top - paddingY,
+    bottom: rect.bottom + paddingY,
+  };
+}
+
 
 export function applyFocusCenter(config: FocusCenterConfig | null | undefined): void {
   const next = config || {};
@@ -476,10 +489,18 @@ export function applyFocusCenter(config: FocusCenterConfig | null | undefined): 
   const canvasRect = canvas.getBoundingClientRect();
   const live2dRect = (document.getElementById("live2d") as HTMLElement | null)?.getBoundingClientRect() ?? canvasRect;
   const modelBounds = getModelBounds();
+  const activeRect = constrainPointerToCanvasHover && modelBounds
+    ? expandRect(
+      modelBounds,
+      Math.max(24, Number(modelBounds.width || 0) * 0.18),
+      Math.max(24, Number(modelBounds.height || 0) * 0.14),
+    )
+    : live2dRect;
   if (lastPointer.pointerType === 'mouse') {
     const insideModelBounds = modelBounds ? isPointerInsideRect(modelBounds, lastPointer) : null;
     const insideCanvasRect = isPointerInsideRect(canvasRect, lastPointer);
     const insideLive2DRect = isPointerInsideRect(live2dRect, lastPointer);
+    const insideActiveRect = isPointerInsideRect(activeRect, lastPointer);
 
     if (constrainPointerToCanvasHover && forceCenterUntilPointerReenters) {
       debugLog({
@@ -491,12 +512,13 @@ export function applyFocusCenter(config: FocusCenterConfig | null | undefined): 
         insideModelBounds,
         insideCanvasRect,
         insideLive2DRect,
+        insideActiveRect,
       });
       focusModelCenter();
       return;
     }
 
-    const isOutsideActiveRegion = !insideLive2DRect;
+    const isOutsideActiveRegion = !insideActiveRect;
 
     if (constrainPointerToCanvasHover && isOutsideActiveRegion) {
       forceCenterUntilPointerReenters = true;
@@ -509,7 +531,9 @@ export function applyFocusCenter(config: FocusCenterConfig | null | undefined): 
         insideModelBounds,
         insideCanvasRect,
         insideLive2DRect,
+        insideActiveRect,
         live2dRect,
+        activeRect,
       });
       focusModelCenter();
       return;
