@@ -1507,20 +1507,24 @@ class MusicStore extends ChangeNotifier {
   Future<void> enableIntelligenceMode() async {
     await ensurePlaybackReady();
     final originalMode = _repeatMode;
-    final sourceTrackId = (_currentTrack.sourceTrackId ?? '').trim();
+    await _hydrateCurrentTrackFromPlaybackSourceIfNeeded();
+    final providerId = _currentTrackProviderId();
+    final sourceTrackId =
+        (_currentTrack.sourceTrackId ?? _currentTrack.cachedPlayback?.sourceTrackId ?? '')
+            .trim();
     _debugState(
       'intelligence.enable.request',
       extra: {
         'trackId': _currentTrack.id,
         'title': _currentTrack.title,
-        'providerId': _currentTrackProviderId(),
+        'providerId': providerId,
         'sourceTrackId': sourceTrackId,
         'neteaseLikedPlaylistId': _neteaseLikedPlaylistId,
         'neteaseLikedPlaylistOpaqueId': _neteaseLikedPlaylistOpaqueId,
       },
       force: true,
     );
-    if (!canAttemptIntelligenceMode || sourceTrackId.isEmpty) {
+    if (providerId != 'netease' || sourceTrackId.isEmpty) {
       _repeatMode =
           originalMode == MusicRepeatMode.intelligence
               ? MusicRepeatMode.one
@@ -1529,8 +1533,11 @@ class MusicStore extends ChangeNotifier {
       _debugState(
         'intelligence.enable.blocked_no_source',
         extra: {
-          'providerId': _currentTrackProviderId(),
+          'providerId': providerId,
           'sourceTrackId': sourceTrackId,
+          'cachedProviderId': _currentTrack.cachedPlayback?.providerId,
+          'playbackSourceProviderId': _playbackAdapter.state.currentSource?.providerId,
+          'playbackSourceTrackId': _playbackAdapter.state.currentSource?.sourceTrackId,
         },
         force: true,
         level: 'ERROR',
@@ -2265,6 +2272,96 @@ class MusicStore extends ChangeNotifier {
       }
     }
     return null;
+  }
+
+  Future<void> _hydrateCurrentTrackFromPlaybackSourceIfNeeded() async {
+    final providerId = _currentTrackProviderId();
+    final sourceTrackId =
+        (_currentTrack.sourceTrackId ?? _currentTrack.cachedPlayback?.sourceTrackId ?? '')
+            .trim();
+    if (providerId == 'netease' && sourceTrackId.isNotEmpty) {
+      return;
+    }
+    final playbackSource = _playbackAdapter.state.currentSource;
+    if (playbackSource == null || playbackSource.providerId.trim() != 'netease') {
+      return;
+    }
+    final nextCachedPlayback = CachedPlaybackSource(
+      providerId: playbackSource.providerId,
+      sourceTrackId: playbackSource.sourceTrackId,
+      streamUrl: playbackSource.streamUrl,
+      artworkUrl: playbackSource.artworkUrl,
+      mimeType: playbackSource.mimeType,
+      headers: playbackSource.headers,
+      expiresAt: playbackSource.expiresAt,
+      resolvedAt: DateTime.now(),
+    );
+    _currentTrack = _currentTrack.copyWith(
+      preferredSourceId:
+          (_currentTrack.preferredSourceId ?? '').trim().isNotEmpty
+              ? _currentTrack.preferredSourceId
+              : playbackSource.providerId,
+      sourceTrackId:
+          (_currentTrack.sourceTrackId ?? '').trim().isNotEmpty
+              ? _currentTrack.sourceTrackId
+              : playbackSource.sourceTrackId,
+      cachedPlayback: nextCachedPlayback,
+    );
+    _queue = List<PlaybackQueueItem>.unmodifiable(
+      _queue
+          .map(
+            (item) =>
+                item.track.id == _currentTrack.id
+                    ? PlaybackQueueItem(
+                      track: item.track.copyWith(
+                        preferredSourceId:
+                            (item.track.preferredSourceId ?? '').trim().isNotEmpty
+                                ? item.track.preferredSourceId
+                                : playbackSource.providerId,
+                        sourceTrackId:
+                            (item.track.sourceTrackId ?? '').trim().isNotEmpty
+                                ? item.track.sourceTrackId
+                                : playbackSource.sourceTrackId,
+                        cachedPlayback: nextCachedPlayback,
+                      ),
+                      candidate: item.candidate,
+                      resolvedSource: item.resolvedSource,
+                      requestedBy: item.requestedBy,
+                    )
+                    : item,
+          )
+          .toList(growable: false),
+    );
+    _recentTracks = List<MusicTrack>.unmodifiable(
+      _recentTracks
+          .map(
+            (item) =>
+                item.id == _currentTrack.id
+                    ? item.copyWith(
+                      preferredSourceId:
+                          (item.preferredSourceId ?? '').trim().isNotEmpty
+                              ? item.preferredSourceId
+                              : playbackSource.providerId,
+                      sourceTrackId:
+                          (item.sourceTrackId ?? '').trim().isNotEmpty
+                              ? item.sourceTrackId
+                              : playbackSource.sourceTrackId,
+                      cachedPlayback: nextCachedPlayback,
+                    )
+                    : item,
+          )
+          .toList(growable: false),
+    );
+    _debugState(
+      'intelligence.enable.hydrated_from_playback_source',
+      extra: {
+        'trackId': _currentTrack.id,
+        'providerId': playbackSource.providerId,
+        'sourceTrackId': playbackSource.sourceTrackId,
+      },
+      force: true,
+    );
+    notifyListeners();
   }
 
   MusicPlaylist? _resolveIntelligenceContext() {
