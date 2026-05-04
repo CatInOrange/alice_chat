@@ -24,6 +24,8 @@ enum _WebviewBootStage { preparing, downloading, loadingPage, ready, failed }
 
 class _WebviewScreenState extends State<WebviewScreen>
     with AutomaticKeepAliveClientMixin {
+  static const Duration _minimumLoadingDuration = Duration(seconds: 6);
+
   static const List<String> _downloadMessages = <String>[
     '郎君别催嘛，晚秋正在把自己一点点具象给你看…',
     '我先把自己的眉眼描清，再把裙摆替你理好。',
@@ -46,6 +48,8 @@ class _WebviewScreenState extends State<WebviewScreen>
   int _messageIndex = 0;
   Timer? _messageTimer;
   bool _windowsRuntimeMissing = false;
+  DateTime? _loadingStartedAt;
+  bool _pageFinishReady = false;
 
   bool get _isWindows =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
@@ -86,10 +90,12 @@ class _WebviewScreenState extends State<WebviewScreen>
     _messageTimer?.cancel();
     _messageTimer = null;
     _pageReady = false;
+    _pageFinishReady = false;
     _windowsRuntimeMissing = false;
+    _loadingStartedAt = DateTime.now();
     if (mounted) {
       setState(() {
-        _loading = false;
+        _loading = true;
         _bootStage = _WebviewBootStage.preparing;
         _bootMessage = _downloadMessages.first;
         _bootError = null;
@@ -167,13 +173,9 @@ class _WebviewScreenState extends State<WebviewScreen>
         onPageFinished: (url) {
           debugPrint('WebView page finished: $url');
           _pageReady = true;
+          _pageFinishReady = true;
           unawaited(_syncActiveState());
-          if (mounted) {
-            setState(() {
-              _loading = false;
-              _bootStage = _WebviewBootStage.ready;
-            });
-          }
+          unawaited(_completeLoadingWhenReady());
         },
         onWebResourceError: (error) {
           debugPrint('WebView error: $error');
@@ -211,13 +213,9 @@ class _WebviewScreenState extends State<WebviewScreen>
       await controller.setBackgroundColor(Colors.transparent);
       await controller.loadUrl(targetUrl);
       _pageReady = true;
+      _pageFinishReady = true;
       unawaited(_syncActiveState());
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _bootStage = _WebviewBootStage.ready;
-        });
-      }
+      await _completeLoadingWhenReady();
     } on PlatformException catch (error) {
       throw StateError('Windows WebView 初始化失败：${error.message ?? error.code}');
     }
@@ -319,9 +317,36 @@ class _WebviewScreenState extends State<WebviewScreen>
     }
   }
 
+  Future<void> _completeLoadingWhenReady() async {
+    if (!_pageFinishReady) return;
+    final startedAt = _loadingStartedAt;
+    if (startedAt != null) {
+      final elapsed = DateTime.now().difference(startedAt);
+      if (elapsed < _minimumLoadingDuration) {
+        await Future<void>.delayed(_minimumLoadingDuration - elapsed);
+      }
+    }
+    if (!mounted || !_pageFinishReady) {
+      return;
+    }
+    setState(() {
+      _loading = false;
+      _bootStage = _WebviewBootStage.ready;
+    });
+  }
+
   Future<void> _reloadPage() async {
     if (_bootStage == _WebviewBootStage.ready ||
         _bootStage == _WebviewBootStage.loadingPage) {
+      _loadingStartedAt = DateTime.now();
+      _pageFinishReady = false;
+      if (mounted) {
+        setState(() {
+          _loading = true;
+          _bootStage = _WebviewBootStage.loadingPage;
+          _bootMessage = '晚秋重新整理一下裙摆，这就回来见你。';
+        });
+      }
       if (_isWindows) {
         await _windowsController?.reload();
       } else {
