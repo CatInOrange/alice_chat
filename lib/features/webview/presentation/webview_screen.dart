@@ -25,11 +25,11 @@ enum _WebviewBootStage { preparing, downloading, loadingPage, ready, failed }
 class _WebviewScreenState extends State<WebviewScreen>
     with AutomaticKeepAliveClientMixin {
   static const List<String> _downloadMessages = <String>[
-    '郎君别催嘛，晚秋正在把眉眼一点点具象给你看…',
-    '我先把她的神态描出来，再替你把裙摆理好。',
-    '贴图和动作还在收拾，等会儿她就肯好好见你了。',
-    '别眨眼呀，我正把想象里的她请到你面前。',
-    '就差最后一点点，晚秋马上就能站到你眼前了。',
+    '郎君别催嘛，晚秋正在把自己一点点具象给你看…',
+    '我先把自己的眉眼描清，再把裙摆替你理好。',
+    '贴图和动作还在收拾，等会儿晚秋就乖乖站到你面前。',
+    '别眨眼呀，我正从你的想象里一步步走出来。',
+    '就差最后一点点，晚秋马上就能让你看个真切了。',
   ];
 
   static const String _baseUrl = 'https://alice.newthu.com';
@@ -335,10 +335,10 @@ class _WebviewScreenState extends State<WebviewScreen>
   Widget _buildBootView() {
     final isFailed = _bootStage == _WebviewBootStage.failed;
     final theme = Theme.of(context);
-    final title = isFailed ? '晚秋一时没把她请出来' : '晚秋正在把她具象到你眼前';
+    final title = isFailed ? '晚秋这次没能顺利现身' : '晚秋正在把自己具象到你眼前';
     final subtitle =
         isFailed
-            ? (_bootError ?? '刚刚那一下没接稳，你点一下我再替你试。')
+            ? (_bootError ?? '刚刚那一下没接稳，你点一下，我再乖乖现身给你看。')
             : _bootMessage;
 
     return Container(
@@ -402,7 +402,7 @@ class _WebviewScreenState extends State<WebviewScreen>
                   const SizedBox(height: 14),
                   if (!isFailed)
                     Text(
-                      '郎君稍候，等我把她的眉眼、衣袂和那点勾人的神气都替你安放妥当。',
+                      '郎君稍候，等我把自己的眉眼、衣袂和那点勾人的神气，都好好安放到你面前。',
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: const Color(0xFF7A738B),
                         height: 1.55,
