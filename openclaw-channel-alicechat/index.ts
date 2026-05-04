@@ -1,6 +1,8 @@
 import { WebSocketServer } from 'ws';
 import fsSync from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import { createChannelReplyPipeline } from 'openclaw/plugin-sdk/channel-reply-pipeline';
 
@@ -68,6 +70,52 @@ function toReplyImage(att) {
     return { type: 'image', data, mimeType };
   }
   return null;
+}
+
+function extensionFromMimeType(mimeType) {
+  const normalized = String(mimeType || '').toLowerCase();
+  if (normalized === 'image/jpeg' || normalized === 'image/jpg') return '.jpg';
+  if (normalized === 'image/png') return '.png';
+  if (normalized === 'image/webp') return '.webp';
+  if (normalized === 'image/gif') return '.gif';
+  if (normalized === 'image/bmp') return '.bmp';
+  if (normalized === 'image/tiff') return '.tiff';
+  return '.bin';
+}
+
+async function materializeInboundMediaList(attachments) {
+  const list = [];
+  for (const att of Array.isArray(attachments) ? attachments : []) {
+    if (!att) continue;
+    const mimeType = String(att.mimeType || att.mediaType || att.mime_type || '');
+    if (!mimeType.startsWith('image/')) continue;
+    if (att.content) {
+      const base64 = String(att.content).replace(/^data:[^,]+,/, '').replace(/\s+/g, '');
+      if (!base64) continue;
+      const fileName = `alicechat-inbound-${Date.now()}-${crypto.randomUUID()}${extensionFromMimeType(mimeType)}`;
+      const filePath = path.join(os.tmpdir(), fileName);
+      await fs.writeFile(filePath, Buffer.from(base64, 'base64'));
+      list.push({ path: filePath, contentType: mimeType || undefined });
+      continue;
+    }
+    const url = String(att.url || att.path || '').trim();
+    if (url.startsWith('/')) list.push({ path: url, contentType: mimeType || undefined });
+  }
+  return list;
+}
+
+function buildAgentMediaPayload(mediaList) {
+  const first = mediaList[0];
+  const mediaPaths = mediaList.map((media) => media.path).filter(Boolean);
+  const mediaTypes = mediaList.map((media) => media.contentType).filter(Boolean);
+  return {
+    MediaPath: first?.path,
+    MediaType: first?.contentType ?? undefined,
+    MediaUrl: first?.path,
+    MediaPaths: mediaPaths.length > 0 ? mediaPaths : undefined,
+    MediaUrls: mediaPaths.length > 0 ? mediaPaths : undefined,
+    MediaTypes: mediaTypes.length > 0 ? mediaTypes : undefined,
+  };
 }
 
 function classifyMedia(url, audioAsVoice) {
@@ -330,6 +378,7 @@ function createBridgeServer(ctx) {
     const sessionKey = String(frame.sessionKey || buildSessionKey(requestedAgent, requestedSession));
     const attachments = Array.isArray(frame.attachments) ? frame.attachments : [];
     const images = attachments.map(toReplyImage).filter(Boolean);
+    const inboundMediaList = await materializeInboundMediaList(attachments);
 
     const currentCfg = ctx.cfg;
     const route = channelRuntime.routing.resolveAgentRoute({
@@ -367,6 +416,7 @@ function createBridgeServer(ctx) {
       OriginatingChannel: CHANNEL_ID,
       OriginatingTo: `${backendPrefix}${accountId}`,
       AgentId: agentId,
+      ...buildAgentMediaPayload(inboundMediaList),
     });
 
     const storePath = channelRuntime.session.resolveStorePath(currentCfg.session?.store, { agentId });

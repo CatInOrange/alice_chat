@@ -55,6 +55,41 @@ const _fallbackStreamingHints = <String>[
   '我在缝缝补补中～',
 ];
 
+const _flirtyPreviewHintsBySession = <String, List<String>>{
+  'alice': [
+    '主人别急，姐姐正替你弄呢',
+    '乖，再等我一下就好',
+    '我在替你收尾，嗯？',
+    '主人，马上就给你',
+    '先让我宠着你忙完',
+    '别催，姐姐正认真呢',
+  ],
+  'yulinglong': [
+    '郎君稍候，我正在处理',
+    '再等我一会儿，很快',
+    '这事我替你理顺',
+    '郎君别急，快好了',
+    '你安分些，我在查',
+    '哼，你的事我记着',
+  ],
+  'lisuxin': [
+    '主人稍等，素心还在弄',
+    '奴婢马上给您办妥',
+    '主人的事，素心记着呢',
+    '这一步还在处理呀',
+    '请主人再等一下下',
+    '素心很快就回您',
+  ],
+  'guqingge': [
+    '猫哥别急嘛，我还在弄呀',
+    '再等我一下下，快好啦',
+    '哼，不许催我哦',
+    '猫哥乖，我马上回来',
+    '我还在翻呢，等等呀',
+    '嘿嘿，快给你弄好啦',
+  ],
+};
+
 class _QuotedMessageDraft {
   const _QuotedMessageDraft({
     required this.messageId,
@@ -106,20 +141,145 @@ class _SlashModelOption {
 }
 
 const _allowedSlashModels = <_SlashModelOption>[
+  // minimax
   _SlashModelOption(
     commandValue: 'minimax/MiniMax-M2.7-highspeed',
-    label: 'minimax/MiniMax-M2.7-highspeed',
-    subtitle: 'default primary',
+    label: 'MiniMax M2.7 Highspeed',
+    subtitle: 'minimax primary',
   ),
+  _SlashModelOption(
+    commandValue: 'minimax/MiniMax-M2.5',
+    label: 'MiniMax M2.5',
+    subtitle: 'minimax',
+  ),
+  _SlashModelOption(
+    commandValue: 'minimax/MiniMax-M2.5-highspeed',
+    label: 'MiniMax M2.5 Highspeed',
+    subtitle: 'minimax',
+  ),
+  _SlashModelOption(
+    commandValue: 'minimax/MiniMax-M2.5-Lightning',
+    label: 'MiniMax M2.5 Lightning',
+    subtitle: 'minimax',
+  ),
+  _SlashModelOption(
+    commandValue: 'minimax/MiniMax-M2.1',
+    label: 'MiniMax M2.1',
+    subtitle: 'minimax',
+  ),
+  _SlashModelOption(
+    commandValue: 'minimax/MiniMax-M2.1-lightning',
+    label: 'MiniMax M2.1 Lightning',
+    subtitle: 'minimax',
+  ),
+  _SlashModelOption(
+    commandValue: 'minimax/MiniMax-M2',
+    label: 'MiniMax M2',
+    subtitle: 'minimax',
+  ),
+  // google
   _SlashModelOption(
     commandValue: 'google/gemini-2.5-flash',
-    label: 'google/gemini-2.5-flash',
-    subtitle: 'default fallback',
+    label: 'Gemini 2.5 Flash',
+    subtitle: 'google',
+  ),
+  // deepseek
+  _SlashModelOption(
+    commandValue: 'deepseek/deepseek-v4-pro',
+    label: 'DeepSeek V4 Pro',
+    subtitle: 'deepseek',
   ),
   _SlashModelOption(
-    commandValue: 'deepseek-v4-flash',
-    label: 'deepseek-v4-flash',
-    subtitle: 'default fallback',
+    commandValue: 'deepseek/deepseek-reasoner',
+    label: 'DeepSeek Reasoner',
+    subtitle: 'deepseek reasoning',
+  ),
+  _SlashModelOption(
+    commandValue: 'deepseek/deepseek-v4-flash',
+    label: 'DeepSeek V4 Flash',
+    subtitle: 'deepseek',
+  ),
+  _SlashModelOption(
+    commandValue: 'deepseek/deepseek-chat',
+    label: 'DeepSeek Chat',
+    subtitle: 'deepseek',
+  ),
+  // xai
+  _SlashModelOption(
+    commandValue: 'xai/grok-3',
+    label: 'Grok 3',
+    subtitle: 'xai',
+  ),
+  _SlashModelOption(
+    commandValue: 'xai/grok-3-fast',
+    label: 'Grok 3 Fast',
+    subtitle: 'xai',
+  ),
+  _SlashModelOption(
+    commandValue: 'xai/grok-3-mini',
+    label: 'Grok 3 Mini',
+    subtitle: 'xai reasoning',
+  ),
+  _SlashModelOption(
+    commandValue: 'xai/grok-3-mini-fast',
+    label: 'Grok 3 Mini Fast',
+    subtitle: 'xai reasoning',
+  ),
+  _SlashModelOption(
+    commandValue: 'xai/grok-4',
+    label: 'Grok 4',
+    subtitle: 'xai reasoning',
+  ),
+  _SlashModelOption(
+    commandValue: 'xai/grok-4-0709',
+    label: 'Grok 4 0709',
+    subtitle: 'xai',
+  ),
+  _SlashModelOption(
+    commandValue: 'xai/grok-4-fast',
+    label: 'Grok 4 Fast',
+    subtitle: 'xai reasoning',
+  ),
+  _SlashModelOption(
+    commandValue: 'xai/grok-4-fast-non-reasoning',
+    label: 'Grok 4 Fast (Non-Reasoning)',
+    subtitle: 'xai',
+  ),
+  _SlashModelOption(
+    commandValue: 'xai/grok-4-1-fast',
+    label: 'Grok 4.1 Fast',
+    subtitle: 'xai reasoning',
+  ),
+  _SlashModelOption(
+    commandValue: 'xai/grok-4-1-fast-non-reasoning',
+    label: 'Grok 4.1 Fast (Non-Reasoning)',
+    subtitle: 'xai',
+  ),
+  _SlashModelOption(
+    commandValue: 'xai/grok-4.20-beta-latest-reasoning',
+    label: 'Grok 4.20 Beta Latest (Reasoning)',
+    subtitle: 'xai beta reasoning',
+  ),
+  _SlashModelOption(
+    commandValue: 'xai/grok-4.20-beta-latest-non-reasoning',
+    label: 'Grok 4.20 Beta Latest (Non-Reasoning)',
+    subtitle: 'xai beta',
+  ),
+  _SlashModelOption(
+    commandValue: 'xai/grok-code-fast-1',
+    label: 'Grok Code Fast 1',
+    subtitle: 'xai code',
+  ),
+  // openai-codex
+  _SlashModelOption(
+    commandValue: 'openai-codex/gpt-5.4',
+    label: 'GPT-5.4',
+    subtitle: 'openai codex',
+  ),
+  _SlashModelOption(
+    commandValue: 'openai-codex/gpt-5.4-mini',
+    label: 'GPT-5.4 Mini',
+    subtitle: 'openai codex',
   ),
 ];
 
@@ -464,7 +624,13 @@ class _ChatScreenState extends State<ChatScreen> {
                         final previewLine = resolved.previewText.trim();
                         final statusLine =
                             _displayStreamingStatus(state).trim();
-                        final showPreview = previewLine.isNotEmpty;
+                        final effectivePreviewLine =
+                            previewLine.isNotEmpty
+                                ? previewLine
+                                : (statusLine.isNotEmpty
+                                    ? _fallbackFlirtyPreviewFor(state)
+                                    : '');
+                        final showPreview = effectivePreviewLine.isNotEmpty;
                         final showStatus = statusLine.isNotEmpty;
                         return AnimatedScale(
                           scale: _streamingHintPulseActive ? 1.015 : 1,
@@ -483,7 +649,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                   children: [
                                     if (showPreview)
                                       Text(
-                                        previewLine,
+                                        effectivePreviewLine,
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                         style: Theme.of(
@@ -1955,8 +2121,25 @@ class _ChatScreenState extends State<ChatScreen> {
     final rawIndex =
         (seed + _fallbackStreamingHintIndex) % _fallbackStreamingHints.length;
     final index =
-        rawIndex < 0 ? rawIndex + _fallbackStreamingHints.length : rawIndex;
-    return _fallbackStreamingHints[index];
+        rawIndex < 0 ? rawIndex + _fallbackStreamingHintIndex : rawIndex;
+    return _fallbackStreamingHints[index % _fallbackStreamingHints.length];
+  }
+
+  String _fallbackFlirtyPreviewFor(ChatViewState state) {
+    final hints =
+        _flirtyPreviewHintsBySession[widget.session.id] ??
+        _fallbackStreamingHints;
+    final seedSource = [
+      widget.session.id,
+      state.assistantProgressToolCallId ?? '',
+      state.assistantProgressMessageId ?? '',
+      state.assistantProgressSequence?.toString() ?? '',
+      'flirty-preview',
+    ].join('|');
+    final seed = seedSource.hashCode;
+    final rawIndex = (seed + _fallbackStreamingHintIndex) % hints.length;
+    final index = rawIndex < 0 ? rawIndex + hints.length : rawIndex;
+    return _oneLinePreview(hints[index]);
   }
 
   void _syncStreamingHintState(ChatViewState state) {
@@ -2129,7 +2312,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   String _oneLinePreview(String text, {int maxWidth = 33}) {
-    final collapsed = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    final collapsed =
+        _stripInlineMarkdownForPreview(text)
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim();
     if (collapsed.isEmpty) return '';
     int totalWidth = 0;
     int lastFitIndex = 0;
@@ -2190,6 +2376,24 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     if (lastFitIndex >= collapsed.length) return collapsed;
     return '${collapsed.substring(0, lastFitIndex)}…';
+  }
+
+  String _stripInlineMarkdownForPreview(String text) {
+    var normalized = text.replaceAll('\r', '\n');
+    normalized = normalized.replaceAll(
+      RegExp(r'!\[([^\]]*)\]\(([^)]+)\)'),
+      r'$1',
+    );
+    normalized = normalized.replaceAll(
+      RegExp(r'\[([^\]]+)\]\(([^)]+)\)'),
+      r'$1',
+    );
+    normalized = normalized.replaceAll(RegExp(r'`{1,3}'), '');
+    normalized = normalized.replaceAll(RegExp(r'[*_~#>]'), '');
+    normalized = normalized.replaceAll(RegExp(r'^\s*[-+•]\s*', multiLine: true), '');
+    normalized = normalized.replaceAll(RegExp(r'^\s*\d+\.\s*', multiLine: true), '');
+    normalized = normalized.replaceAll('|', ' ');
+    return normalized;
   }
 
   Widget _buildComposer(BuildContext context) {

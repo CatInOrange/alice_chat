@@ -81,6 +81,7 @@ def _resolve_contact_display_name(contact_id: str, fallback: str = 'AliceChat') 
         'alice': '晚秋',
         'yulinglong': '玲珑',
         'lisuxin': '素心',
+        'guqingge': '清歌',
     }
     return defaults.get(normalized) or fallback
 
