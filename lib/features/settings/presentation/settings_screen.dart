@@ -1258,47 +1258,81 @@ class _MusicProviderCard extends StatelessWidget {
             _InlineCliStateBanner(state: cliState!),
           ],
           const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: onImportCookie,
-                  icon: const Icon(Icons.cookie_outlined),
-                  label: Text(platform.hasCookie ? '更新 Cookie' : '导入 Cookie'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: onQrLogin,
-                  icon: const Icon(Icons.qr_code_2),
-                  label: const Text('二维码登录'),
-                ),
-              ),
-            ],
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final useVerticalLayout = constraints.maxWidth < 420;
+
+              Widget buildPrimaryRow() {
+                final children = <Widget>[
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: onImportCookie,
+                      icon: const Icon(Icons.cookie_outlined),
+                      label: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(platform.hasCookie ? '更新 Cookie' : '导入 Cookie'),
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: useVerticalLayout ? 0 : 12, height: useVerticalLayout ? 10 : 0),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: onQrLogin,
+                      icon: const Icon(Icons.qr_code_2),
+                      label: const FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text('二维码登录'),
+                      ),
+                    ),
+                  ),
+                ];
+
+                return useVerticalLayout
+                    ? Column(children: children)
+                    : Row(children: children);
+              }
+
+              Widget buildCliRow() {
+                final children = <Widget>[
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: onCliLogin,
+                      icon: const Icon(Icons.open_in_browser_rounded),
+                      label: const FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text('CLI 官方登录'),
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: useVerticalLayout ? 0 : 12, height: useVerticalLayout ? 10 : 0),
+                  Expanded(
+                    child: TextButton.icon(
+                      onPressed: onRefreshCliLogin,
+                      icon: const Icon(Icons.verified_user_outlined),
+                      label: const FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text('检查 CLI 状态'),
+                      ),
+                    ),
+                  ),
+                ];
+
+                return useVerticalLayout
+                    ? Column(children: children)
+                    : Row(children: children);
+              }
+
+              return Column(
+                children: [
+                  buildPrimaryRow(),
+                  if (onCliLogin != null || onRefreshCliLogin != null) ...[
+                    const SizedBox(height: 10),
+                    buildCliRow(),
+                  ],
+                ],
+              );
+            },
           ),
-          if (onCliLogin != null || onRefreshCliLogin != null) ...[
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: onCliLogin,
-                    icon: const Icon(Icons.open_in_browser_rounded),
-                    label: const Text('CLI 官方登录'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextButton.icon(
-                    onPressed: onRefreshCliLogin,
-                    icon: const Icon(Icons.verified_user_outlined),
-                    label: const Text('检查 CLI 状态'),
-                  ),
-                ),
-              ],
-            ),
-          ],
           if (onClearCookie != null) ...[
             const SizedBox(height: 10),
             Align(

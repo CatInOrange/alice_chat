@@ -415,7 +415,7 @@ class _WebviewScreenState extends State<WebviewScreen>
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFFFDF7FB), Color(0xFFF6F2FF)],
+          colors: [Color(0xFFF6F0E8), Color(0xFFF1E7DE), Color(0xFFEADDCF)],
         ),
       ),
       child: SafeArea(
@@ -434,8 +434,13 @@ class _WebviewScreenState extends State<WebviewScreen>
                         duration: const Duration(milliseconds: 320),
                         curve: Curves.easeOutCubic,
                         width: imageWidth,
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: const Color(0x66F1E7DE),
+                          borderRadius: BorderRadius.circular(28),
+                        ),
                         child: ClipRRect(
-                          borderRadius: BorderRadius.circular(26),
+                          borderRadius: BorderRadius.circular(24),
                           child: AspectRatio(
                             aspectRatio: 1182 / 838,
                             child: Image.asset(
