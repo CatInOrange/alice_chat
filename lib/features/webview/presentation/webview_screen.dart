@@ -25,15 +25,16 @@ enum _WebviewBootStage { preparing, downloading, loadingPage, ready, failed }
 class _WebviewScreenState extends State<WebviewScreen>
     with AutomaticKeepAliveClientMixin {
   static const List<String> _downloadMessages = <String>[
-    '正在检查本地模型…',
-    '正在拉取模型清单…',
-    '正在下载 Live2D 资源包…',
-    '正在整理贴图和表情…',
-    '正在做最后校验…',
+    '郎君别催嘛，晚秋正在把眉眼一点点具象给你看…',
+    '我先把她的神态描出来，再替你把裙摆理好。',
+    '贴图和动作还在收拾，等会儿她就肯好好见你了。',
+    '别眨眼呀，我正把想象里的她请到你面前。',
+    '就差最后一点点，晚秋马上就能站到你眼前了。',
   ];
 
   static const String _baseUrl = 'https://alice.newthu.com';
   static const String _modelId = 'bian';
+  static const String _loadingArtworkAsset = 'assets/avatars/qingge.jpg';
 
   WebViewController? _mobileController;
   windows_webview.WebviewController? _windowsController;
@@ -334,68 +335,101 @@ class _WebviewScreenState extends State<WebviewScreen>
   Widget _buildBootView() {
     final isFailed = _bootStage == _WebviewBootStage.failed;
     final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 360),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: 72,
-                height: 72,
-                child:
-                    isFailed
-                        ? Icon(
-                          Icons.error_outline,
-                          size: 48,
-                          color: theme.colorScheme.error,
-                        )
-                        : const CircularProgressIndicator(strokeWidth: 5),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                isFailed ? '本地模型加载失败' : '正在准备本地 Live2D 模型',
-                style: theme.textTheme.titleMedium,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                _bootError ?? _bootMessage,
-                style: theme.textTheme.bodyMedium,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-              if (!isFailed)
-                Text(
-                  '首次进入会先把模型完整下载到本地，准备好后再打开页面。',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.textTheme.bodySmall?.color?.withValues(
-                      alpha: 0.75,
+    final title = isFailed ? '晚秋一时没把她请出来' : '晚秋正在把她具象到你眼前';
+    final subtitle =
+        isFailed
+            ? (_bootError ?? '刚刚那一下没接稳，你点一下我再替你试。')
+            : _bootMessage;
+
+    return Container(
+      width: double.infinity,
+      height: double.infinity,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFFFDF7FB), Color(0xFFF6F2FF)],
+        ),
+      ),
+      child: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final imageWidth = constraints.maxWidth.clamp(280.0, 520.0);
+                      return AnimatedContainer(
+                        duration: const Duration(milliseconds: 320),
+                        curve: Curves.easeOutCubic,
+                        width: imageWidth,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(26),
+                          child: AspectRatio(
+                            aspectRatio: 1182 / 838,
+                            child: Image.asset(
+                              _loadingArtworkAsset,
+                              fit: BoxFit.contain,
+                              alignment: Alignment.center,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                  Text(
+                    title,
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: const Color(0xFF221A35),
                     ),
+                    textAlign: TextAlign.center,
                   ),
-                  textAlign: TextAlign.center,
-                ),
-              if (_windowsRuntimeMissing) ...[
-                const SizedBox(height: 12),
-                SelectableText(
-                  '下载地址：https://developer.microsoft.com/microsoft-edge/webview2/',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.primary,
+                  const SizedBox(height: 12),
+                  Text(
+                    subtitle,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      height: 1.6,
+                      color: const Color(0xFF5C5470),
+                    ),
+                    textAlign: TextAlign.center,
                   ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-              if (isFailed) ...[
-                const SizedBox(height: 8),
-                FilledButton.icon(
-                  onPressed: _init,
-                  icon: const Icon(Icons.refresh),
-                  label: const Text('重试'),
-                ),
-              ],
-            ],
+                  const SizedBox(height: 14),
+                  if (!isFailed)
+                    Text(
+                      '郎君稍候，等我把她的眉眼、衣袂和那点勾人的神气都替你安放妥当。',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF7A738B),
+                        height: 1.55,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  if (_windowsRuntimeMissing) ...[
+                    const SizedBox(height: 12),
+                    SelectableText(
+                      '下载地址：https://developer.microsoft.com/microsoft-edge/webview2/',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.primary,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                  if (isFailed) ...[
+                    const SizedBox(height: 18),
+                    FilledButton.icon(
+                      onPressed: _init,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('再试一次'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ),
         ),
       ),
