@@ -877,10 +877,21 @@ class _MusicScreenState extends State<MusicScreen>
                             repeatMode: store.repeatMode,
                             onPlayPause: store.togglePlayPause,
                             onToggleShuffle: store.toggleShuffle,
-                            onCycleRepeat: store.cycleRepeatMode,
+                            onCycleRepeat: () {
+                              final shouldExplainBlockedIntelligence =
+                                  store.repeatMode == MusicRepeatMode.one &&
+                                  !store.canEnableIntelligenceMode;
+                              final blockedHint = store.intelligenceModeHint;
+                              store.cycleRepeatMode();
+                              if (shouldExplainBlockedIntelligence &&
+                                  context.mounted &&
+                                  (blockedHint ?? '').trim().isNotEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(blockedHint!)),
+                                );
+                              }
+                            },
                             isFavorite: currentTrack.isFavorite,
-                            onToggleLike:
-                                () => store.toggleTrackLiked(currentTrack),
                             onOpenLiked:
                                 () => _openPlaylistDetail(store, likedPlaylist),
                           ),
@@ -3405,7 +3416,7 @@ class _DesktopLibrarySidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.76),
         borderRadius: BorderRadius.circular(30),
@@ -3455,40 +3466,45 @@ class _DesktopLibrarySidebar extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 18),
-          OutlinedButton.icon(
-            onPressed: onSearch,
-            icon: const Icon(Icons.search_rounded),
-            label: const Text('搜索音乐'),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: onSearch,
+                  icon: const Icon(Icons.search_rounded, size: 18),
+                  label: const Text('搜索音乐'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.outlined(
+                visualDensity: VisualDensity.compact,
+                onPressed: isRefreshing ? null : onRefresh,
+                icon:
+                    isRefreshing
+                        ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                        : const Icon(Icons.refresh_rounded),
+              ),
+            ],
           ),
-          const SizedBox(height: 10),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: IconButton.outlined(
-              onPressed: isRefreshing ? null : onRefresh,
-              icon:
-                  isRefreshing
-                      ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                      : const Icon(Icons.refresh_rounded),
-            ),
-          ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 16),
           Text('你的歌单', style: theme.textTheme.titleSmall),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           Expanded(
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
                 ...displayedCustomPlaylists.map(
                   (playlist) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.only(bottom: 6),
                     child: _DesktopSidebarPlaylistTile(
                       playlist: playlist,
                       isActive: currentPlaylistId == playlist.id,
+                      dense: true,
                       onTap: () => onOpenPlaylist(playlist),
                       onPlay: () => onPlayPlaylist(playlist),
                       onLongPress:
@@ -3501,12 +3517,12 @@ class _DesktopLibrarySidebar extends StatelessWidget {
                 if (recentPlaylists.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   Text('最近播放', style: theme.textTheme.titleSmall),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
                   ...recentPlaylists
                       .take(4)
                       .map(
                         (playlist) => Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.only(bottom: 6),
                           child: _DesktopSidebarPlaylistTile(
                             playlist: playlist,
                             isActive: currentPlaylistId == playlist.id,
@@ -3520,12 +3536,12 @@ class _DesktopLibrarySidebar extends StatelessWidget {
                 if (aiPlaylists.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   Text('AI 歌单', style: theme.textTheme.titleSmall),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
                   ...aiPlaylists
-                      .take(4)
+                      .take(3)
                       .map(
                         (playlist) => Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.only(bottom: 6),
                           child: _DesktopSidebarPlaylistTile(
                             playlist: playlist,
                             isActive: currentPlaylistId == playlist.id,
@@ -3539,12 +3555,16 @@ class _DesktopLibrarySidebar extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
               onPressed: onCreatePlaylist,
-              icon: const Icon(Icons.add_rounded),
+              icon: const Icon(Icons.add_rounded, size: 18),
               label: const Text('新建歌单'),
             ),
           ),
@@ -3688,7 +3708,6 @@ class _DesktopNowPlayingStage extends StatelessWidget {
     required this.onToggleShuffle,
     required this.onCycleRepeat,
     required this.isFavorite,
-    required this.onToggleLike,
     required this.onOpenLiked,
   });
 
@@ -3716,7 +3735,6 @@ class _DesktopNowPlayingStage extends StatelessWidget {
   final Future<void> Function() onToggleShuffle;
   final VoidCallback onCycleRepeat;
   final bool isFavorite;
-  final VoidCallback onToggleLike;
   final VoidCallback onOpenLiked;
 
   @override
@@ -3894,7 +3912,6 @@ class _DesktopNowPlayingStage extends StatelessWidget {
                   onNext: onNext,
                   onToggleShuffle: onToggleShuffle,
                   onCycleRepeat: onCycleRepeat,
-                  onToggleLike: onToggleLike,
                   onOpenLiked: onOpenLiked,
                 ),
               ],
@@ -4302,7 +4319,6 @@ class _DesktopPlayerControls extends StatelessWidget {
     required this.onNext,
     required this.onToggleShuffle,
     required this.onCycleRepeat,
-    required this.onToggleLike,
     required this.onOpenLiked,
   });
 
@@ -4319,7 +4335,6 @@ class _DesktopPlayerControls extends StatelessWidget {
   final Future<void> Function() onNext;
   final Future<void> Function() onToggleShuffle;
   final VoidCallback onCycleRepeat;
-  final VoidCallback onToggleLike;
   final VoidCallback onOpenLiked;
 
   @override
@@ -4331,10 +4346,8 @@ class _DesktopPlayerControls extends StatelessWidget {
       runSpacing: 12,
       children: [
         _DesktopActionButton(
-          icon: isFavorite
-              ? Icons.favorite_rounded
-              : Icons.favorite_border_rounded,
-          isActive: isFavorite,
+          icon: Icons.favorite_rounded,
+          isActive: true,
           activeColor: const Color(0xFFE91E63),
           onPressed: onOpenLiked,
         ),
@@ -4393,10 +4406,6 @@ class _DesktopPlayerControls extends StatelessWidget {
                   : Icons.repeat_rounded,
           isActive: repeatMode != MusicRepeatMode.off,
           onPressed: onCycleRepeat,
-        ),
-        _DesktopActionButton(
-          icon: Icons.favorite_border_rounded,
-          onPressed: onToggleLike,
         ),
       ],
     );
