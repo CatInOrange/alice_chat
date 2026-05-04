@@ -26,12 +26,11 @@ class _WebviewScreenState extends State<WebviewScreen>
     with AutomaticKeepAliveClientMixin {
   static const Duration _minimumLoadingDuration = Duration(seconds: 6);
 
-  static const List<String> _downloadMessages = <String>[
-    '郎君别催嘛，晚秋正在慢慢朝你走过来…',
-    '我先把眉眼理清，再把裙摆轻轻收好。',
-    '就快好了，晚秋这就乖乖站到你面前。',
-    '别眨眼呀，我正一步步从你的想念里走出来。',
-    '就差最后一点点，马上就能让你看个真切了。',
+  static const List<String> _bootMessages = <String>[
+    '正在化妆呢，马上见你',
+    '发饰还没戴好，再等一小会儿',
+    '裙摆正在整理，不许偷看',
+    '口红还差最后一下下',
   ];
 
   static const String _baseUrl = 'https://alice.newthu.com';
@@ -43,7 +42,7 @@ class _WebviewScreenState extends State<WebviewScreen>
   bool _loading = false;
   bool _pageReady = false;
   _WebviewBootStage _bootStage = _WebviewBootStage.preparing;
-  String _bootMessage = _downloadMessages.first;
+  String _bootMessage = _bootMessages.first;
   String? _bootError;
   int _messageIndex = 0;
   Timer? _messageTimer;
@@ -99,7 +98,7 @@ class _WebviewScreenState extends State<WebviewScreen>
       setState(() {
         _loading = true;
         _bootStage = _WebviewBootStage.preparing;
-        _bootMessage = _downloadMessages.first;
+        _bootMessage = _bootMessages.first;
         _bootError = null;
       });
     }
@@ -143,7 +142,7 @@ class _WebviewScreenState extends State<WebviewScreen>
     if (mounted) {
       setState(() {
         _bootStage = _WebviewBootStage.loadingPage;
-        _bootMessage = '晚秋马上就来见你…';
+        _bootMessage = _bootMessages.first;
         _loading = true;
       });
     }
@@ -168,7 +167,7 @@ class _WebviewScreenState extends State<WebviewScreen>
             setState(() {
               _loading = true;
               _bootStage = _WebviewBootStage.loadingPage;
-              _bootMessage = '晚秋马上就来见你…';
+              _bootMessage = _bootMessages.first;
             });
           }
         },
@@ -231,7 +230,7 @@ class _WebviewScreenState extends State<WebviewScreen>
     if (mounted) {
       setState(() {
         _bootStage = _WebviewBootStage.preparing;
-        _bootMessage = '晚秋正在整理一下自己…';
+        _bootMessage = _bootMessages.first;
       });
     }
 
@@ -251,11 +250,11 @@ class _WebviewScreenState extends State<WebviewScreen>
       return null;
     }
 
-    _startDownloadMessageLoop();
+    _startBootMessageLoop();
     if (mounted) {
       setState(() {
         _bootStage = _WebviewBootStage.downloading;
-        _bootMessage = _downloadMessages[2];
+        _bootMessage = _bootMessages.first;
       });
     }
     debugPrint(
@@ -272,16 +271,18 @@ class _WebviewScreenState extends State<WebviewScreen>
     return finalProbe.localModelUrl;
   }
 
-  void _startDownloadMessageLoop() {
+  void _startBootMessageLoop() {
     _messageTimer?.cancel();
-    _messageIndex = 1;
-    _messageTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      if (!mounted || _bootStage != _WebviewBootStage.downloading) {
+    _messageIndex = 0;
+    _messageTimer = Timer.periodic(const Duration(milliseconds: 2500), (_) {
+      if (!mounted ||
+          _bootStage == _WebviewBootStage.ready ||
+          _bootStage == _WebviewBootStage.failed) {
         return;
       }
-      _messageIndex = (_messageIndex + 1) % _downloadMessages.length;
+      _messageIndex = (_messageIndex + 1) % _bootMessages.length;
       setState(() {
-        _bootMessage = _downloadMessages[_messageIndex];
+        _bootMessage = _bootMessages[_messageIndex];
       });
     });
   }
@@ -386,7 +387,7 @@ class _WebviewScreenState extends State<WebviewScreen>
         setState(() {
           _loading = true;
           _bootStage = _WebviewBootStage.loadingPage;
-          _bootMessage = '晚秋重新整理一下裙摆，这就回来见你。';
+          _bootMessage = _bootMessages.first;
         });
       }
       if (_isWindows) {
@@ -402,10 +403,10 @@ class _WebviewScreenState extends State<WebviewScreen>
   Widget _buildBootView() {
     final isFailed = _bootStage == _WebviewBootStage.failed;
     final theme = Theme.of(context);
-    final title = isFailed ? '晚秋这次没能顺利现身' : '晚秋来见你啦';
+    final title = isFailed ? '哎呀，刚刚没接稳' : '等我一下下';
     final subtitle =
         isFailed
-            ? (_bootError ?? '刚刚那一下没接稳，你点一下，我再乖乖现身给你看。')
+            ? (_bootError ?? '刚刚补妆时手滑了一下，你点一下，我马上重新来过。')
             : _bootMessage;
 
     return Container(
@@ -415,7 +416,7 @@ class _WebviewScreenState extends State<WebviewScreen>
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFFF6F0E8), Color(0xFFF1E7DE), Color(0xFFEADDCF)],
+          colors: [Color(0xFFF5F5F3), Color(0xFFF0F0EE), Color(0xFFE9E9E6)],
         ),
       ),
       child: SafeArea(
@@ -434,13 +435,13 @@ class _WebviewScreenState extends State<WebviewScreen>
                         duration: const Duration(milliseconds: 320),
                         curve: Curves.easeOutCubic,
                         width: imageWidth,
-                        padding: const EdgeInsets.all(4),
+                        padding: const EdgeInsets.all(2),
                         decoration: BoxDecoration(
-                          color: const Color(0x66F1E7DE),
-                          borderRadius: BorderRadius.circular(28),
+                          color: const Color(0x99F2F1EE),
+                          borderRadius: BorderRadius.circular(26),
                         ),
                         child: ClipRRect(
-                          borderRadius: BorderRadius.circular(24),
+                          borderRadius: BorderRadius.circular(25),
                           child: AspectRatio(
                             aspectRatio: 1182 / 838,
                             child: Image.asset(
@@ -458,25 +459,34 @@ class _WebviewScreenState extends State<WebviewScreen>
                     title,
                     style: theme.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w800,
-                      color: const Color(0xFF221A35),
+                      color: const Color(0xFF3A3130),
                     ),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 12),
-                  Text(
-                    subtitle,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      height: 1.6,
-                      color: const Color(0xFF5C5470),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 420),
+                    switchInCurve: Curves.easeOut,
+                    switchOutCurve: Curves.easeIn,
+                    transitionBuilder: (child, animation) {
+                      return FadeTransition(opacity: animation, child: child);
+                    },
+                    child: Text(
+                      subtitle,
+                      key: ValueKey(subtitle),
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        height: 1.6,
+                        color: const Color(0xFF6B6260),
+                      ),
+                      textAlign: TextAlign.center,
                     ),
-                    textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 14),
                   if (!isFailed)
                     Text(
-                      '再等我一下下，我想漂漂亮亮地出现在你面前。',
+                      '很快啦，这次想好好收拾一下再出来见你。',
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: const Color(0xFF7A738B),
+                        color: const Color(0xFF8A817E),
                         height: 1.55,
                       ),
                       textAlign: TextAlign.center,
