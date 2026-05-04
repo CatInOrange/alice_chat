@@ -27,16 +27,16 @@ class _WebviewScreenState extends State<WebviewScreen>
   static const Duration _minimumLoadingDuration = Duration(seconds: 6);
 
   static const List<String> _downloadMessages = <String>[
-    '郎君别催嘛，晚秋正在把自己一点点具象给你看…',
-    '我先把自己的眉眼描清，再把裙摆替你理好。',
-    '贴图和动作还在收拾，等会儿晚秋就乖乖站到你面前。',
-    '别眨眼呀，我正从你的想象里一步步走出来。',
-    '就差最后一点点，晚秋马上就能让你看个真切了。',
+    '郎君别催嘛，晚秋正在慢慢朝你走过来…',
+    '我先把眉眼理清，再把裙摆轻轻收好。',
+    '就快好了，晚秋这就乖乖站到你面前。',
+    '别眨眼呀，我正一步步从你的想念里走出来。',
+    '就差最后一点点，马上就能让你看个真切了。',
   ];
 
   static const String _baseUrl = 'https://alice.newthu.com';
   static const String _modelId = 'bian';
-  static const String _loadingArtworkAsset = 'assets/avatars/qingge.jpg';
+  static const String _loadingArtworkAsset = 'assets/avatars/wanqiu_loading.jpg';
 
   WebViewController? _mobileController;
   windows_webview.WebviewController? _windowsController;
@@ -107,7 +107,7 @@ class _WebviewScreenState extends State<WebviewScreen>
     try {
       final targetUrl = await _resolveTargetUrl();
       if (targetUrl == null || targetUrl.trim().isEmpty) {
-        throw StateError('本地模型未准备完成');
+        throw StateError('页面还没准备好');
       }
       await (_isWindows
           ? _initWindowsWebView(targetUrl)
@@ -136,14 +136,14 @@ class _WebviewScreenState extends State<WebviewScreen>
     debugPrint('WebView localModelUrl resolved: $localModelUrl');
     if (localModelUrl == null || localModelUrl.trim().isEmpty) {
       throw StateError(
-        Live2dModelCache.instance.lastFailureReason ?? '本地模型未准备完成',
+        Live2dModelCache.instance.lastFailureReason ?? '页面还没准备好',
       );
     }
 
     if (mounted) {
       setState(() {
         _bootStage = _WebviewBootStage.loadingPage;
-        _bootMessage = '本地模型已就绪，正在打开页面…';
+        _bootMessage = '晚秋马上就来见你…';
         _loading = true;
       });
     }
@@ -168,7 +168,7 @@ class _WebviewScreenState extends State<WebviewScreen>
             setState(() {
               _loading = true;
               _bootStage = _WebviewBootStage.loadingPage;
-              _bootMessage = '本地模型已就绪，正在打开页面…';
+              _bootMessage = '晚秋马上就来见你…';
             });
           }
         },
@@ -231,7 +231,7 @@ class _WebviewScreenState extends State<WebviewScreen>
     if (mounted) {
       setState(() {
         _bootStage = _WebviewBootStage.preparing;
-        _bootMessage = '正在检查本地模型…';
+        _bootMessage = '晚秋正在整理一下自己…';
       });
     }
 
@@ -402,7 +402,7 @@ class _WebviewScreenState extends State<WebviewScreen>
   Widget _buildBootView() {
     final isFailed = _bootStage == _WebviewBootStage.failed;
     final theme = Theme.of(context);
-    final title = isFailed ? '晚秋这次没能顺利现身' : '晚秋正在把自己具象到你眼前';
+    final title = isFailed ? '晚秋这次没能顺利现身' : '晚秋来见你啦';
     final subtitle =
         isFailed
             ? (_bootError ?? '刚刚那一下没接稳，你点一下，我再乖乖现身给你看。')
@@ -469,7 +469,7 @@ class _WebviewScreenState extends State<WebviewScreen>
                   const SizedBox(height: 14),
                   if (!isFailed)
                     Text(
-                      '郎君稍候，等我把自己的眉眼、衣袂和那点勾人的神气，都好好安放到你面前。',
+                      '再等我一下下，我想漂漂亮亮地出现在你面前。',
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: const Color(0xFF7A738B),
                         height: 1.55,
