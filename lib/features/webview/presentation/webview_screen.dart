@@ -50,6 +50,8 @@ class _WebviewScreenState extends State<WebviewScreen>
   bool _windowsRuntimeMissing = false;
   DateTime? _loadingStartedAt;
   bool _pageFinishReady = false;
+  static const Duration _pageReadyPollInterval = Duration(milliseconds: 250);
+  static const Duration _pageReadyTimeout = Duration(seconds: 12);
 
   bool get _isWindows =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
@@ -326,13 +328,53 @@ class _WebviewScreenState extends State<WebviewScreen>
         await Future<void>.delayed(_minimumLoadingDuration - elapsed);
       }
     }
+
+    final live2dReady = await _waitForLive2dReadyFlag();
     if (!mounted || !_pageFinishReady) {
       return;
+    }
+    if (!live2dReady) {
+      debugPrint('WebView ready flag timeout, falling back to page-finished state');
     }
     setState(() {
       _loading = false;
       _bootStage = _WebviewBootStage.ready;
     });
+  }
+
+  Future<bool> _waitForLive2dReadyFlag() async {
+    final deadline = DateTime.now().add(_pageReadyTimeout);
+    while (mounted && _pageFinishReady) {
+      final ready = await _readLive2dReadyFlag();
+      if (ready) {
+        return true;
+      }
+      if (DateTime.now().isAfter(deadline)) {
+        return false;
+      }
+      await Future<void>.delayed(_pageReadyPollInterval);
+    }
+    return false;
+  }
+
+  Future<bool> _readLive2dReadyFlag() async {
+    const js = 'window.__aliceLive2dReady === true';
+    try {
+      if (_isWindows) {
+        final raw = await _windowsController?.executeScript(js);
+        return _parseJsBoolResult(raw);
+      }
+      final raw = await _mobileController?.runJavaScriptReturningResult(js);
+      return _parseJsBoolResult(raw);
+    } catch (error) {
+      debugPrint('WebView read ready flag failed: $error');
+      return false;
+    }
+  }
+
+  bool _parseJsBoolResult(Object? raw) {
+    final text = '$raw'.trim().toLowerCase();
+    return text == 'true' || text == '1';
   }
 
   Future<void> _reloadPage() async {

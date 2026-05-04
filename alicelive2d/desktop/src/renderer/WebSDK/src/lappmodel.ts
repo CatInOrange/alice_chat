@@ -569,6 +569,8 @@ export class LAppModel extends CubismUserModel {
           if (this._textureCount >= textureCount) {
             // ロード完了
             this._state = LoadStep.CompleteSetup;
+            (window as any).__aliceLive2dReady = true;
+            console.log('[Live2D] ready: textures complete');
           }
         };
 

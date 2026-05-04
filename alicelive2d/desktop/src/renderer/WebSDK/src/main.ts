@@ -22,6 +22,8 @@ import { resetLive2DRuntime } from "../../src/runtime/live2d-runtime-reset-utils
  * Initialize the Live2D application
  */
 export function initializeLive2D(): void {
+  const runtimeWindow = window as any;
+  runtimeWindow.__aliceLive2dReady = false;
   const initStore = getLive2DInitializationStore(window);
   const sessionId = beginLive2DInitializationSession(initStore);
   console.log(
@@ -42,11 +44,13 @@ export function initializeLive2D(): void {
     !LAppGlManager.getInstance() ||
     !LAppDelegate.getInstance().initialize()
   ) {
+    runtimeWindow.__aliceLive2dReady = false;
     console.error("Failed to initialize Live2D");
     return;
   }
 
   if (!isLive2DInitializationSessionCurrent(sessionId, initStore)) {
+    runtimeWindow.__aliceLive2dReady = false;
     return;
   }
 
