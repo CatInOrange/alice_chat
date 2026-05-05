@@ -1509,9 +1509,7 @@ class MusicStore extends ChangeNotifier {
     final originalMode = _repeatMode;
     await _hydrateCurrentTrackFromPlaybackSourceIfNeeded();
     final providerId = _currentTrackProviderId();
-    final sourceTrackId =
-        (_currentTrack.sourceTrackId ?? _currentTrack.cachedPlayback?.sourceTrackId ?? '')
-            .trim();
+    final sourceTrackId = _currentTrackResolvedSourceTrackId();
     _debugState(
       'intelligence.enable.request',
       extra: {
@@ -2189,7 +2187,7 @@ class MusicStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  void cycleRepeatMode() {
+  Future<void> cycleRepeatMode() async {
     switch (_repeatMode) {
       case MusicRepeatMode.off:
         _repeatMode = MusicRepeatMode.all;
@@ -2200,6 +2198,7 @@ class MusicStore extends ChangeNotifier {
         notifyListeners();
         return;
       case MusicRepeatMode.one:
+        await _hydrateCurrentTrackFromPlaybackSourceIfNeeded();
         if (canEnableIntelligenceMode) {
           _repeatMode = MusicRepeatMode.intelligence;
           notifyListeners();
@@ -2264,6 +2263,11 @@ class MusicStore extends ChangeNotifier {
     if (cached.isNotEmpty) {
       return cached;
     }
+    final playbackSourceProviderId =
+        (_playbackAdapter.state.currentSource?.providerId ?? '').trim();
+    if (playbackSourceProviderId.isNotEmpty) {
+      return playbackSourceProviderId;
+    }
     final trackId = _currentTrack.id.trim();
     if (trackId.contains(':')) {
       final prefix = trackId.split(':').first.trim();
@@ -2274,11 +2278,19 @@ class MusicStore extends ChangeNotifier {
     return null;
   }
 
-  Future<void> _hydrateCurrentTrackFromPlaybackSourceIfNeeded() async {
-    final providerId = _currentTrackProviderId();
+  String _currentTrackResolvedSourceTrackId() {
     final sourceTrackId =
         (_currentTrack.sourceTrackId ?? _currentTrack.cachedPlayback?.sourceTrackId ?? '')
             .trim();
+    if (sourceTrackId.isNotEmpty) {
+      return sourceTrackId;
+    }
+    return (_playbackAdapter.state.currentSource?.sourceTrackId ?? '').trim();
+  }
+
+  Future<void> _hydrateCurrentTrackFromPlaybackSourceIfNeeded() async {
+    final providerId = _currentTrackProviderId();
+    final sourceTrackId = _currentTrackResolvedSourceTrackId();
     if (providerId == 'netease' && sourceTrackId.isNotEmpty) {
       return;
     }
@@ -2516,11 +2528,7 @@ class MusicStore extends ChangeNotifier {
       return false;
     }
 
-    final currentSourceTrackId =
-        (_currentTrack.sourceTrackId ??
-                _currentTrack.cachedPlayback?.sourceTrackId ??
-                '')
-            .trim();
+    final currentSourceTrackId = _currentTrackResolvedSourceTrackId();
     final currentTrackId = _currentTrack.id.trim();
     final currentKey = _trackIdentityKey(_currentTrack).trim();
 

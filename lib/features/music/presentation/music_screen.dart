@@ -877,14 +877,15 @@ class _MusicScreenState extends State<MusicScreen>
                             repeatMode: store.repeatMode,
                             onPlayPause: store.togglePlayPause,
                             onToggleShuffle: store.toggleShuffle,
-                            onCycleRepeat: () {
+                            onCycleRepeat: () async {
                               final shouldExplainBlockedIntelligence =
                                   store.repeatMode == MusicRepeatMode.one &&
                                   !store.canEnableIntelligenceMode;
                               final blockedHint = store.intelligenceModeHint;
-                              store.cycleRepeatMode();
+                              await store.cycleRepeatMode();
                               if (shouldExplainBlockedIntelligence &&
                                   context.mounted &&
+                                  store.repeatMode != MusicRepeatMode.intelligence &&
                                   (blockedHint ?? '').trim().isNotEmpty) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(content: Text(blockedHint!)),

@@ -324,7 +324,9 @@ class MusicPlayerScreen extends StatelessWidget {
                                         onPrevious: store.playPrevious,
                                         onNext: store.playNext,
                                         onToggleShuffle: store.toggleShuffle,
-                                        onCycleRepeat: store.cycleRepeatMode,
+                                        onCycleRepeat: () async {
+                                          await store.cycleRepeatMode();
+                                        },
                                         canEnableIntelligence:
                                             store.canEnableIntelligenceMode,
                                         canAttemptIntelligence:
@@ -1005,7 +1007,7 @@ class _PlayerControls extends StatelessWidget {
   final Future<void> Function() onPrevious;
   final Future<void> Function() onNext;
   final Future<void> Function() onToggleShuffle;
-  final VoidCallback onCycleRepeat;
+  final Future<void> Function() onCycleRepeat;
   final bool canEnableIntelligence;
   final bool canAttemptIntelligence;
 
