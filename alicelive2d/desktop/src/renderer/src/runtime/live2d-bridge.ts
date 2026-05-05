@@ -157,24 +157,13 @@ export function getModelBounds(): RuntimeRect | null {
     return null;
   }
 
-  const x = Number(model.x ?? model.position?.x ?? 0);
-  const y = Number(model.y ?? model.position?.y ?? 0);
-  const width = Number(model.width ?? 0);
-  const height = Number(model.height ?? 0);
+  const x = Number(model.x ?? model.position?.x ?? NaN);
+  const y = Number(model.y ?? model.position?.y ?? NaN);
+  const width = Number(model.width ?? NaN);
+  const height = Number(model.height ?? NaN);
 
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    const rect = getModelScreenRect();
-    if (!rect) {
-      return null;
-    }
-    return {
-      left: rect.left,
-      top: rect.top,
-      right: rect.right,
-      bottom: rect.bottom,
-      width: rect.width,
-      height: rect.height,
-    };
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
   }
 
   return {
@@ -185,6 +174,44 @@ export function getModelBounds(): RuntimeRect | null {
     width,
     height,
   };
+}
+
+function isPointerInsideModelHitArea(
+  pointer: { x: number; y: number },
+  canvasRect: DOMRect,
+  view: any,
+  model: any,
+): boolean | null {
+  if (!pointer || !canvasRect || !view || !model) {
+    return null;
+  }
+
+  const localX = Number(pointer.x) - Number(canvasRect.left || 0);
+  const localY = Number(pointer.y) - Number(canvasRect.top || 0);
+
+  if (!Number.isFinite(localX) || !Number.isFinite(localY)) {
+    return null;
+  }
+
+  const modelX = view?._deviceToScreen?.transformX?.(localX);
+  const modelY = view?._deviceToScreen?.transformY?.(localY);
+
+  if (!Number.isFinite(Number(modelX)) || !Number.isFinite(Number(modelY))) {
+    return null;
+  }
+
+  try {
+    if (typeof model.anyhitTest === 'function' && model.anyhitTest(modelX, modelY) !== null) {
+      return true;
+    }
+    if (typeof model.isHitOnModel === 'function') {
+      return !!model.isHitOnModel(modelX, modelY);
+    }
+  } catch (error) {
+    console.warn('Failed to test Live2D model hit area:', error);
+  }
+
+  return false;
 }
 
 export function setModelPositionFromScreen(x: number, y: number): boolean {
@@ -329,7 +356,7 @@ export function setPointerInsideCanvas(
   }
   debugLog({
     event: 'setPointerInsideCanvas',
-    inside,
+    insideCanvas: inside,
     x: pointer?.x ?? null,
     y: pointer?.y ?? null,
     buttons: pointer?.buttons ?? null,
@@ -479,7 +506,7 @@ export function applyFocusCenter(config: FocusCenterConfig | null | undefined): 
     debugLog({
       event: 'applyFocusCenter-skip',
       reason: lastPointer.pointerType === 'touch' ? 'touch' : 'left-button-pressed',
-      inside: isPointerInsideCanvas,
+      insideCanvas: isPointerInsideCanvas,
       pointerType: lastPointer.pointerType,
       buttons: lastPointer.buttons,
     });
@@ -489,27 +516,31 @@ export function applyFocusCenter(config: FocusCenterConfig | null | undefined): 
   const canvasRect = canvas.getBoundingClientRect();
   const live2dRect = (document.getElementById("live2d") as HTMLElement | null)?.getBoundingClientRect() ?? canvasRect;
   const modelBounds = getModelBounds();
-  const activeRect = constrainPointerToCanvasHover && modelBounds
+  const expandedModelRect = modelBounds
     ? expandRect(
       modelBounds,
       Math.max(24, Number(modelBounds.width || 0) * 0.18),
       Math.max(24, Number(modelBounds.height || 0) * 0.14),
     )
-    : live2dRect;
+    : null;
   if (lastPointer.pointerType === 'mouse') {
-    const insideModelBounds = modelBounds ? isPointerInsideRect(modelBounds, lastPointer) : null;
+    const insideModelHitArea = isPointerInsideModelHitArea(lastPointer, canvasRect, view, model);
+    const insideModelBounds = modelBounds ? isPointerInsideRect(modelBounds, lastPointer) : insideModelHitArea;
     const insideCanvasRect = isPointerInsideRect(canvasRect, lastPointer);
     const insideLive2DRect = isPointerInsideRect(live2dRect, lastPointer);
-    const insideActiveRect = isPointerInsideRect(activeRect, lastPointer);
+    const insideActiveRect = constrainPointerToCanvasHover
+      ? (expandedModelRect ? isPointerInsideRect(expandedModelRect, lastPointer) : insideModelHitArea)
+      : insideLive2DRect;
 
     if (constrainPointerToCanvasHover && forceCenterUntilPointerReenters) {
       debugLog({
         event: 'applyFocusCenter-center',
         reason: 'force-center-until-pointer-reenters',
-        inside: isPointerInsideCanvas,
+        insideCanvas: isPointerInsideCanvas,
         x: lastPointer.x,
         y: lastPointer.y,
         insideModelBounds,
+        insideModelHitArea,
         insideCanvasRect,
         insideLive2DRect,
         insideActiveRect,
@@ -524,27 +555,47 @@ export function applyFocusCenter(config: FocusCenterConfig | null | undefined): 
       forceCenterUntilPointerReenters = true;
       debugLog({
         event: 'applyFocusCenter-center',
-        reason: 'outside-live2d-rect',
-        inside: isPointerInsideCanvas,
+        reason: 'outside-active-rect',
+        insideCanvas: isPointerInsideCanvas,
         x: lastPointer.x,
         y: lastPointer.y,
         insideModelBounds,
+        insideModelHitArea,
         insideCanvasRect,
         insideLive2DRect,
         insideActiveRect,
         live2dRect,
-        activeRect,
+        activeRect: expandedModelRect,
       });
       focusModelCenter();
       return;
     }
   }
 
+  const debugInsideModelHitArea = lastPointer.pointerType === 'mouse'
+    ? isPointerInsideModelHitArea(lastPointer, canvasRect, view, model)
+    : null;
+  const debugInsideModelBounds = lastPointer.pointerType === 'mouse'
+    ? (modelBounds ? isPointerInsideRect(modelBounds, lastPointer) : debugInsideModelHitArea)
+    : null;
+  const debugInsideCanvasRect = lastPointer.pointerType === 'mouse' ? isPointerInsideRect(canvasRect, lastPointer) : null;
+  const debugInsideLive2DRect = lastPointer.pointerType === 'mouse' ? isPointerInsideRect(live2dRect, lastPointer) : null;
+  const debugInsideActiveRect = lastPointer.pointerType === 'mouse'
+    ? (constrainPointerToCanvasHover
+      ? (expandedModelRect ? isPointerInsideRect(expandedModelRect, lastPointer) : debugInsideModelHitArea)
+      : debugInsideLive2DRect)
+    : null;
+
   debugLog({
     event: 'applyFocusCenter',
     x: lastPointer.x,
     y: lastPointer.y,
-    inside: isPointerInsideCanvas,
+    insideCanvas: isPointerInsideCanvas,
+    insideModelBounds: debugInsideModelBounds,
+    insideModelHitArea: debugInsideModelHitArea,
+    insideCanvasRect: debugInsideCanvasRect,
+    insideLive2DRect: debugInsideLive2DRect,
+    insideActiveRect: debugInsideActiveRect,
     pointerType: lastPointer.pointerType,
     buttons: lastPointer.buttons,
   });
