@@ -144,7 +144,6 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           ).scaffoldBackgroundColor.withValues(alpha: 0.9),
           child: Column(
             children: [
-              _buildCompactInfoBar(context),
               Expanded(child: _buildBody(context)),
               SafeArea(
                 top: false,
@@ -331,47 +330,10 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     }
   }
 
-  Widget _buildCompactInfoBar(BuildContext context) {
-    final store = context.watch<TavernStore>();
-    final effectivePreset = _effectivePreset(store);
-    final presetLabel = effectivePreset?.name ?? '默认 Preset';
-    final promptOrderLabel = _promptOrderLabel(store, effectivePreset);
-    return Material(
-      color: Theme.of(
-        context,
-      ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.28),
-      child: InkWell(
-        onTap: _showChatOptions,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-          child: Row(
-            children: [
-              const Icon(Icons.tune, size: 18),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '$presetLabel · $promptOrderLabel',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ),
-              const SizedBox(width: 8),
-              const Icon(Icons.expand_more, size: 18),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Future<void> _showChatOptions() async {
     final messenger = ScaffoldMessenger.of(context);
     final store = context.read<TavernStore>();
     final presets = store.presets;
-    final effectivePreset = _effectivePreset(store);
-    final providerLabel = _providerLabel(effectivePreset);
-    final promptOrderLabel = _promptOrderLabel(store, effectivePreset);
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -441,20 +403,6 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                         },
               ),
               const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _debugChip('Provider', providerLabel),
-                  _debugChip('PromptOrder', promptOrderLabel),
-                  if (effectivePreset != null) ...[
-                    _debugChip('Story', effectivePreset.storyStringPosition),
-                    _debugChip('Role', effectivePreset.storyStringRole),
-                    _debugChip('Depth', '${effectivePreset.storyStringDepth}'),
-                  ],
-                ],
-              ),
-              const SizedBox(height: 12),
               ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.sticky_note_2_outlined),
@@ -472,42 +420,6 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         ),
       ),
     );
-  }
-
-  TavernPreset? _effectivePreset(TavernStore store) {
-    if (store.presets.isEmpty) return null;
-    if (_selectedPresetId != null && _selectedPresetId!.isNotEmpty) {
-      for (final preset in store.presets) {
-        if (preset.id == _selectedPresetId) return preset;
-      }
-    }
-    final chatPresetId = _chat.presetId.trim();
-    if (chatPresetId.isNotEmpty) {
-      for (final preset in store.presets) {
-        if (preset.id == chatPresetId) return preset;
-      }
-    }
-    return store.presets.first;
-  }
-
-  String _providerLabel(TavernPreset? preset) {
-    if (preset == null) return '未配置';
-    final provider = preset.provider.trim();
-    final model = preset.model.trim();
-    if (provider.isEmpty && model.isEmpty) return '未配置';
-    if (provider.isEmpty) return model;
-    if (model.isEmpty) return provider;
-    return '$provider · $model';
-  }
-
-  String _promptOrderLabel(TavernStore store, TavernPreset? preset) {
-    if (preset == null) return '未设置';
-    final promptOrderId = preset.promptOrderId.trim();
-    if (promptOrderId.isEmpty) return '未设置';
-    for (final item in store.promptOrders) {
-      if (item.id == promptOrderId) return item.name;
-    }
-    return promptOrderId;
   }
 
   String? _backgroundImageUrl() {

@@ -86,9 +86,7 @@ class TavernRepository {
   }
 
   Future<void> deleteCharacter(String characterId) async {
-    final config = await OpenClawSettingsStore.load();
-    final client = OpenClawHttpClient(config);
-    await client.deleteJson('/api/tavern/characters/$characterId');
+    await _postJson('/api/tavern/characters/$characterId/delete', const {});
   }
 
   Future<TavernChat> getChat(String chatId) async {
@@ -111,9 +109,7 @@ class TavernRepository {
   }
 
   Future<void> deleteChat(String chatId) async {
-    final config = await OpenClawSettingsStore.load();
-    final client = OpenClawHttpClient(config);
-    await client.deleteJson('/api/tavern/chats/$chatId');
+    await _postJson('/api/tavern/chats/$chatId/delete', const {});
   }
 
   Future<List<TavernMessage>> listChatMessages(String chatId) async {

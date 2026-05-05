@@ -76,12 +76,19 @@ def create_tavern_router(context: AppContext) -> APIRouter:
             return JSONResponse(status_code=404, content={'ok': False, 'error': 'character not found'})
         return {'ok': True, 'character': character}
 
-    @router.delete('/api/tavern/characters/{character_id}')
-    async def delete_tavern_character(character_id: str):
+    def _delete_tavern_character_impl(character_id: str):
         deleted = service.delete_character(character_id)
         if not deleted:
             return JSONResponse(status_code=404, content={'ok': False, 'error': 'character not found'})
         return {'ok': True}
+
+    @router.delete('/api/tavern/characters/{character_id}')
+    async def delete_tavern_character(character_id: str):
+        return _delete_tavern_character_impl(character_id)
+
+    @router.post('/api/tavern/characters/{character_id}/delete')
+    async def delete_tavern_character_post(character_id: str):
+        return _delete_tavern_character_impl(character_id)
 
     @router.get('/api/tavern/worldbooks')
     async def list_worldbooks():
@@ -192,12 +199,19 @@ def create_tavern_router(context: AppContext) -> APIRouter:
             raise HTTPException(status_code=404, detail='chat not found')
         return {'ok': True, 'chat': chat}
 
-    @router.delete('/api/tavern/chats/{chat_id}')
-    async def delete_chat(chat_id: str):
+    def _delete_chat_impl(chat_id: str):
         deleted = service.delete_chat(chat_id)
         if not deleted:
             raise HTTPException(status_code=404, detail='chat not found')
         return {'ok': True}
+
+    @router.delete('/api/tavern/chats/{chat_id}')
+    async def delete_chat(chat_id: str):
+        return _delete_chat_impl(chat_id)
+
+    @router.post('/api/tavern/chats/{chat_id}/delete')
+    async def delete_chat_post(chat_id: str):
+        return _delete_chat_impl(chat_id)
 
     @router.put('/api/tavern/chats/{chat_id}')
     async def update_chat(chat_id: str, body: dict):
