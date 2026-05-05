@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from ..app_context import AppContext
 from ..auth import verify_app_password
+from ..config import get_tavern_providers
 from ..services.tavern import TavernService
 from ..web.sse import format_sse
 
@@ -157,6 +158,17 @@ def create_tavern_router(context: AppContext) -> APIRouter:
         if preset is None:
             raise HTTPException(status_code=404, detail='preset not found')
         return {'ok': True, 'preset': preset}
+
+    @router.get('/api/tavern/config/options')
+    async def get_tavern_config_options():
+        return {
+            'ok': True,
+            'providers': get_tavern_providers(),
+            'presets': service.list_presets(),
+            'promptOrders': service.list_prompt_orders(),
+            'promptBlocks': service.list_prompt_blocks(),
+            'worldbooks': service.list_worldbooks(),
+        }
 
     @router.get('/api/tavern/chats')
     async def list_chats():

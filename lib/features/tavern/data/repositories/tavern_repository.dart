@@ -112,6 +112,38 @@ class TavernRepository {
     });
   }
 
+  Future<List<TavernPreset>> listPresets() async {
+    final response = await _getJson('/api/tavern/presets');
+    final list = (response['presets'] as List?) ?? const <dynamic>[];
+    return list
+        .whereType<Map>()
+        .map((item) => TavernPreset.fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
+  }
+
+  Future<TavernPromptDebug> getPromptDebug(String chatId) async {
+    final response = await _getJson('/api/tavern/chats/$chatId/prompt-debug');
+    return TavernPromptDebug.fromJson(
+      Map<String, dynamic>.from(response['debug'] as Map),
+    );
+  }
+
+  Future<Map<String, dynamic>> getConfigOptions() {
+    return _getJson('/api/tavern/config/options');
+  }
+
+  Future<TavernPreset> updatePreset({
+    required String presetId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final config = await OpenClawSettingsStore.load();
+    final client = OpenClawHttpClient(config);
+    final response = await client.putJson('/api/tavern/presets/$presetId', payload);
+    return TavernPreset.fromJson(
+      Map<String, dynamic>.from(response['preset'] as Map),
+    );
+  }
+
   Future<List<TavernWorldBook>> listWorldBooks() async {
     final response = await _getJson('/api/tavern/worldbooks');
     final list = (response['worldbooks'] as List?) ?? const <dynamic>[];

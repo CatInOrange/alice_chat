@@ -24,8 +24,10 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   final ScrollController _scrollController = ScrollController();
   bool _isLoading = true;
   bool _isSending = false;
+  bool _isLoadingDebug = false;
   String? _error;
   String? _serverBaseUrl;
+  String? _selectedPresetId;
   List<TavernMessage> _messages = const <TavernMessage>[];
   late TavernCharacter _character;
   late TavernChat _chat;
@@ -56,6 +58,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         _serverBaseUrl = settings.baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
         _character = character;
         _messages = messages;
+        _selectedPresetId = _chat.presetId.isNotEmpty ? _chat.presetId : null;
         _isLoading = false;
       });
       _scrollToBottom();
@@ -73,6 +76,19 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     final bg = _backgroundImageUrl();
     return Scaffold(
       appBar: AppBar(
+        actions: [
+          IconButton(
+            tooltip: 'Prompt Debug',
+            onPressed: _showPromptDebug,
+            icon: _isLoadingDebug
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.bug_report_outlined),
+          ),
+        ],
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -100,6 +116,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           color: Theme.of(context).scaffoldBackgroundColor.withValues(alpha: 0.9),
           child: Column(
             children: [
+              _buildPresetBar(context),
               Expanded(child: _buildBody(context)),
               SafeArea(
                 top: false,
@@ -206,6 +223,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       final response = await context.read<TavernStore>().sendMessage(
         chatId: _chat.id,
         text: text,
+        presetId: _selectedPresetId ?? '',
       );
       final userMessage = TavernMessage.fromJson(
         Map<String, dynamic>.from(response['userMessage'] as Map),
@@ -228,6 +246,53 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     }
   }
 
+  Widget _buildPresetBar(BuildContext context) {
+    final store = context.watch<TavernStore>();
+    final presets = store.presets;
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        child: Row(
+          children: [
+            const Icon(Icons.tune, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                value: presets.any((item) => item.id == _selectedPresetId) ? _selectedPresetId : null,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  isDense: true,
+                  labelText: 'Preset',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: '',
+                    child: Text('跟随默认 Preset', overflow: TextOverflow.ellipsis),
+                  ),
+                  ...presets.map(
+                    (preset) => DropdownMenuItem<String>(
+                      value: preset.id,
+                      child: Text(preset.name, overflow: TextOverflow.ellipsis),
+                    ),
+                  ),
+                ],
+                onChanged: presets.isEmpty
+                    ? null
+                    : (value) {
+                        setState(() {
+                          _selectedPresetId = (value ?? '').isEmpty ? null : value;
+                        });
+                      },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String? _backgroundImageUrl() {
     final metadata = _character.metadata;
     final charxAssets = metadata['charxAssets'];
@@ -241,6 +306,274 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     final base = (_serverBaseUrl ?? '').trim();
     if (base.isEmpty) return null;
     return '$base$first';
+  }
+
+  Future<void> _showPromptDebug() async {
+    if (_isLoadingDebug) return;
+    setState(() => _isLoadingDebug = true);
+    try {
+      final debug = await context.read<TavernStore>().getPromptDebug(_chat.id);
+      if (!mounted) return;
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        builder: (context) => DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.78,
+          maxChildSize: 0.95,
+          minChildSize: 0.42,
+          builder: (context, controller) => DefaultTabController(
+            length: 5,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Prompt Debug', style: Theme.of(context).textTheme.titleLarge),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _debugChip('Preset', debug.presetId.isEmpty ? '默认' : debug.presetId),
+                          _debugChip('PromptOrder', debug.promptOrderId.isEmpty ? '未设置' : debug.promptOrderId),
+                          _debugChip('Blocks', '${debug.summary['blockCount'] ?? debug.blocks.length}'),
+                          _debugChip('Messages', '${debug.summary['messageCount'] ?? debug.messages.length}'),
+                          _debugChip('Matched WI', '${debug.summary['matchedWorldbookCount'] ?? debug.matchedWorldbookEntries.length}'),
+                          _debugChip('Rejected WI', '${debug.summary['rejectedWorldbookCount'] ?? debug.rejectedWorldbookEntries.length}'),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const TabBar(
+                  isScrollable: true,
+                  tabs: [
+                    Tab(text: 'Summary'),
+                    Tab(text: 'Messages'),
+                    Tab(text: 'Blocks'),
+                    Tab(text: 'World Info'),
+                    Tab(text: 'Runtime'),
+                  ],
+                ),
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      _buildDebugSummaryTab(debug),
+                      _buildDebugMessagesTab(debug),
+                      _buildDebugBlocksTab(debug),
+                      _buildDebugWorldInfoTab(debug),
+                      _buildDebugRuntimeTab(debug),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } catch (exc) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('加载 Prompt Debug 失败：$exc')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingDebug = false);
+      }
+    }
+  }
+
+  Widget _buildDebugSummaryTab(TavernPromptDebug debug) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        if (debug.renderedStoryString.isNotEmpty) ...[
+          Text('Rendered Story String', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 6),
+          SelectableText(debug.renderedStoryString),
+          const SizedBox(height: 16),
+        ],
+        if (debug.renderedExamples.isNotEmpty) ...[
+          Text('Rendered Examples', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 6),
+          SelectableText(debug.renderedExamples),
+          const SizedBox(height: 16),
+        ],
+        if (debug.depthInserts.isNotEmpty) ...[
+          Text('Depth Inserts', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 6),
+          ...debug.depthInserts.map(
+            (item) => Card(
+              child: ListTile(
+                title: Text((item['name'] ?? item['kind'] ?? 'depth').toString()),
+                subtitle: Text('depth=${item['depth'] ?? '-'} · position=${item['position'] ?? '-'}'),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+        if (debug.characterLoreBindings.isNotEmpty) ...[
+          Text('Character Lore Bindings', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 6),
+          ...debug.characterLoreBindings.map(
+            (item) => Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: SelectableText(item.toString()),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildDebugMessagesTab(TavernPromptDebug debug) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: debug.messages
+          .map(
+            (message) => Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${message['role'] ?? 'unknown'} · ${(message['meta'] is Map) ? ((message['meta'] as Map)['kind'] ?? '-') : '-'}',
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                    if (message['meta'] != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        message['meta'].toString(),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    SelectableText((message['content'] ?? '').toString()),
+                  ],
+                ),
+              ),
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+
+  Widget _buildDebugBlocksTab(TavernPromptDebug debug) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: debug.blocks
+          .map(
+            (block) => Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${block['name'] ?? '-'} · ${block['position'] ?? '-'} · ${block['role'] ?? '-'}',
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'kind=${block['kind'] ?? '-'} depth=${block['depth'] ?? '-'} source=${block['source'] ?? '-'}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 8),
+                    SelectableText((block['content'] ?? '').toString()),
+                  ],
+                ),
+              ),
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+
+  Widget _buildDebugWorldInfoTab(TavernPromptDebug debug) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text('Matched', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 6),
+        if (debug.matchedWorldbookEntries.isEmpty)
+          const Text('无命中的 World Info')
+        else
+          ...debug.matchedWorldbookEntries.map(
+            (entry) => Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('${entry['id'] ?? '-'} · ${(entry['_matchMeta'] is Map) ? ((entry['_matchMeta'] as Map)['corpus'] ?? '-') : '-'}'),
+                    const SizedBox(height: 4),
+                    Text('priority=${entry['priority'] ?? '-'} position=${entry['insertionPosition'] ?? '-'}'),
+                    const SizedBox(height: 8),
+                    SelectableText((entry['content'] ?? '').toString()),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        const SizedBox(height: 16),
+        Text('Rejected', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 6),
+        if (debug.rejectedWorldbookEntries.isEmpty)
+          const Text('无 rejected World Info')
+        else
+          ...debug.rejectedWorldbookEntries.map(
+            (entry) => Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('${((entry['entry'] as Map?)?['id'] ?? '-')} · ${entry['reason'] ?? '-'}'),
+                    if (entry['details'] != null) ...[
+                      const SizedBox(height: 4),
+                      Text(entry['details'].toString(), style: Theme.of(context).textTheme.bodySmall),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildDebugRuntimeTab(TavernPromptDebug debug) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: debug.runtimeContext.entries
+          .map(
+            (entry) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(entry.key, style: Theme.of(context).textTheme.labelMedium),
+                  const SizedBox(height: 2),
+                  SelectableText('${entry.value}'),
+                ],
+              ),
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+
+  Widget _debugChip(String label, String value) {
+    return Chip(
+      visualDensity: VisualDensity.compact,
+      label: Text('$label: $value'),
+    );
   }
 
   void _scrollToBottom() {

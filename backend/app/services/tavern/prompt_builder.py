@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any
+
+from .prompt_runtime import PromptRuntimeContext, PromptTemplateRenderer, build_prompt_runtime_context
 
 
 @dataclass(slots=True)
@@ -12,6 +15,11 @@ class PromptDebugResult:
     character_lore_bindings: list[dict[str, Any]]
     blocks: list[dict[str, Any]]
     messages: list[dict[str, Any]]
+    rendered_story_string: str
+    rendered_examples: str
+    runtime_context: dict[str, str]
+    rejected_worldbook_entries: list[dict[str, Any]]
+    depth_inserts: list[dict[str, Any]]
 
 
 class PromptBuilder:
@@ -24,14 +32,23 @@ class PromptBuilder:
     - debug output should reveal the exact assembled structure
     """
 
+    def __init__(self) -> None:
+        self.renderer = PromptTemplateRenderer()
+
     _IDENTIFIER_MAP = {
         'main': 'system_prompt',
+        'builtin_system': 'system_prompt',
         'personaDescription': 'persona',
+        'builtin_persona': 'persona',
         'charDescription': 'character_description',
+        'builtin_character': 'character_description',
         'charPersonality': 'character_personality',
         'scenario': 'character_scenario',
+        'builtin_scenario': 'character_scenario',
         'dialogueExamples': 'example_messages',
+        'builtin_examples': 'example_messages',
         'worldInfoBefore': 'world_info_before',
+        'builtin_worldbook': 'world_info_before',
         'worldInfoAfter': 'world_info_after',
         'chatHistory': 'chat_history',
         'jailbreak': 'post_history_instructions',
@@ -53,7 +70,13 @@ class PromptBuilder:
     ) -> PromptDebugResult:
         history = list(history or [])
         prompt_blocks = list(prompt_blocks or [])
-        matched_worldbook_entries = self._match_worldbook_entries(
+        runtime_context = build_prompt_runtime_context(
+            character=character,
+            chat=chat or {},
+            history=history,
+            user_text=user_text,
+        )
+        matched_worldbook_entries, rejected_worldbook_entries = self._match_worldbook_entries(
             entries=worldbook_entries or [],
             history=history,
             user_text=user_text,
@@ -69,12 +92,13 @@ class PromptBuilder:
             user_text=user_text,
             chat=chat or {},
         )
-        messages = self._render_messages(
+        messages, rendered_story_string, rendered_examples, depth_inserts = self._render_messages(
             ordered_blocks=ordered_blocks,
             history=history,
             user_text=user_text,
             preset=preset or {},
             chat=chat or {},
+            runtime_context=runtime_context,
         )
         return PromptDebugResult(
             preset_id=str((preset or {}).get('id') or ''),
@@ -83,6 +107,11 @@ class PromptBuilder:
             character_lore_bindings=list(character_lore_bindings or []),
             blocks=ordered_blocks,
             messages=messages,
+            rendered_story_string=rendered_story_string,
+            rendered_examples=rendered_examples,
+            runtime_context=runtime_context.preview(),
+            rejected_worldbook_entries=rejected_worldbook_entries,
+            depth_inserts=depth_inserts,
         )
 
     def _build_ordered_blocks(
@@ -97,13 +126,25 @@ class PromptBuilder:
         user_text: str,
         chat: dict[str, Any],
     ) -> list[dict[str, Any]]:
-        world_before = [
+        world_before_character = [
             entry for entry in matched_worldbook_entries
-            if self._map_worldbook_position(str(entry.get('insertionPosition') or '')) == 'before'
+            if self._map_worldbook_position(str(entry.get('insertionPosition') or '')) == 'before_character'
         ]
-        world_after = [
+        world_before_history = [
             entry for entry in matched_worldbook_entries
-            if self._map_worldbook_position(str(entry.get('insertionPosition') or '')) == 'after'
+            if self._map_worldbook_position(str(entry.get('insertionPosition') or '')) in {'before', 'before_chat_history'}
+        ]
+        world_after_character = [
+            entry for entry in matched_worldbook_entries
+            if self._map_worldbook_position(str(entry.get('insertionPosition') or '')) == 'after_character'
+        ]
+        world_before_examples = [
+            entry for entry in matched_worldbook_entries
+            if self._map_worldbook_position(str(entry.get('insertionPosition') or '')) == 'before_example_messages'
+        ]
+        world_before_last_user = [
+            entry for entry in matched_worldbook_entries
+            if self._map_worldbook_position(str(entry.get('insertionPosition') or '')) == 'before_last_user'
         ]
         world_depth = [
             entry for entry in matched_worldbook_entries
@@ -164,18 +205,18 @@ class PromptBuilder:
                 kind='world_info',
                 position='in_prompt',
                 role='system',
-                content='\n\n'.join(self._entry_content(entry) for entry in world_before),
+                content='\n\n'.join(self._entry_content(entry) for entry in world_before_history),
                 source='worldbook',
-                meta={'entryIds': [entry.get('id') for entry in world_before]},
+                meta={'entryIds': [entry.get('id') for entry in world_before_history]},
             ),
             'world_info_after': self._block(
                 name='world_info_after',
                 kind='world_info',
                 position='in_prompt',
                 role='system',
-                content='\n\n'.join(self._entry_content(entry) for entry in world_after),
+                content='',
                 source='worldbook',
-                meta={'entryIds': [entry.get('id') for entry in world_after]},
+                meta={'entryIds': []},
             ),
             'chat_history': self._block(
                 name='chat_history',
@@ -224,7 +265,7 @@ class PromptBuilder:
         for item in sorted(order_items, key=lambda it: int(it.get('order_index') or 0)):
             if item.get('enabled') is False:
                 continue
-            identifier = str(item.get('identifier') or '').strip()
+            identifier = str(item.get('identifier') or item.get('block_id') or '').strip()
             semantic_key = self._IDENTIFIER_MAP.get(identifier)
             if not semantic_key or semantic_key not in semantic:
                 continue
@@ -235,6 +276,7 @@ class PromptBuilder:
                 **(block.get('meta') or {}),
                 'identifier': identifier,
                 'orderIndex': int(item.get('order_index') or 0),
+                'sourceItem': item,
             }
             ordered_blocks.append(block)
             seen_kinds.add(semantic_key)
@@ -269,6 +311,51 @@ class PromptBuilder:
                 source='chat',
             ))
 
+        for entry in world_before_character:
+            ordered_blocks.append(self._block(
+                name=f"worldbook:before_character:{entry.get('id') or ''}",
+                kind='world_info',
+                position='before_story',
+                role='system',
+                content=self._entry_content(entry),
+                source='worldbook',
+                meta={
+                    'worldbookId': entry.get('worldbookId'),
+                    'priority': entry.get('priority'),
+                    'matchMeta': entry.get('_matchMeta') or {},
+                },
+            ))
+
+        for entry in world_after_character:
+            ordered_blocks.append(self._block(
+                name=f"worldbook:after_character:{entry.get('id') or ''}",
+                kind='world_info',
+                position='after_story',
+                role='system',
+                content=self._entry_content(entry),
+                source='worldbook',
+                meta={
+                    'worldbookId': entry.get('worldbookId'),
+                    'priority': entry.get('priority'),
+                    'matchMeta': entry.get('_matchMeta') or {},
+                },
+            ))
+
+        for entry in world_before_examples:
+            ordered_blocks.append(self._block(
+                name=f"worldbook:before_examples:{entry.get('id') or ''}",
+                kind='world_info',
+                position='before_examples',
+                role='system',
+                content=self._entry_content(entry),
+                source='worldbook',
+                meta={
+                    'worldbookId': entry.get('worldbookId'),
+                    'priority': entry.get('priority'),
+                    'matchMeta': entry.get('_matchMeta') or {},
+                },
+            ))
+
         for entry in world_depth:
             ordered_blocks.append(self._block(
                 name=f"worldbook:{entry.get('id') or ''}",
@@ -276,11 +363,27 @@ class PromptBuilder:
                 position='at_depth',
                 role='system',
                 content=self._entry_content(entry),
-                depth=entry.get('depth'),
+                depth=int(entry.get('depth') or 2),
                 source='worldbook',
                 meta={
                     'worldbookId': entry.get('worldbookId'),
                     'priority': entry.get('priority'),
+                    'matchMeta': entry.get('_matchMeta') or {},
+                },
+            ))
+
+        for entry in world_before_last_user:
+            ordered_blocks.append(self._block(
+                name=f"worldbook:last_user:{entry.get('id') or ''}",
+                kind='world_info',
+                position='before_last_user',
+                role='system',
+                content=self._entry_content(entry),
+                source='worldbook',
+                meta={
+                    'worldbookId': entry.get('worldbookId'),
+                    'priority': entry.get('priority'),
+                    'matchMeta': entry.get('_matchMeta') or {},
                 },
             ))
 
@@ -294,13 +397,34 @@ class PromptBuilder:
         user_text: str,
         preset: dict[str, Any],
         chat: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        system_text = self._render_story_string(ordered_blocks, preset)
-        example_text = self._build_examples_block(ordered_blocks, preset)
+        runtime_context: PromptRuntimeContext,
+    ) -> tuple[list[dict[str, Any]], str, str, list[dict[str, Any]]]:
+        system_text = self._render_story_string(ordered_blocks, preset, runtime_context)
+        example_text = self._build_examples_block(ordered_blocks, preset, runtime_context)
+        story_position = str(preset.get('storyStringPosition') or 'in_prompt').strip() or 'in_prompt'
+        story_depth = int(preset.get('storyStringDepth') or 1)
+        story_role = str(preset.get('storyStringRole') or 'system').strip() or 'system'
+
+        before_story_blocks = [
+            block for block in ordered_blocks
+            if block.get('position') == 'before_story' and str(block.get('content') or '').strip()
+        ]
+        after_story_blocks = [
+            block for block in ordered_blocks
+            if block.get('position') == 'after_story' and str(block.get('content') or '').strip()
+        ]
+        before_examples_blocks = [
+            block for block in ordered_blocks
+            if block.get('position') == 'before_examples' and str(block.get('content') or '').strip()
+        ]
         post_history_texts = [
             str(block.get('content') or '').strip()
             for block in ordered_blocks
             if block.get('position') == 'post_history' and str(block.get('content') or '').strip()
+        ]
+        before_last_user_blocks = [
+            block for block in ordered_blocks
+            if block.get('position') == 'before_last_user' and str(block.get('content') or '').strip()
         ]
         depth_blocks = [
             block for block in ordered_blocks
@@ -308,10 +432,62 @@ class PromptBuilder:
         ]
 
         messages: list[dict[str, Any]] = []
-        if system_text.strip():
-            messages.append({'role': str(preset.get('storyStringRole') or 'system'), 'content': system_text})
+        depth_inserts: list[dict[str, Any]] = []
+        story_inserted = False
+
+        def insert_story_string(*, depth: int | None = None) -> None:
+            nonlocal story_inserted
+            if story_inserted or not system_text.strip():
+                return
+            messages.append({
+                'role': story_role,
+                'content': system_text,
+                'meta': {
+                    'kind': 'story_string',
+                    'position': story_position,
+                    'depth': depth,
+                },
+            })
+            story_inserted = True
+
+        for block in before_story_blocks:
+            messages.append({
+                'role': 'system',
+                'content': self._decorate_depth_block(block),
+                'meta': {
+                    'kind': 'world_info',
+                    'position': 'before_character',
+                    **(block.get('meta') or {}),
+                },
+            })
+
+        if story_position not in {'at_depth', 'before_last_user'}:
+            insert_story_string()
+
+        for block in after_story_blocks:
+            messages.append({
+                'role': 'system',
+                'content': self._decorate_depth_block(block),
+                'meta': {
+                    'kind': 'world_info',
+                    'position': 'after_character',
+                    **(block.get('meta') or {}),
+                },
+            })
+
+        for block in before_examples_blocks:
+            messages.append({
+                'role': 'system',
+                'content': self._decorate_depth_block(block),
+                'meta': {
+                    'kind': 'world_info',
+                    'position': 'before_example_messages',
+                    **(block.get('meta') or {}),
+                },
+            })
+
         if example_text.strip():
-            messages.append({'role': 'system', 'content': example_text})
+            messages.append({'role': 'system', 'content': example_text, 'meta': {'kind': 'example_messages'}})
 
         rendered_history = [
             {
@@ -327,15 +503,37 @@ class PromptBuilder:
                 depth_from_end = len(rendered_history) - 1 - i
                 for block in depth_blocks:
                     if int(block.get('depth') or 0) == depth_from_end:
-                        messages.append({'role': 'system', 'content': self._decorate_depth_block(block)})
+                        rendered_block = self._decorate_depth_block(block)
+                        messages.append({'role': 'system', 'content': rendered_block})
+                        depth_inserts.append({'depth': depth_from_end, 'block': block, 'content': rendered_block})
+                if story_position == 'at_depth' and story_depth == depth_from_end:
+                    insert_story_string(depth=depth_from_end)
                 messages.append(message)
         else:
+            if story_position == 'at_depth':
+                insert_story_string(depth=story_depth)
             for block in depth_blocks:
                 if int(block.get('depth') or 0) >= 0:
-                    messages.append({'role': 'system', 'content': self._decorate_depth_block(block)})
+                    rendered_block = self._decorate_depth_block(block)
+                    messages.append({'role': 'system', 'content': rendered_block})
+                    depth_inserts.append({'depth': int(block.get('depth') or 0), 'block': block, 'content': rendered_block})
 
         for text in post_history_texts:
             messages.append({'role': 'system', 'content': text})
+
+        if story_position == 'before_last_user':
+            insert_story_string(depth=story_depth)
+
+        for block in before_last_user_blocks:
+            messages.append({
+                'role': 'system',
+                'content': self._decorate_depth_block(block),
+                'meta': {
+                    'kind': 'world_info',
+                    'position': 'before_last_user',
+                    **(block.get('meta') or {}),
+                },
+            })
 
         if user_text.strip():
             chat_start = str(preset.get('chatStart') or '').strip()
@@ -343,10 +541,12 @@ class PromptBuilder:
             if chat_start and not rendered_history:
                 final_user = f'{chat_start}\n{final_user}'
             messages.append({'role': 'user', 'content': final_user})
+        elif not messages:
+            insert_story_string(depth=story_depth if story_position == 'at_depth' else None)
 
-        return messages
+        return messages, system_text, example_text, depth_inserts
 
-    def _render_story_string(self, ordered_blocks: list[dict[str, Any]], preset: dict[str, Any]) -> str:
+    def _render_story_string(self, ordered_blocks: list[dict[str, Any]], preset: dict[str, Any], runtime_context: PromptRuntimeContext) -> str:
         story_string = str(preset.get('storyString') or '').strip()
         if not story_string:
             story_string = (
@@ -356,33 +556,28 @@ class PromptBuilder:
             )
 
         values = {
-            'system': self._block_content(ordered_blocks, 'system_prompt'),
+            **runtime_context.preview(),
+            'system': self._block_content(ordered_blocks, 'system_prompt') or runtime_context.values.get('system', ''),
             'wiBefore': self._block_content(ordered_blocks, 'world_info_before'),
-            'description': self._block_content(ordered_blocks, 'character_description'),
-            'personality': self._block_content(ordered_blocks, 'character_personality'),
-            'scenario': self._block_content(ordered_blocks, 'character_scenario'),
+            'description': self._block_content(ordered_blocks, 'character_description') or runtime_context.values.get('description', ''),
+            'personality': self._block_content(ordered_blocks, 'character_personality') or runtime_context.values.get('personality', ''),
+            'scenario': self._block_content(ordered_blocks, 'character_scenario') or runtime_context.values.get('scenario', ''),
             'wiAfter': self._block_content(ordered_blocks, 'world_info_after'),
-            'persona': self._block_content(ordered_blocks, 'persona'),
-            'char': 'Character',
+            'persona': self._block_content(ordered_blocks, 'persona') or runtime_context.values.get('persona', ''),
         }
+        return self.renderer.render(story_string, PromptRuntimeContext(values=values))
 
-        rendered = story_string
-        rendered = rendered.replace("{{char}}", values['char'])
-        for key, value in values.items():
-            rendered = rendered.replace(f'{{{{{key}}}}}', value)
-            rendered = rendered.replace(f'{{{{#{"if"} {key}}}}}', '')
-            rendered = rendered.replace('{{/if}}', '')
-        lines = [line.rstrip() for line in rendered.splitlines()]
-        return '\n'.join(line for line in lines if line.strip()).strip()
-
-    def _build_examples_block(self, ordered_blocks: list[dict[str, Any]], preset: dict[str, Any]) -> str:
+    def _build_examples_block(self, ordered_blocks: list[dict[str, Any]], preset: dict[str, Any], runtime_context: PromptRuntimeContext) -> str:
         examples = self._block_content(ordered_blocks, 'example_messages')
         if not examples:
             return ''
         separator = str(preset.get('exampleSeparator') or '').strip()
+        rendered_examples = self.renderer.render(examples, runtime_context).strip()
+        if not rendered_examples:
+            return ''
         if not separator:
-            return examples
-        return f'{separator}\n{examples}'
+            return rendered_examples
+        return f'{separator}\n{rendered_examples}'
 
     def _match_worldbook_entries(
         self,
@@ -391,51 +586,180 @@ class PromptBuilder:
         history: list[dict[str, Any]],
         user_text: str,
         character: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        corpus_parts = [user_text]
-        corpus_parts.extend(str(item.get('content') or item.get('text') or '') for item in history[-8:])
-        corpus_parts.extend([
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        recent_history = [
+            str(item.get('content') or item.get('text') or '').strip()
+            for item in history[-12:]
+            if str(item.get('content') or item.get('text') or '').strip()
+        ]
+        base_parts = [
+            user_text,
+            *recent_history,
             str(character.get('name') or ''),
             str(character.get('description') or ''),
             str(character.get('scenario') or ''),
-        ])
-        corpus = '\n'.join(part for part in corpus_parts if part).lower()
+            str(character.get('personality') or ''),
+        ]
+        full_corpus = '\n'.join(part for part in base_parts if part).strip()
+        recursive_corpus = '\n'.join([user_text, *recent_history[-4:]]).strip()
 
-        matched: list[dict[str, Any]] = []
-        for entry in entries:
-            if not entry.get('enabled', True):
-                continue
-            if entry.get('constant'):
-                matched.append(entry)
-                continue
-            keys = [str(key).strip().lower() for key in (entry.get('keys') or []) if str(key).strip()]
-            if not keys:
-                continue
-            if any(key in corpus for key in keys):
-                secondary = [str(key).strip().lower() for key in (entry.get('secondaryKeys') or []) if str(key).strip()]
-                if secondary and not any(key in corpus for key in secondary):
+        ordered_entries = sorted(
+            entries,
+            key=lambda item: (
+                0 if bool(item.get('constant')) else 1,
+                -int(item.get('priority') or 0),
+                len(str(item.get('content') or '')),
+                str(item.get('groupName') or ''),
+                str(item.get('id') or ''),
+            ),
+        )
+
+        pending = list(ordered_entries)
+        matched_raw: list[dict[str, Any]] = []
+        rejected: list[dict[str, Any]] = []
+        seen_groups: set[str] = set()
+        selected_ids: set[str] = set()
+        budget_chars = 4000
+        used_chars = 0
+        pass_index = 0
+
+        while pending and pass_index < 3:
+            pass_index += 1
+            next_pending: list[dict[str, Any]] = []
+            progress = False
+            recursive_seed = '\n'.join(
+                str(item.get('content') or '').strip()
+                for item in matched_raw
+                if bool(item.get('recursive')) and str(item.get('content') or '').strip()
+            ).strip()
+            expanded_recursive_corpus = '\n'.join(part for part in [recursive_corpus, recursive_seed] if part).strip()
+            expanded_full_corpus = '\n'.join(part for part in [full_corpus, recursive_seed] if part).strip()
+
+            for entry in pending:
+                if str(entry.get('id') or '') in selected_ids:
                     continue
-                matched.append(entry)
+                if not entry.get('enabled', True):
+                    rejected.append({'entry': entry, 'reason': 'disabled'})
+                    continue
 
-        matched.sort(
+                content = str(entry.get('content') or '').strip()
+                if not content:
+                    rejected.append({'entry': entry, 'reason': 'empty_content'})
+                    continue
+
+                keys = self._normalize_matchers(entry.get('keys') or [])
+                secondary = self._normalize_matchers(entry.get('secondaryKeys') or [])
+                scan_corpus = expanded_recursive_corpus if bool(entry.get('recursive')) else expanded_full_corpus
+
+                if entry.get('constant'):
+                    primary_info = {'matched': True, 'kind': 'constant', 'hits': []}
+                else:
+                    if not keys:
+                        rejected.append({'entry': entry, 'reason': 'no_primary_keys'})
+                        continue
+                    primary_info = self._match_key_list(keys, scan_corpus)
+                    if not primary_info['matched']:
+                        if bool(entry.get('recursive')) and pass_index < 3:
+                            next_pending.append(entry)
+                        else:
+                            rejected.append({'entry': entry, 'reason': 'primary_keys_not_matched', 'details': primary_info})
+                        continue
+
+                secondary_info = {'matched': True, 'kind': 'none', 'hits': []}
+                if secondary:
+                    secondary_info = self._match_key_list(secondary, scan_corpus)
+                    if not secondary_info['matched']:
+                        if bool(entry.get('recursive')) and pass_index < 3:
+                            next_pending.append(entry)
+                        else:
+                            rejected.append({'entry': entry, 'reason': 'secondary_keys_not_matched', 'details': secondary_info})
+                        continue
+
+                group_name = str(entry.get('groupName') or '').strip()
+                if group_name and group_name in seen_groups:
+                    rejected.append({'entry': entry, 'reason': 'group_already_selected'})
+                    continue
+
+                content_len = len(content)
+                if used_chars + content_len > budget_chars and matched_raw:
+                    rejected.append({'entry': entry, 'reason': 'budget_exceeded'})
+                    continue
+
+                enriched = {
+                    **entry,
+                    '_matchMeta': {
+                        'primary': primary_info,
+                        'secondary': secondary_info,
+                        'corpus': 'recursive' if bool(entry.get('recursive')) else 'full',
+                        'pass': pass_index,
+                    },
+                }
+                matched_raw.append(enriched)
+                selected_ids.add(str(entry.get('id') or ''))
+                used_chars += content_len
+                if group_name:
+                    seen_groups.add(group_name)
+                progress = True
+
+            if not progress:
+                pending = next_pending
+                break
+            pending = next_pending
+
+        for entry in pending:
+            rejected.append({'entry': entry, 'reason': 'recursive_match_not_resolved'})
+
+        matched_raw.sort(
             key=lambda item: (
                 -int(item.get('priority') or 0),
                 str(item.get('groupName') or ''),
                 str(item.get('id') or ''),
             ),
         )
-        return matched
+        return matched_raw, rejected
+
+    def _normalize_matchers(self, values: list[Any]) -> list[str]:
+        normalized: list[str] = []
+        for value in values:
+            text = str(value or '').strip()
+            if text:
+                normalized.append(text)
+        return normalized
+
+    def _match_key_list(self, keys: list[str], corpus: str) -> dict[str, Any]:
+        hits: list[dict[str, Any]] = []
+        lowered = corpus.lower()
+        for raw_key in keys:
+            key = raw_key.strip()
+            if not key:
+                continue
+            if key.startswith('re:'):
+                pattern = key[3:]
+                try:
+                    if re.search(pattern, corpus, flags=re.IGNORECASE):
+                        hits.append({'key': raw_key, 'mode': 'regex'})
+                except re.error:
+                    continue
+            else:
+                if key.lower() in lowered:
+                    hits.append({'key': raw_key, 'mode': 'substring'})
+        return {
+            'matched': bool(hits),
+            'hits': hits,
+            'tested': keys,
+        }
 
     def _map_worldbook_position(self, value: str) -> str:
+        normalized = str(value or '').strip() or 'before_chat_history'
         mapping = {
-            'before_character': 'before',
-            'before_chat_history': 'before',
-            'after_character': 'after',
-            'before_example_messages': 'after',
-            'before_last_user': 'after',
+            'before_character': 'before_character',
+            'before_chat_history': 'before_chat_history',
+            'after_character': 'after_character',
+            'before_example_messages': 'before_example_messages',
+            'before_last_user': 'before_last_user',
             'at_depth': 'at_depth',
         }
-        return mapping.get(value, 'before')
+        return mapping.get(normalized, 'before_chat_history')
 
     def _entry_content(self, entry: dict[str, Any]) -> str:
         label = str(entry.get('groupName') or '').strip()

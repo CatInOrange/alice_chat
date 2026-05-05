@@ -194,11 +194,15 @@ class TavernService:
         worldbook_entries = self._collect_effective_worldbook_entries(character['id'])
         preset = None
         prompt_order = None
-        if chat.get('presetId'):
-            preset = next((item for item in self.store.list_presets() if item['id'] == chat['presetId']), None)
-            prompt_order_id = str((preset or {}).get('promptOrderId') or '').strip()
-            if prompt_order_id:
-                prompt_order = self.store.get_prompt_order(prompt_order_id)
+        effective_preset_id = str(chat.get('presetId') or '').strip()
+        presets = self.store.list_presets()
+        if effective_preset_id:
+            preset = next((item for item in presets if item['id'] == effective_preset_id), None)
+        if preset is None and presets:
+            preset = presets[0]
+        prompt_order_id = str((preset or {}).get('promptOrderId') or '').strip()
+        if prompt_order_id:
+            prompt_order = self.store.get_prompt_order(prompt_order_id)
         debug = self.prompt_builder.build_messages(
             character=character,
             preset=preset,
@@ -214,11 +218,17 @@ class TavernService:
             'presetId': debug.preset_id,
             'promptOrderId': debug.prompt_order_id,
             'matchedWorldbookEntries': debug.matched_worldbook_entries,
+            'rejectedWorldbookEntries': debug.rejected_worldbook_entries,
             'characterLoreBindings': debug.character_lore_bindings,
             'blocks': debug.blocks,
             'messages': debug.messages,
+            'renderedStoryString': debug.rendered_story_string,
+            'renderedExamples': debug.rendered_examples,
+            'runtimeContext': debug.runtime_context,
+            'depthInserts': debug.depth_inserts,
             'summary': {
                 'matchedWorldbookCount': len(debug.matched_worldbook_entries),
+                'rejectedWorldbookCount': len(debug.rejected_worldbook_entries),
                 'blockCount': len(debug.blocks),
                 'messageCount': len(debug.messages),
             },

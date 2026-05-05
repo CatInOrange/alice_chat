@@ -101,6 +101,50 @@ class _TavernScreenState extends State<TavernScreen>
                 ),
               ),
             const SizedBox(height: 20),
+            Text('配置概览', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.tune_outlined),
+                        const SizedBox(width: 8),
+                        Text('配置概览', style: Theme.of(context).textTheme.titleSmall),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    _configRow('Preset', store.presets.isEmpty ? '还没有 Tavern Preset' : store.presets.first.name),
+                    _configRow(
+                      'Provider',
+                      store.providers.isEmpty
+                          ? '未配置 Tavern Provider'
+                          : '${store.providers.first.label}${store.providers.first.model.isNotEmpty ? ' · ${store.providers.first.model}' : ''}',
+                    ),
+                    _configRow(
+                      'Prompt Order',
+                      store.promptOrders.isEmpty ? '未配置' : store.promptOrders.first.name,
+                    ),
+                    if (store.presets.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          Chip(label: Text('story: ${store.presets.first.storyStringPosition}')),
+                          Chip(label: Text('role: ${store.presets.first.storyStringRole}')),
+                          Chip(label: Text('depth: ${store.presets.first.storyStringDepth}')),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
             Text('角色', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 8),
             if (store.isLoading)
@@ -269,6 +313,19 @@ class _TavernScreenState extends State<TavernScreen>
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(content: Text('打开会话失败：$exc')));
     }
+  }
+
+  Widget _configRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(width: 96, child: Text(label, style: Theme.of(context).textTheme.labelMedium)),
+          Expanded(child: Text(value)),
+        ],
+      ),
+    );
   }
 
   Widget _buildAvatar(String avatarPath) {

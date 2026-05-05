@@ -14,6 +14,9 @@ class TavernStore extends ChangeNotifier {
   List<TavernCharacter> _characters = const <TavernCharacter>[];
   List<TavernChat> _recentChats = const <TavernChat>[];
   List<TavernWorldBook> _worldBooks = const <TavernWorldBook>[];
+  List<TavernPreset> _presets = const <TavernPreset>[];
+  List<TavernProviderOption> _providers = const <TavernProviderOption>[];
+  List<TavernPromptOrder> _promptOrders = const <TavernPromptOrder>[];
   String? _lastImportMessage;
 
   bool get isLoading => _isLoading;
@@ -21,6 +24,9 @@ class TavernStore extends ChangeNotifier {
   List<TavernCharacter> get characters => _characters;
   List<TavernChat> get recentChats => _recentChats;
   List<TavernWorldBook> get worldBooks => _worldBooks;
+  List<TavernPreset> get presets => _presets;
+  List<TavernProviderOption> get providers => _providers;
+  List<TavernPromptOrder> get promptOrders => _promptOrders;
   String? get lastImportMessage => _lastImportMessage;
 
   Future<void> loadHome() async {
@@ -32,10 +38,20 @@ class TavernStore extends ChangeNotifier {
         _repository.listCharacters(),
         _repository.listChats(),
         _repository.listWorldBooks(),
+        _repository.listPresets(),
+        _repository.getConfigOptions(),
       ]);
       _characters = results[0] as List<TavernCharacter>;
       _recentChats = results[1] as List<TavernChat>;
       _worldBooks = results[2] as List<TavernWorldBook>;
+      _presets = results[3] as List<TavernPreset>;
+      final config = Map<String, dynamic>.from(results[4] as Map);
+      _providers = (((config['providers'] as List?) ?? const <dynamic>[]).whereType<Map>())
+          .map((item) => TavernProviderOption.fromJson(Map<String, dynamic>.from(item)))
+          .toList(growable: false);
+      _promptOrders = (((config['promptOrders'] as List?) ?? const <dynamic>[]).whereType<Map>())
+          .map((item) => TavernPromptOrder.fromJson(Map<String, dynamic>.from(item)))
+          .toList(growable: false);
     } catch (exc) {
       _error = exc.toString();
     } finally {
@@ -101,6 +117,20 @@ class TavernStore extends ChangeNotifier {
     String presetId = '',
   }) {
     return _repository.sendMessage(chatId: chatId, text: text, presetId: presetId);
+  }
+
+  Future<TavernPromptDebug> getPromptDebug(String chatId) {
+    return _repository.getPromptDebug(chatId);
+  }
+
+  Future<TavernPreset> updatePreset({
+    required String presetId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final updated = await _repository.updatePreset(presetId: presetId, payload: payload);
+    _presets = [updated, ..._presets.where((item) => item.id != updated.id)];
+    notifyListeners();
+    return updated;
   }
 
   Future<TavernChat> createChatForCharacter(TavernCharacter character) async {
