@@ -5,6 +5,9 @@ import '../../../../core/openclaw/openclaw_http_client.dart';
 import '../../../../core/openclaw/openclaw_settings.dart';
 import '../../domain/tavern_models.dart';
 
+typedef TavernStreamEventHandler =
+    void Function(String event, Map<String, dynamic> data);
+
 class TavernRepository {
   Future<List<TavernCharacter>> listCharacters() async {
     final response = await _getJson('/api/tavern/characters');
@@ -130,6 +133,24 @@ class TavernRepository {
       'text': text,
       if (presetId.isNotEmpty) 'presetId': presetId,
     });
+  }
+
+  Future<void> streamMessage({
+    required String chatId,
+    required String text,
+    String presetId = '',
+    required TavernStreamEventHandler onEvent,
+  }) async {
+    final config = await OpenClawSettingsStore.load();
+    final client = OpenClawHttpClient(config);
+    await client.streamJsonEvents(
+      path: '/api/tavern/chats/$chatId/stream',
+      body: {
+        'text': text,
+        if (presetId.isNotEmpty) 'presetId': presetId,
+      },
+      onEvent: onEvent,
+    );
   }
 
   Future<List<TavernPreset>> listPresets() async {

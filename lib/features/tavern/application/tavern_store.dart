@@ -196,6 +196,20 @@ class TavernStore extends ChangeNotifier {
     );
   }
 
+  Future<void> streamMessage({
+    required String chatId,
+    required String text,
+    String presetId = '',
+    required TavernStreamEventHandler onEvent,
+  }) {
+    return _repository.streamMessage(
+      chatId: chatId,
+      text: text,
+      presetId: presetId,
+      onEvent: onEvent,
+    );
+  }
+
   Future<TavernPromptDebug> getPromptDebug(String chatId) {
     return _repository.getPromptDebug(chatId);
   }

@@ -30,6 +30,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   String? _error;
   String? _serverBaseUrl;
   String? _selectedPresetId;
+  String? _streamingAssistantMessageId;
   List<TavernMessage> _messages = const <TavernMessage>[];
   late TavernCharacter _character;
   late TavernChat _chat;
@@ -106,6 +107,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
               avatarPath: _character.avatarPath,
               serverBaseUrl: _serverBaseUrl,
               radius: 18,
+              useDefaultAssetFallback: true,
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -263,6 +265,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                 avatarPath: _character.avatarPath,
                 serverBaseUrl: _serverBaseUrl,
                 radius: 18,
+                useDefaultAssetFallback: true,
               ),
               const SizedBox(width: 10),
               Flexible(child: bubble),
@@ -301,32 +304,138 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     final text = _inputController.text.trim();
     if (text.isEmpty || _isSending) return;
     FocusScope.of(context).unfocus();
-    setState(() => _isSending = true);
     _inputController.clear();
+
+    final optimisticUserMessage = TavernMessage(
+      id: 'local_user_${DateTime.now().microsecondsSinceEpoch}',
+      chatId: _chat.id,
+      role: 'user',
+      content: text,
+      createdAt: DateTime.now(),
+    );
+
+    setState(() {
+      _isSending = true;
+      _messages = [..._messages, optimisticUserMessage];
+      _streamingAssistantMessageId = null;
+    });
+    _scrollToBottom();
+
     try {
-      final response = await context.read<TavernStore>().sendMessage(
+      TavernMessage? persistedUserMessage;
+
+      await context.read<TavernStore>().streamMessage(
         chatId: _chat.id,
         text: text,
         presetId: _selectedPresetId ?? '',
+        onEvent: (event, data) {
+          if (!mounted) return;
+          switch (event) {
+            case 'start':
+              final rawMessage = data['userMessage'];
+              if (rawMessage is Map) {
+                final parsed = TavernMessage.fromJson(
+                  Map<String, dynamic>.from(rawMessage),
+                );
+                persistedUserMessage = parsed;
+                setState(() {
+                  _messages = _messages
+                      .where((item) => item.id != optimisticUserMessage.id)
+                      .toList(growable: true)
+                    ..add(parsed);
+                });
+                _scrollToBottom();
+              }
+              break;
+            case 'delta':
+              final delta = (data['delta'] ?? '').toString();
+              if (delta.isEmpty) return;
+              final messageId = (data['messageId'] ?? '').toString().trim();
+              final assistantId =
+                  messageId.isNotEmpty
+                      ? messageId
+                      : (_streamingAssistantMessageId ??
+                          'stream_assistant_${DateTime.now().microsecondsSinceEpoch}');
+              final existingIndex = _messages.indexWhere(
+                (item) => item.id == assistantId,
+              );
+              final nextContent =
+                  existingIndex >= 0
+                      ? '${_messages[existingIndex].content}$delta'
+                      : delta;
+              final nextMessage = TavernMessage(
+                id: assistantId,
+                chatId: _chat.id,
+                role: 'assistant',
+                content: nextContent,
+                createdAt: DateTime.now(),
+              );
+              setState(() {
+                _streamingAssistantMessageId = assistantId;
+                if (existingIndex >= 0) {
+                  final nextMessages = [..._messages];
+                  nextMessages[existingIndex] = nextMessage;
+                  _messages = nextMessages;
+                } else {
+                  _messages = [..._messages, nextMessage];
+                }
+              });
+              _scrollToBottom();
+              break;
+            case 'final':
+              final rawAssistant = data['assistantMessage'];
+              if (rawAssistant is Map) {
+                final finalizedAssistantMessage = TavernMessage.fromJson(
+                  Map<String, dynamic>.from(rawAssistant),
+                );
+                final existingIndex = _messages.indexWhere(
+                  (item) =>
+                      item.id == finalizedAssistantMessage.id ||
+                      item.id == _streamingAssistantMessageId,
+                );
+                setState(() {
+                  final nextMessages = [..._messages];
+                  if (persistedUserMessage != null) {
+                    final userIndex = nextMessages.indexWhere(
+                      (item) =>
+                          item.id == optimisticUserMessage.id ||
+                          item.id == persistedUserMessage!.id,
+                    );
+                    if (userIndex >= 0) {
+                      nextMessages[userIndex] = persistedUserMessage!;
+                    }
+                  }
+                  if (existingIndex >= 0) {
+                    nextMessages[existingIndex] = finalizedAssistantMessage;
+                  } else {
+                    nextMessages.add(finalizedAssistantMessage);
+                  }
+                  _messages = nextMessages;
+                  _streamingAssistantMessageId = null;
+                });
+                _scrollToBottom();
+              }
+              break;
+            case 'error':
+              throw Exception((data['error'] ?? 'unknown error').toString());
+          }
+        },
       );
-      final userMessage = TavernMessage.fromJson(
-        Map<String, dynamic>.from(response['userMessage'] as Map),
-      );
-      final assistantMessage = TavernMessage.fromJson(
-        Map<String, dynamic>.from(response['assistantMessage'] as Map),
-      );
-      if (!mounted) return;
-      setState(() {
-        _messages = [..._messages, userMessage, assistantMessage];
-        _isSending = false;
-      });
-      _scrollToBottom();
     } catch (exc) {
       if (!mounted) return;
-      setState(() => _isSending = false);
+      setState(() {
+        _messages = _messages
+            .where((item) => item.id != _streamingAssistantMessageId)
+            .toList(growable: false);
+        _streamingAssistantMessageId = null;
+      });
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('发送失败：$exc')));
+    } finally {
+      if (mounted) {
+        setState(() => _isSending = false);
+      }
     }
   }
 

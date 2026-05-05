@@ -224,6 +224,7 @@ class _TavernScreenState extends State<TavernScreen>
                   leading: buildTavernAvatar(
                     avatarPath: character?.avatarPath ?? '',
                     serverBaseUrl: _serverBaseUrl,
+                    useDefaultAssetFallback: true,
                   ),
                   title: Text(character?.name ?? '未知角色'),
                   subtitle: Text(
@@ -286,6 +287,7 @@ class _TavernScreenState extends State<TavernScreen>
                 leading: buildTavernAvatar(
                   avatarPath: character.avatarPath,
                   serverBaseUrl: _serverBaseUrl,
+                  useDefaultAssetFallback: true,
                 ),
                 title: Text(character.name),
                 subtitle: Text(

@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 import 'openclaw_client.dart';
 import 'openclaw_config.dart';
 
+typedef SseEventHandler = void Function(String event, Map<String, dynamic> data);
+
 class OpenClawHttpClient implements OpenClawClient {
   OpenClawHttpClient(this.config, {http.Client? httpClient})
     : _httpClient = httpClient ?? http.Client();
@@ -206,6 +208,76 @@ class OpenClawHttpClient implements OpenClawClient {
         (json['attachment'] as Map?)?.cast<String, dynamic>() ?? const {},
       ),
     );
+  }
+
+  Future<void> streamJsonEvents({
+    required String path,
+    required Map<String, dynamic> body,
+    required SseEventHandler onEvent,
+  }) async {
+    final request = http.Request('POST', _uri(path));
+    request.headers.addAll(_headers);
+    request.body = jsonEncode(body);
+    final response = await _httpClient.send(request);
+    if (response.statusCode >= 400) {
+      final bodyText = await response.stream.bytesToString();
+      throw Exception(
+        'SSE 请求失败: ${bodyText.isNotEmpty ? bodyText : response.statusCode}',
+      );
+    }
+
+    final lines = response.stream
+        .transform(utf8.decoder)
+        .transform(const LineSplitter());
+    String? eventName;
+    final dataLines = <String>[];
+
+    Future<void> flushEvent() async {
+      if (dataLines.isEmpty) {
+        eventName = null;
+        return;
+      }
+      final dataText = dataLines.join('\n').trim();
+      dataLines.clear();
+      final resolvedEvent = (eventName ?? 'message').trim();
+      eventName = null;
+      if (dataText.isEmpty) return;
+      try {
+        final decoded = jsonDecode(dataText);
+        if (decoded is Map<String, dynamic>) {
+          onEvent(resolvedEvent, decoded);
+          return;
+        }
+        if (decoded is Map) {
+          onEvent(
+            resolvedEvent,
+            Map<String, dynamic>.from(decoded.cast<String, dynamic>()),
+          );
+          return;
+        }
+        onEvent(resolvedEvent, <String, dynamic>{'value': decoded});
+      } catch (_) {
+        onEvent(resolvedEvent, <String, dynamic>{'raw': dataText});
+      }
+    }
+
+    await for (final line in lines) {
+      if (line.isEmpty) {
+        await flushEvent();
+        continue;
+      }
+      if (line.startsWith(':')) {
+        continue;
+      }
+      if (line.startsWith('event:')) {
+        eventName = line.substring(6).trim();
+        continue;
+      }
+      if (line.startsWith('data:')) {
+        dataLines.add(line.substring(5).trimLeft());
+      }
+    }
+    await flushEvent();
   }
 
   @override
