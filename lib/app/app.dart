@@ -17,6 +17,8 @@ import '../features/settings/presentation/settings_screen.dart';
 import '../features/music/application/music_platform_store.dart';
 import '../features/music/application/music_store.dart';
 import '../features/music/presentation/music_screen.dart';
+import '../features/tavern/application/tavern_store.dart';
+import '../features/tavern/presentation/tavern_screen.dart';
 import '../features/webview/presentation/webview_screen.dart';
 import '../features/companion/presentation/companion_panel.dart';
 import 'theme.dart';
@@ -31,6 +33,7 @@ class AliceChatApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ChatSessionStore()),
         ChangeNotifierProvider(create: (_) => MusicStore()),
         ChangeNotifierProvider(create: (_) => MusicPlatformStore()),
+        ChangeNotifierProvider(create: (_) => TavernStore()),
       ],
       child: MaterialApp(
         title: 'Alice Chat',
@@ -505,6 +508,7 @@ class _MainScaffoldState extends State<_MainScaffold>
                     child: ColoredBox(color: Colors.white),
                   ),
               const MusicScreen(),
+              const TavernScreen(),
               const SettingsScreen(),
             ],
           ),
@@ -544,10 +548,10 @@ class _MainScaffoldState extends State<_MainScaffold>
         });
       },
       onOpenMusic: () {
-        setState(() => _currentIndex = 1);
+        setState(() => _currentIndex = 2);
       },
     );
-    final showSidebar = _currentIndex != 1;
+    final showSidebar = _currentIndex != 2;
     final centerPane = _buildCenterPane(activeState);
 
     return Scaffold(
@@ -598,20 +602,22 @@ class _MainScaffoldState extends State<_MainScaffold>
                                       _currentIndex == 0
                                           ? '消息'
                                           : _navTitle(_currentIndex),
-                                      style: theme.textTheme.titleLarge?.copyWith(
-                                        fontWeight: FontWeight.w800,
-                                        color: const Color(0xFF2D3443),
-                                      ),
+                                      style: theme.textTheme.titleLarge
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w800,
+                                            color: const Color(0xFF2D3443),
+                                          ),
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
                                       _currentIndex == 0
                                           ? '像微信桌面版一样利落，再加一点陪伴感。'
                                           : '保留统一功能，不做花哨分叉。',
-                                      style: theme.textTheme.bodySmall?.copyWith(
-                                        color: const Color(0xFF98A1B3),
-                                        fontWeight: FontWeight.w600,
-                                      ),
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: const Color(0xFF98A1B3),
+                                            fontWeight: FontWeight.w600,
+                                          ),
                                     ),
                                   ],
                                 ),
@@ -690,7 +696,7 @@ class _MainScaffoldState extends State<_MainScaffold>
   }
 
   Widget _buildCenterPane(ChatViewState? activeState) {
-    if (_currentIndex == 1) {
+    if (_currentIndex == 2) {
       return const MusicScreen();
     }
     if (_currentIndex == 0 && _activeChatSession != null) {
@@ -720,7 +726,13 @@ class _MainScaffoldState extends State<_MainScaffold>
 
   Widget _buildWorkbenchPage() {
     switch (_currentIndex) {
+      case 1:
+        return const WebviewScreen(active: true, embedded: true);
       case 2:
+        return const MusicScreen();
+      case 3:
+        return const TavernScreen();
+      case 4:
       default:
         return const SettingsScreen();
     }
@@ -758,6 +770,11 @@ class _MainScaffoldState extends State<_MainScaffold>
           label: '音乐',
         ),
         NavigationDestination(
+          icon: Icon(Icons.auto_awesome_outlined),
+          selectedIcon: Icon(Icons.auto_awesome),
+          label: '酒馆',
+        ),
+        NavigationDestination(
           icon: Icon(Icons.settings_outlined),
           selectedIcon: Icon(Icons.settings),
           label: '设置',
@@ -769,8 +786,12 @@ class _MainScaffoldState extends State<_MainScaffold>
   String _navTitle(int index) {
     switch (index) {
       case 1:
-        return '音乐';
+        return '网页';
       case 2:
+        return '音乐';
+      case 3:
+        return '酒馆';
+      case 4:
         return '设置';
       default:
         return '消息';
@@ -780,8 +801,12 @@ class _MainScaffoldState extends State<_MainScaffold>
   IconData _navIcon(int index) {
     switch (index) {
       case 1:
-        return Icons.library_music_rounded;
+        return Icons.web_rounded;
       case 2:
+        return Icons.library_music_rounded;
+      case 3:
+        return Icons.auto_awesome_rounded;
+      case 4:
         return Icons.settings_rounded;
       default:
         return Icons.chat_bubble_rounded;
@@ -808,7 +833,9 @@ class _PrimaryNavRail extends StatelessWidget {
   Widget build(BuildContext context) {
     final items = <({IconData icon, String label})>[
       (icon: Icons.chat_bubble_outline_rounded, label: '聊天'),
+      (icon: Icons.web_outlined, label: '网页'),
       (icon: Icons.library_music_outlined, label: '音乐'),
+      (icon: Icons.auto_awesome_outlined, label: '酒馆'),
       (icon: Icons.settings_outlined, label: '设置'),
     ];
 

@@ -252,6 +252,29 @@ class OpenClawHttpClient implements OpenClawClient {
   Future<Map<String, dynamic>> restartGateway() =>
       _postAdminControl('/api/admin-control/restart/gateway');
 
+  Future<Map<String, dynamic>> getJson(String path) async {
+    final response = await _httpClient.get(_uri(path), headers: _headers);
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('请求失败', response);
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> postJson(
+    String path,
+    Map<String, dynamic> payload,
+  ) async {
+    final response = await _httpClient.post(
+      _uri(path),
+      headers: _headers,
+      body: jsonEncode(payload),
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('请求失败', response);
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
   @override
   Future<Map<String, dynamic>> getMusicState() async {
     final response = await _httpClient.get(

@@ -3,6 +3,7 @@ from .events import create_events_router
 from .music import create_music_router
 from .push import create_push_router
 from .sessions import create_sessions_router
+from .tavern import create_tavern_router
 
 __all__ = [
     "create_chat_router",
@@ -10,4 +11,5 @@ __all__ = [
     "create_music_router",
     "create_push_router",
     "create_sessions_router",
+    "create_tavern_router",
 ]

@@ -80,6 +80,26 @@ def _apply_provider_env_overrides(config: dict) -> None:
                 provider[field] = os.environ[env_name]
 
 
+def _apply_tavern_env_overrides(config: dict) -> None:
+    tavern = config.setdefault('tavern', {})
+    providers = tavern.get('providers') or []
+    for provider in providers:
+        provider_id = str(provider.get('id') or '').strip()
+        if not provider_id:
+            continue
+        env_key_prefix = provider_id.upper().replace('-', '_')
+        for field in (
+            'apiKey',
+            'baseUrl',
+            'model',
+            'endpoint',
+            'timeoutSeconds',
+        ):
+            env_name = f'LUNARIA_TAVERN_PROVIDER_{env_key_prefix}_{field.upper()}'
+            if env_name in os.environ:
+                provider[field] = os.environ[env_name]
+
+
 def _apply_tts_env_overrides(config: dict) -> None:
     tts = ((config.get('chat') or {}).get('tts') or {})
     providers = tts.get('providers') or {}
@@ -119,6 +139,9 @@ def _apply_scalar_env_overrides(config: dict) -> None:
         cors['originRegex'] = os.environ['LUNARIA_CORS_ORIGIN_REGEX']
     if 'LUNARIA_CORS_ORIGINS' in os.environ:
         cors['origins'] = [item.strip() for item in os.environ['LUNARIA_CORS_ORIGINS'].split(',') if item.strip()]
+    tavern = config.setdefault('tavern', {})
+    if 'LUNARIA_TAVERN_DEFAULT_PROVIDER_ID' in os.environ:
+        tavern['defaultProviderId'] = os.environ['LUNARIA_TAVERN_DEFAULT_PROVIDER_ID']
 
 
 def _resolve_config_paths() -> tuple[Path, Path | None]:
@@ -140,6 +163,7 @@ def load_config() -> dict:
         config = _deep_merge(config, _read_json(local_path))
     _apply_scalar_env_overrides(config)
     _apply_provider_env_overrides(config)
+    _apply_tavern_env_overrides(config)
     _apply_tts_env_overrides(config)
     return config
 
@@ -164,11 +188,32 @@ def get_live2d_config() -> dict:
     return (load_config().get('live2d') or {})
 
 
+def get_tavern_config() -> dict:
+    return (load_config().get('tavern') or {})
+
+
 def get_chat_providers() -> list[dict]:
     providers = get_chat_config().get('providers') or []
     if not providers:
         raise RuntimeError('Lunaria config has no chat providers configured')
     return providers
+
+
+def get_tavern_providers() -> list[dict]:
+    return list(get_tavern_config().get('providers') or [])
+
+
+def get_tavern_provider_map() -> dict[str, dict]:
+    return {str(provider['id']): provider for provider in get_tavern_providers() if str(provider.get('id') or '').strip()}
+
+
+def get_tavern_provider(provider_id: str | None = None) -> dict:
+    tavern_config = get_tavern_config()
+    resolved = provider_id or tavern_config.get('defaultProviderId')
+    provider_map = get_tavern_provider_map()
+    if resolved not in provider_map:
+        raise FileNotFoundError(f'unknown tavern provider id: {resolved}')
+    return provider_map[resolved]
 
 
 def get_tts_config() -> dict:

@@ -1,0 +1,95 @@
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+from ...config import get_tavern_provider
+from .model_client import TavernModelClient
+from .tavern_service import TavernService
+
+
+class TavernStreamingService:
+    """Tavern-only generation pipeline.
+
+    Separate from main ChatService/OpenClaw path by design.
+    """
+
+    def __init__(self, tavern_service: TavernService):
+        self.tavern_service = tavern_service
+
+    def send(self, chat_id: str, *, text: str, preset_id: str = '', provider_id: str = '') -> dict[str, Any]:
+        prepared = self.tavern_service.prepare_generation(chat_id, text=text, preset_id=preset_id)
+        provider = get_tavern_provider(provider_id or prepared['providerId'])
+        client = TavernModelClient(self.tavern_service.merge_generation_provider(provider, prepared['preset']))
+        result = client.generate(messages=prepared['messages'])
+        request_id = f'tav_req_{uuid.uuid4().hex[:12]}'
+        user_message = self.tavern_service.store.append_message(chat_id, role='user', content=text)
+        assistant_message = self.tavern_service.store.append_message(
+            chat_id,
+            role='assistant',
+            content=result.text,
+            metadata={
+                'requestId': request_id,
+                'providerId': provider.get('id'),
+                'model': client.provider_config.get('model'),
+                'promptDebug': {
+                    'presetId': prepared['promptDebug'].preset_id,
+                    'promptOrderId': prepared['promptDebug'].prompt_order_id,
+                },
+            },
+        )
+        return {
+            'requestId': request_id,
+            'userMessage': user_message,
+            'assistantMessage': assistant_message,
+            'promptDebug': prepared['promptDebug'],
+        }
+
+    def stream(self, chat_id: str, *, text: str, preset_id: str = '', provider_id: str = ''):
+        prepared = self.tavern_service.prepare_generation(chat_id, text=text, preset_id=preset_id)
+        provider = get_tavern_provider(provider_id or prepared['providerId'])
+        client = TavernModelClient(self.tavern_service.merge_generation_provider(provider, prepared['preset']))
+        request_id = f'tav_req_{uuid.uuid4().hex[:12]}'
+        user_message = self.tavern_service.store.append_message(chat_id, role='user', content=text)
+
+        deltas: list[str] = []
+
+        def emit(frame: dict[str, Any]) -> None:
+            delta = str(frame.get('delta') or '')
+            if delta:
+                deltas.append(delta)
+
+        def finalize() -> dict[str, Any]:
+            result = client.stream_generate(messages=prepared['messages'], emit=emit)
+            assistant_message = self.tavern_service.store.append_message(
+                chat_id,
+                role='assistant',
+                content=result.text,
+                metadata={
+                    'requestId': request_id,
+                    'providerId': provider.get('id'),
+                    'model': client.provider_config.get('model'),
+                    'promptDebug': {
+                        'presetId': prepared['promptDebug'].preset_id,
+                        'promptOrderId': prepared['promptDebug'].prompt_order_id,
+                    },
+                },
+            )
+            return {
+                'requestId': request_id,
+                'userMessage': user_message,
+                'assistantMessage': assistant_message,
+                'text': result.text,
+                'deltas': deltas,
+                'promptDebug': prepared['promptDebug'],
+            }
+
+        return {
+            'requestId': request_id,
+            'userMessage': user_message,
+            'prepared': prepared,
+            'provider': provider,
+            'client': client,
+            'finalize': finalize,
+            'deltas': deltas,
+        }

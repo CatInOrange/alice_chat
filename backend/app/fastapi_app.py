@@ -19,6 +19,7 @@ from .routes.media import create_media_router
 from .routes.music import create_music_router
 from .routes.runtime import create_runtime_router
 from .routes.sessions import create_sessions_router
+from .routes.tavern import create_tavern_router
 from .web.helpers import build_allowed_origins
 
 
@@ -32,6 +33,7 @@ def create_app() -> FastAPI:
         context.music_store.ensure_schema()
         context.events_bus.store.ensure_schema()
         context.push_device_store.ensure_schema()
+        context.tavern_store.ensure_schema()
         context.events_bus.bind_loop(asyncio.get_running_loop())
         try:
             for provider in get_chat_providers():
@@ -71,6 +73,7 @@ def create_app() -> FastAPI:
     app.include_router(create_push_router(context))
     app.include_router(create_media_router(context))
     app.include_router(create_music_router(context))
+    app.include_router(create_tavern_router(context))
     app.include_router(create_debug_router(context))
 
     app.mount('/uploads', StaticFiles(directory=str(context.uploads_dir), html=False), name='uploads')
