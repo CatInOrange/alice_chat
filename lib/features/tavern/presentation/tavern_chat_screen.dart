@@ -27,6 +27,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   bool _isLoading = true;
   bool _isSending = false;
   bool _isLoadingDebug = false;
+  bool _didInitialScroll = false;
+  bool _stickToBottom = true;
   String? _error;
   String? _serverBaseUrl;
   String? _selectedPresetId;
@@ -40,11 +42,13 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     super.initState();
     _character = widget.character;
     _chat = widget.chat;
+    _scrollController.addListener(_handleScrollChanged);
     _bootstrap();
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_handleScrollChanged);
     _inputController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -67,7 +71,11 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         _selectedPresetId = _chat.presetId.isNotEmpty ? _chat.presetId : null;
         _isLoading = false;
       });
-      _scrollToBottom();
+      _scrollToBottom(animated: false, force: true);
+      Future<void>.delayed(
+        const Duration(milliseconds: 80),
+        () => _scrollToBottom(animated: false, force: true),
+      );
     } catch (exc) {
       if (!mounted) return;
       setState(() {
@@ -219,14 +227,28 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         final isUser = message.role == 'user';
         final bubble = ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 560),
-          child: Card(
-            color:
-                isUser
-                    ? Theme.of(context).colorScheme.primaryContainer
-                    : Theme.of(context).colorScheme.surface,
-            margin: EdgeInsets.zero,
+          child: Container(
+            decoration: BoxDecoration(
+              color:
+                  isUser
+                      ? const Color(0xFF7C4DFF)
+                      : Colors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(20),
+                topRight: const Radius.circular(20),
+                bottomLeft: Radius.circular(isUser ? 20 : 8),
+                bottomRight: Radius.circular(isUser ? 8 : 20),
+              ),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x081F2430),
+                  blurRadius: 10,
+                  offset: Offset(0, 3),
+                ),
+              ],
+            ),
             child: Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
               child: Column(
                 crossAxisAlignment:
                     isUser
@@ -235,10 +257,32 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                 children: [
                   Text(
                     isUser ? '你' : _character.name,
-                    style: Theme.of(context).textTheme.labelMedium,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color:
+                          isUser
+                              ? Colors.white.withValues(alpha: 0.88)
+                              : const Color(0xFF98A1B3),
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 6),
-                  _buildMarkdownText(message.content),
+                  _buildMessageContent(message.content, isUser: isUser),
+                  if (message.createdAt != null) ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        _formatMessageTime(message.createdAt!),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color:
+                              isUser
+                                  ? Colors.white.withValues(alpha: 0.72)
+                                  : const Color(0xFF98A1B3),
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -276,7 +320,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     );
   }
 
-  Widget _buildMarkdownText(String text) {
+  Widget _buildMarkdownText(String text, {Color? textColor}) {
     final normalized = text.trim();
     if (normalized.isEmpty) {
       return const SizedBox.shrink();
@@ -286,7 +330,23 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       selectable: true,
       softLineBreak: true,
       styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-        p: Theme.of(context).textTheme.bodyMedium,
+        p: Theme.of(context).textTheme.bodyMedium?.copyWith(
+          color: textColor,
+          height: 1.35,
+          fontWeight: FontWeight.w500,
+        ),
+        strong: Theme.of(context).textTheme.bodyMedium?.copyWith(
+          color: textColor,
+          fontWeight: FontWeight.w700,
+        ),
+        em: Theme.of(context).textTheme.bodyMedium?.copyWith(
+          color: textColor,
+          fontStyle: FontStyle.italic,
+        ),
+        code: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: textColor,
+          backgroundColor: const Color(0xFFF1EEFF),
+        ),
         codeblockDecoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(10),
@@ -298,6 +358,38 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       ),
       onTapLink: (_, href, __) {},
     );
+  }
+
+  Widget _buildMessageContent(String text, {required bool isUser}) {
+    final normalized = text.trim();
+    if (normalized.isEmpty) return const SizedBox.shrink();
+    if (!isUser && _isNarrationMessage(normalized)) {
+      return Text(
+        normalized,
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+          color: const Color(0xFF667085),
+          fontStyle: FontStyle.italic,
+          height: 1.4,
+        ),
+      );
+    }
+    return _buildMarkdownText(
+      normalized,
+      textColor: isUser ? Colors.white : const Color(0xFF1F2430),
+    );
+  }
+
+  bool _isNarrationMessage(String text) {
+    final trimmed = text.trim();
+    return (trimmed.startsWith('(') && trimmed.endsWith(')')) ||
+        (trimmed.startsWith('（') && trimmed.endsWith('）'));
+  }
+
+  String _formatMessageTime(DateTime time) {
+    final local = time.toLocal();
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
   }
 
   Future<void> _handleSend() async {
@@ -1008,14 +1100,28 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     );
   }
 
-  void _scrollToBottom() {
+  void _handleScrollChanged() {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    _stickToBottom =
+        position.maxScrollExtent - position.pixels <= 80;
+  }
+
+  void _scrollToBottom({bool animated = true, bool force = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent + 80,
-        duration: const Duration(milliseconds: 240),
-        curve: Curves.easeOut,
-      );
+      if (!_scrollController.hasClients || !mounted) return;
+      if (!force && !_stickToBottom && _didInitialScroll) return;
+      final target = _scrollController.position.maxScrollExtent + 80;
+      _didInitialScroll = true;
+      if (animated) {
+        _scrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 240),
+          curve: Curves.easeOut,
+        );
+      } else {
+        _scrollController.jumpTo(target);
+      }
     });
   }
 }
