@@ -751,6 +751,34 @@ class TavernStore:
             row = conn.execute("SELECT * FROM tavern_chats WHERE id=? LIMIT 1", (chat_id,)).fetchone()
             return self._row_to_chat(row) if row is not None else None
 
+    def update_chat(self, chat_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        self.ensure_schema()
+        with connect(self.db) as conn:
+            current = conn.execute("SELECT * FROM tavern_chats WHERE id=? LIMIT 1", (chat_id,)).fetchone()
+            if current is None:
+                return None
+            updated_at = _now()
+            conn.execute(
+                """
+                UPDATE tavern_chats
+                SET title=?, preset_id=?, persona_id=?, author_note_enabled=?, author_note=?, author_note_depth=?, updated_at=?
+                WHERE id=?
+                """,
+                (
+                    str(payload.get('title', current['title']) or '').strip() or current['title'],
+                    str(payload.get('presetId', current['preset_id']) or '').strip(),
+                    str(payload.get('personaId', current['persona_id']) or '').strip(),
+                    1 if bool(payload.get('authorNoteEnabled', bool(current['author_note_enabled']))) else 0,
+                    str(payload.get('authorNote', current['author_note']) or '').strip(),
+                    int(payload.get('authorNoteDepth', current['author_note_depth']) or 4),
+                    updated_at,
+                    chat_id,
+                ),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM tavern_chats WHERE id=? LIMIT 1", (chat_id,)).fetchone()
+            return self._row_to_chat(row) if row is not None else None
+
     def append_message(self, chat_id: str, *, role: str, content: str, thought: str = '', metadata: dict[str, Any] | None = None) -> dict[str, Any]:
         self.ensure_schema()
         now = _now()

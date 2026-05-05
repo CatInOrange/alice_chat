@@ -92,6 +92,18 @@ class TavernRepository {
     );
   }
 
+  Future<TavernChat> updateChat({
+    required String chatId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final config = await OpenClawSettingsStore.load();
+    final client = OpenClawHttpClient(config);
+    final response = await client.putJson('/api/tavern/chats/$chatId', payload);
+    return TavernChat.fromJson(
+      Map<String, dynamic>.from(response['chat'] as Map),
+    );
+  }
+
   Future<List<TavernMessage>> listChatMessages(String chatId) async {
     final response = await _getJson('/api/tavern/chats/$chatId/messages');
     final list = (response['messages'] as List?) ?? const <dynamic>[];
@@ -121,6 +133,76 @@ class TavernRepository {
         .toList(growable: false);
   }
 
+  Future<List<TavernPromptBlock>> listPromptBlocks() async {
+    final response = await _getJson('/api/tavern/prompt-blocks');
+    final list = (response['promptBlocks'] as List?) ?? const <dynamic>[];
+    return list
+        .whereType<Map>()
+        .map(
+          (item) => TavernPromptBlock.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList(growable: false);
+  }
+
+  Future<TavernPromptBlock> createPromptBlock(
+    Map<String, dynamic> payload,
+  ) async {
+    final response = await _postJson('/api/tavern/prompt-blocks', payload);
+    return TavernPromptBlock.fromJson(
+      Map<String, dynamic>.from(response['promptBlock'] as Map),
+    );
+  }
+
+  Future<TavernPromptBlock> updatePromptBlock({
+    required String blockId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final config = await OpenClawSettingsStore.load();
+    final client = OpenClawHttpClient(config);
+    final response = await client.putJson(
+      '/api/tavern/prompt-blocks/$blockId',
+      payload,
+    );
+    return TavernPromptBlock.fromJson(
+      Map<String, dynamic>.from(response['promptBlock'] as Map),
+    );
+  }
+
+  Future<List<TavernPromptOrder>> listPromptOrders() async {
+    final response = await _getJson('/api/tavern/prompt-orders');
+    final list = (response['promptOrders'] as List?) ?? const <dynamic>[];
+    return list
+        .whereType<Map>()
+        .map(
+          (item) => TavernPromptOrder.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList(growable: false);
+  }
+
+  Future<TavernPromptOrder> createPromptOrder(
+    Map<String, dynamic> payload,
+  ) async {
+    final response = await _postJson('/api/tavern/prompt-orders', payload);
+    return TavernPromptOrder.fromJson(
+      Map<String, dynamic>.from(response['promptOrder'] as Map),
+    );
+  }
+
+  Future<TavernPromptOrder> updatePromptOrder({
+    required String promptOrderId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final config = await OpenClawSettingsStore.load();
+    final client = OpenClawHttpClient(config);
+    final response = await client.putJson(
+      '/api/tavern/prompt-orders/$promptOrderId',
+      payload,
+    );
+    return TavernPromptOrder.fromJson(
+      Map<String, dynamic>.from(response['promptOrder'] as Map),
+    );
+  }
+
   Future<TavernPromptDebug> getPromptDebug(String chatId) async {
     final response = await _getJson('/api/tavern/chats/$chatId/prompt-debug');
     return TavernPromptDebug.fromJson(
@@ -132,13 +214,23 @@ class TavernRepository {
     return _getJson('/api/tavern/config/options');
   }
 
+  Future<TavernPreset> createPreset(Map<String, dynamic> payload) async {
+    final response = await _postJson('/api/tavern/presets', payload);
+    return TavernPreset.fromJson(
+      Map<String, dynamic>.from(response['preset'] as Map),
+    );
+  }
+
   Future<TavernPreset> updatePreset({
     required String presetId,
     required Map<String, dynamic> payload,
   }) async {
     final config = await OpenClawSettingsStore.load();
     final client = OpenClawHttpClient(config);
-    final response = await client.putJson('/api/tavern/presets/$presetId', payload);
+    final response = await client.putJson(
+      '/api/tavern/presets/$presetId',
+      payload,
+    );
     return TavernPreset.fromJson(
       Map<String, dynamic>.from(response['preset'] as Map),
     );
@@ -153,6 +245,73 @@ class TavernRepository {
           (item) => TavernWorldBook.fromJson(Map<String, dynamic>.from(item)),
         )
         .toList(growable: false);
+  }
+
+  Future<TavernWorldBook> createWorldBook(Map<String, dynamic> payload) async {
+    final response = await _postJson('/api/tavern/worldbooks', payload);
+    return TavernWorldBook.fromJson(
+      Map<String, dynamic>.from(response['worldbook'] as Map),
+    );
+  }
+
+  Future<TavernWorldBook> updateWorldBook({
+    required String worldbookId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final config = await OpenClawSettingsStore.load();
+    final client = OpenClawHttpClient(config);
+    final response = await client.putJson(
+      '/api/tavern/worldbooks/$worldbookId',
+      payload,
+    );
+    return TavernWorldBook.fromJson(
+      Map<String, dynamic>.from(response['worldbook'] as Map),
+    );
+  }
+
+  Future<List<TavernWorldBookEntry>> listWorldBookEntries(
+    String worldbookId,
+  ) async {
+    final response = await _getJson(
+      '/api/tavern/worldbooks/$worldbookId/entries',
+    );
+    final list = (response['entries'] as List?) ?? const <dynamic>[];
+    return list
+        .whereType<Map>()
+        .map(
+          (item) =>
+              TavernWorldBookEntry.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList(growable: false);
+  }
+
+  Future<TavernWorldBookEntry> createWorldBookEntry({
+    required String worldbookId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final response = await _postJson(
+      '/api/tavern/worldbooks/$worldbookId/entries',
+      payload,
+    );
+    return TavernWorldBookEntry.fromJson(
+      Map<String, dynamic>.from(response['entry'] as Map),
+    );
+  }
+
+  Future<TavernWorldBookEntry> updateWorldBookEntry({
+    required String worldbookId,
+    required String entryId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final config = await OpenClawSettingsStore.load();
+    final client = OpenClawHttpClient(config);
+    final response = await client.putJson(
+      '/api/tavern/worldbooks/$worldbookId/entries/$entryId',
+      payload,
+    );
+    return TavernWorldBookEntry.fromJson(
+      Map<String, dynamic>.from(response['entry'] as Map),
+    );
   }
 
   Map<String, dynamic> parseCharacterJsonText(String text) {

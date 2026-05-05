@@ -185,6 +185,13 @@ def create_tavern_router(context: AppContext) -> APIRouter:
             raise HTTPException(status_code=404, detail='chat not found')
         return {'ok': True, 'chat': chat}
 
+    @router.put('/api/tavern/chats/{chat_id}')
+    async def update_chat(chat_id: str, body: dict):
+        chat = service.update_chat(chat_id, body)
+        if chat is None:
+            raise HTTPException(status_code=404, detail='chat not found')
+        return {'ok': True, 'chat': chat}
+
     @router.get('/api/tavern/chats/{chat_id}/messages')
     async def list_chat_messages(chat_id: str):
         return {'ok': True, 'messages': service.list_chat_messages(chat_id)}

@@ -157,6 +157,9 @@ class TavernService:
     def get_chat(self, chat_id: str) -> dict[str, Any] | None:
         return self.store.get_chat(chat_id)
 
+    def update_chat(self, chat_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        return self.store.update_chat(chat_id, payload)
+
     def list_chat_messages(self, chat_id: str) -> list[dict[str, Any]]:
         return self.store.list_chat_messages(chat_id)
 

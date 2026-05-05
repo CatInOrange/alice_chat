@@ -55,7 +55,10 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       final messages = await store.listChatMessages(_chat.id);
       if (!mounted) return;
       setState(() {
-        _serverBaseUrl = settings.baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
+        _serverBaseUrl = settings.baseUrl.trim().replaceFirst(
+          RegExp(r'/+$'),
+          '',
+        );
         _character = character;
         _messages = messages;
         _selectedPresetId = _chat.presetId.isNotEmpty ? _chat.presetId : null;
@@ -78,15 +81,21 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       appBar: AppBar(
         actions: [
           IconButton(
+            tooltip: 'Author Note',
+            onPressed: _editAuthorNote,
+            icon: const Icon(Icons.sticky_note_2_outlined),
+          ),
+          IconButton(
             tooltip: 'Prompt Debug',
             onPressed: _showPromptDebug,
-            icon: _isLoadingDebug
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.bug_report_outlined),
+            icon:
+                _isLoadingDebug
+                    ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                    : const Icon(Icons.bug_report_outlined),
           ),
         ],
         title: Column(
@@ -103,17 +112,20 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         ),
       ),
       body: Container(
-        decoration: bg == null
-            ? null
-            : BoxDecoration(
-                image: DecorationImage(
-                  image: NetworkImage(bg),
-                  fit: BoxFit.cover,
-                  opacity: 0.18,
+        decoration:
+            bg == null
+                ? null
+                : BoxDecoration(
+                  image: DecorationImage(
+                    image: NetworkImage(bg),
+                    fit: BoxFit.cover,
+                    opacity: 0.18,
+                  ),
                 ),
-              ),
         child: Container(
-          color: Theme.of(context).scaffoldBackgroundColor.withValues(alpha: 0.9),
+          color: Theme.of(
+            context,
+          ).scaffoldBackgroundColor.withValues(alpha: 0.9),
           child: Column(
             children: [
               _buildPresetBar(context),
@@ -140,13 +152,16 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                       const SizedBox(width: 8),
                       FilledButton(
                         onPressed: _isSending ? null : _handleSend,
-                        child: _isSending
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Text('发送'),
+                        child:
+                            _isSending
+                                ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                                : const Text('发送'),
                       ),
                     ],
                   ),
@@ -171,7 +186,9 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(
-            _character.firstMessage.isNotEmpty ? _character.firstMessage : '还没有消息，开始聊吧。',
+            _character.firstMessage.isNotEmpty
+                ? _character.firstMessage
+                : '还没有消息，开始聊吧。',
             style: Theme.of(context).textTheme.bodyLarge,
             textAlign: TextAlign.center,
           ),
@@ -190,12 +207,17 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 520),
             child: Card(
-              color: isUser ? Theme.of(context).colorScheme.primaryContainer : null,
+              color:
+                  isUser
+                      ? Theme.of(context).colorScheme.primaryContainer
+                      : null,
               child: Padding(
                 padding: const EdgeInsets.all(12),
                 child: Column(
                   crossAxisAlignment:
-                      isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                      isUser
+                          ? CrossAxisAlignment.end
+                          : CrossAxisAlignment.start,
                   children: [
                     Text(
                       isUser ? '你' : _character.name,
@@ -240,57 +262,150 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     } catch (exc) {
       if (!mounted) return;
       setState(() => _isSending = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('发送失败：$exc')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('发送失败：$exc')));
     }
   }
 
   Widget _buildPresetBar(BuildContext context) {
+    final messenger = ScaffoldMessenger.of(context);
     final store = context.watch<TavernStore>();
     final presets = store.presets;
+    final effectivePreset = _effectivePreset(store);
+    final providerLabel = _providerLabel(effectivePreset);
+    final promptOrderLabel = _promptOrderLabel(store, effectivePreset);
     return Material(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+      color: Theme.of(
+        context,
+      ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-        child: Row(
+        child: Column(
           children: [
-            const Icon(Icons.tune, size: 18),
-            const SizedBox(width: 8),
-            Expanded(
-              child: DropdownButtonFormField<String>(
-                value: presets.any((item) => item.id == _selectedPresetId) ? _selectedPresetId : null,
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  isDense: true,
-                  labelText: 'Preset',
-                  border: OutlineInputBorder(),
-                ),
-                items: [
-                  const DropdownMenuItem<String>(
-                    value: '',
-                    child: Text('跟随默认 Preset', overflow: TextOverflow.ellipsis),
-                  ),
-                  ...presets.map(
-                    (preset) => DropdownMenuItem<String>(
-                      value: preset.id,
-                      child: Text(preset.name, overflow: TextOverflow.ellipsis),
+            Row(
+              children: [
+                const Icon(Icons.tune, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: DropdownButtonFormField<String>(
+                    value:
+                        presets.any((item) => item.id == _selectedPresetId)
+                            ? _selectedPresetId
+                            : null,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      labelText: 'Preset',
+                      border: OutlineInputBorder(),
                     ),
+                    items: [
+                      const DropdownMenuItem<String>(
+                        value: '',
+                        child: Text(
+                          '跟随默认 Preset',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      ...presets.map(
+                        (preset) => DropdownMenuItem<String>(
+                          value: preset.id,
+                          child: Text(
+                            preset.name,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged:
+                        presets.isEmpty
+                            ? null
+                            : (value) async {
+                              final next = (value ?? '').isEmpty ? null : value;
+                              setState(() {
+                                _selectedPresetId = next;
+                              });
+                              try {
+                                final updated = await context
+                                    .read<TavernStore>()
+                                    .updateChat(
+                                      chatId: _chat.id,
+                                      payload: {'presetId': next ?? ''},
+                                    );
+                                if (!mounted) return;
+                                setState(() {
+                                  _chat = updated;
+                                });
+                              } catch (exc) {
+                                if (!mounted) return;
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    content: Text('保存会话 Preset 失败：$exc'),
+                                  ),
+                                );
+                              }
+                            },
                   ),
-                ],
-                onChanged: presets.isEmpty
-                    ? null
-                    : (value) {
-                        setState(() {
-                          _selectedPresetId = (value ?? '').isEmpty ? null : value;
-                        });
-                      },
-              ),
+                ),
+              ],
             ),
+            if (effectivePreset != null) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _debugChip('Provider', providerLabel),
+                    _debugChip('PromptOrder', promptOrderLabel),
+                    _debugChip('Story', effectivePreset.storyStringPosition),
+                    _debugChip('Role', effectivePreset.storyStringRole),
+                    _debugChip('Depth', '${effectivePreset.storyStringDepth}'),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
+  }
+
+  TavernPreset? _effectivePreset(TavernStore store) {
+    if (store.presets.isEmpty) return null;
+    if (_selectedPresetId != null && _selectedPresetId!.isNotEmpty) {
+      for (final preset in store.presets) {
+        if (preset.id == _selectedPresetId) return preset;
+      }
+    }
+    final chatPresetId = _chat.presetId.trim();
+    if (chatPresetId.isNotEmpty) {
+      for (final preset in store.presets) {
+        if (preset.id == chatPresetId) return preset;
+      }
+    }
+    return store.presets.first;
+  }
+
+  String _providerLabel(TavernPreset? preset) {
+    if (preset == null) return '未配置';
+    final provider = preset.provider.trim();
+    final model = preset.model.trim();
+    if (provider.isEmpty && model.isEmpty) return '未配置';
+    if (provider.isEmpty) return model;
+    if (model.isEmpty) return provider;
+    return '$provider · $model';
+  }
+
+  String _promptOrderLabel(TavernStore store, TavernPreset? preset) {
+    if (preset == null) return '未设置';
+    final promptOrderId = preset.promptOrderId.trim();
+    if (promptOrderId.isEmpty) return '未设置';
+    for (final item in store.promptOrders) {
+      if (item.id == promptOrderId) return item.name;
+    }
+    return promptOrderId;
   }
 
   String? _backgroundImageUrl() {
@@ -308,6 +423,148 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     return '$base$first';
   }
 
+  Future<void> _editAuthorNote() async {
+    final noteController = TextEditingController(text: _chat.authorNote);
+    bool enabled = _chat.authorNoteEnabled;
+    int depth = _chat.authorNoteDepth;
+    bool saving = false;
+
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder:
+          (context) => StatefulBuilder(
+            builder:
+                (context, setModalState) => SafeArea(
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      left: 16,
+                      right: 16,
+                      top: 16,
+                      bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+                    ),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Author Note',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 12),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('启用'),
+                            value: enabled,
+                            onChanged:
+                                (value) => setModalState(() => enabled = value),
+                          ),
+                          Text(
+                            'Depth: $depth',
+                            style: Theme.of(context).textTheme.labelLarge,
+                          ),
+                          Slider(
+                            value: depth.toDouble(),
+                            min: 0,
+                            max: 12,
+                            divisions: 12,
+                            label: '$depth',
+                            onChanged:
+                                (value) =>
+                                    setModalState(() => depth = value.round()),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: noteController,
+                            minLines: 4,
+                            maxLines: 10,
+                            decoration: const InputDecoration(
+                              labelText: '内容',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              TextButton(
+                                onPressed:
+                                    saving
+                                        ? null
+                                        : () =>
+                                            Navigator.of(context).pop(false),
+                                child: const Text('取消'),
+                              ),
+                              const SizedBox(width: 8),
+                              FilledButton(
+                                onPressed:
+                                    saving
+                                        ? null
+                                        : () async {
+                                          setModalState(() => saving = true);
+                                          try {
+                                            final updated = await context
+                                                .read<TavernStore>()
+                                                .updateChat(
+                                                  chatId: _chat.id,
+                                                  payload: {
+                                                    'authorNoteEnabled':
+                                                        enabled,
+                                                    'authorNote':
+                                                        noteController.text,
+                                                    'authorNoteDepth': depth,
+                                                  },
+                                                );
+                                            if (!context.mounted) return;
+                                            Navigator.of(context).pop(true);
+                                            setState(() {
+                                              _chat = updated;
+                                            });
+                                          } catch (exc) {
+                                            if (!context.mounted) return;
+                                            setModalState(() => saving = false);
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  '保存 Author Note 失败：$exc',
+                                                ),
+                                              ),
+                                            );
+                                          }
+                                        },
+                                child:
+                                    saving
+                                        ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                        : const Text('保存'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+          ),
+    );
+
+    noteController.dispose();
+
+    if (saved == true && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Author Note 已更新')));
+    }
+  }
+
   Future<void> _showPromptDebug() async {
     if (_isLoadingDebug) return;
     setState(() => _isLoadingDebug = true);
@@ -317,68 +574,95 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       await showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
-        builder: (context) => DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.78,
-          maxChildSize: 0.95,
-          minChildSize: 0.42,
-          builder: (context, controller) => DefaultTabController(
-            length: 5,
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Prompt Debug', style: Theme.of(context).textTheme.titleLarge),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _debugChip('Preset', debug.presetId.isEmpty ? '默认' : debug.presetId),
-                          _debugChip('PromptOrder', debug.promptOrderId.isEmpty ? '未设置' : debug.promptOrderId),
-                          _debugChip('Blocks', '${debug.summary['blockCount'] ?? debug.blocks.length}'),
-                          _debugChip('Messages', '${debug.summary['messageCount'] ?? debug.messages.length}'),
-                          _debugChip('Matched WI', '${debug.summary['matchedWorldbookCount'] ?? debug.matchedWorldbookEntries.length}'),
-                          _debugChip('Rejected WI', '${debug.summary['rejectedWorldbookCount'] ?? debug.rejectedWorldbookEntries.length}'),
-                        ],
-                      ),
-                    ],
+        builder:
+            (context) => DraggableScrollableSheet(
+              expand: false,
+              initialChildSize: 0.78,
+              maxChildSize: 0.95,
+              minChildSize: 0.42,
+              builder:
+                  (context, controller) => DefaultTabController(
+                    length: 5,
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Prompt Debug',
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  _debugChip(
+                                    'Preset',
+                                    debug.presetId.isEmpty
+                                        ? '默认'
+                                        : debug.presetId,
+                                  ),
+                                  _debugChip(
+                                    'PromptOrder',
+                                    debug.promptOrderId.isEmpty
+                                        ? '未设置'
+                                        : debug.promptOrderId,
+                                  ),
+                                  _debugChip(
+                                    'Blocks',
+                                    '${debug.summary['blockCount'] ?? debug.blocks.length}',
+                                  ),
+                                  _debugChip(
+                                    'Messages',
+                                    '${debug.summary['messageCount'] ?? debug.messages.length}',
+                                  ),
+                                  _debugChip(
+                                    'Matched WI',
+                                    '${debug.summary['matchedWorldbookCount'] ?? debug.matchedWorldbookEntries.length}',
+                                  ),
+                                  _debugChip(
+                                    'Rejected WI',
+                                    '${debug.summary['rejectedWorldbookCount'] ?? debug.rejectedWorldbookEntries.length}',
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const TabBar(
+                          isScrollable: true,
+                          tabs: [
+                            Tab(text: 'Summary'),
+                            Tab(text: 'Messages'),
+                            Tab(text: 'Blocks'),
+                            Tab(text: 'World Info'),
+                            Tab(text: 'Runtime'),
+                          ],
+                        ),
+                        Expanded(
+                          child: TabBarView(
+                            children: [
+                              _buildDebugSummaryTab(debug),
+                              _buildDebugMessagesTab(debug),
+                              _buildDebugBlocksTab(debug),
+                              _buildDebugWorldInfoTab(debug),
+                              _buildDebugRuntimeTab(debug),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const TabBar(
-                  isScrollable: true,
-                  tabs: [
-                    Tab(text: 'Summary'),
-                    Tab(text: 'Messages'),
-                    Tab(text: 'Blocks'),
-                    Tab(text: 'World Info'),
-                    Tab(text: 'Runtime'),
-                  ],
-                ),
-                Expanded(
-                  child: TabBarView(
-                    children: [
-                      _buildDebugSummaryTab(debug),
-                      _buildDebugMessagesTab(debug),
-                      _buildDebugBlocksTab(debug),
-                      _buildDebugWorldInfoTab(debug),
-                      _buildDebugRuntimeTab(debug),
-                    ],
-                  ),
-                ),
-              ],
             ),
-          ),
-        ),
       );
     } catch (exc) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('加载 Prompt Debug 失败：$exc')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('加载 Prompt Debug 失败：$exc')));
     } finally {
       if (mounted) {
         setState(() => _isLoadingDebug = false);
@@ -391,13 +675,19 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       padding: const EdgeInsets.all(16),
       children: [
         if (debug.renderedStoryString.isNotEmpty) ...[
-          Text('Rendered Story String', style: Theme.of(context).textTheme.titleSmall),
+          Text(
+            'Rendered Story String',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
           const SizedBox(height: 6),
           SelectableText(debug.renderedStoryString),
           const SizedBox(height: 16),
         ],
         if (debug.renderedExamples.isNotEmpty) ...[
-          Text('Rendered Examples', style: Theme.of(context).textTheme.titleSmall),
+          Text(
+            'Rendered Examples',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
           const SizedBox(height: 6),
           SelectableText(debug.renderedExamples),
           const SizedBox(height: 16),
@@ -408,15 +698,22 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           ...debug.depthInserts.map(
             (item) => Card(
               child: ListTile(
-                title: Text((item['name'] ?? item['kind'] ?? 'depth').toString()),
-                subtitle: Text('depth=${item['depth'] ?? '-'} · position=${item['position'] ?? '-'}'),
+                title: Text(
+                  (item['name'] ?? item['kind'] ?? 'depth').toString(),
+                ),
+                subtitle: Text(
+                  'depth=${item['depth'] ?? '-'} · position=${item['position'] ?? '-'}',
+                ),
               ),
             ),
           ),
           const SizedBox(height: 16),
         ],
         if (debug.characterLoreBindings.isNotEmpty) ...[
-          Text('Character Lore Bindings', style: Theme.of(context).textTheme.titleSmall),
+          Text(
+            'Character Lore Bindings',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
           const SizedBox(height: 6),
           ...debug.characterLoreBindings.map(
             (item) => Card(
@@ -511,9 +808,13 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('${entry['id'] ?? '-'} · ${(entry['_matchMeta'] is Map) ? ((entry['_matchMeta'] as Map)['corpus'] ?? '-') : '-'}'),
+                    Text(
+                      '${entry['id'] ?? '-'} · ${(entry['_matchMeta'] is Map) ? ((entry['_matchMeta'] as Map)['corpus'] ?? '-') : '-'}',
+                    ),
                     const SizedBox(height: 4),
-                    Text('priority=${entry['priority'] ?? '-'} position=${entry['insertionPosition'] ?? '-'}'),
+                    Text(
+                      'priority=${entry['priority'] ?? '-'} position=${entry['insertionPosition'] ?? '-'}',
+                    ),
                     const SizedBox(height: 8),
                     SelectableText((entry['content'] ?? '').toString()),
                   ],
@@ -534,10 +835,15 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('${((entry['entry'] as Map?)?['id'] ?? '-')} · ${entry['reason'] ?? '-'}'),
+                    Text(
+                      '${((entry['entry'] as Map?)?['id'] ?? '-')} · ${entry['reason'] ?? '-'}',
+                    ),
                     if (entry['details'] != null) ...[
                       const SizedBox(height: 4),
-                      Text(entry['details'].toString(), style: Theme.of(context).textTheme.bodySmall),
+                      Text(
+                        entry['details'].toString(),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                     ],
                   ],
                 ),
@@ -558,7 +864,10 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(entry.key, style: Theme.of(context).textTheme.labelMedium),
+                  Text(
+                    entry.key,
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
                   const SizedBox(height: 2),
                   SelectableText('${entry.value}'),
                 ],

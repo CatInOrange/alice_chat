@@ -58,12 +58,14 @@ class TavernCharacter {
       tags: ((json['tags'] as List?) ?? const <dynamic>[])
           .map((item) => item.toString())
           .toList(growable: false),
-      alternateGreetings: ((json['alternateGreetings'] as List?) ?? const <dynamic>[])
+      alternateGreetings: ((json['alternateGreetings'] as List?) ??
+              const <dynamic>[])
           .map((item) => item.toString())
           .toList(growable: false),
       creatorNotes: (json['creatorNotes'] ?? '').toString(),
       systemPrompt: (json['systemPrompt'] ?? '').toString(),
-      postHistoryInstructions: (json['postHistoryInstructions'] ?? '').toString(),
+      postHistoryInstructions:
+          (json['postHistoryInstructions'] ?? '').toString(),
       creator: (json['creator'] ?? '').toString(),
       characterVersion: (json['characterVersion'] ?? '').toString(),
       extensions: Map<String, dynamic>.from(
@@ -87,6 +89,9 @@ class TavernChat {
     required this.title,
     this.presetId = '',
     this.personaId = '',
+    this.authorNoteEnabled = false,
+    this.authorNote = '',
+    this.authorNoteDepth = 4,
     this.createdAt,
     this.updatedAt,
   });
@@ -96,6 +101,9 @@ class TavernChat {
   final String title;
   final String presetId;
   final String personaId;
+  final bool authorNoteEnabled;
+  final String authorNote;
+  final int authorNoteDepth;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -106,6 +114,9 @@ class TavernChat {
       title: (json['title'] ?? '').toString(),
       presetId: (json['presetId'] ?? '').toString(),
       personaId: (json['personaId'] ?? '').toString(),
+      authorNoteEnabled: json['authorNoteEnabled'] == true,
+      authorNote: (json['authorNote'] ?? '').toString(),
+      authorNoteDepth: (json['authorNoteDepth'] as num?)?.toInt() ?? 4,
       createdAt: _parseDate(json['createdAt']),
       updatedAt: _parseDate(json['updatedAt']),
     );
@@ -158,6 +169,12 @@ class TavernPreset {
     this.topP = 1,
     this.maxTokens = 0,
     this.stopSequences = const <String>[],
+    this.topK = 0,
+    this.minP = 0,
+    this.typicalP = 1,
+    this.repetitionPenalty = 1,
+    this.createdAt,
+    this.updatedAt,
   });
 
   final String id;
@@ -175,6 +192,12 @@ class TavernPreset {
   final double topP;
   final int maxTokens;
   final List<String> stopSequences;
+  final int topK;
+  final double minP;
+  final double typicalP;
+  final double repetitionPenalty;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
 
   factory TavernPreset.fromJson(Map<String, dynamic> json) {
     return TavernPreset(
@@ -186,7 +209,8 @@ class TavernPreset {
       storyString: (json['storyString'] ?? '').toString(),
       chatStart: (json['chatStart'] ?? '').toString(),
       exampleSeparator: (json['exampleSeparator'] ?? '').toString(),
-      storyStringPosition: (json['storyStringPosition'] ?? 'in_prompt').toString(),
+      storyStringPosition:
+          (json['storyStringPosition'] ?? 'in_prompt').toString(),
       storyStringDepth: (json['storyStringDepth'] as num?)?.toInt() ?? 1,
       storyStringRole: (json['storyStringRole'] ?? 'system').toString(),
       temperature: (json['temperature'] as num?)?.toDouble() ?? 1,
@@ -195,33 +219,57 @@ class TavernPreset {
       stopSequences: ((json['stopSequences'] as List?) ?? const <dynamic>[])
           .map((item) => item.toString())
           .toList(growable: false),
+      topK: (json['topK'] as num?)?.toInt() ?? 0,
+      minP: (json['minP'] as num?)?.toDouble() ?? 0,
+      typicalP: (json['typicalP'] as num?)?.toDouble() ?? 1,
+      repetitionPenalty: (json['repetitionPenalty'] as num?)?.toDouble() ?? 1,
+      createdAt: _parseDate(json['createdAt']),
+      updatedAt: _parseDate(json['updatedAt']),
     );
   }
 
   TavernPreset copyWith({
+    String? name,
     String? provider,
     String? model,
     String? promptOrderId,
     String? storyString,
     String? chatStart,
     String? exampleSeparator,
+    String? storyStringPosition,
+    int? storyStringDepth,
+    String? storyStringRole,
+    double? temperature,
+    double? topP,
+    int? topK,
+    double? minP,
+    double? typicalP,
+    double? repetitionPenalty,
+    int? maxTokens,
+    List<String>? stopSequences,
   }) {
     return TavernPreset(
       id: id,
-      name: name,
+      name: name ?? this.name,
       provider: provider ?? this.provider,
       model: model ?? this.model,
       promptOrderId: promptOrderId ?? this.promptOrderId,
       storyString: storyString ?? this.storyString,
       chatStart: chatStart ?? this.chatStart,
       exampleSeparator: exampleSeparator ?? this.exampleSeparator,
-      storyStringPosition: storyStringPosition,
-      storyStringDepth: storyStringDepth,
-      storyStringRole: storyStringRole,
-      temperature: temperature,
-      topP: topP,
-      maxTokens: maxTokens,
-      stopSequences: stopSequences,
+      storyStringPosition: storyStringPosition ?? this.storyStringPosition,
+      storyStringDepth: storyStringDepth ?? this.storyStringDepth,
+      storyStringRole: storyStringRole ?? this.storyStringRole,
+      temperature: temperature ?? this.temperature,
+      topP: topP ?? this.topP,
+      maxTokens: maxTokens ?? this.maxTokens,
+      stopSequences: stopSequences ?? this.stopSequences,
+      topK: topK ?? this.topK,
+      minP: minP ?? this.minP,
+      typicalP: typicalP ?? this.typicalP,
+      repetitionPenalty: repetitionPenalty ?? this.repetitionPenalty,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
     );
   }
 }
@@ -253,15 +301,132 @@ class TavernPromptOrder {
   const TavernPromptOrder({
     required this.id,
     required this.name,
+    this.items = const <TavernPromptOrderItem>[],
+    this.createdAt,
+    this.updatedAt,
   });
 
   final String id;
   final String name;
+  final List<TavernPromptOrderItem> items;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
 
   factory TavernPromptOrder.fromJson(Map<String, dynamic> json) {
     return TavernPromptOrder(
       id: (json['id'] ?? '').toString(),
       name: (json['name'] ?? '').toString(),
+      items: (((json['items'] as List?) ?? const <dynamic>[]).whereType<Map>())
+          .map(
+            (item) =>
+                TavernPromptOrderItem.fromJson(Map<String, dynamic>.from(item)),
+          )
+          .toList(growable: false),
+      createdAt: _parseDate(json['createdAt']),
+      updatedAt: _parseDate(json['updatedAt']),
+    );
+  }
+}
+
+class TavernPromptOrderItem {
+  const TavernPromptOrderItem({
+    this.identifier = '',
+    this.blockId = '',
+    this.enabled = true,
+    this.orderIndex = 0,
+    this.position = 'after_system',
+    this.depth,
+  });
+
+  final String identifier;
+  final String blockId;
+  final bool enabled;
+  final int orderIndex;
+  final String position;
+  final int? depth;
+
+  factory TavernPromptOrderItem.fromJson(Map<String, dynamic> json) {
+    return TavernPromptOrderItem(
+      identifier: (json['identifier'] ?? '').toString(),
+      blockId: (json['block_id'] ?? json['blockId'] ?? '').toString(),
+      enabled: json['enabled'] != false,
+      orderIndex:
+          (json['order_index'] as num?)?.toInt() ??
+          (json['orderIndex'] as num?)?.toInt() ??
+          0,
+      position: (json['position'] ?? 'after_system').toString(),
+      depth: (json['depth'] as num?)?.toInt(),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      if (identifier.isNotEmpty) 'identifier': identifier,
+      if (blockId.isNotEmpty) 'block_id': blockId,
+      'enabled': enabled,
+      'order_index': orderIndex,
+      'position': position,
+      if (depth != null) 'depth': depth,
+    };
+  }
+
+  TavernPromptOrderItem copyWith({
+    String? identifier,
+    String? blockId,
+    bool? enabled,
+    int? orderIndex,
+    String? position,
+    int? depth,
+    bool clearDepth = false,
+  }) {
+    return TavernPromptOrderItem(
+      identifier: identifier ?? this.identifier,
+      blockId: blockId ?? this.blockId,
+      enabled: enabled ?? this.enabled,
+      orderIndex: orderIndex ?? this.orderIndex,
+      position: position ?? this.position,
+      depth: clearDepth ? null : (depth ?? this.depth),
+    );
+  }
+}
+
+class TavernPromptBlock {
+  const TavernPromptBlock({
+    required this.id,
+    required this.name,
+    this.enabled = true,
+    this.content = '',
+    this.kind = 'custom',
+    this.injectionMode = 'position',
+    this.depth,
+    this.roleScope = 'global',
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String name;
+  final bool enabled;
+  final String content;
+  final String kind;
+  final String injectionMode;
+  final int? depth;
+  final String roleScope;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  factory TavernPromptBlock.fromJson(Map<String, dynamic> json) {
+    return TavernPromptBlock(
+      id: (json['id'] ?? '').toString(),
+      name: (json['name'] ?? '').toString(),
+      enabled: json['enabled'] != false,
+      content: (json['content'] ?? '').toString(),
+      kind: (json['kind'] ?? 'custom').toString(),
+      injectionMode: (json['injectionMode'] ?? 'position').toString(),
+      depth: (json['depth'] as num?)?.toInt(),
+      roleScope: (json['roleScope'] ?? 'global').toString(),
+      createdAt: _parseDate(json['createdAt']),
+      updatedAt: _parseDate(json['updatedAt']),
     );
   }
 }
@@ -346,6 +511,61 @@ class TavernWorldBook {
       name: (json['name'] ?? '').toString(),
       description: (json['description'] ?? '').toString(),
       enabled: json['enabled'] != false,
+      createdAt: _parseDate(json['createdAt']),
+      updatedAt: _parseDate(json['updatedAt']),
+    );
+  }
+}
+
+class TavernWorldBookEntry {
+  const TavernWorldBookEntry({
+    required this.id,
+    required this.worldbookId,
+    this.keys = const <String>[],
+    this.secondaryKeys = const <String>[],
+    this.content = '',
+    this.enabled = true,
+    this.priority = 0,
+    this.recursive = false,
+    this.constant = false,
+    this.insertionPosition = 'before_chat_history',
+    this.groupName = '',
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String worldbookId;
+  final List<String> keys;
+  final List<String> secondaryKeys;
+  final String content;
+  final bool enabled;
+  final int priority;
+  final bool recursive;
+  final bool constant;
+  final String insertionPosition;
+  final String groupName;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  factory TavernWorldBookEntry.fromJson(Map<String, dynamic> json) {
+    return TavernWorldBookEntry(
+      id: (json['id'] ?? '').toString(),
+      worldbookId: (json['worldbookId'] ?? '').toString(),
+      keys: ((json['keys'] as List?) ?? const <dynamic>[])
+          .map((item) => item.toString())
+          .toList(growable: false),
+      secondaryKeys: ((json['secondaryKeys'] as List?) ?? const <dynamic>[])
+          .map((item) => item.toString())
+          .toList(growable: false),
+      content: (json['content'] ?? '').toString(),
+      enabled: json['enabled'] != false,
+      priority: (json['priority'] as num?)?.toInt() ?? 0,
+      recursive: json['recursive'] == true,
+      constant: json['constant'] == true,
+      insertionPosition:
+          (json['insertionPosition'] ?? 'before_chat_history').toString(),
+      groupName: (json['groupName'] ?? '').toString(),
       createdAt: _parseDate(json['createdAt']),
       updatedAt: _parseDate(json['updatedAt']),
     );
