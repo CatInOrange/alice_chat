@@ -21,6 +21,24 @@ class TavernChatScreen extends StatefulWidget {
   State<TavernChatScreen> createState() => _TavernChatScreenState();
 }
 
+class _NarrationSegment {
+  const _NarrationSegment(this.text)
+    : isNarration = false,
+      openBracket = '',
+      closeBracket = '';
+
+  const _NarrationSegment.narration({
+    required this.text,
+    required this.openBracket,
+    required this.closeBracket,
+  }) : isNarration = true;
+
+  final String text;
+  final bool isNarration;
+  final String openBracket;
+  final String closeBracket;
+}
+
 class _TavernChatScreenState extends State<TavernChatScreen> {
   final TextEditingController _inputController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
@@ -225,8 +243,11 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       itemBuilder: (context, index) {
         final message = _messages[index];
         final isUser = message.role == 'user';
+        final bubbleMaxWidth = MediaQuery.of(context).size.width * 0.72;
         final bubble = ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
+          constraints: BoxConstraints(
+            maxWidth: bubbleMaxWidth < 560 ? bubbleMaxWidth : 560,
+          ),
           child: Container(
             decoration: BoxDecoration(
               color:
@@ -294,9 +315,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.end,
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Flexible(child: bubble),
-              ],
+              children: [bubble],
             ),
           );
         }
@@ -364,14 +383,12 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     final normalized = text.trim();
     if (normalized.isEmpty) return const SizedBox.shrink();
     if (!isUser && _isNarrationMessage(normalized)) {
-      return Text(
-        normalized,
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-          color: const Color(0xFF667085),
-          fontStyle: FontStyle.italic,
-          height: 1.4,
-        ),
-      );
+      return _buildNarrationText(normalized);
+    }
+    if (!isUser &&
+        !_containsPotentialMarkdown(normalized) &&
+        _containsNarrationSegment(normalized)) {
+      return _buildInlineNarrationRichText(normalized);
     }
     return _buildMarkdownText(
       normalized,
@@ -379,10 +396,152 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     );
   }
 
+  Widget _buildNarrationText(String text) {
+    final trimmed = text.trim();
+    final isCn = trimmed.startsWith('（') && trimmed.endsWith('）');
+    final open = isCn ? '（' : '(';
+    final close = isCn ? '）' : ')';
+    final inner = trimmed.substring(1, trimmed.length - 1).trim();
+    const bracketColor = Color(0xFFB8A7E8);
+    const contentColor = Color(0xFF7B6D9D);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF6F1FF),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text.rich(
+        TextSpan(
+          children: [
+            TextSpan(
+              text: open,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: bracketColor,
+                fontStyle: FontStyle.italic,
+                fontWeight: FontWeight.w600,
+                height: 1.45,
+              ),
+            ),
+            TextSpan(
+              text: inner,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: contentColor,
+                fontStyle: FontStyle.italic,
+                fontWeight: FontWeight.w500,
+                height: 1.45,
+              ),
+            ),
+            TextSpan(
+              text: close,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: bracketColor,
+                fontStyle: FontStyle.italic,
+                fontWeight: FontWeight.w600,
+                height: 1.45,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInlineNarrationRichText(String text) {
+    final baseStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(
+          color: const Color(0xFF1F2430),
+          height: 1.4,
+          fontWeight: FontWeight.w500,
+        ) ??
+        const TextStyle(
+          color: Color(0xFF1F2430),
+          height: 1.4,
+          fontWeight: FontWeight.w500,
+        );
+    const bracketColor = Color(0xFFB8A7E8);
+    const contentColor = Color(0xFF7B6D9D);
+    final spans = <InlineSpan>[];
+    for (final segment in _parseNarrationSegments(text)) {
+      if (!segment.isNarration) {
+        spans.add(TextSpan(text: segment.text, style: baseStyle));
+        continue;
+      }
+      spans.add(
+        TextSpan(
+          text: segment.openBracket,
+          style: baseStyle.copyWith(
+            color: bracketColor,
+            fontStyle: FontStyle.italic,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+      spans.add(
+        TextSpan(
+          text: segment.text,
+          style: baseStyle.copyWith(
+            color: contentColor,
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+      );
+      spans.add(
+        TextSpan(
+          text: segment.closeBracket,
+          style: baseStyle.copyWith(
+            color: bracketColor,
+            fontStyle: FontStyle.italic,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+    }
+    return Text.rich(TextSpan(children: spans));
+  }
+
   bool _isNarrationMessage(String text) {
     final trimmed = text.trim();
     return (trimmed.startsWith('(') && trimmed.endsWith(')')) ||
         (trimmed.startsWith('（') && trimmed.endsWith('）'));
+  }
+
+  bool _containsNarrationSegment(String text) {
+    return RegExp(r'(\([^\n()]+\)|（[^\n（）]+）)').hasMatch(text);
+  }
+
+  bool _containsPotentialMarkdown(String text) {
+    return RegExp(r'[`*_#\[\]~-]|^>|^\d+\.\s|^-\s', multiLine: true)
+        .hasMatch(text);
+  }
+
+  List<_NarrationSegment> _parseNarrationSegments(String text) {
+    final pattern = RegExp(r'(\([^\n()]+\)|（[^\n（）]+）)');
+    final segments = <_NarrationSegment>[];
+    var cursor = 0;
+    for (final match in pattern.allMatches(text)) {
+      if (match.start > cursor) {
+        segments.add(
+          _NarrationSegment(text.substring(cursor, match.start)),
+        );
+      }
+      final raw = match.group(0) ?? '';
+      if (raw.length >= 2) {
+        segments.add(
+          _NarrationSegment.narration(
+            text: raw.substring(1, raw.length - 1),
+            openBracket: raw.substring(0, 1),
+            closeBracket: raw.substring(raw.length - 1),
+          ),
+        );
+      } else {
+        segments.add(_NarrationSegment(raw));
+      }
+      cursor = match.end;
+    }
+    if (cursor < text.length) {
+      segments.add(_NarrationSegment(text.substring(cursor)));
+    }
+    return segments;
   }
 
   String _formatMessageTime(DateTime time) {

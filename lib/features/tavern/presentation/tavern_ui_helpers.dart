@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 const String tavernDefaultAvatarAssetPath =
-    'assets/avatars/tavern_default.jpg';
+    'assets/avatars/tavern_default.png';
 
 Widget buildTavernAvatar({
   required String avatarPath,
