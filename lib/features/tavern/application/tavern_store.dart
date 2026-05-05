@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 
 import '../data/repositories/tavern_repository.dart';
@@ -100,7 +102,7 @@ class TavernStore extends ChangeNotifier {
       late final TavernCharacter character;
       if (lower.endsWith('.json')) {
         final payload = _repository.parseCharacterJsonText(
-          String.fromCharCodes(bytes),
+          utf8.decode(bytes),
         );
         character = await _repository.importCharacterJson(
           filename: filename,
