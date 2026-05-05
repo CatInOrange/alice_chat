@@ -93,6 +93,9 @@ class TavernService:
     def get_character(self, character_id: str) -> dict[str, Any] | None:
         return self.store.get_character(character_id)
 
+    def delete_character(self, character_id: str) -> bool:
+        return self.store.delete_character(character_id)
+
     # Worldbook
     def create_worldbook(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self.store.create_worldbook(payload)
@@ -156,6 +159,9 @@ class TavernService:
 
     def get_chat(self, chat_id: str) -> dict[str, Any] | None:
         return self.store.get_chat(chat_id)
+
+    def delete_chat(self, chat_id: str) -> bool:
+        return self.store.delete_chat(chat_id)
 
     def update_chat(self, chat_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
         return self.store.update_chat(chat_id, payload)

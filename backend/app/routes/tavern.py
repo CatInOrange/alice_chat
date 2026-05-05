@@ -76,6 +76,13 @@ def create_tavern_router(context: AppContext) -> APIRouter:
             return JSONResponse(status_code=404, content={'ok': False, 'error': 'character not found'})
         return {'ok': True, 'character': character}
 
+    @router.delete('/api/tavern/characters/{character_id}')
+    async def delete_tavern_character(character_id: str):
+        deleted = service.delete_character(character_id)
+        if not deleted:
+            return JSONResponse(status_code=404, content={'ok': False, 'error': 'character not found'})
+        return {'ok': True}
+
     @router.get('/api/tavern/worldbooks')
     async def list_worldbooks():
         return {'ok': True, 'worldbooks': service.list_worldbooks()}
@@ -184,6 +191,13 @@ def create_tavern_router(context: AppContext) -> APIRouter:
         if chat is None:
             raise HTTPException(status_code=404, detail='chat not found')
         return {'ok': True, 'chat': chat}
+
+    @router.delete('/api/tavern/chats/{chat_id}')
+    async def delete_chat(chat_id: str):
+        deleted = service.delete_chat(chat_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail='chat not found')
+        return {'ok': True}
 
     @router.put('/api/tavern/chats/{chat_id}')
     async def update_chat(chat_id: str, body: dict):

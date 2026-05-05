@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -10,6 +9,7 @@ import '../../../../core/openclaw/openclaw_settings.dart';
 import '../application/tavern_store.dart';
 import '../domain/tavern_models.dart';
 import 'tavern_chat_screen.dart';
+import 'tavern_ui_helpers.dart';
 
 const List<String> _promptBlockKinds = <String>[
   'system',
@@ -92,7 +92,7 @@ class _TavernScreenState extends State<TavernScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       context.read<TavernStore>().loadCharacters();
@@ -156,6 +156,7 @@ class _TavernScreenState extends State<TavernScreen>
           controller: _tabController,
           isScrollable: true,
           tabs: const [
+            Tab(text: '会话'),
             Tab(text: '角色'),
             Tab(text: 'Presets'),
             Tab(text: 'Prompt Blocks'),
@@ -169,6 +170,7 @@ class _TavernScreenState extends State<TavernScreen>
         child: TabBarView(
           controller: _tabController,
           children: [
+            _buildChatsTab(context, store),
             _buildCharactersTab(context, store),
             _buildPresetsTab(context, store),
             _buildPromptBlocksTab(context, store),
@@ -180,37 +182,82 @@ class _TavernScreenState extends State<TavernScreen>
     );
   }
 
-  Widget _buildCharactersTab(BuildContext context, TavernStore store) {
+  Widget _buildChatsTab(BuildContext context, TavernStore store) {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Text('最近会话', style: Theme.of(context).textTheme.titleMedium),
+        _buildOverviewCard(context, store),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            Expanded(
+              child: Text('最近会话', style: Theme.of(context).textTheme.titleMedium),
+            ),
+            TextButton.icon(
+              onPressed: () => _tabController.animateTo(1),
+              icon: const Icon(Icons.people_outline),
+              label: const Text('去角色页'),
+            ),
+          ],
+        ),
         const SizedBox(height: 8),
         if (store.recentChats.isEmpty)
           const Card(
             child: ListTile(
+              leading: Icon(Icons.chat_bubble_outline),
               title: Text('还没有 Tavern 会话'),
-              subtitle: Text('导入角色后可以直接开聊。'),
+              subtitle: Text('去角色页选择角色后就能开始聊天。'),
             ),
           )
         else
-          ...store.recentChats
-              .take(8)
-              .map(
-                (chat) => Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.chat_bubble_outline),
-                    title: Text(chat.title),
-                    subtitle: Text(chat.id),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => _openExistingChat(chat),
+          ...store.recentChats.take(20).map(
+            (chat) {
+              final character = store.characters.cast<TavernCharacter?>().firstWhere(
+                (item) => item?.id == chat.characterId,
+                orElse: () => null,
+              );
+              final subtitle = chat.title.trim().isNotEmpty
+                  ? chat.title
+                  : (character?.name.isNotEmpty == true ? character!.name : chat.id);
+              return Card(
+                child: ListTile(
+                  leading: buildTavernAvatar(
+                    avatarPath: character?.avatarPath ?? '',
+                    serverBaseUrl: _serverBaseUrl,
                   ),
+                  title: Text(character?.name ?? '未知角色'),
+                  subtitle: Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _openExistingChat(chat),
+                  onLongPress: () => _confirmDeleteChat(context, chat, character),
                 ),
-              ),
-        const SizedBox(height: 20),
-        _buildOverviewCard(context, store),
-        const SizedBox(height: 20),
-        Text('角色', style: Theme.of(context).textTheme.titleMedium),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  Widget _buildCharactersTab(BuildContext context, TavernStore store) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text('角色', style: Theme.of(context).textTheme.titleMedium),
+            ),
+            TextButton.icon(
+              onPressed: _isImporting ? null : _importCharacter,
+              icon: const Icon(Icons.file_upload_outlined),
+              label: const Text('导入'),
+            ),
+          ],
+        ),
         const SizedBox(height: 8),
         if (store.isLoading)
           const Padding(
@@ -229,14 +276,17 @@ class _TavernScreenState extends State<TavernScreen>
           const Card(
             child: ListTile(
               title: Text('还没有角色'),
-              subtitle: Text('一期主路径是导入 JSON / PNG / CharX 角色卡。'),
+              subtitle: Text('支持导入 JSON / PNG / CharX 角色卡。'),
             ),
           )
         else
           ...store.characters.map(
             (character) => Card(
               child: ListTile(
-                leading: _buildAvatar(character.avatarPath),
+                leading: buildTavernAvatar(
+                  avatarPath: character.avatarPath,
+                  serverBaseUrl: _serverBaseUrl,
+                ),
                 title: Text(character.name),
                 subtitle: Text(
                   character.description.isNotEmpty
@@ -247,6 +297,7 @@ class _TavernScreenState extends State<TavernScreen>
                 ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _startChatWithCharacter(character),
+                onLongPress: () => _confirmDeleteCharacter(context, character),
               ),
             ),
           ),
@@ -820,6 +871,121 @@ class _TavernScreenState extends State<TavernScreen>
     } catch (exc) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(content: Text('打开会话失败：$exc')));
+    }
+  }
+
+  Future<void> _confirmDeleteChat(
+    BuildContext context,
+    TavernChat chat,
+    TavernCharacter? character,
+  ) async {
+    if (!mounted) return;
+    final store = context.read<TavernStore>();
+    final messenger = ScaffoldMessenger.of(context);
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+              title: const Text('删除会话'),
+              subtitle: Text(character?.name ?? chat.title),
+              onTap: () => Navigator.of(context).pop(true),
+            ),
+            const ListTile(
+              leading: Icon(Icons.close),
+              title: Text('取消'),
+            ),
+          ],
+        ),
+      ),
+    );
+    // ignore: use_build_context_synchronously
+    if (confirmed != true || !mounted) return;
+    final doubleConfirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认删除会话？'),
+        content: Text('删除后，该会话里的消息也会一并移除。\n\n${character?.name ?? chat.title}'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (doubleConfirmed != true || !mounted) return;
+    try {
+      await store.deleteChat(chat.id);
+      if (!mounted) return;
+      messenger.showSnackBar(const SnackBar(content: Text('会话已删除')));
+    } catch (exc) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('删除会话失败：$exc')));
+    }
+  }
+
+  Future<void> _confirmDeleteCharacter(
+    BuildContext context,
+    TavernCharacter character,
+  ) async {
+    if (!mounted) return;
+    final store = context.read<TavernStore>();
+    final messenger = ScaffoldMessenger.of(context);
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+              title: const Text('删除角色'),
+              subtitle: Text(character.name),
+              onTap: () => Navigator.of(context).pop(true),
+            ),
+            const ListTile(
+              leading: Icon(Icons.close),
+              title: Text('取消'),
+            ),
+          ],
+        ),
+      ),
+    );
+    // ignore: use_build_context_synchronously
+    if (confirmed != true || !mounted) return;
+    final doubleConfirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认删除角色？'),
+        content: Text('删除角色后，会连带删除该角色下的所有会话与消息。\n\n${character.name}'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (doubleConfirmed != true || !mounted) return;
+    try {
+      await store.deleteCharacter(character.id);
+      if (!mounted) return;
+      messenger.showSnackBar(const SnackBar(content: Text('角色已删除')));
+    } catch (exc) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('删除角色失败：$exc')));
     }
   }
 
@@ -1574,6 +1740,13 @@ class _TavernScreenState extends State<TavernScreen>
       ...(promptOrder?.items ?? const <TavernPromptOrderItem>[]),
     ]..sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
     bool saving = false;
+    DateTime? lastReorderAt;
+
+    bool shouldIgnoreTap() {
+      final at = lastReorderAt;
+      if (at == null) return false;
+      return DateTime.now().difference(at).inMilliseconds < 280;
+    }
 
     Future<void> addItem(StateSetter setModalState) async {
       final selected = await showModalBottomSheet<TavernPromptOrderItem>(
@@ -1689,6 +1862,7 @@ class _TavernScreenState extends State<TavernScreen>
                               itemCount: items.length,
                               onReorder: (oldIndex, newIndex) {
                                 setModalState(() {
+                                  lastReorderAt = DateTime.now();
                                   if (newIndex > oldIndex) newIndex -= 1;
                                   final item = items.removeAt(oldIndex);
                                   items.insert(newIndex, item);
@@ -1735,18 +1909,20 @@ class _TavernScreenState extends State<TavernScreen>
                                             Switch(
                                               value: item.enabled,
                                               onChanged:
-                                                  (value) => setModalState(() {
-                                                    items[index] = item
-                                                        .copyWith(
-                                                          enabled: value,
-                                                        );
-                                                  }),
+                                                  (value) {
+                                                    if (shouldIgnoreTap()) return;
+                                                    setModalState(() {
+                                                      items[index] = item.copyWith(
+                                                        enabled: value,
+                                                      );
+                                                    });
+                                                  },
                                             ),
                                             IconButton(
-                                              onPressed:
-                                                  () => setModalState(
-                                                    () => items.removeAt(index),
-                                                  ),
+                                              onPressed: () {
+                                                if (shouldIgnoreTap()) return;
+                                                setModalState(() => items.removeAt(index));
+                                              },
                                               icon: const Icon(
                                                 Icons.delete_outline,
                                               ),
@@ -2490,29 +2666,6 @@ class _TavernScreenState extends State<TavernScreen>
     );
   }
 
-  Widget _buildAvatar(String avatarPath) {
-    final trimmed = avatarPath.trim();
-    if (trimmed.isEmpty) {
-      return const CircleAvatar(child: Icon(Icons.person_outline));
-    }
-    if (trimmed.startsWith('/uploads/')) {
-      final url =
-          _serverBaseUrl == null || _serverBaseUrl!.isEmpty
-              ? null
-              : '$_serverBaseUrl$trimmed';
-      if (url != null) {
-        return CircleAvatar(
-          backgroundImage: NetworkImage(url),
-          onBackgroundImageError: (_, __) {},
-        );
-      }
-    }
-    final file = File(trimmed);
-    if (file.existsSync()) {
-      return CircleAvatar(backgroundImage: FileImage(file));
-    }
-    return const CircleAvatar(child: Icon(Icons.person_outline));
-  }
 }
 
 class _BuiltinPromptOrderOption {

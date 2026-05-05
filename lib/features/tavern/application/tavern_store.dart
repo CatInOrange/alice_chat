@@ -145,6 +145,15 @@ class TavernStore extends ChangeNotifier {
     return _repository.getCharacter(characterId);
   }
 
+  Future<void> deleteCharacter(String characterId) async {
+    await _repository.deleteCharacter(characterId);
+    _characters = _characters.where((item) => item.id != characterId).toList(growable: false);
+    _recentChats = _recentChats
+        .where((item) => item.characterId != characterId)
+        .toList(growable: false);
+    notifyListeners();
+  }
+
   Future<TavernChat> getChat(String chatId) {
     return _repository.getChat(chatId);
   }
@@ -167,6 +176,12 @@ class TavernStore extends ChangeNotifier {
 
   Future<List<TavernMessage>> listChatMessages(String chatId) {
     return _repository.listChatMessages(chatId);
+  }
+
+  Future<void> deleteChat(String chatId) async {
+    await _repository.deleteChat(chatId);
+    _recentChats = _recentChats.where((item) => item.id != chatId).toList(growable: false);
+    notifyListeners();
   }
 
   Future<Map<String, dynamic>> sendMessage({

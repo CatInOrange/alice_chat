@@ -85,6 +85,12 @@ class TavernRepository {
     );
   }
 
+  Future<void> deleteCharacter(String characterId) async {
+    final config = await OpenClawSettingsStore.load();
+    final client = OpenClawHttpClient(config);
+    await client.deleteJson('/api/tavern/characters/$characterId');
+  }
+
   Future<TavernChat> getChat(String chatId) async {
     final response = await _getJson('/api/tavern/chats/$chatId');
     return TavernChat.fromJson(
@@ -102,6 +108,12 @@ class TavernRepository {
     return TavernChat.fromJson(
       Map<String, dynamic>.from(response['chat'] as Map),
     );
+  }
+
+  Future<void> deleteChat(String chatId) async {
+    final config = await OpenClawSettingsStore.load();
+    final client = OpenClawHttpClient(config);
+    await client.deleteJson('/api/tavern/chats/$chatId');
   }
 
   Future<List<TavernMessage>> listChatMessages(String chatId) async {

@@ -353,6 +353,38 @@ class TavernStore:
             row = conn.execute("SELECT * FROM tavern_characters WHERE id=? LIMIT 1", (character_id,)).fetchone()
             return self._row_to_character(row) if row is not None else None
 
+    def delete_character(self, character_id: str) -> bool:
+        self.ensure_schema()
+        with connect(self.db) as conn:
+            existing = conn.execute(
+                "SELECT id FROM tavern_characters WHERE id=? LIMIT 1",
+                (character_id,),
+            ).fetchone()
+            if existing is None:
+                return False
+            chat_rows = conn.execute(
+                "SELECT id FROM tavern_chats WHERE character_id=?",
+                (character_id,),
+            ).fetchall()
+            chat_ids = [row['id'] for row in chat_rows]
+            if chat_ids:
+                placeholders = ','.join('?' for _ in chat_ids)
+                conn.execute(
+                    f"DELETE FROM tavern_messages WHERE chat_id IN ({placeholders})",
+                    tuple(chat_ids),
+                )
+                conn.execute(
+                    f"DELETE FROM tavern_chats WHERE id IN ({placeholders})",
+                    tuple(chat_ids),
+                )
+            conn.execute(
+                "DELETE FROM tavern_character_lore_bindings WHERE character_id=?",
+                (character_id,),
+            )
+            conn.execute("DELETE FROM tavern_characters WHERE id=?", (character_id,))
+            conn.commit()
+        return True
+
     def update_character_import_fields(self, character_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
         current = self.get_character(character_id)
         if current is None:
@@ -750,6 +782,20 @@ class TavernStore:
         with connect(self.db) as conn:
             row = conn.execute("SELECT * FROM tavern_chats WHERE id=? LIMIT 1", (chat_id,)).fetchone()
             return self._row_to_chat(row) if row is not None else None
+
+    def delete_chat(self, chat_id: str) -> bool:
+        self.ensure_schema()
+        with connect(self.db) as conn:
+            existing = conn.execute(
+                "SELECT id FROM tavern_chats WHERE id=? LIMIT 1",
+                (chat_id,),
+            ).fetchone()
+            if existing is None:
+                return False
+            conn.execute("DELETE FROM tavern_messages WHERE chat_id=?", (chat_id,))
+            conn.execute("DELETE FROM tavern_chats WHERE id=?", (chat_id,))
+            conn.commit()
+        return True
 
     def update_chat(self, chat_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
         self.ensure_schema()

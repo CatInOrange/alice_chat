@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/openclaw/openclaw_settings.dart';
 import '../application/tavern_store.dart';
 import '../domain/tavern_models.dart';
+import 'tavern_ui_helpers.dart';
 
 class TavernChatScreen extends StatefulWidget {
   const TavernChatScreen({
@@ -81,9 +83,9 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       appBar: AppBar(
         actions: [
           IconButton(
-            tooltip: 'Author Note',
-            onPressed: _editAuthorNote,
-            icon: const Icon(Icons.sticky_note_2_outlined),
+            tooltip: '会话设置',
+            onPressed: _showChatOptions,
+            icon: const Icon(Icons.tune),
           ),
           IconButton(
             tooltip: 'Prompt Debug',
@@ -98,16 +100,30 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                     : const Icon(Icons.bug_report_outlined),
           ),
         ],
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
+        title: Row(
           children: [
-            Text(_character.name),
-            if (_character.scenario.isNotEmpty)
-              Text(
-                _character.scenario,
-                style: Theme.of(context).textTheme.bodySmall,
+            buildTavernAvatar(
+              avatarPath: _character.avatarPath,
+              serverBaseUrl: _serverBaseUrl,
+              radius: 18,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_character.name),
+                  if (_character.scenario.isNotEmpty)
+                    Text(
+                      _character.scenario,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                ],
               ),
+            ),
           ],
         ),
       ),
@@ -128,7 +144,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           ).scaffoldBackgroundColor.withValues(alpha: 0.9),
           child: Column(
             children: [
-              _buildPresetBar(context),
+              _buildCompactInfoBar(context),
               Expanded(child: _buildBody(context)),
               SafeArea(
                 top: false,
@@ -185,53 +201,100 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(
+          child: _buildMarkdownText(
             _character.firstMessage.isNotEmpty
                 ? _character.firstMessage
                 : '还没有消息，开始聊吧。',
-            style: Theme.of(context).textTheme.bodyLarge,
-            textAlign: TextAlign.center,
           ),
         ),
       );
     }
     return ListView.builder(
       controller: _scrollController,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
       itemCount: _messages.length,
       itemBuilder: (context, index) {
         final message = _messages[index];
         final isUser = message.role == 'user';
-        return Align(
-          alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 520),
-            child: Card(
-              color:
-                  isUser
-                      ? Theme.of(context).colorScheme.primaryContainer
-                      : null,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment:
-                      isUser
-                          ? CrossAxisAlignment.end
-                          : CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isUser ? '你' : _character.name,
-                      style: Theme.of(context).textTheme.labelMedium,
-                    ),
-                    const SizedBox(height: 4),
-                    SelectableText(message.content),
-                  ],
-                ),
+        final bubble = ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Card(
+            color:
+                isUser
+                    ? Theme.of(context).colorScheme.primaryContainer
+                    : Theme.of(context).colorScheme.surface,
+            margin: EdgeInsets.zero,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment:
+                    isUser
+                        ? CrossAxisAlignment.end
+                        : CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isUser ? '你' : _character.name,
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                  const SizedBox(height: 6),
+                  _buildMarkdownText(message.content),
+                ],
               ),
             ),
           ),
         );
+        if (isUser) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Flexible(child: bubble),
+              ],
+            ),
+          );
+        }
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              buildTavernAvatar(
+                avatarPath: _character.avatarPath,
+                serverBaseUrl: _serverBaseUrl,
+                radius: 18,
+              ),
+              const SizedBox(width: 10),
+              Flexible(child: bubble),
+            ],
+          ),
+        );
       },
+    );
+  }
+
+  Widget _buildMarkdownText(String text) {
+    final normalized = text.trim();
+    if (normalized.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return MarkdownBody(
+      data: normalized,
+      selectable: true,
+      softLineBreak: true,
+      styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+        p: Theme.of(context).textTheme.bodyMedium,
+        codeblockDecoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        blockquoteDecoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(8),
+        ),
+      ),
+      onTapLink: (_, href, __) {},
     );
   }
 
@@ -268,105 +331,144 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     }
   }
 
-  Widget _buildPresetBar(BuildContext context) {
-    final messenger = ScaffoldMessenger.of(context);
+  Widget _buildCompactInfoBar(BuildContext context) {
     final store = context.watch<TavernStore>();
-    final presets = store.presets;
     final effectivePreset = _effectivePreset(store);
-    final providerLabel = _providerLabel(effectivePreset);
+    final presetLabel = effectivePreset?.name ?? '默认 Preset';
     final promptOrderLabel = _promptOrderLabel(store, effectivePreset);
     return Material(
       color: Theme.of(
         context,
-      ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.tune, size: 18),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: DropdownButtonFormField<String>(
-                    value:
-                        presets.any((item) => item.id == _selectedPresetId)
-                            ? _selectedPresetId
-                            : null,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      isDense: true,
-                      labelText: 'Preset',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: [
-                      const DropdownMenuItem<String>(
-                        value: '',
-                        child: Text(
-                          '跟随默认 Preset',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      ...presets.map(
-                        (preset) => DropdownMenuItem<String>(
-                          value: preset.id,
-                          child: Text(
-                            preset.name,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ),
-                    ],
-                    onChanged:
-                        presets.isEmpty
-                            ? null
-                            : (value) async {
-                              final next = (value ?? '').isEmpty ? null : value;
-                              setState(() {
-                                _selectedPresetId = next;
-                              });
-                              try {
-                                final updated = await context
-                                    .read<TavernStore>()
-                                    .updateChat(
-                                      chatId: _chat.id,
-                                      payload: {'presetId': next ?? ''},
-                                    );
-                                if (!mounted) return;
-                                setState(() {
-                                  _chat = updated;
-                                });
-                              } catch (exc) {
-                                if (!mounted) return;
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    content: Text('保存会话 Preset 失败：$exc'),
-                                  ),
-                                );
-                              }
-                            },
-                  ),
+      ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.28),
+      child: InkWell(
+        onTap: _showChatOptions,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          child: Row(
+            children: [
+              const Icon(Icons.tune, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '$presetLabel · $promptOrderLabel',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium,
                 ),
-              ],
-            ),
-            if (effectivePreset != null) ...[
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _debugChip('Provider', providerLabel),
-                    _debugChip('PromptOrder', promptOrderLabel),
+              ),
+              const SizedBox(width: 8),
+              const Icon(Icons.expand_more, size: 18),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showChatOptions() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final store = context.read<TavernStore>();
+    final presets = store.presets;
+    final effectivePreset = _effectivePreset(store);
+    final providerLabel = _providerLabel(effectivePreset);
+    final promptOrderLabel = _promptOrderLabel(store, effectivePreset);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('会话设置', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value:
+                    presets.any((item) => item.id == _selectedPresetId)
+                        ? _selectedPresetId
+                        : null,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  isDense: true,
+                  labelText: 'Preset',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: '',
+                    child: Text('跟随默认 Preset'),
+                  ),
+                  ...presets.map(
+                    (preset) => DropdownMenuItem<String>(
+                      value: preset.id,
+                      child: Text(
+                        preset.name,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ],
+                onChanged:
+                    presets.isEmpty
+                        ? null
+                        : (value) async {
+                          final next = (value ?? '').isEmpty ? null : value;
+                          Navigator.of(context).pop();
+                          setState(() {
+                            _selectedPresetId = next;
+                          });
+                          try {
+                            final updated = await this.context
+                                .read<TavernStore>()
+                                .updateChat(
+                                  chatId: _chat.id,
+                                  payload: {'presetId': next ?? ''},
+                                );
+                            if (!mounted) return;
+                            setState(() {
+                              _chat = updated;
+                            });
+                          } catch (exc) {
+                            if (!mounted) return;
+                            messenger.showSnackBar(
+                              SnackBar(
+                                content: Text('保存会话 Preset 失败：$exc'),
+                              ),
+                            );
+                          }
+                        },
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _debugChip('Provider', providerLabel),
+                  _debugChip('PromptOrder', promptOrderLabel),
+                  if (effectivePreset != null) ...[
                     _debugChip('Story', effectivePreset.storyStringPosition),
                     _debugChip('Role', effectivePreset.storyStringRole),
                     _debugChip('Depth', '${effectivePreset.storyStringDepth}'),
                   ],
+                ],
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.sticky_note_2_outlined),
+                title: const Text('Author Note'),
+                subtitle: Text(
+                  _chat.authorNoteEnabled ? '已启用 · depth ${_chat.authorNoteDepth}' : '未启用',
                 ),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _editAuthorNote();
+                },
               ),
             ],
-          ],
+          ),
         ),
       ),
     );
