@@ -92,7 +92,7 @@ class _TavernScreenState extends State<TavernScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 6, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       context.read<TavernStore>().loadCharacters();
@@ -123,11 +123,19 @@ class _TavernScreenState extends State<TavernScreen>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final message = store.lastImportMessage;
-      if (!mounted || message == null || message.isEmpty) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
-      context.read<TavernStore>().clearImportMessage();
+      final importResult = store.lastImportResult;
+      if (!mounted) return;
+      if (message != null && message.isNotEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
+      }
+      if (importResult != null) {
+        _showImportReport(importResult);
+      }
+      if ((message != null && message.isNotEmpty) || importResult != null) {
+        context.read<TavernStore>().clearImportMessage();
+      }
     });
 
     return Scaffold(
@@ -154,14 +162,10 @@ class _TavernScreenState extends State<TavernScreen>
         ],
         bottom: TabBar(
           controller: _tabController,
-          isScrollable: true,
           tabs: const [
             Tab(text: '会话'),
             Tab(text: '角色'),
-            Tab(text: 'Presets'),
-            Tab(text: 'Prompt Blocks'),
-            Tab(text: 'Prompt Order'),
-            Tab(text: 'WorldBooks'),
+            Tab(text: '配置'),
           ],
         ),
       ),
@@ -172,10 +176,7 @@ class _TavernScreenState extends State<TavernScreen>
           children: [
             _buildChatsTab(context, store),
             _buildCharactersTab(context, store),
-            _buildPresetsTab(context, store),
-            _buildPromptBlocksTab(context, store),
-            _buildPromptOrdersTab(context, store),
-            _buildWorldBooksTab(context, store),
+            _buildConfigHubTab(context, store),
           ],
         ),
       ),
@@ -296,7 +297,7 @@ class _TavernScreenState extends State<TavernScreen>
                   overflow: TextOverflow.ellipsis,
                 ),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => _startChatWithCharacter(character),
+                onTap: () => _showCharacterDetail(character),
                 onLongPress: () => _confirmDeleteCharacter(context, character),
               ),
             ),
@@ -305,104 +306,52 @@ class _TavernScreenState extends State<TavernScreen>
     );
   }
 
-  Widget _buildPresetsTab(BuildContext context, TavernStore store) {
+  Widget _buildConfigHubTab(BuildContext context, TavernStore store) {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Presets',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-            ),
-            FilledButton.icon(
-              onPressed: () => _editPreset(context),
-              icon: const Icon(Icons.add),
-              label: const Text('新增'),
-            ),
-          ],
+        Text('配置中心', style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 6),
+        Text(
+          '把不常改的 Tavern 能力都收进这里，聊天页保持干净。',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: 16),
+        _settingsEntryCard(
+          context,
+          icon: Icons.auto_awesome_outlined,
+          title: 'Presets',
+          subtitle: '模型参数、Prompt Order 绑定、采样配置',
+          trailingText: '${store.presets.length}',
+          onTap: () => _showPresetsManager(context, store),
         ),
         const SizedBox(height: 12),
-        if (store.presets.isEmpty)
-          const Card(
-            child: ListTile(
-              title: Text('还没有 Preset'),
-              subtitle: Text('可以创建多套模型参数和 Prompt 组合。'),
-            ),
-          )
-        else
-          ...store.presets.map(
-            (preset) => Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            preset.name,
-                            style: Theme.of(context).textTheme.titleSmall,
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: '复制 Preset',
-                          onPressed: () => _duplicatePreset(context, preset),
-                          icon: const Icon(Icons.copy_outlined),
-                        ),
-                        IconButton(
-                          tooltip: '编辑 Preset',
-                          onPressed: () => _editPreset(context, preset: preset),
-                          icon: const Icon(Icons.edit_outlined),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _chip(
-                          'Provider',
-                          preset.provider.isEmpty ? '默认' : preset.provider,
-                        ),
-                        _chip(
-                          'Model',
-                          preset.model.isEmpty ? '默认' : preset.model,
-                        ),
-                        _chip(
-                          'Prompt Order',
-                          _promptOrderName(store, preset.promptOrderId),
-                        ),
-                        _chip('Temp', preset.temperature.toStringAsFixed(2)),
-                        _chip('TopP', preset.topP.toStringAsFixed(2)),
-                        _chip('TopK', '${preset.topK}'),
-                        _chip('MinP', preset.minP.toStringAsFixed(2)),
-                        _chip('TypicalP', preset.typicalP.toStringAsFixed(2)),
-                        _chip(
-                          'Repeat',
-                          preset.repetitionPenalty.toStringAsFixed(2),
-                        ),
-                        _chip('MaxTokens', '${preset.maxTokens}'),
-                        _chip('Story', preset.storyStringPosition),
-                        _chip('Role', preset.storyStringRole),
-                        _chip('Depth', '${preset.storyStringDepth}'),
-                      ],
-                    ),
-                    if (preset.stopSequences.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        'Stop Sequences: ${preset.stopSequences.join(' · ')}',
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ),
+        _settingsEntryCard(
+          context,
+          icon: Icons.reorder_outlined,
+          title: 'Prompt Order',
+          subtitle: '管理语义块顺序与开关，像 Native 一样收成单独页',
+          trailingText: '${store.promptOrders.length}',
+          onTap: () => _showPromptOrdersManager(context, store),
+        ),
+        const SizedBox(height: 12),
+        _settingsEntryCard(
+          context,
+          icon: Icons.view_stream_outlined,
+          title: 'Prompt Blocks',
+          subtitle: '管理 system / persona / custom blocks',
+          trailingText: '${store.promptBlocks.length}',
+          onTap: () => _showPromptBlocksManager(context, store),
+        ),
+        const SizedBox(height: 12),
+        _settingsEntryCard(
+          context,
+          icon: Icons.public_outlined,
+          title: 'WorldBooks',
+          subtitle: '世界书与条目管理，含 sticky / cooldown / delay',
+          trailingText: '${store.worldBooks.length}',
+          onTap: () => _showWorldBooksManager(context, store),
+        ),
       ],
     );
   }
@@ -723,6 +672,204 @@ class _TavernScreenState extends State<TavernScreen>
     );
   }
 
+  Widget _settingsEntryCard(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+    String? trailingText,
+  }) {
+    return Card(
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        leading: Icon(icon),
+        title: Text(title),
+        subtitle: Text(subtitle),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (trailingText != null) ...[
+              Text(
+                trailingText,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: const Color(0xFF7D8596),
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
+            const Icon(Icons.chevron_right),
+          ],
+        ),
+        onTap: onTap,
+      ),
+    );
+  }
+
+  Future<void> _showPresetsManager(BuildContext context, TavernStore store) async {
+    final navigator = Navigator.of(context);
+    await navigator.push(
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(
+            title: const Text('Presets'),
+            actions: [
+              IconButton(
+                tooltip: '新增 Preset',
+                onPressed: () => _editPreset(context),
+                icon: const Icon(Icons.add),
+              ),
+            ],
+          ),
+          body: _buildPresetsTab(context, store),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await this.context.read<TavernStore>().loadHome();
+  }
+
+  Future<void> _showPromptBlocksManager(BuildContext context, TavernStore store) async {
+    final navigator = Navigator.of(context);
+    await navigator.push(
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(
+            title: const Text('Prompt Blocks'),
+            actions: [
+              IconButton(
+                tooltip: '新增 Prompt Block',
+                onPressed: () => _editPromptBlock(context),
+                icon: const Icon(Icons.add),
+              ),
+            ],
+          ),
+          body: _buildPromptBlocksTab(context, store),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await this.context.read<TavernStore>().loadHome();
+  }
+
+  Future<void> _showPromptOrdersManager(BuildContext context, TavernStore store) async {
+    final navigator = Navigator.of(context);
+    await navigator.push(
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(
+            title: const Text('Prompt Order'),
+            actions: [
+              IconButton(
+                tooltip: '新增 Prompt Order',
+                onPressed: () => _editPromptOrder(context),
+                icon: const Icon(Icons.add),
+              ),
+            ],
+          ),
+          body: _buildPromptOrdersTab(context, store),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await this.context.read<TavernStore>().loadHome();
+  }
+
+  Future<void> _showWorldBooksManager(BuildContext context, TavernStore store) async {
+    final navigator = Navigator.of(context);
+    await navigator.push(
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(
+            title: const Text('WorldBooks'),
+            actions: [
+              IconButton(
+                tooltip: '新增 WorldBook',
+                onPressed: () => _editWorldBook(context),
+                icon: const Icon(Icons.add),
+              ),
+            ],
+          ),
+          body: _buildWorldBooksTab(context, store),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await this.context.read<TavernStore>().loadHome();
+  }
+
+  Widget _buildPresetsTab(BuildContext context, TavernStore store) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        if (store.presets.isEmpty)
+          const Card(
+            child: ListTile(
+              title: Text('还没有 Preset'),
+              subtitle: Text('可以创建多套模型参数和 Prompt 组合。'),
+            ),
+          )
+        else
+          ...store.presets.map(
+            (preset) => Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            preset.name,
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '复制 Preset',
+                          onPressed: () => _duplicatePreset(context, preset),
+                          icon: const Icon(Icons.copy_outlined),
+                        ),
+                        IconButton(
+                          tooltip: '编辑 Preset',
+                          onPressed: () => _editPreset(context, preset: preset),
+                          icon: const Icon(Icons.edit_outlined),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _chip('Provider', preset.provider.isEmpty ? '默认' : preset.provider),
+                        _chip('Model', preset.model.isEmpty ? '默认' : preset.model),
+                        _chip('Prompt Order', _promptOrderName(store, preset.promptOrderId)),
+                        _chip('Temp', preset.temperature.toStringAsFixed(2)),
+                        _chip('TopP', preset.topP.toStringAsFixed(2)),
+                        _chip('TopK', '${preset.topK}'),
+                        _chip('MinP', preset.minP.toStringAsFixed(2)),
+                        _chip('TypicalP', preset.typicalP.toStringAsFixed(2)),
+                        _chip('Repeat', preset.repetitionPenalty.toStringAsFixed(2)),
+                        _chip('MaxTokens', '${preset.maxTokens}'),
+                        _chip('Story', preset.storyStringPosition),
+                        _chip('Role', preset.storyStringRole),
+                        _chip('Depth', '${preset.storyStringDepth}'),
+                      ],
+                    ),
+                    if (preset.stopSequences.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text('Stop Sequences: ${preset.stopSequences.join(' · ')}'),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
   Future<void> _importCharacter() async {
     final messenger = ScaffoldMessenger.of(context);
     final source = await showModalBottomSheet<String>(
@@ -794,12 +941,11 @@ class _TavernScreenState extends State<TavernScreen>
 
     try {
       setState(() => _isImporting = true);
-      final character = await store.importCharacterFile(
+      await store.importCharacterFile(
         filename: filename,
         bytes: bytes,
       );
       if (!mounted) return;
-      await _startChatWithCharacter(character);
     } catch (exc) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(content: Text('导入失败：$exc')));
@@ -808,6 +954,53 @@ class _TavernScreenState extends State<TavernScreen>
         setState(() => _isImporting = false);
       }
     }
+  }
+
+  Future<void> _showImportReport(TavernCharacterImportResult result) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: FractionallySizedBox(
+          heightFactor: 0.88,
+          child: _CharacterImportReportSheet(
+            character: result.character,
+            warnings: result.warnings,
+            serverBaseUrl: _serverBaseUrl,
+            onStartChat: () async {
+              Navigator.of(context).pop();
+              await _startChatWithCharacter(result.character);
+            },
+            onViewDetail: () async {
+              Navigator.of(context).pop();
+              await _showCharacterDetail(result.character);
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showCharacterDetail(TavernCharacter character) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: FractionallySizedBox(
+          heightFactor: 0.9,
+          child: _CharacterDetailSheet(
+            character: character,
+            serverBaseUrl: _serverBaseUrl,
+            onStartChat: () async {
+              Navigator.of(context).pop();
+              await _startChatWithCharacter(character);
+            },
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _startChatWithCharacter(TavernCharacter character) async {
@@ -860,7 +1053,7 @@ class _TavernScreenState extends State<TavernScreen>
     final store = context.read<TavernStore>();
     final messenger = ScaffoldMessenger.of(context);
     final confirmed = await showModalBottomSheet<bool>(
-      context: context,
+      context: this.context,
       builder: (context) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -879,10 +1072,9 @@ class _TavernScreenState extends State<TavernScreen>
         ),
       ),
     );
-    // ignore: use_build_context_synchronously
     if (confirmed != true || !mounted) return;
     final doubleConfirmed = await showDialog<bool>(
-      context: context,
+      context: this.context,
       builder: (context) => AlertDialog(
         title: const Text('确认删除会话？'),
         content: Text('删除后，该会话里的消息也会一并移除。\n\n${character?.name ?? chat.title}'),
@@ -917,7 +1109,7 @@ class _TavernScreenState extends State<TavernScreen>
     final store = context.read<TavernStore>();
     final messenger = ScaffoldMessenger.of(context);
     final confirmed = await showModalBottomSheet<bool>(
-      context: context,
+      context: this.context,
       builder: (context) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -938,7 +1130,7 @@ class _TavernScreenState extends State<TavernScreen>
     );
     if (confirmed != true || !mounted) return;
     final doubleConfirmed = await showDialog<bool>(
-      context: context,
+      context: this.context,
       builder: (context) => AlertDialog(
         title: const Text('确认删除 Prompt Block？'),
         content: Text('删除后，会从所有 Prompt Order 中移除该块引用。\n\n${block.name}'),
@@ -973,7 +1165,7 @@ class _TavernScreenState extends State<TavernScreen>
     final store = context.read<TavernStore>();
     final messenger = ScaffoldMessenger.of(context);
     final confirmed = await showModalBottomSheet<bool>(
-      context: context,
+      context: this.context,
       builder: (context) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -994,7 +1186,7 @@ class _TavernScreenState extends State<TavernScreen>
     );
     if (confirmed != true || !mounted) return;
     final doubleConfirmed = await showDialog<bool>(
-      context: context,
+      context: this.context,
       builder: (context) => AlertDialog(
         title: const Text('确认删除 WorldBook？'),
         content: Text('删除后，该世界书下的条目也会一并移除。\n\n${worldbook.name}'),
@@ -1029,7 +1221,7 @@ class _TavernScreenState extends State<TavernScreen>
     final store = context.read<TavernStore>();
     final messenger = ScaffoldMessenger.of(context);
     final confirmed = await showModalBottomSheet<bool>(
-      context: context,
+      context: this.context,
       builder: (context) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1048,10 +1240,9 @@ class _TavernScreenState extends State<TavernScreen>
         ),
       ),
     );
-    // ignore: use_build_context_synchronously
     if (confirmed != true || !mounted) return;
     final doubleConfirmed = await showDialog<bool>(
-      context: context,
+      context: this.context,
       builder: (context) => AlertDialog(
         title: const Text('确认删除角色？'),
         content: Text('删除角色后，会连带删除该角色下的所有会话与消息。\n\n${character.name}'),
@@ -1897,6 +2088,103 @@ class _TavernScreenState extends State<TavernScreen>
       });
     }
 
+    Future<void> editItem(StateSetter setModalState, int index) async {
+      final item = items[index];
+      String position = _promptOrderPositions.contains(item.position)
+          ? item.position
+          : _promptOrderPositions.first;
+      int depth = item.depth ?? 4;
+      bool enabled = item.enabled;
+
+      final updated = await showModalBottomSheet<TavernPromptOrderItem>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (context) => SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 8,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+            ),
+            child: StatefulBuilder(
+              builder: (context, setInnerState) => Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('配置 Item', style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 12),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('启用'),
+                    value: enabled,
+                    onChanged: (value) => setInnerState(() => enabled = value),
+                  ),
+                  DropdownButtonFormField<String>(
+                    value: position,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Position',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: _promptOrderPositions
+                        .map(
+                          (value) => DropdownMenuItem<String>(
+                            value: value,
+                            child: Text(value, overflow: TextOverflow.ellipsis),
+                          ),
+                        )
+                        .toList(growable: false),
+                    onChanged: (value) => setInnerState(() => position = value ?? 'after_system'),
+                  ),
+                  if (position == 'at_depth') ...[
+                    const SizedBox(height: 12),
+                    _intStepper(
+                      context,
+                      label: 'Depth',
+                      value: depth,
+                      min: 0,
+                      max: 12,
+                      onChanged: (value) => setInnerState(() => depth = value),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('取消'),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        onPressed: () {
+                          Navigator.of(context).pop(
+                            item.copyWith(
+                              enabled: enabled,
+                              position: position,
+                              depth: position == 'at_depth' ? depth : null,
+                              clearDepth: position != 'at_depth',
+                            ),
+                          );
+                        },
+                        child: const Text('保存'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      if (updated == null) return;
+      setModalState(() {
+        items[index] = updated;
+      });
+    }
+
     final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -1964,177 +2252,59 @@ class _TavernScreenState extends State<TavernScreen>
                               },
                               itemBuilder: (context, index) {
                                 final item = items[index];
-                                final label = _promptOrderItemLabel(
-                                  store,
-                                  item,
-                                );
+                                final label = _promptOrderItemLabel(store, item);
                                 return Card(
-                                  key: ValueKey(
-                                    '${item.identifier}:${item.blockId}:$index',
-                                  ),
+                                  key: ValueKey('${item.identifier}:${item.blockId}:$index'),
                                   margin: const EdgeInsets.symmetric(vertical: 4),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 8,
+                                  child: ListTile(
+                                    dense: true,
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                                    leading: ReorderableDragStartListener(
+                                      index: index,
+                                      child: const Icon(Icons.drag_indicator, size: 18),
                                     ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                                    title: Text(
+                                      label,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context).textTheme.titleSmall,
+                                    ),
+                                    subtitle: Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Wrap(
+                                        spacing: 6,
+                                        runSpacing: 6,
+                                        children: [
+                                          _chip('Pos', item.position),
+                                          if (item.position == 'at_depth') _chip('Depth', '${item.depth ?? 0}'),
+                                          _chip('State', item.enabled ? 'on' : 'off'),
+                                        ],
+                                      ),
+                                    ),
+                                    onTap: () {
+                                      if (shouldIgnoreTap()) return;
+                                      editItem(setModalState, index);
+                                    },
+                                    trailing: Row(
+                                      mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        Row(
-                                          children: [
-                                            ReorderableDragStartListener(
-                                              index: index,
-                                              child: const Padding(
-                                                padding: EdgeInsets.symmetric(horizontal: 2),
-                                                child: Icon(
-                                                  Icons.drag_indicator,
-                                                  size: 18,
-                                                ),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 6),
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment:
-                                                    CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    label,
-                                                    maxLines: 1,
-                                                    overflow: TextOverflow.ellipsis,
-                                                    style:
-                                                        Theme.of(
-                                                          context,
-                                                        ).textTheme.titleSmall,
-                                                  ),
-                                                  const SizedBox(height: 4),
-                                                  Wrap(
-                                                    spacing: 6,
-                                                    runSpacing: 6,
-                                                    children: [
-                                                      _chip('Pos', item.position),
-                                                      if (item.position == 'at_depth')
-                                                        _chip('Depth', '${item.depth ?? 0}'),
-                                                      _chip(
-                                                        'State',
-                                                        item.enabled ? 'on' : 'off',
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                            Switch(
-                                              materialTapTargetSize:
-                                                  MaterialTapTargetSize.shrinkWrap,
-                                              value: item.enabled,
-                                              onChanged:
-                                                  (value) {
-                                                    if (shouldIgnoreTap()) return;
-                                                    setModalState(() {
-                                                      items[index] = item.copyWith(
-                                                        enabled: value,
-                                                      );
-                                                    });
-                                                  },
-                                            ),
-                                            IconButton(
-                                              visualDensity: VisualDensity.compact,
-                                              onPressed: () {
-                                                if (shouldIgnoreTap()) return;
-                                                setModalState(() => items.removeAt(index));
-                                              },
-                                              icon: const Icon(
-                                                Icons.delete_outline,
-                                              ),
-                                            ),
-                                          ],
+                                        IconButton(
+                                          visualDensity: VisualDensity.compact,
+                                          tooltip: '配置',
+                                          onPressed: () {
+                                            if (shouldIgnoreTap()) return;
+                                            editItem(setModalState, index);
+                                          },
+                                          icon: const Icon(Icons.tune, size: 18),
                                         ),
-                                        const SizedBox(height: 8),
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: DropdownButtonFormField<
-                                                String
-                                              >(
-                                                isDense: true,
-                                                value:
-                                                    _promptOrderPositions
-                                                            .contains(
-                                                              item.position,
-                                                            )
-                                                        ? item.position
-                                                        : _promptOrderPositions
-                                                            .first,
-                                                decoration:
-                                                    const InputDecoration(
-                                                      labelText: 'Position',
-                                                      border:
-                                                          OutlineInputBorder(),
-                                                    ),
-                                                items: _promptOrderPositions
-                                                    .map(
-                                                      (position) =>
-                                                          DropdownMenuItem<
-                                                            String
-                                                          >(
-                                                            value: position,
-                                                            child: Text(
-                                                              position,
-                                                              overflow: TextOverflow.ellipsis,
-                                                            ),
-                                                          ),
-                                                    )
-                                                    .toList(growable: false),
-                                                onChanged:
-                                                    (
-                                                      value,
-                                                    ) => setModalState(() {
-                                                      items[index] = item.copyWith(
-                                                        position:
-                                                            value ??
-                                                            'after_system',
-                                                        clearDepth:
-                                                            (value ??
-                                                                'after_system') !=
-                                                            'at_depth',
-                                                      );
-                                                    }),
-                                              ),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            SizedBox(
-                                              width: 92,
-                                              child: TextFormField(
-                                                initialValue:
-                                                    '${item.depth ?? ''}',
-                                                enabled:
-                                                    item.position == 'at_depth',
-                                                keyboardType:
-                                                    TextInputType.number,
-                                                decoration:
-                                                    const InputDecoration(
-                                                      isDense: true,
-                                                      labelText: 'Depth',
-                                                      border:
-                                                          OutlineInputBorder(),
-                                                    ),
-                                                onChanged:
-                                                    (value) =>
-                                                        items[index] = item
-                                                            .copyWith(
-                                                              depth:
-                                                                  int.tryParse(
-                                                                    value,
-                                                                  ) ??
-                                                                  item.depth ??
-                                                                  0,
-                                                            ),
-                                              ),
-                                            ),
-                                          ],
+                                        IconButton(
+                                          visualDensity: VisualDensity.compact,
+                                          tooltip: '删除',
+                                          onPressed: () {
+                                            if (shouldIgnoreTap()) return;
+                                            setModalState(() => items.removeAt(index));
+                                          },
+                                          icon: const Icon(Icons.delete_outline, size: 18),
                                         ),
                                       ],
                                     ),
@@ -2929,6 +3099,401 @@ class _TavernScreenState extends State<TavernScreen>
     );
   }
 
+}
+
+class _CharacterImportReportSheet extends StatelessWidget {
+  const _CharacterImportReportSheet({
+    required this.character,
+    required this.warnings,
+    required this.serverBaseUrl,
+    required this.onStartChat,
+    required this.onViewDetail,
+  });
+
+  final TavernCharacter character;
+  final List<String> warnings;
+  final String? serverBaseUrl;
+  final Future<void> Function() onStartChat;
+  final Future<void> Function() onViewDetail;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final summary = _CharacterImportSummary.fromCharacter(character);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+          child: Row(
+            children: [
+              buildTavernAvatar(
+                avatarPath: character.avatarPath,
+                serverBaseUrl: serverBaseUrl,
+                useDefaultAssetFallback: true,
+                radius: 28,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('导入完成', style: theme.textTheme.titleLarge),
+                    const SizedBox(height: 4),
+                    Text(
+                      character.name,
+                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _ImportStatChip(label: '来源', value: character.sourceType.toUpperCase()),
+                  _ImportStatChip(label: '字段', value: '${summary.filledFieldCount}/${summary.totalFieldCount}'),
+                  _ImportStatChip(label: '问候', value: '${character.alternateGreetings.length}'),
+                  _ImportStatChip(label: 'Lore', value: summary.lorebookEntryCount > 0 ? '${summary.lorebookEntryCount} 条' : '无'),
+                  _ImportStatChip(label: '资产', value: summary.assetSummaryLabel),
+                ],
+              ),
+              const SizedBox(height: 16),
+              if (warnings.isNotEmpty) ...[
+                _ImportSectionCard(
+                  title: '导入警告',
+                  icon: Icons.warning_amber_rounded,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: warnings
+                        .map((item) => Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Text('• $item'),
+                            ))
+                        .toList(growable: false),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+              _ImportSectionCard(
+                title: '导入摘要',
+                icon: Icons.fact_check_outlined,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _kv('名称', character.name),
+                    _kv('首句', character.firstMessage),
+                    _kv('System Prompt', character.systemPrompt),
+                    _kv('Post-History', character.postHistoryInstructions),
+                    _kv('Creator Notes', character.creatorNotes),
+                    _kv('Alternate Greetings', character.alternateGreetings.isEmpty ? '' : '${character.alternateGreetings.length} 条'),
+                    _kv('Embedded Lorebook', summary.lorebookEntryCount > 0 ? '${summary.lorebookEntryCount} 条，已随角色导入' : ''),
+                    _kv('CharX 资产', summary.assetDetailLabel),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              _ImportSectionCard(
+                title: '下一步',
+                icon: Icons.rocket_launch_outlined,
+                child: Text(
+                  '你现在可以直接开始聊天，也可以先打开角色详情检查 system prompt、问候语、embedded lorebook 和资产摘要。',
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+          child: Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: onViewDetail,
+                  child: const Text('查看详情'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  onPressed: onStartChat,
+                  child: const Text('开始聊天'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _kv(String label, String value) {
+    if (value.trim().isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Text('• $label：未提供'),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text('• $label：$value'),
+    );
+  }
+}
+
+class _CharacterDetailSheet extends StatelessWidget {
+  const _CharacterDetailSheet({
+    required this.character,
+    required this.serverBaseUrl,
+    required this.onStartChat,
+  });
+
+  final TavernCharacter character;
+  final String? serverBaseUrl;
+  final Future<void> Function() onStartChat;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final summary = _CharacterImportSummary.fromCharacter(character);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+          child: Row(
+            children: [
+              buildTavernAvatar(
+                avatarPath: character.avatarPath,
+                serverBaseUrl: serverBaseUrl,
+                useDefaultAssetFallback: true,
+                radius: 32,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(character.name, style: theme.textTheme.titleLarge),
+                    const SizedBox(height: 4),
+                    Text(
+                      [
+                        if (character.creator.isNotEmpty) 'by ${character.creator}',
+                        if (character.characterVersion.isNotEmpty) 'v${character.characterVersion}',
+                        if (character.sourceType.isNotEmpty) character.sourceType.toUpperCase(),
+                      ].join(' · '),
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            children: [
+              if (character.tags.isNotEmpty) ...[
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: character.tags.map((tag) => Chip(label: Text(tag))).toList(growable: false),
+                ),
+                const SizedBox(height: 16),
+              ],
+              _ImportSectionCard(title: '基础信息', icon: Icons.badge_outlined, child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _detailBlock('Description', character.description),
+                  _detailBlock('Personality', character.personality),
+                  _detailBlock('Scenario', character.scenario),
+                  _detailBlock('First Message', character.firstMessage),
+                  _detailBlock('Example Dialogues', character.exampleDialogues),
+                ],
+              )),
+              const SizedBox(height: 12),
+              _ImportSectionCard(title: 'Prompt / Notes', icon: Icons.psychology_alt_outlined, child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _detailBlock('System Prompt', character.systemPrompt),
+                  _detailBlock('Post-History Instructions', character.postHistoryInstructions),
+                  _detailBlock('Creator Notes', character.creatorNotes),
+                ],
+              )),
+              const SizedBox(height: 12),
+              _ImportSectionCard(title: '问候与 Lore', icon: Icons.auto_stories_outlined, child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _detailBlock(
+                    'Alternate Greetings',
+                    character.alternateGreetings.isEmpty
+                        ? ''
+                        : character.alternateGreetings.asMap().entries.map((e) => '${e.key + 1}. ${e.value}').join('\n\n'),
+                  ),
+                  _detailBlock(
+                    'Embedded Lorebook',
+                    summary.lorebookEntryCount > 0
+                        ? '检测到 ${summary.lorebookEntryCount} 条 embedded lorebook entries，已作为角色附带知识导入。'
+                        : '',
+                  ),
+                ],
+              )),
+              const SizedBox(height: 12),
+              _ImportSectionCard(title: '资产摘要', icon: Icons.perm_media_outlined, child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _detailBlock('头像', character.avatarPath),
+                  _detailBlock('CharX 资源', summary.assetDetailLabel),
+                  _detailBlock('来源文件', character.sourceName),
+                ],
+              )),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+          child: SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: onStartChat,
+              child: const Text('用这个角色开始聊天'),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _detailBlock(String title, String value) {
+    if (value.trim().isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          Text(value),
+        ],
+      ),
+    );
+  }
+}
+
+class _ImportSectionCard extends StatelessWidget {
+  const _ImportSectionCard({
+    required this.title,
+    required this.icon,
+    required this.child,
+  });
+
+  final String title;
+  final IconData icon;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 18),
+                const SizedBox(width: 8),
+                Text(title, style: Theme.of(context).textTheme.titleSmall),
+              ],
+            ),
+            const SizedBox(height: 12),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ImportStatChip extends StatelessWidget {
+  const _ImportStatChip({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(label: Text('$label：$value'));
+  }
+}
+
+class _CharacterImportSummary {
+  const _CharacterImportSummary({
+    required this.filledFieldCount,
+    required this.totalFieldCount,
+    required this.lorebookEntryCount,
+    required this.assetSummaryLabel,
+    required this.assetDetailLabel,
+  });
+
+  final int filledFieldCount;
+  final int totalFieldCount;
+  final int lorebookEntryCount;
+  final String assetSummaryLabel;
+  final String assetDetailLabel;
+
+  factory _CharacterImportSummary.fromCharacter(TavernCharacter character) {
+    final fields = <String>[
+      character.description,
+      character.personality,
+      character.scenario,
+      character.firstMessage,
+      character.exampleDialogues,
+      character.systemPrompt,
+      character.postHistoryInstructions,
+      character.creatorNotes,
+      if (character.alternateGreetings.isNotEmpty) 'alt',
+      if (character.tags.isNotEmpty) 'tags',
+      if (character.avatarPath.isNotEmpty) 'avatar',
+    ];
+    final book = character.metadata['cardData'] is Map
+        ? (character.metadata['cardData'] as Map)['character_book']
+        : character.metadata['character_book'];
+    final entries = book is Map && book['entries'] is List ? (book['entries'] as List).length : 0;
+    final charxAssets = character.metadata['charxAssets'];
+    int sprites = 0;
+    int backgrounds = 0;
+    int misc = 0;
+    if (charxAssets is Map) {
+      sprites = (charxAssets['sprites'] as num?)?.toInt() ?? 0;
+      backgrounds = (charxAssets['backgrounds'] as num?)?.toInt() ?? 0;
+      misc = (charxAssets['misc'] as num?)?.toInt() ?? 0;
+    }
+    final assetSummary = sprites + backgrounds + misc > 0
+        ? '${sprites + backgrounds + misc} 项'
+        : (character.avatarPath.isNotEmpty ? '仅头像' : '无');
+    final parts = <String>[];
+    if (character.avatarPath.isNotEmpty) parts.add('头像已导入');
+    if (sprites > 0) parts.add('$sprites 个 sprite');
+    if (backgrounds > 0) parts.add('$backgrounds 个背景');
+    if (misc > 0) parts.add('$misc 个附加资源');
+    return _CharacterImportSummary(
+      filledFieldCount: fields.where((item) => item.trim().isNotEmpty).length,
+      totalFieldCount: 11,
+      lorebookEntryCount: entries,
+      assetSummaryLabel: assetSummary,
+      assetDetailLabel: parts.isEmpty ? '未检测到附加资源' : parts.join('，'),
+    );
+  }
 }
 
 class _BuiltinPromptOrderOption {

@@ -41,6 +41,175 @@ class _NarrationSegment {
   final String closeBracket;
 }
 
+class _TavernCharacterProfilePage extends StatelessWidget {
+  const _TavernCharacterProfilePage({
+    required this.character,
+    required this.serverBaseUrl,
+    required this.onStartChat,
+  });
+
+  final TavernCharacter character;
+  final String? serverBaseUrl;
+  final Future<void> Function() onStartChat;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('角色页')),
+      body: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+              child: Row(
+                children: [
+                  buildTavernAvatar(
+                    avatarPath: character.avatarPath,
+                    serverBaseUrl: serverBaseUrl,
+                    useDefaultAssetFallback: true,
+                    radius: 32,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(character.name, style: Theme.of(context).textTheme.titleLarge),
+                        const SizedBox(height: 4),
+                        Text(
+                          [
+                            if (character.creator.isNotEmpty) 'by ${character.creator}',
+                            if (character.characterVersion.isNotEmpty) 'v${character.characterVersion}',
+                            if (character.sourceType.isNotEmpty) character.sourceType.toUpperCase(),
+                          ].join(' · '),
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                children: [
+                  if (character.tags.isNotEmpty) ...[
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: character.tags.map((tag) => Chip(label: Text(tag))).toList(growable: false),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  _profileSectionCard(
+                    context,
+                    title: '基础信息',
+                    icon: Icons.badge_outlined,
+                    children: [
+                      _profileBlock(context, 'Description', character.description),
+                      _profileBlock(context, 'Personality', character.personality),
+                      _profileBlock(context, 'Scenario', character.scenario),
+                      _profileBlock(context, 'First Message', character.firstMessage),
+                      _profileBlock(context, 'Example Dialogues', character.exampleDialogues),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _profileSectionCard(
+                    context,
+                    title: 'Prompt / Notes',
+                    icon: Icons.psychology_alt_outlined,
+                    children: [
+                      _profileBlock(context, 'System Prompt', character.systemPrompt),
+                      _profileBlock(context, 'Post-History Instructions', character.postHistoryInstructions),
+                      _profileBlock(context, 'Creator Notes', character.creatorNotes),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  _profileSectionCard(
+                    context,
+                    title: '问候与 Lore',
+                    icon: Icons.auto_stories_outlined,
+                    children: [
+                      _profileBlock(
+                        context,
+                        'Alternate Greetings',
+                        character.alternateGreetings.isEmpty
+                            ? ''
+                            : character.alternateGreetings.asMap().entries.map((e) => '${e.key + 1}. ${e.value}').join('\n\n'),
+                      ),
+                      _profileBlock(
+                        context,
+                        '来源文件',
+                        character.sourceName,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: onStartChat,
+                  child: const Text('用这个角色开始聊天'),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _profileSectionCard(
+    BuildContext context, {
+    required String title,
+    required IconData icon,
+    required List<Widget> children,
+  }) {
+    final visible = children.where((w) => w is! SizedBox).toList(growable: false);
+    if (visible.isEmpty) return const SizedBox.shrink();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 18),
+                const SizedBox(width: 8),
+                Text(title, style: Theme.of(context).textTheme.titleSmall),
+              ],
+            ),
+            const SizedBox(height: 12),
+            ...visible,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _profileBlock(BuildContext context, String title, String value) {
+    if (value.trim().isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          Text(value),
+        ],
+      ),
+    );
+  }
+}
+
 class _TavernChatScreenState extends State<TavernChatScreen> {
   final TextEditingController _inputController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
@@ -53,7 +222,6 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   bool _stickToBottom = true;
   String? _error;
   String? _serverBaseUrl;
-  TavernPromptDebug? _latestPromptDebug;
   String? _selectedPresetId;
   String? _streamingAssistantMessageId;
   List<TavernMessage> _messages = const <TavernMessage>[];
@@ -183,22 +351,13 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       appBar: AppBar(
         actions: [
           IconButton(
-            tooltip: '剧情摘要',
-            onPressed: _showSummariesSheet,
-            icon: Badge(
-              isLabelVisible: _summaryItems().isNotEmpty,
-              label: Text('${_summaryItems().length}'),
-              child: const Icon(Icons.auto_stories_outlined),
-            ),
+            tooltip: '角色页',
+            onPressed: _openCharacterProfilePage,
+            icon: const Icon(Icons.account_box_outlined),
           ),
           IconButton(
             tooltip: '会话设置',
             onPressed: _showChatOptions,
-            icon: const Icon(Icons.tune),
-          ),
-          IconButton(
-            tooltip: 'Prompt Debug',
-            onPressed: _showPromptDebug,
             icon:
                 _isLoadingDebug
                     ? const SizedBox(
@@ -206,7 +365,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                       height: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                    : const Icon(Icons.bug_report_outlined),
+                    : const Icon(Icons.tune),
           ),
         ],
         title: Row(
@@ -255,8 +414,6 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           child: Column(
             children: [
               Expanded(child: _buildBody(context)),
-              _buildQuickActionsBar(),
-              _buildContextStatusBar(),
               if (_isRefreshing)
                 const LinearProgressIndicator(minHeight: 2),
               SafeArea(
@@ -376,20 +533,27 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                   ),
                   const SizedBox(height: 6),
                   _buildMessageContent(message.content, isUser: isUser),
-                  if (message.createdAt != null) ...[
+                  if (message.createdAt != null || (message.metadata['requestId'] ?? '').toString().isNotEmpty) ...[
                     const SizedBox(height: 8),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        _formatMessageTime(message.createdAt!),
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color:
-                              isUser
-                                  ? Colors.white.withValues(alpha: 0.72)
-                                  : const Color(0xFF98A1B3),
-                          fontSize: 11,
-                        ),
-                      ),
+                    Wrap(
+                      alignment: WrapAlignment.end,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        if ((message.metadata['requestId'] ?? '').toString().isNotEmpty)
+                          _messageMetaPill(
+                            isUser: isUser,
+                            icon: Icons.link_outlined,
+                            label: 'Req',
+                          ),
+                        if (message.createdAt != null)
+                          _messageMetaPill(
+                            isUser: isUser,
+                            icon: Icons.schedule_outlined,
+                            label: _formatMessageTime(message.createdAt!),
+                          ),
+                      ],
                     ),
                   ],
                 ],
@@ -639,12 +803,77 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     return '$hour:$minute';
   }
 
-  Future<void> _handleSend() async {
-    return _sendText(_inputController.text.trim());
+  Widget _messageMetaPill({
+    required bool isUser,
+    required IconData icon,
+    required String label,
+  }) {
+    final fg = isUser
+        ? Colors.white.withValues(alpha: 0.72)
+        : const Color(0xFF98A1B3);
+    final bg = isUser
+        ? Colors.white.withValues(alpha: 0.10)
+        : const Color(0xFFF4F6FA);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: fg),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: fg,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
-  Future<void> _sendQuickAction(String text) async {
-    await _sendText(text, replaceComposer: false);
+  Future<void> _openCharacterProfilePage() async {
+    final TavernCharacter currentCharacter = _character;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _TavernCharacterProfilePage(
+          character: currentCharacter,
+          serverBaseUrl: _serverBaseUrl,
+          onStartChat: () async {
+            Navigator.of(context).pop();
+            await _startFreshChatFromProfile(currentCharacter);
+          },
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await context.read<TavernStore>().loadHome();
+  }
+
+  Future<void> _startFreshChatFromProfile(TavernCharacter character) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final chat = await context.read<TavernStore>().createChatForCharacter(character);
+      if (!mounted) return;
+      await Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => TavernChatScreen(chat: chat, character: character),
+        ),
+      );
+    } catch (exc) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('创建会话失败：$exc')));
+    }
+  }
+
+  Future<void> _handleSend() async {
+    return _sendText(_inputController.text.trim());
   }
 
   Future<void> _sendText(String text, {bool replaceComposer = true}) async {
@@ -817,11 +1046,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     if (_isLoadingContextState) return;
     _isLoadingContextState = true;
     try {
-      final debug = await context.read<TavernStore>().getPromptDebug(_chat.id);
+      await context.read<TavernStore>().getPromptDebug(_chat.id);
       if (!mounted) return;
-      setState(() {
-        _latestPromptDebug = debug;
-      });
     } catch (_) {
       // keep stale state quietly
     } finally {
@@ -840,120 +1066,177 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         .toList(growable: false);
   }
 
-  Widget _buildQuickActionsBar() {
-    final actions = <({IconData icon, String label, String text})>[
-      (
-        icon: Icons.play_arrow_rounded,
-        label: '推进剧情',
-        text: '请继续推进当前剧情，保持人物设定一致，并自然引出下一步发展。',
-      ),
-      (
-        icon: Icons.favorite_outline,
-        label: '强化互动',
-        text: '请延续当前氛围，增强人物互动与情绪张力，但不要脱离现有剧情。',
-      ),
-      (
-        icon: Icons.explore_outlined,
-        label: '制造转折',
-        text: '请在不破坏角色设定的前提下，为当前剧情加入一个自然的新转折或新信息。',
-      ),
-    ];
+  Future<void> _showContextUsageSheet() async {
+    if (_isLoadingDebug) return;
+    setState(() => _isLoadingDebug = true);
+    try {
+      final debug = await context.read<TavernStore>().getPromptDebug(_chat.id);
+      if (!mounted) return;
 
-    return SizedBox(
-      height: 44,
-      child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
-        scrollDirection: Axis.horizontal,
-        itemBuilder: (context, index) {
-          final item = actions[index];
-          return ActionChip(
-            avatar: Icon(item.icon, size: 16),
-            label: Text(item.label),
-            onPressed: _isSending ? null : () => _sendQuickAction(item.text),
-          );
-        },
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemCount: actions.length,
-      ),
-    );
-  }
+      final contextUsage = debug.contextUsage;
+      final totalTokens = (contextUsage['totalTokens'] as num?)?.toInt() ?? 0;
+      final maxContext = (contextUsage['maxContext'] as num?)?.toInt() ?? 0;
+      final percent = maxContext > 0 ? (totalTokens / maxContext).clamp(0, 1).toDouble() : 0.0;
+      final trimPlan = contextUsage['meta'] is Map
+          ? (((contextUsage['meta'] as Map)['trimPlan'] as Map?) ?? const <String, dynamic>{})
+          : const <String, dynamic>{};
+      final overLimit = (trimPlan['overLimitTokens'] as num?)?.toInt() ?? 0;
+      final summarySettings = _chat.metadata['summarySettings'] is Map
+          ? Map<String, dynamic>.from(_chat.metadata['summarySettings'] as Map)
+          : const <String, dynamic>{};
+      final injectLatestOnly = summarySettings['injectLatestOnly'] != false;
+      final useRecentAfterLatest = summarySettings['useRecentMessagesAfterLatest'] != false;
+      final summaryBlocks = debug.blocks.where((b) => (b['kind'] ?? '').toString() == 'summary').length;
+      final matchedLore = debug.matchedWorldbookEntries.length;
+      final rejectedLore = debug.rejectedWorldbookEntries.length;
+      final suggestedCuts = ((trimPlan['suggestedCuts'] as List?) ?? const <dynamic>[]).whereType<Map>().length;
+      final color = overLimit > 0
+          ? Colors.red
+          : percent >= 0.85
+              ? Colors.orange
+              : percent >= 0.65
+                  ? Colors.amber
+                  : Colors.green;
 
-  Widget _buildContextStatusBar() {
-    final debug = _latestPromptDebug;
-    final contextUsage = debug?.contextUsage ?? const <String, dynamic>{};
-    final totalTokens = (contextUsage['totalTokens'] as num?)?.toInt() ?? 0;
-    final maxContext = (contextUsage['maxContext'] as num?)?.toInt() ?? 0;
-    final trimPlan = contextUsage['meta'] is Map
-        ? (((contextUsage['meta'] as Map)['trimPlan'] as Map?) ?? const <String, dynamic>{})
-        : const <String, dynamic>{};
-    final overLimit = (trimPlan['overLimitTokens'] as num?)?.toInt() ?? 0;
-    final summarySettings = _chat.metadata['summarySettings'] is Map
-        ? Map<String, dynamic>.from(_chat.metadata['summarySettings'] as Map)
-        : const <String, dynamic>{};
-    final injectLatestOnly = summarySettings['injectLatestOnly'] != false;
-    final summaryBlocks = debug?.blocks.where((b) => (b['kind'] ?? '').toString() == 'summary').length ?? 0;
-    final matchedLore = debug?.matchedWorldbookEntries.length ?? 0;
-    final rejectedLore = debug?.rejectedWorldbookEntries.length ?? 0;
-    final percent = maxContext > 0 ? (totalTokens / maxContext).clamp(0, 1).toDouble() : 0.0;
-    final statusColor = overLimit > 0
-        ? Colors.red
-        : percent >= 0.85
-            ? Colors.orange
-            : percent >= 0.65
-                ? Colors.amber
-                : Colors.green;
-
-    return Material(
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      child: InkWell(
-        onTap: _showPromptDebug,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(99),
-                      child: LinearProgressIndicator(
-                        value: percent,
-                        minHeight: 6,
-                        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-                        valueColor: AlwaysStoppedAnimation<Color>(statusColor),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    maxContext > 0 ? '$totalTokens / $maxContext' : '上下文加载中',
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: statusColor,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    _summaryMetaChip('摘要', summaryBlocks > 0 ? (injectLatestOnly ? '最新摘要接管' : '多摘要接管') : '未接管'),
-                    const SizedBox(width: 8),
-                    _summaryMetaChip('Lore', '$matchedLore 命中 / $rejectedLore 拦截'),
-                    const SizedBox(width: 8),
-                    _summaryMetaChip('裁剪', overLimit > 0 ? '超限 $overLimit tok' : '无超限'),
-                    const SizedBox(width: 8),
-                    _summaryMetaChip('模式', _chat.authorNoteEnabled ? 'AN 开' : 'AN 关'),
-                  ],
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (context) => SafeArea(
+          child: DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.72,
+            maxChildSize: 0.92,
+            minChildSize: 0.42,
+            builder: (context, controller) => ListView(
+              controller: controller,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              children: [
+                Text('上下文使用', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 6),
+                Text(
+                  '这是最近一次 prompt 构建快照，不是实时增长中的进度。',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
-              ),
-            ],
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerLow,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Theme.of(context).dividerColor.withValues(alpha: 0.3)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(99),
+                              child: LinearProgressIndicator(
+                                value: percent,
+                                minHeight: 8,
+                                backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                                valueColor: AlwaysStoppedAnimation<Color>(color),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            maxContext > 0 ? '${(percent * 100).toStringAsFixed(0)}%' : '-',
+                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              color: color,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _infoRow('总 Token', '$totalTokens'),
+                      _infoRow('最大上下文', '$maxContext'),
+                      _infoRow('超限 Token', '$overLimit'),
+                      _infoRow('建议裁剪数', '$suggestedCuts'),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _sectionCard(
+                  title: '当前策略 / 状态',
+                  subtitle: '把原来常驻在输入区上面的状态收进这里。',
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _summaryMetaChip('摘要', summaryBlocks > 0 ? (injectLatestOnly ? '最新摘要接管' : '多摘要接管') : '未接管'),
+                      _summaryMetaChip('历史模式', useRecentAfterLatest ? '摘要后 recent' : '全历史'),
+                      _summaryMetaChip('Lore', '$matchedLore 命中 / $rejectedLore 拦截'),
+                      _summaryMetaChip('裁剪', overLimit > 0 ? '超限 $overLimit tok' : '无超限'),
+                      _summaryMetaChip('模式', _chat.authorNoteEnabled ? 'AN 开' : 'AN 关'),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _sectionCard(
+                  title: '说明',
+                  subtitle: '为什么你之前会感觉它像“卡住了”。',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('• 这里显示的是最近一次 promptDebug 快照，不是实时进度。'),
+                      const SizedBox(height: 6),
+                      Text('• 如果刷新 debug 失败，界面会继续保留旧值，所以看起来像不动。'),
+                      const SizedBox(height: 6),
+                      Text('• 后端 worldbook 匹配本身有轮数上限，不像死循环。'),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.auto_awesome_motion_outlined),
+                  title: const Text('上下文 / 摘要策略'),
+                  subtitle: const Text('自动总结、注入模式、recent 历史保留'),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _editContextSummarySettings();
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.auto_stories_outlined),
+                  title: const Text('剧情摘要'),
+                  subtitle: Text(_summaryItems().isEmpty ? '当前还没有摘要' : '查看已生成的剧情摘要'),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _showSummariesSheet();
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.bug_report_outlined),
+                  title: const Text('Prompt Debug'),
+                  subtitle: const Text('查看完整 prompt / worldbook / runtime 明细'),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _showPromptDebug();
+                  },
+                ),
+              ],
+            ),
           ),
         ),
-      ),
-    );
+      );
+    } catch (exc) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('加载上下文使用失败：$exc')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingDebug = false);
+      }
+    }
   }
 
   Future<void> _showSummariesSheet() async {
@@ -1352,97 +1635,206 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     final presets = store.presets;
     await showModalBottomSheet<void>(
       context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+          children: [
+            Text('会话设置', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 6),
+            Text(
+              '聊天页只保留聊天本身；不常改的能力都收进这里。',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.account_box_outlined),
+              title: const Text('角色页'),
+              subtitle: const Text('查看角色详情、问候语、导入内容'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.of(context).pop();
+                _openCharacterProfilePage();
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.tune_outlined),
+              title: const Text('生成配置'),
+              subtitle: Text(
+                _selectedPresetId == null || _selectedPresetId!.isEmpty
+                    ? '当前跟随默认 Preset'
+                    : '当前 Preset 已单独指定',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.of(context).pop();
+                _showGenerationConfigSheet(presets: presets, messenger: messenger);
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.analytics_outlined),
+              title: const Text('上下文统计'),
+              subtitle: const Text('Context usage、摘要状态、裁剪情况'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.of(context).pop();
+                _showContextUsageSheet();
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.auto_stories_outlined),
+              title: const Text('剧情摘要'),
+              subtitle: Text(_summaryItems().isEmpty ? '当前还没有摘要' : '查看已生成摘要与闭环状态'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.of(context).pop();
+                _showSummariesSheet();
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.bug_report_outlined),
+              title: const Text('高级 / Prompt 调试'),
+              subtitle: const Text('Prompt Debug、WorldBook runtime、原始明细'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.of(context).pop();
+                _showAdvancedToolsSheet();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showGenerationConfigSheet({
+    required List<TavernPreset> presets,
+    required ScaffoldMessengerState messenger,
+  }) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
       isScrollControlled: true,
       builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('会话设置', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value:
-                    presets.any((item) => item.id == _selectedPresetId)
-                        ? _selectedPresetId
-                        : null,
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  isDense: true,
-                  labelText: 'Preset',
-                  border: OutlineInputBorder(),
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+          children: [
+            Text('生成配置', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 6),
+            Text(
+              '把常改项收成二级菜单，不在聊天主界面常驻。',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: presets.any((item) => item.id == _selectedPresetId) ? _selectedPresetId : null,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                isDense: true,
+                labelText: 'Preset',
+                border: OutlineInputBorder(),
+              ),
+              items: [
+                const DropdownMenuItem<String>(
+                  value: '',
+                  child: Text('跟随默认 Preset'),
                 ),
-                items: [
-                  const DropdownMenuItem<String>(
-                    value: '',
-                    child: Text('跟随默认 Preset'),
+                ...presets.map(
+                  (preset) => DropdownMenuItem<String>(
+                    value: preset.id,
+                    child: Text(preset.name, overflow: TextOverflow.ellipsis),
                   ),
-                  ...presets.map(
-                    (preset) => DropdownMenuItem<String>(
-                      value: preset.id,
-                      child: Text(
-                        preset.name,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
-                ],
-                onChanged:
-                    presets.isEmpty
-                        ? null
-                        : (value) async {
-                          final next = (value ?? '').isEmpty ? null : value;
-                          Navigator.of(context).pop();
-                          setState(() {
-                            _selectedPresetId = next;
-                          });
-                          try {
-                            final updated = await this.context
-                                .read<TavernStore>()
-                                .updateChat(
-                                  chatId: _chat.id,
-                                  payload: {'presetId': next ?? ''},
-                                );
-                            if (!mounted) return;
-                            setState(() {
-                              _chat = updated;
-                            });
-                          } catch (exc) {
-                            if (!mounted) return;
-                            messenger.showSnackBar(
-                              SnackBar(
-                                content: Text('保存会话 Preset 失败：$exc'),
-                              ),
-                            );
-                          }
-                        },
-              ),
-              const SizedBox(height: 12),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.auto_awesome_motion_outlined),
-                title: const Text('上下文 / 摘要策略'),
-                subtitle: const Text('自动总结、注入模式、recent 历史保留'),
-                onTap: () {
-                  Navigator.of(context).pop();
-                  _editContextSummarySettings();
-                },
-              ),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.sticky_note_2_outlined),
-                title: const Text('Author Note'),
-                subtitle: Text(
-                  _chat.authorNoteEnabled ? '已启用 · depth ${_chat.authorNoteDepth}' : '未启用',
                 ),
-                onTap: () {
-                  Navigator.of(context).pop();
-                  _editAuthorNote();
-                },
-              ),
-            ],
-          ),
+              ],
+              onChanged: presets.isEmpty
+                  ? null
+                  : (value) async {
+                      final next = (value ?? '').isEmpty ? null : value;
+                      Navigator.of(context).pop();
+                      setState(() {
+                        _selectedPresetId = next;
+                      });
+                      try {
+                        final updated = await this.context.read<TavernStore>().updateChat(
+                          chatId: _chat.id,
+                          payload: {'presetId': next ?? ''},
+                        );
+                        if (!mounted) return;
+                        setState(() {
+                          _chat = updated;
+                        });
+                      } catch (exc) {
+                        if (!mounted) return;
+                        messenger.showSnackBar(
+                          SnackBar(content: Text('保存会话 Preset 失败：$exc')),
+                        );
+                      }
+                    },
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.auto_awesome_motion_outlined),
+              title: const Text('上下文 / 摘要策略'),
+              subtitle: const Text('自动总结、注入模式、recent 历史保留'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.of(context).pop();
+                _editContextSummarySettings();
+              },
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.sticky_note_2_outlined),
+              title: const Text('Author Note'),
+              subtitle: Text(_chat.authorNoteEnabled ? '已启用 · depth ${_chat.authorNoteDepth}' : '未启用'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.of(context).pop();
+                _editAuthorNote();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showAdvancedToolsSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+          children: [
+            Text('高级 / 调试', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 6),
+            Text(
+              '这些都不该打断聊天，只在你需要时再进。',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.bug_report_outlined),
+              title: const Text('Prompt Debug'),
+              subtitle: const Text('完整 prompt / worldbook / runtime 明细'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.of(context).pop();
+                _showPromptDebug();
+              },
+            ),
+          ],
         ),
       ),
     );
