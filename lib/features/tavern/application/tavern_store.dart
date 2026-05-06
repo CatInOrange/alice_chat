@@ -27,6 +27,7 @@ class TavernStore extends ChangeNotifier {
   final Map<String, List<TavernWorldBookEntry>> _worldBookEntries =
       <String, List<TavernWorldBookEntry>>{};
   String? _lastImportMessage;
+  TavernCharacterImportResult? _lastImportResult;
   final Map<String, TavernChatCacheSnapshot> _chatSnapshots =
       <String, TavernChatCacheSnapshot>{};
 
@@ -40,6 +41,7 @@ class TavernStore extends ChangeNotifier {
   List<TavernPromptOrder> get promptOrders => _promptOrders;
   List<TavernPromptBlock> get promptBlocks => _promptBlocks;
   String? get lastImportMessage => _lastImportMessage;
+  TavernCharacterImportResult? get lastImportResult => _lastImportResult;
 
   List<TavernWorldBookEntry> worldBookEntriesOf(String worldbookId) =>
       _worldBookEntries[worldbookId] ?? const <TavernWorldBookEntry>[];
@@ -96,44 +98,47 @@ class TavernStore extends ChangeNotifier {
 
   Future<void> loadCharacters() => loadHome();
 
-  Future<TavernCharacter> importCharacterFile({
+  Future<TavernCharacterImportResult> importCharacterFile({
     required String filename,
     required Uint8List bytes,
   }) async {
     final lower = filename.toLowerCase();
     _error = null;
     _lastImportMessage = null;
+    _lastImportResult = null;
     notifyListeners();
     try {
-      late final TavernCharacter character;
+      late final TavernCharacterImportResult result;
       if (lower.endsWith('.json')) {
         final payload = _repository.parseCharacterJsonText(
           utf8.decode(bytes),
         );
-        character = await _repository.importCharacterJson(
+        result = await _repository.importCharacterJson(
           filename: filename,
           payload: payload,
         );
       } else if (lower.endsWith('.png')) {
-        character = await _repository.importCharacterPng(
+        result = await _repository.importCharacterPng(
           filename: filename,
           bytes: bytes,
         );
       } else if (lower.endsWith('.charx')) {
-        character = await _repository.importCharacterCharX(
+        result = await _repository.importCharacterCharX(
           filename: filename,
           bytes: bytes,
         );
       } else {
         throw UnsupportedError('仅支持导入 .json / .png / .charx');
       }
+      final character = result.character;
       _characters = [
         character,
         ..._characters.where((item) => item.id != character.id),
       ];
+      _lastImportResult = result;
       _lastImportMessage = '已导入 ${character.name}';
       notifyListeners();
-      return character;
+      return result;
     } catch (exc) {
       _error = exc.toString();
       notifyListeners();
@@ -142,8 +147,9 @@ class TavernStore extends ChangeNotifier {
   }
 
   void clearImportMessage() {
-    if (_lastImportMessage == null) return;
+    if (_lastImportMessage == null && _lastImportResult == null) return;
     _lastImportMessage = null;
+    _lastImportResult = null;
     notifyListeners();
   }
 

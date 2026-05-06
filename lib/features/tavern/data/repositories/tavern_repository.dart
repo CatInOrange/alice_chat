@@ -20,7 +20,7 @@ class TavernRepository {
         .toList(growable: false);
   }
 
-  Future<TavernCharacter> importCharacterJson({
+  Future<TavernCharacterImportResult> importCharacterJson({
     required String filename,
     required Map<String, dynamic> payload,
   }) async {
@@ -28,12 +28,17 @@ class TavernRepository {
       'filename': filename,
       'content': payload,
     });
-    return TavernCharacter.fromJson(
-      Map<String, dynamic>.from(response['character'] as Map),
+    return TavernCharacterImportResult(
+      character: TavernCharacter.fromJson(
+        Map<String, dynamic>.from(response['character'] as Map),
+      ),
+      warnings: ((response['warnings'] as List?) ?? const <dynamic>[])
+          .map((item) => item.toString())
+          .toList(growable: false),
     );
   }
 
-  Future<TavernCharacter> importCharacterPng({
+  Future<TavernCharacterImportResult> importCharacterPng({
     required String filename,
     required Uint8List bytes,
   }) async {
@@ -41,12 +46,17 @@ class TavernRepository {
       'filename': filename,
       'content': base64Encode(bytes),
     });
-    return TavernCharacter.fromJson(
-      Map<String, dynamic>.from(response['character'] as Map),
+    return TavernCharacterImportResult(
+      character: TavernCharacter.fromJson(
+        Map<String, dynamic>.from(response['character'] as Map),
+      ),
+      warnings: ((response['warnings'] as List?) ?? const <dynamic>[])
+          .map((item) => item.toString())
+          .toList(growable: false),
     );
   }
 
-  Future<TavernCharacter> importCharacterCharX({
+  Future<TavernCharacterImportResult> importCharacterCharX({
     required String filename,
     required Uint8List bytes,
   }) async {
@@ -54,8 +64,13 @@ class TavernRepository {
       'filename': filename,
       'content': base64Encode(bytes),
     });
-    return TavernCharacter.fromJson(
-      Map<String, dynamic>.from(response['character'] as Map),
+    return TavernCharacterImportResult(
+      character: TavernCharacter.fromJson(
+        Map<String, dynamic>.from(response['character'] as Map),
+      ),
+      warnings: ((response['warnings'] as List?) ?? const <dynamic>[])
+          .map((item) => item.toString())
+          .toList(growable: false),
     );
   }
 

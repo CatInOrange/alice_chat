@@ -1,3 +1,13 @@
+class TavernCharacterImportResult {
+  const TavernCharacterImportResult({
+    required this.character,
+    this.warnings = const <String>[],
+  });
+
+  final TavernCharacter character;
+  final List<String> warnings;
+}
+
 class TavernCharacter {
   const TavernCharacter({
     required this.id,
