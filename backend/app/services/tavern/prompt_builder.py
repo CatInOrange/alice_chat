@@ -486,9 +486,27 @@ class PromptBuilder:
         metadata = chat.get('metadata') if isinstance(chat.get('metadata'), dict) else {}
         summary_settings = metadata.get('summarySettings') if isinstance(metadata.get('summarySettings'), dict) else {}
         inject_latest_only = bool(summary_settings.get('injectLatestOnly', True))
+        use_recent_after_latest = bool(summary_settings.get('useRecentMessagesAfterLatest', True))
+        if deduped and use_recent_after_latest:
+            filtered_history = self._slice_history_after_latest_summary(filtered_history, deduped[-1])
         if inject_latest_only and deduped:
             return [deduped[-1]], filtered_history
         return deduped, filtered_history
+
+    def _slice_history_after_latest_summary(
+        self,
+        history: list[dict[str, Any]],
+        latest_summary: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        end_message_id = str(latest_summary.get('endMessageId') or '').strip()
+        end_message_index = int(latest_summary.get('endMessageIndex') or -1)
+        if end_message_id:
+            for index, item in enumerate(history):
+                if str(item.get('id') or '').strip() == end_message_id:
+                    return list(history[index + 1 :])
+        if end_message_index >= 0:
+            return list(history[end_message_index + 1 :])
+        return history
 
     def _build_summary_blocks(self, summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not summaries:

@@ -175,6 +175,10 @@ class TavernChatSummarizationService:
         summaries = self.list_summaries({'metadata': metadata})
         summaries.append(summary)
         metadata['summaries'] = summaries
+        summary_settings = dict(metadata.get('summarySettings') or {}) if isinstance(metadata.get('summarySettings'), dict) else {}
+        summary_settings.setdefault('injectLatestOnly', True)
+        summary_settings.setdefault('useRecentMessagesAfterLatest', True)
+        metadata['summarySettings'] = summary_settings
         return metadata
 
     def _build_summarization_prompt(

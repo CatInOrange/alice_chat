@@ -327,12 +327,23 @@ class TavernService:
             all_messages=history,
             existing_summaries=summaries,
         )
+        recent_token_count = self.summarization_service.count_tokens_for_messages(recent_messages)
+        effective_context_usage = dict(prompt_debug.context_usage or {})
+        if summaries and effective_context_usage:
+            latest_summary = summaries[-1]
+            summary_tokens = self.summarization_service.count_tokens_for_messages([
+                {'content': str(latest_summary.get('content') or '')}
+            ])
+            effective_context_usage['totalTokens'] = max(
+                summary_tokens + recent_token_count,
+                int(effective_context_usage.get('totalTokens') or 0),
+            )
         if not self.summarization_service.should_summarize(
-            context_usage=prompt_debug.context_usage,
+            context_usage=effective_context_usage,
             chat=chat,
             message_count=len(history),
             new_message_count=len(recent_messages),
-            new_token_count=self.summarization_service.count_tokens_for_messages(recent_messages),
+            new_token_count=recent_token_count,
             existing_summaries=summaries,
             latest_message=history[-1] if history else None,
         ):
