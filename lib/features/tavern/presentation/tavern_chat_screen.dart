@@ -351,6 +351,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   String? _serverBaseUrl;
   String? _selectedPresetId;
   String? _streamingAssistantMessageId;
+  TavernPromptDebug? _latestPromptDebug;
   List<TavernMessage> _messages = const <TavernMessage>[];
   late TavernCharacter _character;
   late TavernChat _chat;
@@ -483,6 +484,11 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
             icon: const Icon(Icons.account_box_outlined),
           ),
           IconButton(
+            tooltip: '剧情摘要',
+            onPressed: _showSummariesSheet,
+            icon: const Icon(Icons.auto_stories_outlined),
+          ),
+          IconButton(
             tooltip: '会话设置',
             onPressed: _showChatOptions,
             icon:
@@ -541,6 +547,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           child: Column(
             children: [
               Expanded(child: _buildBody(context)),
+              _buildContextStatusBar(),
+              _buildQuickReplyBar(),
               if (_isRefreshing)
                 const LinearProgressIndicator(minHeight: 2),
               SafeArea(
@@ -1003,7 +1011,15 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     return _sendText(_inputController.text.trim());
   }
 
-  Future<void> _sendText(String text, {bool replaceComposer = true}) async {
+  Future<void> _sendSilentQuickReply(String text) async {
+    return _sendText(text, replaceComposer: false, showUserMessage: false);
+  }
+
+  Future<void> _sendText(
+    String text, {
+    bool replaceComposer = true,
+    bool showUserMessage = true,
+  }) async {
     if (text.isEmpty || _isSending) return;
     FocusScope.of(context).unfocus();
     if (replaceComposer) {
@@ -1020,7 +1036,9 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
 
     setState(() {
       _isSending = true;
-      _messages = [..._messages, optimisticUserMessage];
+      if (showUserMessage) {
+        _messages = [..._messages, optimisticUserMessage];
+      }
       _streamingAssistantMessageId = null;
     });
     unawaited(_persistSnapshot());
@@ -1043,14 +1061,16 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                   Map<String, dynamic>.from(rawMessage),
                 );
                 persistedUserMessage = parsed;
-                setState(() {
-                  _messages = _messages
-                      .where((item) => item.id != optimisticUserMessage.id)
-                      .toList(growable: true)
-                    ..add(parsed);
-                });
-                unawaited(_persistSnapshot());
-                _scrollToBottom();
+                if (showUserMessage) {
+                  setState(() {
+                    _messages = _messages
+                        .where((item) => item.id != optimisticUserMessage.id)
+                        .toList(growable: true)
+                      ..add(parsed);
+                  });
+                  unawaited(_persistSnapshot());
+                  _scrollToBottom();
+                }
               }
               break;
             case 'delta':
@@ -1102,7 +1122,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                 );
                 setState(() {
                   final nextMessages = [..._messages];
-                  if (persistedUserMessage != null) {
+                  if (showUserMessage && persistedUserMessage != null) {
                     final userIndex = nextMessages.indexWhere(
                       (item) =>
                           item.id == optimisticUserMessage.id ||
@@ -1173,8 +1193,11 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     if (_isLoadingContextState) return;
     _isLoadingContextState = true;
     try {
-      await context.read<TavernStore>().getPromptDebug(_chat.id);
+      final debug = await context.read<TavernStore>().getPromptDebug(_chat.id);
       if (!mounted) return;
+      setState(() {
+        _latestPromptDebug = debug;
+      });
     } catch (_) {
       // keep stale state quietly
     } finally {
@@ -1191,6 +1214,266 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         .map((item) => Map<String, dynamic>.from(item))
         .where((item) => (item['content'] ?? '').toString().trim().isNotEmpty)
         .toList(growable: false);
+  }
+
+  List<Map<String, String>> _quickReplies() {
+    return const [
+      {'label': '继续', 'prompt': '继续当前剧情，不要重复前文，直接往下推进。'},
+      {'label': '推进剧情', 'prompt': '推进剧情发展，给出新的事件、互动或转折。'},
+      {'label': '加点张力', 'prompt': '保持当前人设和语气，让这一段互动更有张力。'},
+      {'label': '细化描写', 'prompt': '延续当前场景，增加动作、表情、环境和细节描写。'},
+    ];
+  }
+
+  Map<String, int> _contextBreakdown(TavernPromptDebug debug) {
+    final usage = debug.contextUsage;
+    final parts = <String, int>{
+      'summary': 0,
+      'world_info': 0,
+      'chat_history': 0,
+      'author_note': 0,
+      'prompt': 0,
+      'others': 0,
+    };
+
+    final rawComponents =
+        (usage['components'] as List?) ??
+        (usage['breakdown'] as List?) ??
+        const <dynamic>[];
+    for (final item in rawComponents.whereType<Map>()) {
+      final map = Map<String, dynamic>.from(item);
+      final kind =
+          (map['kind'] ?? map['component'] ?? map['label'] ?? '')
+              .toString()
+              .toLowerCase();
+      final tokens =
+          (map['tokens'] as num?)?.toInt() ??
+          (map['estimatedTokens'] as num?)?.toInt() ??
+          0;
+      if (tokens <= 0) continue;
+      if (kind.contains('summary')) {
+        parts['summary'] = parts['summary']! + tokens;
+      } else if (kind.contains('world') || kind.contains('lore')) {
+        parts['world_info'] = parts['world_info']! + tokens;
+      } else if (kind.contains('history') || kind.contains('message')) {
+        parts['chat_history'] = parts['chat_history']! + tokens;
+      } else if (kind.contains('author')) {
+        parts['author_note'] = parts['author_note']! + tokens;
+      } else if (kind.contains('system') ||
+          kind.contains('persona') ||
+          kind.contains('scenario') ||
+          kind.contains('character') ||
+          kind.contains('example') ||
+          kind.contains('prompt')) {
+        parts['prompt'] = parts['prompt']! + tokens;
+      } else {
+        parts['others'] = parts['others']! + tokens;
+      }
+    }
+
+    return parts;
+  }
+
+  List<Map<String, dynamic>> _contextSegments(TavernPromptDebug debug) {
+    final parts = _contextBreakdown(debug);
+    final total = parts.values.fold<int>(0, (sum, value) => sum + value);
+    final segments = <Map<String, dynamic>>[
+      {'key': 'prompt', 'label': 'Prompt', 'tokens': parts['prompt'] ?? 0, 'color': const Color(0xFF7C4DFF)},
+      {'key': 'chat_history', 'label': 'History', 'tokens': parts['chat_history'] ?? 0, 'color': const Color(0xFF4F8CFF)},
+      {'key': 'summary', 'label': 'Summary', 'tokens': parts['summary'] ?? 0, 'color': const Color(0xFF14B8A6)},
+      {'key': 'world_info', 'label': 'Lore', 'tokens': parts['world_info'] ?? 0, 'color': const Color(0xFFFFB020)},
+      {'key': 'author_note', 'label': 'AN', 'tokens': parts['author_note'] ?? 0, 'color': const Color(0xFFFF6B6B)},
+      {'key': 'others', 'label': 'Other', 'tokens': parts['others'] ?? 0, 'color': const Color(0xFF98A1B3)},
+    ];
+    return segments
+        .where((item) => (item['tokens'] as int) > 0 || item['key'] == 'prompt')
+        .map((item) {
+          final tokens = item['tokens'] as int;
+          return {
+            ...item,
+            'ratio': total > 0 ? tokens / total : 0.0,
+          };
+        })
+        .toList(growable: false);
+  }
+
+  String _formatCompactTokenCount(int count) {
+    if (count >= 1000) {
+      final value = count / 1000;
+      return value >= 10 ? '${value.toStringAsFixed(0)}k' : '${value.toStringAsFixed(1)}k';
+    }
+    return '$count';
+  }
+
+  Widget _buildSegmentBar(List<Map<String, dynamic>> segments, {double height = 8}) {
+    if (segments.isEmpty) {
+      return Container(
+        height: height,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(999),
+        ),
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: SizedBox(
+        height: height,
+        child: Row(
+          children: segments.map((segment) {
+            final ratio = (segment['ratio'] as double?) ?? 0.0;
+            final color = segment['color'] as Color;
+            return Expanded(
+              flex: ((ratio * 1000).round()).clamp(1, 1000),
+              child: Container(color: color),
+            );
+          }).toList(growable: false),
+        ),
+      ),
+    );
+  }
+
+  Widget _contextLegendChip({
+    required String label,
+    required int tokens,
+    required Color color,
+    double? ratio,
+  }) {
+    final percent = ratio == null ? null : (ratio * 100).toStringAsFixed(ratio >= 0.1 ? 0 : 1);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            percent == null
+                ? '$label · ${_formatCompactTokenCount(tokens)}'
+                : '$label · ${_formatCompactTokenCount(tokens)} · $percent%',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickReplyBar() {
+    final items = _quickReplies();
+    return SizedBox(
+      height: 44,
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
+        scrollDirection: Axis.horizontal,
+        itemBuilder: (context, index) {
+          final item = items[index];
+          return ActionChip(
+            label: Text(item['label']!),
+            onPressed: _isSending ? null : () => _sendSilentQuickReply(item['prompt']!),
+          );
+        },
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemCount: items.length,
+      ),
+    );
+  }
+
+  Widget _buildContextStatusBar() {
+    final debug = _latestPromptDebug;
+    if (debug == null) return const SizedBox.shrink();
+    final usage = debug.contextUsage;
+    final totalTokens = (usage['totalTokens'] as num?)?.toInt() ?? 0;
+    final maxContext = (usage['maxContext'] as num?)?.toInt() ?? 0;
+    final ratio =
+        maxContext > 0 ? (totalTokens / maxContext).clamp(0, 1).toDouble() : 0.0;
+    final segments = _contextSegments(debug);
+    final trimPlan =
+        usage['meta'] is Map
+            ? (((usage['meta'] as Map)['trimPlan'] as Map?) ?? const <String, dynamic>{})
+            : const <String, dynamic>{};
+    final overLimit = (trimPlan['overLimitTokens'] as num?)?.toInt() ?? 0;
+    final barColor =
+        overLimit > 0
+            ? Colors.red
+            : ratio >= 0.85
+            ? Colors.orange
+            : ratio >= 0.65
+            ? Colors.amber
+            : Colors.green;
+
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      child: InkWell(
+        onTap: _showContextUsageSheet,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Context ${_formatCompactTokenCount(totalTokens)} / ${_formatCompactTokenCount(maxContext)}',
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: barColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: barColor.withValues(alpha: 0.22)),
+                    ),
+                    child: Text(
+                      overLimit > 0 ? '超限 ${_formatCompactTokenCount(overLimit)}' : '${(ratio * 100).toStringAsFixed(0)}%',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: barColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(Icons.chevron_right, size: 18, color: Theme.of(context).hintColor),
+                ],
+              ),
+              const SizedBox(height: 8),
+              _buildSegmentBar(segments, height: 7),
+              const SizedBox(height: 8),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: segments.map((segment) {
+                    return Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: _contextLegendChip(
+                        label: segment['label'] as String,
+                        tokens: segment['tokens'] as int,
+                        color: segment['color'] as Color,
+                      ),
+                    );
+                  }).toList(growable: false),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _showContextUsageSheet() async {
@@ -1224,6 +1507,11 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
               : percent >= 0.65
                   ? Colors.amber
                   : Colors.green;
+      final segments = _contextSegments(debug);
+      final rawComponents = ((contextUsage['components'] as List?) ?? (contextUsage['breakdown'] as List?) ?? const <dynamic>[])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
 
       await showModalBottomSheet<void>(
         context: context,
@@ -1290,18 +1578,87 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                 const SizedBox(height: 12),
                 _sectionCard(
                   title: '当前策略 / 状态',
-                  subtitle: '把原来常驻在输入区上面的状态收进这里。',
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+                  subtitle: '仿照 Native，把总量之外的结构也拆开看。',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _summaryMetaChip('摘要', summaryBlocks > 0 ? (injectLatestOnly ? '最新摘要接管' : '多摘要接管') : '未接管'),
-                      _summaryMetaChip('历史模式', useRecentAfterLatest ? '摘要后 recent' : '全历史'),
-                      _summaryMetaChip('Lore', '$matchedLore 命中 / $rejectedLore 拦截'),
-                      _summaryMetaChip('裁剪', overLimit > 0 ? '超限 $overLimit tok' : '无超限'),
-                      _summaryMetaChip('模式', _chat.authorNoteEnabled ? 'AN 开' : 'AN 关'),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _summaryMetaChip('摘要', summaryBlocks > 0 ? (injectLatestOnly ? '最新摘要接管' : '多摘要接管') : '未接管'),
+                          _summaryMetaChip('历史模式', useRecentAfterLatest ? '摘要后 recent' : '全历史'),
+                          _summaryMetaChip('Lore', '$matchedLore 命中 / $rejectedLore 拦截'),
+                          _summaryMetaChip('裁剪', overLimit > 0 ? '超限 $overLimit tok' : '无超限'),
+                          _summaryMetaChip('模式', _chat.authorNoteEnabled ? 'AN 开' : 'AN 关'),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _buildSegmentBar(segments),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: segments
+                            .map(
+                              (segment) => _contextLegendChip(
+                                label: segment['label'] as String,
+                                tokens: segment['tokens'] as int,
+                                color: segment['color'] as Color,
+                                ratio: segment['ratio'] as double?,
+                              ),
+                            )
+                            .toList(growable: false),
+                      ),
                     ],
                   ),
+                ),
+                const SizedBox(height: 12),
+                _sectionCard(
+                  title: 'Component 明细',
+                  subtitle: rawComponents.isEmpty ? '后端这次没有返回可拆分组件。' : '最近一次 prompt 构建中各 component 的 token 估算。',
+                  child: rawComponents.isEmpty
+                      ? Text(
+                          '暂无 component breakdown。',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        )
+                      : Column(
+                          children: rawComponents.map((item) {
+                            final label = (item['label'] ?? item['component'] ?? item['kind'] ?? 'component').toString();
+                            final kind = (item['kind'] ?? '').toString();
+                            final tokens = (item['tokens'] as num?)?.toInt() ?? (item['estimatedTokens'] as num?)?.toInt() ?? 0;
+                            final percent = totalTokens > 0 ? (tokens / totalTokens * 100) : 0.0;
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          label,
+                                          style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+                                        ),
+                                      ),
+                                      Text(
+                                        '${_formatCompactTokenCount(tokens)} · ${percent.toStringAsFixed(percent >= 10 ? 0 : 1)}%',
+                                        style: Theme.of(context).textTheme.labelMedium,
+                                      ),
+                                    ],
+                                  ),
+                                  if (kind.isNotEmpty) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      kind,
+                                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).hintColor),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            );
+                          }).toList(growable: false),
+                        ),
                 ),
                 const SizedBox(height: 12),
                 _sectionCard(
