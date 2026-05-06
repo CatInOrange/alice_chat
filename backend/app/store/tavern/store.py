@@ -88,7 +88,10 @@ class TavernStore:
                     model TEXT NOT NULL DEFAULT '',
                     temperature REAL NOT NULL DEFAULT 1.0,
                     top_p REAL NOT NULL DEFAULT 1.0,
+                    frequency_penalty REAL NOT NULL DEFAULT 0.0,
+                    presence_penalty REAL NOT NULL DEFAULT 0.0,
                     top_k INTEGER NOT NULL DEFAULT 0,
+                    top_a REAL NOT NULL DEFAULT 0.0,
                     min_p REAL NOT NULL DEFAULT 0.0,
                     typical_p REAL NOT NULL DEFAULT 1.0,
                     repetition_penalty REAL NOT NULL DEFAULT 1.0,
@@ -190,6 +193,9 @@ class TavernStore:
             self._ensure_column(conn, 'tavern_presets', 'story_string_position', "TEXT NOT NULL DEFAULT 'in_prompt'")
             self._ensure_column(conn, 'tavern_presets', 'story_string_depth', "INTEGER NOT NULL DEFAULT 1")
             self._ensure_column(conn, 'tavern_presets', 'story_string_role', "TEXT NOT NULL DEFAULT 'system'")
+            self._ensure_column(conn, 'tavern_presets', 'frequency_penalty', "REAL NOT NULL DEFAULT 0.0")
+            self._ensure_column(conn, 'tavern_presets', 'presence_penalty', "REAL NOT NULL DEFAULT 0.0")
+            self._ensure_column(conn, 'tavern_presets', 'top_a', "REAL NOT NULL DEFAULT 0.0")
             conn.commit()
         self._ensure_seed_data()
 
@@ -225,11 +231,11 @@ class TavernStore:
             conn.execute(
                 """
                 INSERT INTO tavern_presets(
-                  id,name,provider,model,temperature,top_p,top_k,min_p,typical_p,repetition_penalty,max_tokens,stop_sequences_json,prompt_order_id,story_string,chat_start,example_separator,story_string_position,story_string_depth,story_string_role,created_at,updated_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  id,name,provider,model,temperature,top_p,frequency_penalty,presence_penalty,top_k,top_a,min_p,typical_p,repetition_penalty,max_tokens,stop_sequences_json,prompt_order_id,story_string,chat_start,example_separator,story_string_position,story_string_depth,story_string_role,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
-                    'tav_preset_default', '默认 Tavern Preset', '', '', 1.0, 1.0, 0, 0.0, 1.0, 1.0, 0,
+                    'tav_preset_default', '默认 Tavern Preset', '', '', 1.0, 1.0, 0.0, 0.0, 0, 0.0, 0.0, 1.0, 1.0, 0,
                     json.dumps([], ensure_ascii=False), order_id,
                     "{{#if system}}{{system}}\n{{/if}}{{#if wiBefore}}{{wiBefore}}\n{{/if}}{{#if description}}{{description}}\n{{/if}}{{#if personality}}{{char}}'s personality: {{personality}}\n{{/if}}{{#if scenario}}Scenario: {{scenario}}\n{{/if}}{{#if wiAfter}}{{wiAfter}}\n{{/if}}{{#if persona}}{{persona}}\n{{/if}}",
                     '***',
@@ -701,7 +707,10 @@ class TavernStore:
             'model': str(payload.get('model') or '').strip(),
             'temperature': float(payload.get('temperature') or 1.0),
             'topP': float(payload.get('topP') or 1.0),
+            'frequencyPenalty': float(payload.get('frequencyPenalty') or 0.0),
+            'presencePenalty': float(payload.get('presencePenalty') or 0.0),
             'topK': int(payload.get('topK') or 0),
+            'topA': float(payload.get('topA') or 0.0),
             'minP': float(payload.get('minP') or 0.0),
             'typicalP': float(payload.get('typicalP') or 1.0),
             'repetitionPenalty': float(payload.get('repetitionPenalty') or 1.0),
@@ -721,12 +730,12 @@ class TavernStore:
             conn.execute(
                 """
                 INSERT INTO tavern_presets(
-                  id,name,provider,model,temperature,top_p,top_k,min_p,typical_p,repetition_penalty,max_tokens,stop_sequences_json,prompt_order_id,story_string,chat_start,example_separator,story_string_position,story_string_depth,story_string_role,created_at,updated_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  id,name,provider,model,temperature,top_p,frequency_penalty,presence_penalty,top_k,top_a,min_p,typical_p,repetition_penalty,max_tokens,stop_sequences_json,prompt_order_id,story_string,chat_start,example_separator,story_string_position,story_string_depth,story_string_role,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     record['id'], record['name'], record['provider'], record['model'], record['temperature'],
-                    record['topP'], record['topK'], record['minP'], record['typicalP'], record['repetitionPenalty'],
+                    record['topP'], record['frequencyPenalty'], record['presencePenalty'], record['topK'], record['topA'], record['minP'], record['typicalP'], record['repetitionPenalty'],
                     record['maxTokens'], json.dumps(record['stopSequences'], ensure_ascii=False),
                     record['promptOrderId'], record['storyString'], record['chatStart'], record['exampleSeparator'],
                     record['storyStringPosition'], record['storyStringDepth'], record['storyStringRole'], now, now,
@@ -752,7 +761,7 @@ class TavernStore:
             conn.execute(
                 """
                 UPDATE tavern_presets
-                SET name=?, provider=?, model=?, temperature=?, top_p=?, top_k=?, min_p=?, typical_p=?, repetition_penalty=?, max_tokens=?, stop_sequences_json=?, prompt_order_id=?, story_string=?, chat_start=?, example_separator=?, story_string_position=?, story_string_depth=?, story_string_role=?, updated_at=?
+                SET name=?, provider=?, model=?, temperature=?, top_p=?, frequency_penalty=?, presence_penalty=?, top_k=?, top_a=?, min_p=?, typical_p=?, repetition_penalty=?, max_tokens=?, stop_sequences_json=?, prompt_order_id=?, story_string=?, chat_start=?, example_separator=?, story_string_position=?, story_string_depth=?, story_string_role=?, updated_at=?
                 WHERE id=?
                 """,
                 (
@@ -761,7 +770,10 @@ class TavernStore:
                     str(payload.get('model', current['model']) or '').strip(),
                     float(payload.get('temperature', current['temperature']) or 1.0),
                     float(payload.get('topP', current['top_p']) or 1.0),
+                    float(payload.get('frequencyPenalty', current['frequency_penalty']) or 0.0),
+                    float(payload.get('presencePenalty', current['presence_penalty']) or 0.0),
                     int(payload.get('topK', current['top_k']) or 0),
+                    float(payload.get('topA', current['top_a']) or 0.0),
                     float(payload.get('minP', current['min_p']) or 0.0),
                     float(payload.get('typicalP', current['typical_p']) or 1.0),
                     float(payload.get('repetitionPenalty', current['repetition_penalty']) or 1.0),
@@ -995,7 +1007,10 @@ class TavernStore:
             'model': row['model'],
             'temperature': row['temperature'],
             'topP': row['top_p'],
+            'frequencyPenalty': row['frequency_penalty'],
+            'presencePenalty': row['presence_penalty'],
             'topK': row['top_k'],
+            'topA': row['top_a'],
             'minP': row['min_p'],
             'typicalP': row['typical_p'],
             'repetitionPenalty': row['repetition_penalty'],

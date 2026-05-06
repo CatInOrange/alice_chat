@@ -293,6 +293,13 @@ class TavernService:
                 merged['model'] = str(preset.get('model') or '').strip()
             merged['temperature'] = preset.get('temperature', merged.get('temperature', 1.0))
             merged['topP'] = preset.get('topP', merged.get('topP', 1.0))
+            merged['frequencyPenalty'] = preset.get('frequencyPenalty', merged.get('frequencyPenalty', 0.0))
+            merged['presencePenalty'] = preset.get('presencePenalty', merged.get('presencePenalty', 0.0))
+            merged['topK'] = preset.get('topK', merged.get('topK', 0))
+            merged['topA'] = preset.get('topA', merged.get('topA', 0.0))
+            merged['minP'] = preset.get('minP', merged.get('minP', 0.0))
+            merged['typicalP'] = preset.get('typicalP', merged.get('typicalP', 1.0))
+            merged['repetitionPenalty'] = preset.get('repetitionPenalty', merged.get('repetitionPenalty', 1.0))
             merged['maxTokens'] = preset.get('maxTokens', merged.get('maxTokens', 0))
             merged['stopSequences'] = list(preset.get('stopSequences') or merged.get('stopSequences') or [])
         return merged

@@ -79,10 +79,25 @@ class TavernModelClient:
             'stream': stream,
             'temperature': float(self.provider_config.get('temperature', 1.0) or 1.0),
             'top_p': float(self.provider_config.get('topP', 1.0) or 1.0),
+            'frequency_penalty': float(self.provider_config.get('frequencyPenalty', 0.0) or 0.0),
+            'presence_penalty': float(self.provider_config.get('presencePenalty', 0.0) or 0.0),
         }
         max_tokens = self.provider_config.get('maxTokens')
         if max_tokens not in (None, '', 0, '0'):
             payload['max_tokens'] = int(max_tokens)
+
+        def add_optional(name: str, value: Any) -> None:
+            if value in (None, ''):
+                return
+            payload[name] = value
+
+        extra_param_mode = str(self.provider_config.get('extraSamplingParams') or 'openai-compatible').strip() or 'openai-compatible'
+        if extra_param_mode != 'openai-strict':
+            add_optional('top_k', int(self.provider_config.get('topK') or 0))
+            add_optional('top_a', float(self.provider_config.get('topA') or 0.0))
+            add_optional('min_p', float(self.provider_config.get('minP') or 0.0))
+            add_optional('typical_p', float(self.provider_config.get('typicalP') or 1.0))
+            add_optional('repetition_penalty', float(self.provider_config.get('repetitionPenalty') or 1.0))
         stop = self.provider_config.get('stopSequences') or []
         if stop:
             payload['stop'] = stop

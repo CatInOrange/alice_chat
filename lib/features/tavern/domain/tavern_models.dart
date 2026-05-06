@@ -241,9 +241,12 @@ class TavernPreset {
     this.storyStringRole = 'system',
     this.temperature = 1,
     this.topP = 1,
+    this.frequencyPenalty = 0,
+    this.presencePenalty = 0,
     this.maxTokens = 0,
     this.stopSequences = const <String>[],
     this.topK = 0,
+    this.topA = 0,
     this.minP = 0,
     this.typicalP = 1,
     this.repetitionPenalty = 1,
@@ -264,9 +267,12 @@ class TavernPreset {
   final String storyStringRole;
   final double temperature;
   final double topP;
+  final double frequencyPenalty;
+  final double presencePenalty;
   final int maxTokens;
   final List<String> stopSequences;
   final int topK;
+  final double topA;
   final double minP;
   final double typicalP;
   final double repetitionPenalty;
@@ -289,11 +295,14 @@ class TavernPreset {
       storyStringRole: (json['storyStringRole'] ?? 'system').toString(),
       temperature: (json['temperature'] as num?)?.toDouble() ?? 1,
       topP: (json['topP'] as num?)?.toDouble() ?? 1,
+      frequencyPenalty: (json['frequencyPenalty'] as num?)?.toDouble() ?? 0,
+      presencePenalty: (json['presencePenalty'] as num?)?.toDouble() ?? 0,
       maxTokens: (json['maxTokens'] as num?)?.toInt() ?? 0,
       stopSequences: ((json['stopSequences'] as List?) ?? const <dynamic>[])
           .map((item) => item.toString())
           .toList(growable: false),
       topK: (json['topK'] as num?)?.toInt() ?? 0,
+      topA: (json['topA'] as num?)?.toDouble() ?? 0,
       minP: (json['minP'] as num?)?.toDouble() ?? 0,
       typicalP: (json['typicalP'] as num?)?.toDouble() ?? 1,
       repetitionPenalty: (json['repetitionPenalty'] as num?)?.toDouble() ?? 1,
@@ -315,7 +324,10 @@ class TavernPreset {
     String? storyStringRole,
     double? temperature,
     double? topP,
+    double? frequencyPenalty,
+    double? presencePenalty,
     int? topK,
+    double? topA,
     double? minP,
     double? typicalP,
     double? repetitionPenalty,
@@ -336,9 +348,12 @@ class TavernPreset {
       storyStringRole: storyStringRole ?? this.storyStringRole,
       temperature: temperature ?? this.temperature,
       topP: topP ?? this.topP,
+      frequencyPenalty: frequencyPenalty ?? this.frequencyPenalty,
+      presencePenalty: presencePenalty ?? this.presencePenalty,
       maxTokens: maxTokens ?? this.maxTokens,
       stopSequences: stopSequences ?? this.stopSequences,
       topK: topK ?? this.topK,
+      topA: topA ?? this.topA,
       minP: minP ?? this.minP,
       typicalP: typicalP ?? this.typicalP,
       repetitionPenalty: repetitionPenalty ?? this.repetitionPenalty,
@@ -406,23 +421,38 @@ class TavernPromptOrderItem {
   const TavernPromptOrderItem({
     this.identifier = '',
     this.blockId = '',
+    this.name = '',
+    this.role = 'system',
+    this.content = '',
     this.enabled = true,
     this.orderIndex = 0,
     this.position = 'after_system',
     this.depth,
+    this.builtIn = false,
   });
 
   final String identifier;
   final String blockId;
+  final String name;
+  final String role;
+  final String content;
   final bool enabled;
   final int orderIndex;
   final String position;
   final int? depth;
+  final bool builtIn;
+
+  bool get isCustom => !builtIn && identifier.isEmpty;
 
   factory TavernPromptOrderItem.fromJson(Map<String, dynamic> json) {
+    final identifier = (json['identifier'] ?? '').toString();
+    final builtIn = json['builtIn'] == true || identifier.isNotEmpty;
     return TavernPromptOrderItem(
-      identifier: (json['identifier'] ?? '').toString(),
+      identifier: identifier,
       blockId: (json['block_id'] ?? json['blockId'] ?? '').toString(),
+      name: (json['name'] ?? '').toString(),
+      role: (json['role'] ?? 'system').toString(),
+      content: (json['content'] ?? '').toString(),
       enabled: json['enabled'] != false,
       orderIndex:
           (json['order_index'] as num?)?.toInt() ??
@@ -430,6 +460,7 @@ class TavernPromptOrderItem {
           0,
       position: (json['position'] ?? 'after_system').toString(),
       depth: (json['depth'] as num?)?.toInt(),
+      builtIn: builtIn,
     );
   }
 
@@ -437,6 +468,10 @@ class TavernPromptOrderItem {
     return {
       if (identifier.isNotEmpty) 'identifier': identifier,
       if (blockId.isNotEmpty) 'block_id': blockId,
+      if (name.isNotEmpty) 'name': name,
+      if (role.isNotEmpty) 'role': role,
+      if (content.isNotEmpty) 'content': content,
+      if (!builtIn) 'builtIn': false,
       'enabled': enabled,
       'order_index': orderIndex,
       'position': position,
@@ -447,19 +482,27 @@ class TavernPromptOrderItem {
   TavernPromptOrderItem copyWith({
     String? identifier,
     String? blockId,
+    String? name,
+    String? role,
+    String? content,
     bool? enabled,
     int? orderIndex,
     String? position,
     int? depth,
+    bool? builtIn,
     bool clearDepth = false,
   }) {
     return TavernPromptOrderItem(
       identifier: identifier ?? this.identifier,
       blockId: blockId ?? this.blockId,
+      name: name ?? this.name,
+      role: role ?? this.role,
+      content: content ?? this.content,
       enabled: enabled ?? this.enabled,
       orderIndex: orderIndex ?? this.orderIndex,
       position: position ?? this.position,
       depth: clearDepth ? null : (depth ?? this.depth),
+      builtIn: builtIn ?? this.builtIn,
     );
   }
 }

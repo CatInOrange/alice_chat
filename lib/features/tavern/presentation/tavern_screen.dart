@@ -11,29 +11,7 @@ import '../domain/tavern_models.dart';
 import 'tavern_chat_screen.dart';
 import 'tavern_ui_helpers.dart';
 
-const List<String> _promptBlockKinds = <String>[
-  'system',
-  'persona',
-  'jailbreak',
-  'character',
-  'scenario',
-  'example_messages',
-  'world_info',
-  'author_note',
-  'custom',
-];
 
-const List<String> _promptBlockScopes = <String>[
-  'global',
-  'character',
-  'chat',
-  'preset',
-];
-const List<String> _promptBlockInjectionModes = <String>[
-  'position',
-  'depth',
-  'static',
-];
 const List<String> _worldbookPositions = <String>[
   'before_character',
   'after_character',
@@ -48,18 +26,6 @@ const List<String> _storyPositions = <String>[
   'before_last_user',
 ];
 const List<String> _storyRoles = <String>['system', 'user', 'assistant'];
-const List<String> _promptOrderPositions = <String>[
-  'before_system',
-  'after_system',
-  'before_character',
-  'after_character',
-  'before_example_messages',
-  'after_example_messages',
-  'before_chat_history',
-  'after_chat_history',
-  'before_last_user',
-  'at_depth',
-];
 const List<_BuiltinPromptOrderOption> _builtinPromptOrderOptions =
     <_BuiltinPromptOrderOption>[
       _BuiltinPromptOrderOption('main', 'Main / System Prompt'),
@@ -340,7 +306,7 @@ class _TavernScreenState extends State<TavernScreen>
           context,
           icon: Icons.auto_awesome_outlined,
           title: 'Presets',
-          subtitle: '模型参数、Prompt Order 绑定、采样配置',
+          subtitle: '模型参数与采样配置',
           trailingText: '${store.presets.length}',
           onTap: () => _showPresetsManager(context, store),
         ),
@@ -348,19 +314,10 @@ class _TavernScreenState extends State<TavernScreen>
         _settingsEntryCard(
           context,
           icon: Icons.reorder_outlined,
-          title: 'Prompt Order',
-          subtitle: '管理语义块顺序与开关，像 Native 一样收成单独页',
+          title: '提示词管理',
+          subtitle: '像 Native 一样管理内建段落与自定义提示词',
           trailingText: '${store.promptOrders.length}',
           onTap: () => _showPromptOrdersManager(context, store),
-        ),
-        const SizedBox(height: 12),
-        _settingsEntryCard(
-          context,
-          icon: Icons.view_stream_outlined,
-          title: 'Prompt Blocks',
-          subtitle: '管理 system / persona / custom blocks',
-          trailingText: '${store.promptBlocks.length}',
-          onTap: () => _showPromptBlocksManager(context, store),
         ),
         const SizedBox(height: 12),
         _settingsEntryCard(
@@ -371,85 +328,6 @@ class _TavernScreenState extends State<TavernScreen>
           trailingText: '${store.worldBooks.length}',
           onTap: () => _showWorldBooksManager(context, store),
         ),
-      ],
-    );
-  }
-
-  Widget _buildPromptBlocksTab(BuildContext context, TavernStore store) {
-    final blocks = [...store.promptBlocks]..sort((a, b) {
-      final enabledCmp = (b.enabled ? 1 : 0).compareTo(a.enabled ? 1 : 0);
-      if (enabledCmp != 0) return enabledCmp;
-      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
-    });
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Prompt Blocks',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-            ),
-            FilledButton.icon(
-              onPressed: () => _editPromptBlock(context),
-              icon: const Icon(Icons.add),
-              label: const Text('新增'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        if (blocks.isEmpty)
-          const Card(
-            child: ListTile(
-              title: Text('还没有 Prompt Block'),
-              subtitle: Text('这里可以管理 system/persona/jailbreak/custom 等内容块。'),
-            ),
-          )
-        else
-          ...blocks.map(
-            (block) => Card(
-              child: ListTile(
-                onLongPress: () => _confirmDeletePromptBlock(context, block),
-                leading: Switch(
-                  value: block.enabled,
-                  onChanged:
-                      (value) => _togglePromptBlock(context, block, value),
-                ),
-                title: Text(block.name),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 4),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _chip('Kind', block.kind),
-                        _chip('Mode', block.injectionMode),
-                        _chip('Scope', block.roleScope),
-                        if (block.depth != null)
-                          _chip('Depth', '${block.depth}'),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      block.content,
-                      maxLines: 3,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-                trailing: IconButton(
-                  tooltip: '编辑 Block',
-                  onPressed: () => _editPromptBlock(context, block: block),
-                  icon: const Icon(Icons.edit_outlined),
-                ),
-                isThreeLine: true,
-              ),
-            ),
-          ),
       ],
     );
   }
@@ -477,8 +355,8 @@ class _TavernScreenState extends State<TavernScreen>
         if (store.promptOrders.isEmpty)
           const Card(
             child: ListTile(
-              title: Text('还没有 Prompt Order'),
-              subtitle: Text('拖拽编排内置块和自定义 Prompt Block 的顺序。'),
+              title: Text('还没有提示词配置'),
+              subtitle: Text('拖拽编排内建段落顺序，并按需新增自定义提示词。'),
             ),
           )
         else
@@ -753,39 +631,16 @@ class _TavernScreenState extends State<TavernScreen>
     await this.context.read<TavernStore>().loadHome();
   }
 
-  Future<void> _showPromptBlocksManager(BuildContext context, TavernStore store) async {
-    final navigator = Navigator.of(context);
-    await navigator.push(
-      MaterialPageRoute(
-        builder: (_) => Scaffold(
-          appBar: AppBar(
-            title: const Text('Prompt Blocks'),
-            actions: [
-              IconButton(
-                tooltip: '新增 Prompt Block',
-                onPressed: () => _editPromptBlock(context),
-                icon: const Icon(Icons.add),
-              ),
-            ],
-          ),
-          body: _buildPromptBlocksTab(context, store),
-        ),
-      ),
-    );
-    if (!mounted) return;
-    await this.context.read<TavernStore>().loadHome();
-  }
-
   Future<void> _showPromptOrdersManager(BuildContext context, TavernStore store) async {
     final navigator = Navigator.of(context);
     await navigator.push(
       MaterialPageRoute(
         builder: (_) => Scaffold(
           appBar: AppBar(
-            title: const Text('Prompt Order'),
+            title: const Text('提示词管理'),
             actions: [
               IconButton(
-                tooltip: '新增 Prompt Order',
+                tooltip: '新增自定义提示词',
                 onPressed: () => _editPromptOrder(context),
                 icon: const Icon(Icons.add),
               ),
@@ -1541,62 +1396,6 @@ class _TavernScreenState extends State<TavernScreen>
     }
   }
 
-  Future<void> _confirmDeletePromptBlock(
-    BuildContext context,
-    TavernPromptBlock block,
-  ) async {
-    if (!mounted) return;
-    final store = context.read<TavernStore>();
-    final messenger = ScaffoldMessenger.of(context);
-    final confirmed = await showModalBottomSheet<bool>(
-      context: this.context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
-              title: const Text('删除 Prompt Block'),
-              subtitle: Text(block.name),
-              onTap: () => Navigator.of(context).pop(true),
-            ),
-            const ListTile(
-              leading: Icon(Icons.close),
-              title: Text('取消'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-    final doubleConfirmed = await showDialog<bool>(
-      context: this.context,
-      builder: (context) => AlertDialog(
-        title: const Text('确认删除 Prompt Block？'),
-        content: Text('删除后，会从所有 Prompt Order 中移除该块引用。\n\n${block.name}'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
-    );
-    if (doubleConfirmed != true || !mounted) return;
-    try {
-      await store.deletePromptBlock(block.id);
-      if (!mounted) return;
-      messenger.showSnackBar(const SnackBar(content: Text('Prompt Block 已删除')));
-    } catch (exc) {
-      if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text('删除 Prompt Block 失败：$exc')));
-    }
-  }
-
   Future<void> _confirmDeleteWorldBook(
     BuildContext context,
     TavernWorldBook worldbook,
@@ -2211,433 +2010,258 @@ class _TavernScreenState extends State<TavernScreen>
     }
   }
 
-  Future<void> _togglePromptBlock(
-    BuildContext context,
-    TavernPromptBlock block,
-    bool enabled,
-  ) async {
-    try {
-      await context.read<TavernStore>().updatePromptBlock(
-        blockId: block.id,
-        payload: {'enabled': enabled},
-      );
-    } catch (exc) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('更新 Prompt Block 失败：$exc')));
-    }
-  }
-
-  Future<void> _editPromptBlock(
-    BuildContext context, {
-    TavernPromptBlock? block,
-  }) async {
-    final isCreate = block == null;
-    final existingBlock = block;
-    final store = context.read<TavernStore>();
-    final nameController = TextEditingController(
-      text: existingBlock?.name ?? '',
-    );
-    final contentController = TextEditingController(text: block?.content ?? '');
-    String kind = block?.kind ?? 'custom';
-    String scope = block?.roleScope ?? 'global';
-    String injectionMode = block?.injectionMode ?? 'position';
-    bool enabled = block?.enabled ?? true;
-    int depth = block?.depth ?? 4;
-    bool saving = false;
-
-    final saved = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      builder:
-          (context) => StatefulBuilder(
-            builder:
-                (context, setModalState) => SafeArea(
-                  child: Padding(
-                    padding: EdgeInsets.only(
-                      left: 16,
-                      right: 16,
-                      top: 16,
-                      bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-                    ),
-                    child: SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            isCreate ? '新建 Prompt Block' : '编辑 Prompt Block',
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const SizedBox(height: 12),
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('启用'),
-                            value: enabled,
-                            onChanged:
-                                (value) => setModalState(() => enabled = value),
-                          ),
-                          TextField(
-                            controller: nameController,
-                            decoration: const InputDecoration(
-                              labelText: '名称',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: DropdownButtonFormField<String>(
-                                  value: kind,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Kind',
-                                    border: OutlineInputBorder(),
-                                  ),
-                                  items: _promptBlockKinds
-                                      .map(
-                                        (item) => DropdownMenuItem<String>(
-                                          value: item,
-                                          child: Text(item),
-                                        ),
-                                      )
-                                      .toList(growable: false),
-                                  onChanged:
-                                      (value) => setModalState(
-                                        () => kind = value ?? 'custom',
-                                      ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: DropdownButtonFormField<String>(
-                                  value: scope,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Role Scope',
-                                    border: OutlineInputBorder(),
-                                  ),
-                                  items: _promptBlockScopes
-                                      .map(
-                                        (item) => DropdownMenuItem<String>(
-                                          value: item,
-                                          child: Text(item),
-                                        ),
-                                      )
-                                      .toList(growable: false),
-                                  onChanged:
-                                      (value) => setModalState(
-                                        () => scope = value ?? 'global',
-                                      ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          DropdownButtonFormField<String>(
-                            value: injectionMode,
-                            decoration: const InputDecoration(
-                              labelText: 'Injection Mode',
-                              border: OutlineInputBorder(),
-                            ),
-                            items: _promptBlockInjectionModes
-                                .map(
-                                  (item) => DropdownMenuItem<String>(
-                                    value: item,
-                                    child: Text(item),
-                                  ),
-                                )
-                                .toList(growable: false),
-                            onChanged:
-                                (value) => setModalState(
-                                  () => injectionMode = value ?? 'position',
-                                ),
-                          ),
-                          if (injectionMode == 'depth') ...[
-                            const SizedBox(height: 12),
-                            _intStepper(
-                              context,
-                              label: 'Depth',
-                              value: depth,
-                              min: 0,
-                              max: 12,
-                              onChanged:
-                                  (value) => setModalState(() => depth = value),
-                            ),
-                          ],
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: contentController,
-                            minLines: 5,
-                            maxLines: 12,
-                            decoration: const InputDecoration(
-                              labelText: '内容',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              TextButton(
-                                onPressed:
-                                    saving
-                                        ? null
-                                        : () =>
-                                            Navigator.of(context).pop(false),
-                                child: const Text('取消'),
-                              ),
-                              const SizedBox(width: 8),
-                              FilledButton(
-                                onPressed:
-                                    saving
-                                        ? null
-                                        : () async {
-                                          setModalState(() => saving = true);
-                                          try {
-                                            final payload = {
-                                              'name':
-                                                  nameController.text
-                                                          .trim()
-                                                          .isEmpty
-                                                      ? '未命名 Prompt Block'
-                                                      : nameController.text
-                                                          .trim(),
-                                              'enabled': enabled,
-                                              'content': contentController.text,
-                                              'kind': kind,
-                                              'injectionMode': injectionMode,
-                                              'depth':
-                                                  injectionMode == 'depth'
-                                                      ? depth
-                                                      : null,
-                                              'roleScope': scope,
-                                            };
-                                            if (isCreate) {
-                                              await store.createPromptBlock(
-                                                payload,
-                                              );
-                                            } else {
-                                              await store.updatePromptBlock(
-                                                blockId:
-                                                    existingBlock?.id ?? '',
-                                                payload: payload,
-                                              );
-                                            }
-                                            if (context.mounted) {
-                                              Navigator.of(context).pop(true);
-                                            }
-                                          } catch (exc) {
-                                            if (!context.mounted) return;
-                                            setModalState(() => saving = false);
-                                            ScaffoldMessenger.of(
-                                              context,
-                                            ).showSnackBar(
-                                              SnackBar(
-                                                content: Text(
-                                                  '${isCreate ? '创建' : '保存'} Prompt Block 失败：$exc',
-                                                ),
-                                              ),
-                                            );
-                                          }
-                                        },
-                                child:
-                                    saving
-                                        ? const SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                        : Text(isCreate ? '创建' : '保存'),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-          ),
-    );
-
-    nameController.dispose();
-    contentController.dispose();
-
-    if (saved == true && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(isCreate ? 'Prompt Block 已创建' : 'Prompt Block 已更新'),
-        ),
-      );
-      await context.read<TavernStore>().loadHome();
-    }
-  }
-
   Future<void> _editPromptOrder(
     BuildContext context, {
     TavernPromptOrder? promptOrder,
   }) async {
     final store = context.read<TavernStore>();
     final isCreate = promptOrder == null;
-    final existingPromptOrder = promptOrder;
+    final baseOrder = promptOrder ?? (store.promptOrders.isNotEmpty ? store.promptOrders.first : null);
     final nameController = TextEditingController(
-      text: existingPromptOrder?.name ?? '',
+      text: promptOrder?.name ?? baseOrder?.name ?? '默认提示词管理',
     );
-    final List<TavernPromptOrderItem> items = [
-      ...(promptOrder?.items ?? const <TavernPromptOrderItem>[]),
+    final items = <TavernPromptOrderItem>[
+      ...(baseOrder?.items ?? const <TavernPromptOrderItem>[]),
     ]..sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
     bool saving = false;
     DateTime? lastReorderAt;
 
     bool shouldIgnoreTap() {
       final at = lastReorderAt;
-      if (at == null) return false;
-      return DateTime.now().difference(at).inMilliseconds < 280;
+      return at != null && DateTime.now().difference(at).inMilliseconds < 280;
     }
 
-    Future<void> addItem(StateSetter setModalState) async {
-      final selected = await showModalBottomSheet<TavernPromptOrderItem>(
-        context: context,
-        builder:
-            (context) => SafeArea(
-              child: ListView(
-                shrinkWrap: true,
-                children: [
-                  const ListTile(title: Text('内置语义块')),
-                  ..._builtinPromptOrderOptions.map(
-                    (option) => ListTile(
-                      leading: const Icon(Icons.auto_awesome_outlined),
-                      title: Text(option.label),
-                      subtitle: Text(option.identifier),
-                      onTap:
-                          () => Navigator.of(context).pop(
-                            TavernPromptOrderItem(
-                              identifier: option.identifier,
-                              enabled: true,
-                              orderIndex: items.length * 10,
-                              position: 'after_system',
-                            ),
-                          ),
-                    ),
-                  ),
-                  const Divider(),
-                  const ListTile(title: Text('自定义 Prompt Blocks')),
-                  ...store.promptBlocks.map(
-                    (block) => ListTile(
-                      leading: const Icon(Icons.notes_outlined),
-                      title: Text(block.name),
-                      subtitle: Text('${block.kind} · ${block.injectionMode}'),
-                      onTap:
-                          () => Navigator.of(context).pop(
-                            TavernPromptOrderItem(
-                              blockId: block.id,
-                              enabled: block.enabled,
-                              orderIndex: items.length * 10,
-                              position:
-                                  block.injectionMode == 'depth'
-                                      ? 'at_depth'
-                                      : 'after_system',
-                              depth:
-                                  block.injectionMode == 'depth'
-                                      ? (block.depth ?? 4)
-                                      : null,
-                            ),
-                          ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-      );
-      if (selected == null) return;
+    Future<void> addCustomItem(StateSetter setModalState) async {
+      final created = await _editPromptManagerCustomItem(context);
+      if (created == null) return;
       setModalState(() {
-        items.add(selected.copyWith(orderIndex: items.length * 10));
+        items.add(created.copyWith(orderIndex: items.length * 10));
       });
     }
 
-    Future<void> editItem(StateSetter setModalState, int index) async {
+    Future<void> editCustomItem(StateSetter setModalState, int index) async {
       final item = items[index];
-      String position = _promptOrderPositions.contains(item.position)
-          ? item.position
-          : _promptOrderPositions.first;
-      int depth = item.depth ?? 4;
-      bool enabled = item.enabled;
+      if (!item.isCustom) return;
+      final updated = await _editPromptManagerCustomItem(context, item: item);
+      if (updated == null) return;
+      setModalState(() {
+        items[index] = updated.copyWith(orderIndex: item.orderIndex);
+      });
+    }
 
-      final updated = await showModalBottomSheet<TavernPromptOrderItem>(
-        context: context,
-        isScrollControlled: true,
-        showDragHandle: true,
-        builder: (context) => SafeArea(
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => SafeArea(
           child: Padding(
             padding: EdgeInsets.only(
               left: 16,
               right: 16,
-              top: 8,
-              bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+              top: 16,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 16,
             ),
-            child: StatefulBuilder(
-              builder: (context, setInnerState) => Column(
-                mainAxisSize: MainAxisSize.min,
+            child: SizedBox(
+              height: MediaQuery.of(context).size.height * 0.88,
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('配置 Item', style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(height: 12),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('启用'),
-                    value: enabled,
-                    onChanged: (value) => setInnerState(() => enabled = value),
+                  Text(
+                    isCreate ? '新建提示词管理' : '编辑提示词管理',
+                    style: Theme.of(context).textTheme.titleLarge,
                   ),
-                  DropdownButtonFormField<String>(
-                    value: position,
-                    isExpanded: true,
+                  const SizedBox(height: 8),
+                  Text(
+                    '内建段落只负责移动和开关；自定义项才编辑内容。',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: nameController,
                     decoration: const InputDecoration(
-                      labelText: 'Position',
+                      labelText: '名称',
                       border: OutlineInputBorder(),
                     ),
-                    items: _promptOrderPositions
-                        .map(
-                          (value) => DropdownMenuItem<String>(
-                            value: value,
-                            child: Text(value, overflow: TextOverflow.ellipsis),
-                          ),
-                        )
-                        .toList(growable: false),
-                    onChanged: (value) => setInnerState(() => position = value ?? 'after_system'),
                   ),
-                  if (position == 'at_depth') ...[
-                    const SizedBox(height: 12),
-                    _intStepper(
-                      context,
-                      label: 'Depth',
-                      value: depth,
-                      min: 0,
-                      max: 12,
-                      onChanged: (value) => setInnerState(() => depth = value),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '提示词项（拖拽即顺序）',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                      ),
+                      FilledButton.tonalIcon(
+                        onPressed: () => addCustomItem(setModalState),
+                        icon: const Icon(Icons.add),
+                        label: const Text('新增自定义项'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: ReorderableListView.builder(
+                      buildDefaultDragHandles: false,
+                      itemCount: items.length,
+                      onReorder: (oldIndex, newIndex) {
+                        setModalState(() {
+                          lastReorderAt = DateTime.now();
+                          if (newIndex > oldIndex) newIndex -= 1;
+                          final moved = items.removeAt(oldIndex);
+                          items.insert(newIndex, moved);
+                          for (var i = 0; i < items.length; i += 1) {
+                            items[i] = items[i].copyWith(orderIndex: i * 10);
+                          }
+                        });
+                      },
+                      itemBuilder: (context, index) {
+                        final item = items[index];
+                        final isCustom = item.isCustom;
+                        return Card(
+                          key: ValueKey('${item.identifier}:${item.blockId}:${item.name}:$index'),
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          child: ListTile(
+                            dense: true,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            leading: ReorderableDragStartListener(
+                              index: index,
+                              child: const Icon(Icons.drag_indicator, size: 18),
+                            ),
+                            title: Text(
+                              _promptOrderItemLabel(store, item),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                            subtitle: Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    isCustom
+                                        ? '${item.role} · ${item.content.trim().isEmpty ? '未填写内容' : item.content.trim()}'
+                                        : '内建段落',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 6,
+                                    children: [
+                                      _compactInfoPill(isCustom ? '自定义' : '内建'),
+                                      _compactInfoPill(item.enabled ? '已启用' : '已关闭'),
+                                      if (isCustom) _compactInfoPill(item.role),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Switch(
+                                  value: item.enabled,
+                                  onChanged: (value) {
+                                    setModalState(() {
+                                      items[index] = item.copyWith(enabled: value);
+                                    });
+                                  },
+                                ),
+                                if (isCustom)
+                                  IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    tooltip: '编辑',
+                                    onPressed: () {
+                                      if (shouldIgnoreTap()) return;
+                                      editCustomItem(setModalState, index);
+                                    },
+                                    icon: const Icon(Icons.edit_outlined, size: 18),
+                                  ),
+                                if (isCustom)
+                                  IconButton(
+                                    visualDensity: VisualDensity.compact,
+                                    tooltip: '删除',
+                                    onPressed: () {
+                                      if (shouldIgnoreTap()) return;
+                                      setModalState(() => items.removeAt(index));
+                                    },
+                                    icon: const Icon(Icons.delete_outline, size: 18),
+                                  ),
+                              ],
+                            ),
+                            onTap: () {
+                              if (shouldIgnoreTap() || !isCustom) return;
+                              editCustomItem(setModalState, index);
+                            },
+                          ),
+                        );
+                      },
                     ),
-                  ],
+                  ),
                   const SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       TextButton(
-                        onPressed: () => Navigator.of(context).pop(),
+                        onPressed: saving ? null : () => Navigator.of(context).pop(false),
                         child: const Text('取消'),
                       ),
                       const SizedBox(width: 8),
                       FilledButton(
-                        onPressed: () {
-                          Navigator.of(context).pop(
-                            item.copyWith(
-                              enabled: enabled,
-                              position: position,
-                              depth: position == 'at_depth' ? depth : null,
-                              clearDepth: position != 'at_depth',
-                            ),
-                          );
-                        },
-                        child: const Text('保存'),
+                        onPressed: saving
+                            ? null
+                            : () async {
+                                setModalState(() => saving = true);
+                                try {
+                                  final normalized = <Map<String, dynamic>>[];
+                                  for (var i = 0; i < items.length; i += 1) {
+                                    final current = items[i];
+                                    normalized.add(
+                                      current.copyWith(
+                                        orderIndex: i * 10,
+                                        position: itemPositionFor(current),
+                                        depth: null,
+                                        clearDepth: true,
+                                        builtIn: current.identifier.isNotEmpty,
+                                      ).toJson(),
+                                    );
+                                  }
+                                  final payload = {
+                                    'name': nameController.text.trim().isEmpty
+                                        ? '默认提示词管理'
+                                        : nameController.text.trim(),
+                                    'items': normalized,
+                                  };
+                                  final targetPromptOrderId = promptOrder?.id ?? baseOrder?.id ?? '';
+                                  if (isCreate || targetPromptOrderId.isEmpty) {
+                                    await store.createPromptOrder(payload);
+                                  } else {
+                                    await store.updatePromptOrder(
+                                      promptOrderId: targetPromptOrderId,
+                                      payload: payload,
+                                    );
+                                  }
+                                  if (context.mounted) {
+                                    Navigator.of(context).pop(true);
+                                  }
+                                } catch (exc) {
+                                  if (!context.mounted) return;
+                                  setModalState(() => saving = false);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('${isCreate ? '创建' : '保存'}提示词管理失败：$exc')),
+                                  );
+                                }
+                              },
+                        child: saving
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : Text(isCreate ? '创建' : '保存'),
                       ),
                     ],
                   ),
@@ -2646,246 +2270,137 @@ class _TavernScreenState extends State<TavernScreen>
             ),
           ),
         ),
-      );
-      if (updated == null) return;
-      setModalState(() {
-        items[index] = updated;
-      });
-    }
-
-    final saved = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      builder:
-          (context) => StatefulBuilder(
-            builder:
-                (context, setModalState) => SafeArea(
-                  child: Padding(
-                    padding: EdgeInsets.only(
-                      left: 16,
-                      right: 16,
-                      top: 16,
-                      bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-                    ),
-                    child: SizedBox(
-                      height: MediaQuery.of(context).size.height * 0.85,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            isCreate ? '新建 Prompt Order' : '编辑 Prompt Order',
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: nameController,
-                            decoration: const InputDecoration(
-                              labelText: '名称',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  'Items（可拖拽排序）',
-                                  style: Theme.of(context).textTheme.titleSmall,
-                                ),
-                              ),
-                              TextButton.icon(
-                                onPressed: () => addItem(setModalState),
-                                icon: const Icon(Icons.add),
-                                label: const Text('添加 item'),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Expanded(
-                            child: ReorderableListView.builder(
-                              buildDefaultDragHandles: false,
-                              itemCount: items.length,
-                              onReorder: (oldIndex, newIndex) {
-                                setModalState(() {
-                                  lastReorderAt = DateTime.now();
-                                  if (newIndex > oldIndex) newIndex -= 1;
-                                  final item = items.removeAt(oldIndex);
-                                  items.insert(newIndex, item);
-                                  for (var i = 0; i < items.length; i += 1) {
-                                    items[i] = items[i].copyWith(
-                                      orderIndex: i * 10,
-                                    );
-                                  }
-                                });
-                              },
-                              itemBuilder: (context, index) {
-                                final item = items[index];
-                                final label = _promptOrderItemLabel(store, item);
-                                return Card(
-                                  key: ValueKey('${item.identifier}:${item.blockId}:$index'),
-                                  margin: const EdgeInsets.symmetric(vertical: 4),
-                                  child: ListTile(
-                                    dense: true,
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                                    leading: ReorderableDragStartListener(
-                                      index: index,
-                                      child: const Icon(Icons.drag_indicator, size: 18),
-                                    ),
-                                    title: Text(
-                                      label,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: Theme.of(context).textTheme.titleSmall,
-                                    ),
-                                    subtitle: Padding(
-                                      padding: const EdgeInsets.only(top: 4),
-                                      child: Wrap(
-                                        spacing: 6,
-                                        runSpacing: 6,
-                                        children: [
-                                          _chip('Pos', item.position),
-                                          if (item.position == 'at_depth') _chip('Depth', '${item.depth ?? 0}'),
-                                          _chip('State', item.enabled ? 'on' : 'off'),
-                                        ],
-                                      ),
-                                    ),
-                                    onTap: () {
-                                      if (shouldIgnoreTap()) return;
-                                      editItem(setModalState, index);
-                                    },
-                                    trailing: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        IconButton(
-                                          visualDensity: VisualDensity.compact,
-                                          tooltip: '配置',
-                                          onPressed: () {
-                                            if (shouldIgnoreTap()) return;
-                                            editItem(setModalState, index);
-                                          },
-                                          icon: const Icon(Icons.tune, size: 18),
-                                        ),
-                                        IconButton(
-                                          visualDensity: VisualDensity.compact,
-                                          tooltip: '删除',
-                                          onPressed: () {
-                                            if (shouldIgnoreTap()) return;
-                                            setModalState(() => items.removeAt(index));
-                                          },
-                                          icon: const Icon(Icons.delete_outline, size: 18),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              TextButton(
-                                onPressed:
-                                    saving
-                                        ? null
-                                        : () =>
-                                            Navigator.of(context).pop(false),
-                                child: const Text('取消'),
-                              ),
-                              const SizedBox(width: 8),
-                              FilledButton(
-                                onPressed:
-                                    saving
-                                        ? null
-                                        : () async {
-                                          setModalState(() => saving = true);
-                                          try {
-                                            final normalized =
-                                                <Map<String, dynamic>>[];
-                                            for (
-                                              var i = 0;
-                                              i < items.length;
-                                              i += 1
-                                            ) {
-                                              normalized.add(
-                                                items[i]
-                                                    .copyWith(
-                                                      orderIndex: i * 10,
-                                                    )
-                                                    .toJson(),
-                                              );
-                                            }
-                                            final payload = {
-                                              'name':
-                                                  nameController.text
-                                                          .trim()
-                                                          .isEmpty
-                                                      ? '未命名 Prompt Order'
-                                                      : nameController.text
-                                                          .trim(),
-                                              'items': normalized,
-                                            };
-                                            if (isCreate) {
-                                              await store.createPromptOrder(
-                                                payload,
-                                              );
-                                            } else {
-                                              await store.updatePromptOrder(
-                                                promptOrderId:
-                                                    existingPromptOrder?.id ??
-                                                    '',
-                                                payload: payload,
-                                              );
-                                            }
-                                            if (context.mounted) {
-                                              Navigator.of(context).pop(true);
-                                            }
-                                          } catch (exc) {
-                                            if (!context.mounted) return;
-                                            setModalState(() => saving = false);
-                                            ScaffoldMessenger.of(
-                                              context,
-                                            ).showSnackBar(
-                                              SnackBar(
-                                                content: Text(
-                                                  '${isCreate ? '创建' : '保存'} Prompt Order 失败：$exc',
-                                                ),
-                                              ),
-                                            );
-                                          }
-                                        },
-                                child:
-                                    saving
-                                        ? const SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                        : Text(isCreate ? '创建' : '保存'),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-          ),
+      ),
     );
 
     nameController.dispose();
 
     if (saved == true && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(isCreate ? 'Prompt Order 已创建' : 'Prompt Order 已更新'),
-        ),
+        SnackBar(content: Text(isCreate ? '提示词管理已创建' : '提示词管理已更新')),
       );
       await context.read<TavernStore>().loadHome();
     }
+  }
+
+  String itemPositionFor(TavernPromptOrderItem item) {
+    if (item.position == 'at_depth') return 'at_depth';
+    switch (item.identifier) {
+      case 'main':
+        return 'after_system';
+      case 'charDescription':
+      case 'charPersonality':
+        return 'before_character';
+      case 'scenario':
+      case 'worldInfoAfter':
+        return 'after_character';
+      case 'dialogueExamples':
+        return 'before_example_messages';
+      case 'worldInfoBefore':
+      case 'summaries':
+        return 'before_chat_history';
+      case 'chatHistory':
+        return 'before_last_user';
+      default:
+        return item.position.isEmpty ? 'after_chat_history' : item.position;
+    }
+  }
+
+  Future<TavernPromptOrderItem?> _editPromptManagerCustomItem(
+    BuildContext context, {
+    TavernPromptOrderItem? item,
+  }) async {
+    final nameController = TextEditingController(text: item?.name ?? '');
+    final contentController = TextEditingController(text: item?.content ?? '');
+    String role = (item?.role ?? 'system').trim().isEmpty ? 'system' : (item?.role ?? 'system');
+
+    final result = await showModalBottomSheet<TavernPromptOrderItem>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 8,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+          ),
+          child: StatefulBuilder(
+            builder: (context, setModalState) => Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(item == null ? '新增自定义提示词' : '编辑自定义提示词', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: '名称',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: _storyRoles.contains(role) ? role : 'system',
+                  decoration: const InputDecoration(
+                    labelText: 'Role',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: _storyRoles.map((value) => DropdownMenuItem<String>(
+                    value: value,
+                    child: Text(value),
+                  )).toList(growable: false),
+                  onChanged: (value) => setModalState(() => role = value ?? 'system'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: contentController,
+                  minLines: 5,
+                  maxLines: 10,
+                  decoration: const InputDecoration(
+                    labelText: '内容',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('取消'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: () {
+                        Navigator.of(context).pop(
+                          TavernPromptOrderItem(
+                            identifier: '',
+                            name: nameController.text.trim().isEmpty ? '未命名自定义项' : nameController.text.trim(),
+                            role: role,
+                            content: contentController.text,
+                            enabled: item?.enabled ?? true,
+                            orderIndex: item?.orderIndex ?? 0,
+                            position: item?.position ?? 'after_chat_history',
+                            builtIn: false,
+                          ),
+                        );
+                      },
+                      child: const Text('保存'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    nameController.dispose();
+    contentController.dispose();
+    return result;
   }
 
   Future<void> _toggleWorldBook(
@@ -2900,9 +2415,9 @@ class _TavernScreenState extends State<TavernScreen>
       );
     } catch (exc) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('更新 WorldBook 失败：$exc')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('更新 WorldBook 失败：$exc')),
+      );
     }
   }
 

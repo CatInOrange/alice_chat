@@ -374,12 +374,17 @@ class PromptBuilder:
                 continue
             block_id = str(item.get('block_id') or item.get('blockId') or '').strip()
             identifier = str(item.get('identifier') or '').strip()
+            custom_content = str(item.get('content') or item.get('text') or '').strip()
 
             if block_id:
                 prompt_block = prompt_blocks_by_id.get(block_id)
                 if prompt_block and prompt_block.get('enabled', True):
                     ordered_blocks.append(self._build_prompt_block(prompt_block, source_item=item))
                     used_keys.add(f'block:{block_id}')
+                continue
+
+            if not identifier and custom_content:
+                ordered_blocks.append(self._build_custom_prompt_order_item(item))
                 continue
 
             semantic_key = self._IDENTIFIER_MAP.get(identifier)
@@ -395,14 +400,6 @@ class PromptBuilder:
                 continue
             ordered_blocks.append(self._clone_block_with_item(semantic[semantic_key], item))
             used_keys.add(semantic_key)
-
-        for block in prompt_blocks:
-            if not block.get('enabled', True):
-                continue
-            block_id = str(block.get('id') or '').strip()
-            if block_id and f'block:{block_id}' in used_keys:
-                continue
-            ordered_blocks.append(self._build_prompt_block(block))
 
         if semantic['author_note'].get('content') and 'author_note' not in used_keys:
             ordered_blocks.append(semantic['author_note'])
@@ -1309,6 +1306,25 @@ class PromptBuilder:
             'sourceItem': item,
         }
         return cloned
+
+    def _build_custom_prompt_order_item(self, item: dict[str, Any]) -> dict[str, Any]:
+        position = self._normalize_position(str(item.get('position') or 'after_chat_history'))
+        depth_value = item.get('depth')
+        meta: dict[str, Any] = {
+            'sourceItem': item,
+            'orderIndex': int(item.get('order_index') or item.get('orderIndex') or 0),
+            'customItem': True,
+        }
+        return self._block(
+            name=str(item.get('name') or 'custom_prompt'),
+            kind='custom',
+            position=position,
+            role=str(item.get('role') or 'system') or 'system',
+            content=str(item.get('content') or item.get('text') or ''),
+            depth=int(depth_value) if depth_value is not None else None,
+            source='prompt_order_item',
+            meta=meta,
+        )
 
     def _build_prompt_block(self, block: dict[str, Any], *, source_item: dict[str, Any] | None = None) -> dict[str, Any]:
         injection_mode = str(block.get('injectionMode') or 'position').strip() or 'position'
