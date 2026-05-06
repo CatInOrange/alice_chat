@@ -734,6 +734,11 @@ class _TavernScreenState extends State<TavernScreen>
             title: const Text('Presets'),
             actions: [
               IconButton(
+                tooltip: '刷新',
+                onPressed: () => this.context.read<TavernStore>().loadHome(),
+                icon: const Icon(Icons.refresh),
+              ),
+              IconButton(
                 tooltip: '新增 Preset',
                 onPressed: () => _editPreset(context),
                 icon: const Icon(Icons.add),
@@ -818,9 +823,75 @@ class _TavernScreenState extends State<TavernScreen>
   }
 
   Widget _buildPresetsTab(BuildContext context, TavernStore store) {
+    final usedPresets = store.presets
+        .where((preset) => _presetUsageCount(store, preset.id) > 0)
+        .toList(growable: false);
+    final idlePresets = store.presets
+        .where((preset) => _presetUsageCount(store, preset.id) == 0)
+        .toList(growable: false);
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF6F3FF),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE5DDFC)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF7C4DFF).withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.auto_awesome_outlined,
+                      color: Color(0xFF7C4DFF),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Preset Manager',
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '把模型参数、Prompt Order 和注入策略收成可复用模板。列表先看用途，点进再看细节。',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _compactInfoPill('共 ${store.presets.length} 套'),
+                  _compactInfoPill('使用中 ${usedPresets.length}'),
+                  _compactInfoPill('空闲 ${idlePresets.length}'),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
         if (store.presets.isEmpty)
           const Card(
             child: ListTile(
@@ -828,65 +899,415 @@ class _TavernScreenState extends State<TavernScreen>
               subtitle: Text('可以创建多套模型参数和 Prompt 组合。'),
             ),
           )
-        else
-          ...store.presets.map(
-            (preset) => Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+        else ...[
+          if (usedPresets.isNotEmpty) ...[
+            _managerSectionHeader(
+              context,
+              title: '当前被会话使用',
+              subtitle: '这些 Preset 正在至少一个 Tavern 会话里生效。',
+            ),
+            const SizedBox(height: 10),
+            ...usedPresets.map((preset) => _buildPresetSummaryCard(context, store, preset)),
+            const SizedBox(height: 18),
+          ],
+          if (idlePresets.isNotEmpty) ...[
+            _managerSectionHeader(
+              context,
+              title: '其他 Presets',
+              subtitle: '已保存但当前没有会话在使用。',
+            ),
+            const SizedBox(height: 10),
+            ...idlePresets.map((preset) => _buildPresetSummaryCard(context, store, preset)),
+          ],
+        ],
+      ],
+    );
+  }
+
+  Widget _managerSectionHeader(
+    BuildContext context, {
+    required String title,
+    required String subtitle,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+      ],
+    );
+  }
+
+  Widget _buildPresetSummaryCard(
+    BuildContext context,
+    TavernStore store,
+    TavernPreset preset,
+  ) {
+    final usageCount = _presetUsageCount(store, preset.id);
+    final promptOrderName = _promptOrderName(store, preset.promptOrderId);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _showPresetDetailsSheet(context, store, preset),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: Text(
-                            preset.name,
-                            style: Theme.of(context).textTheme.titleSmall,
+                        Text(
+                          preset.name,
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
-                        IconButton(
-                          tooltip: '复制 Preset',
-                          onPressed: () => _duplicatePreset(context, preset),
-                          icon: const Icon(Icons.copy_outlined),
-                        ),
-                        IconButton(
-                          tooltip: '编辑 Preset',
-                          onPressed: () => _editPreset(context, preset: preset),
-                          icon: const Icon(Icons.edit_outlined),
+                        const SizedBox(height: 6),
+                        Text(
+                          _presetSummaryLine(store, preset),
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFF6F7788),
+                          ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
+                  ),
+                  const SizedBox(width: 12),
+                  PopupMenuButton<String>(
+                    tooltip: 'Preset 操作',
+                    onSelected: (value) {
+                      switch (value) {
+                        case 'detail':
+                          _showPresetDetailsSheet(context, store, preset);
+                          break;
+                        case 'duplicate':
+                          _duplicatePreset(context, preset);
+                          break;
+                        case 'edit':
+                          _editPreset(context, preset: preset);
+                          break;
+                      }
+                    },
+                    itemBuilder: (context) => const [
+                      PopupMenuItem<String>(
+                        value: 'detail',
+                        child: Text('查看详情'),
+                      ),
+                      PopupMenuItem<String>(
+                        value: 'duplicate',
+                        child: Text('复制一份'),
+                      ),
+                      PopupMenuItem<String>(
+                        value: 'edit',
+                        child: Text('编辑'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _compactInfoPill(_presetModelLabel(preset)),
+                  _compactInfoPill('Prompt Order · $promptOrderName'),
+                  _compactInfoPill('Max ${preset.maxTokens > 0 ? preset.maxTokens : '默认'}'),
+                  _compactInfoPill('Temp ${preset.temperature.toStringAsFixed(2)}'),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  _presetStatePill(
+                    usageCount > 0 ? '使用中 $usageCount 会话' : '当前未使用',
+                    color: usageCount > 0 ? const Color(0xFF3FB950) : const Color(0xFF98A1B3),
+                  ),
+                  const SizedBox(width: 8),
+                  if (preset.stopSequences.isNotEmpty)
+                    _presetStatePill(
+                      'Stop ${preset.stopSequences.length}',
+                      color: const Color(0xFFFFB020),
+                    ),
+                  const Spacer(),
+                  Text(
+                    '查看详情',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: const Color(0xFF7C4DFF),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.chevron_right, size: 18, color: Color(0xFF7C4DFF)),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showPresetDetailsSheet(
+    BuildContext context,
+    TavernStore store,
+    TavernPreset preset,
+  ) async {
+    final usageCount = _presetUsageCount(store, preset.id);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: FractionallySizedBox(
+          heightFactor: 0.88,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          preset.name,
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          _presetSummaryLine(store, preset),
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '复制 Preset',
+                    onPressed: () => _duplicatePreset(this.context, preset),
+                    icon: const Icon(Icons.copy_outlined),
+                  ),
+                  IconButton(
+                    tooltip: '编辑 Preset',
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      _editPreset(this.context, preset: preset);
+                    },
+                    icon: const Icon(Icons.edit_outlined),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _presetSectionCard(
+                context,
+                title: '状态',
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _presetStatePill(
+                      usageCount > 0 ? '使用中 $usageCount 会话' : '当前未使用',
+                      color: usageCount > 0 ? const Color(0xFF3FB950) : const Color(0xFF98A1B3),
+                    ),
+                    _presetStatePill(
+                      'Prompt Order · ${_promptOrderName(store, preset.promptOrderId)}',
+                      color: const Color(0xFF7C4DFF),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              _presetSectionCard(
+                context,
+                title: '基础',
+                child: Column(
+                  children: [
+                    _infoRow('Provider', preset.provider.isEmpty ? '默认 / 未指定' : preset.provider),
+                    _infoRow('Model', preset.model.isEmpty ? '默认 / 未指定' : preset.model),
+                    _infoRow('Prompt Order', _promptOrderName(store, preset.promptOrderId)),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              _presetSectionCard(
+                context,
+                title: '采样参数',
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _compactInfoPill('Temp ${preset.temperature.toStringAsFixed(2)}'),
+                    _compactInfoPill('TopP ${preset.topP.toStringAsFixed(2)}'),
+                    _compactInfoPill('TopK ${preset.topK}'),
+                    _compactInfoPill('MinP ${preset.minP.toStringAsFixed(2)}'),
+                    _compactInfoPill('Typical ${preset.typicalP.toStringAsFixed(2)}'),
+                    _compactInfoPill('Repeat ${preset.repetitionPenalty.toStringAsFixed(2)}'),
+                    _compactInfoPill('MaxTokens ${preset.maxTokens > 0 ? preset.maxTokens : '默认'}'),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              _presetSectionCard(
+                context,
+                title: 'Prompt 注入',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        _chip('Provider', preset.provider.isEmpty ? '默认' : preset.provider),
-                        _chip('Model', preset.model.isEmpty ? '默认' : preset.model),
-                        _chip('Prompt Order', _promptOrderName(store, preset.promptOrderId)),
-                        _chip('Temp', preset.temperature.toStringAsFixed(2)),
-                        _chip('TopP', preset.topP.toStringAsFixed(2)),
-                        _chip('TopK', '${preset.topK}'),
-                        _chip('MinP', preset.minP.toStringAsFixed(2)),
-                        _chip('TypicalP', preset.typicalP.toStringAsFixed(2)),
-                        _chip('Repeat', preset.repetitionPenalty.toStringAsFixed(2)),
-                        _chip('MaxTokens', '${preset.maxTokens}'),
-                        _chip('Story', preset.storyStringPosition),
-                        _chip('Role', preset.storyStringRole),
-                        _chip('Depth', '${preset.storyStringDepth}'),
+                        _compactInfoPill('Story ${preset.storyStringPosition}'),
+                        _compactInfoPill('Role ${preset.storyStringRole}'),
+                        _compactInfoPill('Depth ${preset.storyStringDepth}'),
                       ],
                     ),
-                    if (preset.stopSequences.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      Text('Stop Sequences: ${preset.stopSequences.join(' · ')}'),
+                    if (preset.storyString.trim().isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        preset.storyString,
+                        maxLines: 6,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ],
+                    if (preset.chatStart.trim().isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      _infoRow('Chat Start', preset.chatStart),
+                    ],
+                    if (preset.exampleSeparator.trim().isNotEmpty) ...[
+                      _infoRow('Example Separator', preset.exampleSeparator),
                     ],
                   ],
                 ),
               ),
+              if (preset.stopSequences.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                _presetSectionCard(
+                  context,
+                  title: 'Stop Sequences',
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: preset.stopSequences
+                        .map((item) => _compactInfoPill(item))
+                        .toList(growable: false),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _presetSectionCard(
+    BuildContext context, {
+    required String title,
+    required Widget child,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Theme.of(context).dividerColor.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w800,
             ),
           ),
-      ],
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
     );
+  }
+
+  Widget _presetStatePill(String text, {required Color color}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.22)),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          color: color,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Widget _infoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 112,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Color(0xFF6F7788),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              value.isEmpty ? '—' : value,
+              style: const TextStyle(fontWeight: FontWeight.w500),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  int _presetUsageCount(TavernStore store, String presetId) {
+    if (presetId.isEmpty) return 0;
+    return store.recentChats.where((chat) => chat.presetId == presetId).length;
+  }
+
+  String _presetModelLabel(TavernPreset preset) {
+    if (preset.model.isNotEmpty) return preset.model;
+    if (preset.provider.isNotEmpty) return preset.provider;
+    return '默认模型';
+  }
+
+  String _presetSummaryLine(TavernStore store, TavernPreset preset) {
+    final orderName = _promptOrderName(store, preset.promptOrderId);
+    final maxTokens = preset.maxTokens > 0 ? '${preset.maxTokens} tok' : '默认长度';
+    return '${_presetModelLabel(preset)} · $orderName · $maxTokens';
   }
 
   Future<void> _importCharacter() async {
@@ -1388,254 +1809,282 @@ class _TavernScreenState extends State<TavernScreen>
                                 : '编辑 Preset：${existingPreset?.name ?? ''}',
                             style: Theme.of(context).textTheme.titleLarge,
                           ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: nameController,
-                            decoration: const InputDecoration(
-                              labelText: '名称',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          DropdownButtonFormField<String>(
-                            value:
-                                providers.any((item) => item.id == providerId)
-                                    ? providerId
-                                    : null,
-                            decoration: const InputDecoration(
-                              labelText: 'Provider',
-                              border: OutlineInputBorder(),
-                            ),
-                            items: [
-                              const DropdownMenuItem<String>(
-                                value: '',
-                                child: Text('默认 / 未指定'),
-                              ),
-                              ...providers.map(
-                                (provider) => DropdownMenuItem<String>(
-                                  value: provider.id,
-                                  child: Text(
-                                    provider.label.isEmpty
-                                        ? provider.id
-                                        : provider.label,
-                                  ),
-                                ),
-                              ),
-                            ],
-                            onChanged:
-                                (value) => setModalState(
-                                  () => providerId = value ?? '',
-                                ),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: modelController,
-                            decoration: const InputDecoration(
-                              labelText: 'Model',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          DropdownButtonFormField<String>(
-                            value:
-                                promptOrders.any(
-                                      (item) => item.id == promptOrderId,
-                                    )
-                                    ? promptOrderId
-                                    : null,
-                            decoration: const InputDecoration(
-                              labelText: 'Prompt Order',
-                              border: OutlineInputBorder(),
-                            ),
-                            items: promptOrders
-                                .map(
-                                  (order) => DropdownMenuItem<String>(
-                                    value: order.id,
-                                    child: Text(order.name),
-                                  ),
-                                )
-                                .toList(growable: false),
-                            onChanged:
-                                promptOrders.isEmpty
-                                    ? null
-                                    : (value) => setModalState(
-                                      () => promptOrderId = value ?? '',
-                                    ),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: storyController,
-                            minLines: 4,
-                            maxLines: 8,
-                            decoration: const InputDecoration(
-                              labelText: 'Story String',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: chatStartController,
-                            minLines: 1,
-                            maxLines: 4,
-                            decoration: const InputDecoration(
-                              labelText: 'Chat Start',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: exampleController,
-                            minLines: 1,
-                            maxLines: 4,
-                            decoration: const InputDecoration(
-                              labelText: 'Example Separator',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: stopController,
-                            minLines: 2,
-                            maxLines: 5,
-                            decoration: const InputDecoration(
-                              labelText: 'Stop Sequences（每行一个）',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: DropdownButtonFormField<String>(
-                                  value: storyPosition,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Story Position',
-                                    border: OutlineInputBorder(),
-                                  ),
-                                  items: _storyPositions
-                                      .map(
-                                        (item) => DropdownMenuItem<String>(
-                                          value: item,
-                                          child: Text(item),
-                                        ),
-                                      )
-                                      .toList(growable: false),
-                                  onChanged:
-                                      (value) => setModalState(
-                                        () =>
-                                            storyPosition =
-                                                value ?? 'in_prompt',
-                                      ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: DropdownButtonFormField<String>(
-                                  value: storyRole,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Story Role',
-                                    border: OutlineInputBorder(),
-                                  ),
-                                  items: _storyRoles
-                                      .map(
-                                        (item) => DropdownMenuItem<String>(
-                                          value: item,
-                                          child: Text(item),
-                                        ),
-                                      )
-                                      .toList(growable: false),
-                                  onChanged:
-                                      (value) => setModalState(
-                                        () => storyRole = value ?? 'system',
-                                      ),
-                                ),
-                              ),
-                            ],
+                          const SizedBox(height: 6),
+                          Text(
+                            '按 Native 的思路，把 Preset 当成可复用模板来管理。',
+                            style: Theme.of(context).textTheme.bodySmall,
                           ),
                           const SizedBox(height: 16),
-                          _sliderField(
+                          _presetSectionCard(
                             context,
-                            label: 'Temperature',
-                            value: temperature,
-                            min: 0,
-                            max: 2,
-                            divisions: 20,
-                            onChanged:
-                                (value) =>
-                                    setModalState(() => temperature = value),
-                          ),
-                          _sliderField(
-                            context,
-                            label: 'Top P',
-                            value: topP,
-                            min: 0,
-                            max: 1,
-                            divisions: 20,
-                            onChanged:
-                                (value) => setModalState(() => topP = value),
-                          ),
-                          _sliderField(
-                            context,
-                            label: 'Min P',
-                            value: minP,
-                            min: 0,
-                            max: 1,
-                            divisions: 20,
-                            onChanged:
-                                (value) => setModalState(() => minP = value),
-                          ),
-                          _sliderField(
-                            context,
-                            label: 'Typical P',
-                            value: typicalP,
-                            min: 0,
-                            max: 1,
-                            divisions: 20,
-                            onChanged:
-                                (value) =>
-                                    setModalState(() => typicalP = value),
-                          ),
-                          _sliderField(
-                            context,
-                            label: 'Repetition Penalty',
-                            value: repetitionPenalty,
-                            min: 0.5,
-                            max: 2,
-                            divisions: 30,
-                            onChanged:
-                                (value) => setModalState(
-                                  () => repetitionPenalty = value,
+                            title: '基础',
+                            child: Column(
+                              children: [
+                                TextField(
+                                  controller: nameController,
+                                  decoration: const InputDecoration(
+                                    labelText: '名称',
+                                    border: OutlineInputBorder(),
+                                  ),
                                 ),
+                                const SizedBox(height: 12),
+                                DropdownButtonFormField<String>(
+                                  value:
+                                      providers.any((item) => item.id == providerId)
+                                          ? providerId
+                                          : null,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Provider',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  items: [
+                                    const DropdownMenuItem<String>(
+                                      value: '',
+                                      child: Text('默认 / 未指定'),
+                                    ),
+                                    ...providers.map(
+                                      (provider) => DropdownMenuItem<String>(
+                                        value: provider.id,
+                                        child: Text(
+                                          provider.label.isEmpty
+                                              ? provider.id
+                                              : provider.label,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                  onChanged:
+                                      (value) => setModalState(
+                                        () => providerId = value ?? '',
+                                      ),
+                                ),
+                                const SizedBox(height: 12),
+                                TextField(
+                                  controller: modelController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Model',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                DropdownButtonFormField<String>(
+                                  value:
+                                      promptOrders.any((item) => item.id == promptOrderId)
+                                          ? promptOrderId
+                                          : null,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Prompt Order',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  items: promptOrders
+                                      .map(
+                                        (order) => DropdownMenuItem<String>(
+                                          value: order.id,
+                                          child: Text(order.name),
+                                        ),
+                                      )
+                                      .toList(growable: false),
+                                  onChanged:
+                                      promptOrders.isEmpty
+                                          ? null
+                                          : (value) => setModalState(
+                                            () => promptOrderId = value ?? '',
+                                          ),
+                                ),
+                              ],
+                            ),
                           ),
-                          _intStepper(
+                          const SizedBox(height: 12),
+                          _presetSectionCard(
                             context,
-                            label: 'Top K',
-                            value: topK,
-                            min: 0,
-                            max: 200,
-                            onChanged:
-                                (value) => setModalState(() => topK = value),
+                            title: 'Prompt 注入',
+                            child: Column(
+                              children: [
+                                TextField(
+                                  controller: storyController,
+                                  minLines: 4,
+                                  maxLines: 8,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Story String',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                TextField(
+                                  controller: chatStartController,
+                                  minLines: 1,
+                                  maxLines: 4,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Chat Start',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                TextField(
+                                  controller: exampleController,
+                                  minLines: 1,
+                                  maxLines: 4,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Example Separator',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                TextField(
+                                  controller: stopController,
+                                  minLines: 2,
+                                  maxLines: 5,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Stop Sequences（每行一个）',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: DropdownButtonFormField<String>(
+                                        value: storyPosition,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Story Position',
+                                          border: OutlineInputBorder(),
+                                        ),
+                                        items: _storyPositions
+                                            .map(
+                                              (item) => DropdownMenuItem<String>(
+                                                value: item,
+                                                child: Text(item),
+                                              ),
+                                            )
+                                            .toList(growable: false),
+                                        onChanged:
+                                            (value) => setModalState(
+                                              () =>
+                                                  storyPosition =
+                                                      value ?? 'in_prompt',
+                                            ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: DropdownButtonFormField<String>(
+                                        value: storyRole,
+                                        decoration: const InputDecoration(
+                                          labelText: 'Story Role',
+                                          border: OutlineInputBorder(),
+                                        ),
+                                        items: _storyRoles
+                                            .map(
+                                              (item) => DropdownMenuItem<String>(
+                                                value: item,
+                                                child: Text(item),
+                                              ),
+                                            )
+                                            .toList(growable: false),
+                                        onChanged:
+                                            (value) => setModalState(
+                                              () => storyRole = value ?? 'system',
+                                            ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                _intStepper(
+                                  context,
+                                  label: 'Story Depth',
+                                  value: storyDepth,
+                                  min: 0,
+                                  max: 12,
+                                  onChanged:
+                                      (value) =>
+                                          setModalState(() => storyDepth = value),
+                                ),
+                              ],
+                            ),
                           ),
-                          _intStepper(
+                          const SizedBox(height: 12),
+                          _presetSectionCard(
                             context,
-                            label: 'Max Tokens',
-                            value: maxTokens,
-                            min: 0,
-                            max: 32000,
-                            step: 128,
-                            onChanged:
-                                (value) =>
-                                    setModalState(() => maxTokens = value),
-                          ),
-                          _intStepper(
-                            context,
-                            label: 'Story Depth',
-                            value: storyDepth,
-                            min: 0,
-                            max: 12,
-                            onChanged:
-                                (value) =>
-                                    setModalState(() => storyDepth = value),
+                            title: '采样参数',
+                            child: Column(
+                              children: [
+                                _sliderField(
+                                  context,
+                                  label: 'Temperature',
+                                  value: temperature,
+                                  min: 0,
+                                  max: 2,
+                                  divisions: 20,
+                                  onChanged:
+                                      (value) =>
+                                          setModalState(() => temperature = value),
+                                ),
+                                _sliderField(
+                                  context,
+                                  label: 'Top P',
+                                  value: topP,
+                                  min: 0,
+                                  max: 1,
+                                  divisions: 20,
+                                  onChanged:
+                                      (value) => setModalState(() => topP = value),
+                                ),
+                                _sliderField(
+                                  context,
+                                  label: 'Min P',
+                                  value: minP,
+                                  min: 0,
+                                  max: 1,
+                                  divisions: 20,
+                                  onChanged:
+                                      (value) => setModalState(() => minP = value),
+                                ),
+                                _sliderField(
+                                  context,
+                                  label: 'Typical P',
+                                  value: typicalP,
+                                  min: 0,
+                                  max: 1,
+                                  divisions: 20,
+                                  onChanged:
+                                      (value) =>
+                                          setModalState(() => typicalP = value),
+                                ),
+                                _sliderField(
+                                  context,
+                                  label: 'Repetition Penalty',
+                                  value: repetitionPenalty,
+                                  min: 0.5,
+                                  max: 2,
+                                  divisions: 30,
+                                  onChanged:
+                                      (value) => setModalState(
+                                        () => repetitionPenalty = value,
+                                      ),
+                                ),
+                                _intStepper(
+                                  context,
+                                  label: 'Top K',
+                                  value: topK,
+                                  min: 0,
+                                  max: 200,
+                                  onChanged:
+                                      (value) => setModalState(() => topK = value),
+                                ),
+                                _intStepper(
+                                  context,
+                                  label: 'Max Tokens',
+                                  value: maxTokens,
+                                  min: 0,
+                                  max: 32000,
+                                  step: 128,
+                                  onChanged:
+                                      (value) =>
+                                          setModalState(() => maxTokens = value),
+                                ),
+                              ],
+                            ),
                           ),
                           const SizedBox(height: 12),
                           Row(
