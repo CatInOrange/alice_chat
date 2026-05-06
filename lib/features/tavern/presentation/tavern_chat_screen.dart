@@ -1218,9 +1218,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
 
   List<Map<String, String>> _quickReplies() {
     return const [
-      {'label': '继续', 'prompt': '继续当前剧情，不要重复前文，直接往下推进。'},
       {'label': '推进剧情', 'prompt': '推进剧情发展，给出新的事件、互动或转折。'},
-      {'label': '加点张力', 'prompt': '保持当前人设和语气，让这一段互动更有张力。'},
       {'label': '细化描写', 'prompt': '延续当前场景，增加动作、表情、环境和细节描写。'},
     ];
   }
@@ -1233,6 +1231,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       'chat_history': 0,
       'author_note': 0,
       'prompt': 0,
+      'user_input': 0,
       'others': 0,
     };
 
@@ -1242,29 +1241,36 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         const <dynamic>[];
     for (final item in rawComponents.whereType<Map>()) {
       final map = Map<String, dynamic>.from(item);
-      final kind =
-          (map['kind'] ?? map['component'] ?? map['label'] ?? '')
-              .toString()
-              .toLowerCase();
+      final name = (map['name'] ?? map['label'] ?? map['component'] ?? '')
+          .toString()
+          .toLowerCase();
+      final kind = (map['kind'] ?? map['type'] ?? '').toString().toLowerCase();
       final tokens =
+          (map['tokenCount'] as num?)?.toInt() ??
           (map['tokens'] as num?)?.toInt() ??
           (map['estimatedTokens'] as num?)?.toInt() ??
           0;
       if (tokens <= 0) continue;
-      if (kind.contains('summary')) {
+      final key = '$name $kind';
+      if (key.contains('summary')) {
         parts['summary'] = parts['summary']! + tokens;
-      } else if (kind.contains('world') || kind.contains('lore')) {
+      } else if (key.contains('world info') || key.contains('lore')) {
         parts['world_info'] = parts['world_info']! + tokens;
-      } else if (kind.contains('history') || kind.contains('message')) {
+      } else if (key.contains('chat history') ||
+          key.contains('history') ||
+          key.contains('message')) {
         parts['chat_history'] = parts['chat_history']! + tokens;
-      } else if (kind.contains('author')) {
+      } else if (key.contains('author')) {
         parts['author_note'] = parts['author_note']! + tokens;
-      } else if (kind.contains('system') ||
-          kind.contains('persona') ||
-          kind.contains('scenario') ||
-          kind.contains('character') ||
-          kind.contains('example') ||
-          kind.contains('prompt')) {
+      } else if (key.contains('user input')) {
+        parts['user_input'] = parts['user_input']! + tokens;
+      } else if (key.contains('prompt section') ||
+          key.contains('system') ||
+          key.contains('persona') ||
+          key.contains('scenario') ||
+          key.contains('character') ||
+          key.contains('example') ||
+          key.contains('prompt')) {
         parts['prompt'] = parts['prompt']! + tokens;
       } else {
         parts['others'] = parts['others']! + tokens;
@@ -1278,15 +1284,51 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     final parts = _contextBreakdown(debug);
     final total = parts.values.fold<int>(0, (sum, value) => sum + value);
     final segments = <Map<String, dynamic>>[
-      {'key': 'prompt', 'label': 'Prompt', 'tokens': parts['prompt'] ?? 0, 'color': const Color(0xFF7C4DFF)},
-      {'key': 'chat_history', 'label': 'History', 'tokens': parts['chat_history'] ?? 0, 'color': const Color(0xFF4F8CFF)},
-      {'key': 'summary', 'label': 'Summary', 'tokens': parts['summary'] ?? 0, 'color': const Color(0xFF14B8A6)},
-      {'key': 'world_info', 'label': 'Lore', 'tokens': parts['world_info'] ?? 0, 'color': const Color(0xFFFFB020)},
-      {'key': 'author_note', 'label': 'AN', 'tokens': parts['author_note'] ?? 0, 'color': const Color(0xFFFF6B6B)},
-      {'key': 'others', 'label': 'Other', 'tokens': parts['others'] ?? 0, 'color': const Color(0xFF98A1B3)},
+      {
+        'key': 'prompt',
+        'label': 'Prompt',
+        'tokens': parts['prompt'] ?? 0,
+        'color': const Color(0xFF7C4DFF),
+      },
+      {
+        'key': 'chat_history',
+        'label': 'History',
+        'tokens': parts['chat_history'] ?? 0,
+        'color': const Color(0xFF4F8CFF),
+      },
+      {
+        'key': 'summary',
+        'label': 'Summary',
+        'tokens': parts['summary'] ?? 0,
+        'color': const Color(0xFF14B8A6),
+      },
+      {
+        'key': 'world_info',
+        'label': 'Lore',
+        'tokens': parts['world_info'] ?? 0,
+        'color': const Color(0xFFFFB020),
+      },
+      {
+        'key': 'author_note',
+        'label': 'AN',
+        'tokens': parts['author_note'] ?? 0,
+        'color': const Color(0xFFFF6B6B),
+      },
+      {
+        'key': 'user_input',
+        'label': 'Input',
+        'tokens': parts['user_input'] ?? 0,
+        'color': const Color(0xFF3FB950),
+      },
+      {
+        'key': 'others',
+        'label': 'Other',
+        'tokens': parts['others'] ?? 0,
+        'color': const Color(0xFF98A1B3),
+      },
     ];
     return segments
-        .where((item) => (item['tokens'] as int) > 0 || item['key'] == 'prompt')
+        .where((item) => (item['tokens'] as int) > 0)
         .map((item) {
           final tokens = item['tokens'] as int;
           return {
@@ -1300,12 +1342,17 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   String _formatCompactTokenCount(int count) {
     if (count >= 1000) {
       final value = count / 1000;
-      return value >= 10 ? '${value.toStringAsFixed(0)}k' : '${value.toStringAsFixed(1)}k';
+      return value >= 10
+          ? '${value.toStringAsFixed(0)}k'
+          : '${value.toStringAsFixed(1)}k';
     }
     return '$count';
   }
 
-  Widget _buildSegmentBar(List<Map<String, dynamic>> segments, {double height = 8}) {
+  Widget _buildSegmentBar(
+    List<Map<String, dynamic>> segments, {
+    double height = 8,
+  }) {
     if (segments.isEmpty) {
       return Container(
         height: height,
@@ -1339,7 +1386,10 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     required Color color,
     double? ratio,
   }) {
-    final percent = ratio == null ? null : (ratio * 100).toStringAsFixed(ratio >= 0.1 ? 0 : 1);
+    final percent =
+        ratio == null
+            ? null
+            : (ratio * 100).toStringAsFixed(ratio >= 0.1 ? 0 : 1);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
@@ -1372,108 +1422,131 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   Widget _buildQuickReplyBar() {
     final items = _quickReplies();
     return SizedBox(
-      height: 44,
+      height: 40,
       child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
         scrollDirection: Axis.horizontal,
         itemBuilder: (context, index) {
+          if (index == items.length) {
+            return _buildContextStatusTag();
+          }
           final item = items[index];
           return ActionChip(
+            visualDensity: VisualDensity.compact,
             label: Text(item['label']!),
-            onPressed: _isSending ? null : () => _sendSilentQuickReply(item['prompt']!),
+            onPressed:
+                _isSending
+                    ? null
+                    : () => _sendSilentQuickReply(item['prompt']!),
           );
         },
         separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemCount: items.length,
+        itemCount: items.length + 1,
+      ),
+    );
+  }
+
+  Widget _buildContextStatusTag() {
+    final debug = _latestPromptDebug;
+    if (debug == null) {
+      return ActionChip(
+        visualDensity: VisualDensity.compact,
+        avatar: const SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        label: const Text('Context'),
+        onPressed: null,
+      );
+    }
+    final usage = debug.contextUsage;
+    final totalTokens = (usage['totalTokens'] as num?)?.toInt() ?? 0;
+    final maxContext = (usage['maxContext'] as num?)?.toInt() ?? 0;
+    final usagePercent = (usage['usagePercentage'] as num?)?.toDouble();
+    final percent =
+        usagePercent ??
+        (maxContext > 0 ? (totalTokens / maxContext) * 100 : 0.0);
+    final trimPlan =
+        usage['meta'] is Map
+            ? (((usage['meta'] as Map)['trimPlan'] as Map?) ??
+                const <String, dynamic>{})
+            : const <String, dynamic>{};
+    final overLimit = (trimPlan['overLimitTokens'] as num?)?.toInt() ?? 0;
+    final color =
+        overLimit > 0
+            ? Colors.red
+            : percent >= 85
+            ? Colors.orange
+            : percent >= 65
+            ? Colors.amber
+            : Colors.green;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: _showContextUsageSheet,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withValues(alpha: 0.28)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: Stack(
+                children: [
+                  CircularProgressIndicator(
+                    value: 1,
+                    strokeWidth: 2,
+                    backgroundColor:
+                        Theme.of(context).colorScheme.surfaceContainerHighest,
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Theme.of(context).colorScheme.surfaceContainerHighest,
+                    ),
+                  ),
+                  CircularProgressIndicator(
+                    value: (percent / 100).clamp(0.0, 1.0),
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(color),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '${_formatCompactTokenCount(totalTokens)} / ${_formatCompactTokenCount(maxContext)}',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: color,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              '(${percent.toStringAsFixed(0)}%)',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: color.withValues(alpha: 0.8),
+                fontSize: 10,
+              ),
+            ),
+            const SizedBox(width: 2),
+            Icon(
+              Icons.info_outline,
+              size: 12,
+              color: color.withValues(alpha: 0.65),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildContextStatusBar() {
-    final debug = _latestPromptDebug;
-    if (debug == null) return const SizedBox.shrink();
-    final usage = debug.contextUsage;
-    final totalTokens = (usage['totalTokens'] as num?)?.toInt() ?? 0;
-    final maxContext = (usage['maxContext'] as num?)?.toInt() ?? 0;
-    final ratio =
-        maxContext > 0 ? (totalTokens / maxContext).clamp(0, 1).toDouble() : 0.0;
-    final segments = _contextSegments(debug);
-    final trimPlan =
-        usage['meta'] is Map
-            ? (((usage['meta'] as Map)['trimPlan'] as Map?) ?? const <String, dynamic>{})
-            : const <String, dynamic>{};
-    final overLimit = (trimPlan['overLimitTokens'] as num?)?.toInt() ?? 0;
-    final barColor =
-        overLimit > 0
-            ? Colors.red
-            : ratio >= 0.85
-            ? Colors.orange
-            : ratio >= 0.65
-            ? Colors.amber
-            : Colors.green;
-
-    return Material(
-      color: Theme.of(context).colorScheme.surface,
-      child: InkWell(
-        onTap: _showContextUsageSheet,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Context ${_formatCompactTokenCount(totalTokens)} / ${_formatCompactTokenCount(maxContext)}',
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: barColor.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: barColor.withValues(alpha: 0.22)),
-                    ),
-                    child: Text(
-                      overLimit > 0 ? '超限 ${_formatCompactTokenCount(overLimit)}' : '${(ratio * 100).toStringAsFixed(0)}%',
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: barColor,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Icon(Icons.chevron_right, size: 18, color: Theme.of(context).hintColor),
-                ],
-              ),
-              const SizedBox(height: 8),
-              _buildSegmentBar(segments, height: 7),
-              const SizedBox(height: 8),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: segments.map((segment) {
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: _contextLegendChip(
-                        label: segment['label'] as String,
-                        tokens: segment['tokens'] as int,
-                        color: segment['color'] as Color,
-                      ),
-                    );
-                  }).toList(growable: false),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    return const SizedBox.shrink();
   }
 
   Future<void> _showContextUsageSheet() async {
@@ -1530,7 +1603,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                 Text('上下文使用', style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 6),
                 Text(
-                  '这是最近一次 prompt 构建快照，不是实时增长中的进度。',
+                  '显示的是最近一次实际组装出来的上下文结果。',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
                 const SizedBox(height: 14),
@@ -1615,18 +1688,18 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                 ),
                 const SizedBox(height: 12),
                 _sectionCard(
-                  title: 'Component 明细',
-                  subtitle: rawComponents.isEmpty ? '后端这次没有返回可拆分组件。' : '最近一次 prompt 构建中各 component 的 token 估算。',
+                  title: 'Context 明细',
+                  subtitle: rawComponents.isEmpty ? '这次没有拿到可拆分组件。' : '当前 prompt 里各部分实际占用。',
                   child: rawComponents.isEmpty
                       ? Text(
-                          '暂无 component breakdown。',
+                          '暂无 context component。',
                           style: Theme.of(context).textTheme.bodySmall,
                         )
                       : Column(
                           children: rawComponents.map((item) {
-                            final label = (item['label'] ?? item['component'] ?? item['kind'] ?? 'component').toString();
-                            final kind = (item['kind'] ?? '').toString();
-                            final tokens = (item['tokens'] as num?)?.toInt() ?? (item['estimatedTokens'] as num?)?.toInt() ?? 0;
+                            final label = (item['name'] ?? item['label'] ?? item['component'] ?? 'component').toString();
+                            final kind = (item['meta'] is Map ? ((item['meta'] as Map)['kind'] ?? '') : '').toString();
+                            final tokens = (item['tokenCount'] as num?)?.toInt() ?? (item['tokens'] as num?)?.toInt() ?? (item['estimatedTokens'] as num?)?.toInt() ?? 0;
                             final percent = totalTokens > 0 ? (tokens / totalTokens * 100) : 0.0;
                             return Padding(
                               padding: const EdgeInsets.only(bottom: 10),
@@ -1659,21 +1732,6 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                             );
                           }).toList(growable: false),
                         ),
-                ),
-                const SizedBox(height: 12),
-                _sectionCard(
-                  title: '说明',
-                  subtitle: '为什么你之前会感觉它像“卡住了”。',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('• 这里显示的是最近一次 promptDebug 快照，不是实时进度。'),
-                      const SizedBox(height: 6),
-                      Text('• 如果刷新 debug 失败，界面会继续保留旧值，所以看起来像不动。'),
-                      const SizedBox(height: 6),
-                      Text('• 后端 worldbook 匹配本身有轮数上限，不像死循环。'),
-                    ],
-                  ),
                 ),
                 const SizedBox(height: 12),
                 ListTile(
