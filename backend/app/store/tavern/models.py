@@ -107,6 +107,10 @@ class TavernWorldBookEntryRecord:
     priority: int
     recursive: int
     constant: int
+    prevent_recursion: int
+    sticky: int
+    cooldown: int
+    delay: int
     insertion_position: str
     group_name: str
     created_at: float

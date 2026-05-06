@@ -671,8 +671,16 @@ class _TavernScreenState extends State<TavernScreen>
                                     entry.enabled ? 'on' : 'off',
                                   ),
                                   if (entry.constant) _chip('Constant', 'yes'),
+                                  if (entry.preventRecursion)
+                                    _chip('NoRecur', 'yes'),
                                   if (entry.recursive)
                                     _chip('Recursive', 'yes'),
+                                  if (entry.sticky > 0)
+                                    _chip('Sticky', '${entry.sticky}'),
+                                  if (entry.cooldown > 0)
+                                    _chip('Cooldown', '${entry.cooldown}'),
+                                  if (entry.delay > 0)
+                                    _chip('Delay', '${entry.delay}'),
                                   if (entry.groupName.isNotEmpty)
                                     _chip('Group', entry.groupName),
                                 ],
@@ -2434,9 +2442,13 @@ class _TavernScreenState extends State<TavernScreen>
     bool enabled = entry?.enabled ?? true;
     bool recursive = entry?.recursive ?? false;
     bool constant = entry?.constant ?? false;
+    bool preventRecursion = entry?.preventRecursion ?? false;
     String insertionPosition =
         entry?.insertionPosition ?? 'before_chat_history';
     int priority = entry?.priority ?? 0;
+    int sticky = entry?.sticky ?? 0;
+    int cooldown = entry?.cooldown ?? 0;
+    int delay = entry?.delay ?? 0;
     bool saving = false;
 
     final saved = await showModalBottomSheet<bool>(
@@ -2486,6 +2498,15 @@ class _TavernScreenState extends State<TavernScreen>
                             onChanged:
                                 (value) =>
                                     setModalState(() => recursive = value),
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Prevent Recursion'),
+                            value: preventRecursion,
+                            onChanged:
+                                (value) => setModalState(
+                                  () => preventRecursion = value,
+                                ),
                           ),
                           TextField(
                             controller: keysController,
@@ -2538,6 +2559,37 @@ class _TavernScreenState extends State<TavernScreen>
                             onChanged:
                                 (value) =>
                                     setModalState(() => priority = value),
+                          ),
+                          const SizedBox(height: 12),
+                          _intStepper(
+                            context,
+                            label: 'Sticky Turns',
+                            value: sticky,
+                            min: 0,
+                            max: 20,
+                            onChanged:
+                                (value) => setModalState(() => sticky = value),
+                          ),
+                          const SizedBox(height: 12),
+                          _intStepper(
+                            context,
+                            label: 'Cooldown Turns',
+                            value: cooldown,
+                            min: 0,
+                            max: 20,
+                            onChanged:
+                                (value) =>
+                                    setModalState(() => cooldown = value),
+                          ),
+                          const SizedBox(height: 12),
+                          _intStepper(
+                            context,
+                            label: 'Delay Turns',
+                            value: delay,
+                            min: 0,
+                            max: 20,
+                            onChanged:
+                                (value) => setModalState(() => delay = value),
                           ),
                           const SizedBox(height: 12),
                           TextField(
@@ -2601,6 +2653,11 @@ class _TavernScreenState extends State<TavernScreen>
                                               'priority': priority,
                                               'recursive': recursive,
                                               'constant': constant,
+                                              'preventRecursion':
+                                                  preventRecursion,
+                                              'sticky': sticky,
+                                              'cooldown': cooldown,
+                                              'delay': delay,
                                               'insertionPosition':
                                                   insertionPosition,
                                               'groupName':

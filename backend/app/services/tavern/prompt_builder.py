@@ -89,6 +89,7 @@ class PromptBuilder:
             history=history,
             user_text=user_text,
             character=character,
+            chat=chat or {},
         )
         ordered_blocks = self._build_ordered_blocks(
             character=character,
@@ -956,6 +957,7 @@ class PromptBuilder:
         history: list[dict[str, Any]],
         user_text: str,
         character: dict[str, Any],
+        chat: dict[str, Any] | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         recent_history = [
             str(item.get('content') or item.get('text') or '').strip()
@@ -974,6 +976,7 @@ class PromptBuilder:
         recursive_corpus = '\n'.join([user_text, *recent_history[-4:]]).strip()
 
         worldbook_token_budget = self._resolve_worldbook_token_budget(character)
+        runtime_states = self._worldbook_runtime_state_map(chat or {})
         ordered_entries = sorted(
             entries,
             key=lambda item: (
@@ -1012,6 +1015,13 @@ class PromptBuilder:
                     rejected.append({'entry': entry, 'reason': 'disabled'})
                     continue
 
+                entry_id = str(entry.get('id') or '').strip()
+                state = runtime_states.get(entry_id, {}) if entry_id else {}
+                sticky_remaining = max(0, int(state.get('stickyRemaining') or 0))
+                cooldown_remaining = max(0, int(state.get('cooldownRemaining') or 0))
+                delay_remaining = max(0, int(state.get('delayRemaining') or 0))
+                pending_activation = bool(state.get('pendingActivation'))
+
                 content = str(entry.get('content') or '').strip()
                 if not content:
                     rejected.append({'entry': entry, 'reason': 'empty_content'})
@@ -1021,11 +1031,21 @@ class PromptBuilder:
                 secondary = self._normalize_matchers(entry.get('secondaryKeys') or [])
                 scan_corpus = expanded_recursive_corpus if bool(entry.get('recursive')) else expanded_full_corpus
 
-                if entry.get('constant'):
+                if sticky_remaining > 0:
+                    primary_info = {'matched': True, 'kind': 'sticky', 'hits': [], 'state': state}
+                elif pending_activation and delay_remaining <= 0:
+                    primary_info = {'matched': True, 'kind': 'delayed_activation', 'hits': [], 'state': state}
+                elif cooldown_remaining > 0:
+                    rejected.append({'entry': entry, 'reason': 'cooldown_active', 'state': state, 'sourceScope': str(entry.get('_sourceScope') or 'global')})
+                    continue
+                elif entry.get('constant'):
                     primary_info = {'matched': True, 'kind': 'constant', 'hits': []}
                 else:
                     if not keys:
                         rejected.append({'entry': entry, 'reason': 'no_primary_keys'})
+                        continue
+                    if bool(entry.get('preventRecursion')) and pass_index > 1:
+                        rejected.append({'entry': entry, 'reason': 'prevent_recursion_blocked', 'sourceScope': str(entry.get('_sourceScope') or 'global')})
                         continue
                     primary_info = self._match_key_list(keys, scan_corpus)
                     if not primary_info['matched']:
@@ -1045,6 +1065,16 @@ class PromptBuilder:
                         else:
                             rejected.append({'entry': entry, 'reason': 'secondary_keys_not_matched', 'details': secondary_info, 'sourceScope': str(entry.get('_sourceScope') or 'global')})
                         continue
+
+                entry_delay = max(0, int(entry.get('delay') or 0))
+                if primary_info['matched'] and primary_info.get('kind') not in {'sticky', 'delayed_activation'} and entry_delay > 0:
+                    rejected.append({
+                        'entry': entry,
+                        'reason': 'delay_scheduled',
+                        'sourceScope': str(entry.get('_sourceScope') or 'global'),
+                        'details': {'delay': entry_delay},
+                    })
+                    continue
 
                 group_name = str(entry.get('groupName') or '').strip()
                 if group_name and group_name in seen_groups:
@@ -1072,6 +1102,7 @@ class PromptBuilder:
                         'secondary': secondary_info,
                         'corpus': 'recursive' if bool(entry.get('recursive')) else 'full',
                         'pass': pass_index,
+                        'runtimeState': state,
                     },
                     '_sourceScope': str(entry.get('_sourceScope') or 'global'),
                 }
@@ -1098,6 +1129,17 @@ class PromptBuilder:
             ),
         )
         return matched_raw, rejected
+
+    def _worldbook_runtime_state_map(self, chat: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        metadata = chat.get('metadata') if isinstance(chat.get('metadata'), dict) else {}
+        runtime = metadata.get('worldbookRuntime') if isinstance(metadata.get('worldbookRuntime'), dict) else {}
+        entries = runtime.get('entries') if isinstance(runtime.get('entries'), dict) else {}
+        result: dict[str, dict[str, Any]] = {}
+        for entry_id, state in entries.items():
+            if not isinstance(state, dict):
+                continue
+            result[str(entry_id)] = dict(state)
+        return result
 
     def _normalize_matchers(self, values: list[Any]) -> list[str]:
         normalized: list[str] = []

@@ -145,6 +145,10 @@ class TavernStore:
                     priority INTEGER NOT NULL DEFAULT 0,
                     recursive INTEGER NOT NULL DEFAULT 0,
                     constant INTEGER NOT NULL DEFAULT 0,
+                    prevent_recursion INTEGER NOT NULL DEFAULT 0,
+                    sticky INTEGER NOT NULL DEFAULT 0,
+                    cooldown INTEGER NOT NULL DEFAULT 0,
+                    delay INTEGER NOT NULL DEFAULT 0,
                     insertion_position TEXT NOT NULL DEFAULT 'before_chat_history',
                     group_name TEXT NOT NULL DEFAULT '',
                     created_at REAL NOT NULL,
@@ -176,6 +180,10 @@ class TavernStore:
             self._ensure_column(conn, 'tavern_chats', 'author_note', "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, 'tavern_chats', 'author_note_depth', "INTEGER NOT NULL DEFAULT 4")
             self._ensure_column(conn, 'tavern_chats', 'metadata_json', "TEXT NOT NULL DEFAULT '{}' ")
+            self._ensure_column(conn, 'tavern_worldbook_entries', 'prevent_recursion', "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, 'tavern_worldbook_entries', 'sticky', "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, 'tavern_worldbook_entries', 'cooldown', "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, 'tavern_worldbook_entries', 'delay', "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, 'tavern_presets', 'story_string', "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, 'tavern_presets', 'chat_start', "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, 'tavern_presets', 'example_separator', "TEXT NOT NULL DEFAULT ''")
@@ -480,6 +488,10 @@ class TavernStore:
             'priority': int(payload.get('priority') or 0),
             'recursive': bool(payload.get('recursive', False)),
             'constant': bool(payload.get('constant', False)),
+            'preventRecursion': bool(payload.get('preventRecursion', False)),
+            'sticky': max(0, int(payload.get('sticky') or 0)),
+            'cooldown': max(0, int(payload.get('cooldown') or 0)),
+            'delay': max(0, int(payload.get('delay') or 0)),
             'insertionPosition': str(payload.get('insertionPosition') or 'before_chat_history').strip() or 'before_chat_history',
             'groupName': str(payload.get('groupName') or '').strip(),
             'createdAt': now,
@@ -490,14 +502,15 @@ class TavernStore:
                 """
                 INSERT INTO tavern_worldbook_entries(
                   id,worldbook_id,keys_json,secondary_keys_json,content,enabled,
-                  priority,recursive,constant,insertion_position,group_name,created_at,updated_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  priority,recursive,constant,prevent_recursion,sticky,cooldown,delay,insertion_position,group_name,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     record['id'], worldbook_id, json.dumps(record['keys'], ensure_ascii=False),
                     json.dumps(record['secondaryKeys'], ensure_ascii=False), record['content'],
                     1 if record['enabled'] else 0, record['priority'], 1 if record['recursive'] else 0,
-                    1 if record['constant'] else 0, record['insertionPosition'], record['groupName'], now, now,
+                    1 if record['constant'] else 0, 1 if record['preventRecursion'] else 0,
+                    record['sticky'], record['cooldown'], record['delay'], record['insertionPosition'], record['groupName'], now, now,
                 ),
             )
             conn.commit()
@@ -524,7 +537,7 @@ class TavernStore:
             conn.execute(
                 """
                 UPDATE tavern_worldbook_entries
-                SET keys_json=?, secondary_keys_json=?, content=?, enabled=?, priority=?, recursive=?, constant=?, insertion_position=?, group_name=?, updated_at=?
+                SET keys_json=?, secondary_keys_json=?, content=?, enabled=?, priority=?, recursive=?, constant=?, prevent_recursion=?, sticky=?, cooldown=?, delay=?, insertion_position=?, group_name=?, updated_at=?
                 WHERE id=?
                 """,
                 (
@@ -535,6 +548,10 @@ class TavernStore:
                     int(payload.get('priority', current['priority']) or 0),
                     1 if bool(payload.get('recursive', bool(current['recursive']))) else 0,
                     1 if bool(payload.get('constant', bool(current['constant']))) else 0,
+                    1 if bool(payload.get('preventRecursion', bool(current['prevent_recursion']))) else 0,
+                    max(0, int(payload.get('sticky', current['sticky']) or 0)),
+                    max(0, int(payload.get('cooldown', current['cooldown']) or 0)),
+                    max(0, int(payload.get('delay', current['delay']) or 0)),
                     str(payload.get('insertionPosition', current['insertion_position']) or 'before_chat_history').strip() or 'before_chat_history',
                     str(payload.get('groupName', current['group_name']) or '').strip(),
                     updated_at,
@@ -937,6 +954,10 @@ class TavernStore:
             'priority': row['priority'],
             'recursive': bool(row['recursive']),
             'constant': bool(row['constant']),
+            'preventRecursion': bool(row['prevent_recursion']),
+            'sticky': int(row['sticky'] or 0),
+            'cooldown': int(row['cooldown'] or 0),
+            'delay': int(row['delay'] or 0),
             'insertionPosition': row['insertion_position'],
             'groupName': row['group_name'],
             'createdAt': row['created_at'],
@@ -1115,8 +1136,8 @@ class TavernStore:
                 """
                 INSERT INTO tavern_worldbook_entries(
                   id,worldbook_id,keys_json,secondary_keys_json,content,enabled,
-                  priority,recursive,constant,insertion_position,group_name,created_at,updated_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  priority,recursive,constant,prevent_recursion,sticky,cooldown,delay,insertion_position,group_name,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     entry_id,
@@ -1128,6 +1149,10 @@ class TavernStore:
                     self._coerce_int(raw_entry.get('priority'), default=10),
                     1 if self._coerce_bool(raw_entry.get('selective') or raw_entry.get('recursive_scanning') or raw_entry.get('recursive'), default=False) else 0,
                     1 if self._coerce_bool(raw_entry.get('constant'), default=False) else 0,
+                    1 if self._coerce_bool(raw_entry.get('prevent_recursion') or raw_entry.get('preventRecursion'), default=False) else 0,
+                    max(0, self._coerce_int(raw_entry.get('sticky'), default=0)),
+                    max(0, self._coerce_int(raw_entry.get('cooldown'), default=0)),
+                    max(0, self._coerce_int(raw_entry.get('delay'), default=0)),
                     self._map_card_entry_position(raw_entry),
                     str(raw_entry.get('comment') or raw_entry.get('name') or '').strip(),
                     now,

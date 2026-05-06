@@ -592,6 +592,10 @@ class TavernWorldBookEntry {
     this.priority = 0,
     this.recursive = false,
     this.constant = false,
+    this.preventRecursion = false,
+    this.sticky = 0,
+    this.cooldown = 0,
+    this.delay = 0,
     this.insertionPosition = 'before_chat_history',
     this.groupName = '',
     this.createdAt,
@@ -607,6 +611,10 @@ class TavernWorldBookEntry {
   final int priority;
   final bool recursive;
   final bool constant;
+  final bool preventRecursion;
+  final int sticky;
+  final int cooldown;
+  final int delay;
   final String insertionPosition;
   final String groupName;
   final DateTime? createdAt;
@@ -627,6 +635,10 @@ class TavernWorldBookEntry {
       priority: (json['priority'] as num?)?.toInt() ?? 0,
       recursive: json['recursive'] == true,
       constant: json['constant'] == true,
+      preventRecursion: json['preventRecursion'] == true,
+      sticky: (json['sticky'] as num?)?.toInt() ?? 0,
+      cooldown: (json['cooldown'] as num?)?.toInt() ?? 0,
+      delay: (json['delay'] as num?)?.toInt() ?? 0,
       insertionPosition:
           (json['insertionPosition'] ?? 'before_chat_history').toString(),
       groupName: (json['groupName'] ?? '').toString(),

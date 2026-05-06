@@ -353,6 +353,73 @@ class TavernService:
             'chat': updated or chat,
         }
 
+    def update_worldbook_runtime_after_turn(
+        self,
+        *,
+        chat_id: str,
+        matched_worldbook_entries: list[dict[str, Any]],
+        rejected_worldbook_entries: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any] | None:
+        chat = self.store.get_chat(chat_id)
+        if chat is None:
+            return None
+        metadata = dict(chat.get('metadata') or {}) if isinstance(chat.get('metadata'), dict) else {}
+        runtime = dict(metadata.get('worldbookRuntime') or {}) if isinstance(metadata.get('worldbookRuntime'), dict) else {}
+        entry_states = dict(runtime.get('entries') or {}) if isinstance(runtime.get('entries'), dict) else {}
+
+        next_states: dict[str, dict[str, Any]] = {}
+        for entry_id, raw_state in entry_states.items():
+            if not isinstance(raw_state, dict):
+                continue
+            state = dict(raw_state)
+            sticky_remaining = max(0, int(state.get('stickyRemaining') or 0) - 1)
+            cooldown_remaining = max(0, int(state.get('cooldownRemaining') or 0) - 1)
+            delay_remaining = max(0, int(state.get('delayRemaining') or 0) - 1)
+            pending_activation = bool(state.get('pendingActivation'))
+            if sticky_remaining > 0 or cooldown_remaining > 0 or delay_remaining > 0 or pending_activation:
+                next_states[str(entry_id)] = {
+                    'stickyRemaining': sticky_remaining,
+                    'cooldownRemaining': cooldown_remaining,
+                    'delayRemaining': delay_remaining,
+                    'pendingActivation': pending_activation,
+                }
+
+        for item in rejected_worldbook_entries or []:
+            if not isinstance(item, dict) or item.get('reason') != 'delay_scheduled':
+                continue
+            entry = item.get('entry') if isinstance(item.get('entry'), dict) else {}
+            entry_id = str(entry.get('id') or '').strip()
+            if not entry_id:
+                continue
+            delay = max(0, int(entry.get('delay') or ((item.get('details') or {}).get('delay') if isinstance(item.get('details'), dict) else 0) or 0))
+            if delay <= 0:
+                continue
+            next_states[entry_id] = {
+                **next_states.get(entry_id, {}),
+                'stickyRemaining': max(0, int((next_states.get(entry_id, {}) or {}).get('stickyRemaining') or 0)),
+                'cooldownRemaining': max(0, int((next_states.get(entry_id, {}) or {}).get('cooldownRemaining') or 0)),
+                'delayRemaining': delay,
+                'pendingActivation': True,
+            }
+
+        for entry in matched_worldbook_entries:
+            entry_id = str(entry.get('id') or '').strip()
+            if not entry_id:
+                continue
+            current = dict(next_states.get(entry_id) or {})
+            sticky = max(0, int(entry.get('sticky') or 0))
+            cooldown = max(0, int(entry.get('cooldown') or 0))
+            current['stickyRemaining'] = max(max(0, int(current.get('stickyRemaining') or 0)), sticky)
+            current['cooldownRemaining'] = max(max(0, int(current.get('cooldownRemaining') or 0)), cooldown)
+            current['delayRemaining'] = 0
+            current['pendingActivation'] = False
+            next_states[entry_id] = current
+
+        runtime['entries'] = next_states
+        metadata['worldbookRuntime'] = runtime
+        updated = self.store.update_chat(chat_id, {'metadata': metadata})
+        return updated or self.store.get_chat(chat_id)
+
     def _resolve_preset_and_prompt_order(
         self,
         *,

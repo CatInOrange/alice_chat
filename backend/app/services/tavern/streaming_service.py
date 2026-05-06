@@ -42,12 +42,18 @@ class TavernStreamingService:
             chat_id=chat_id,
             provider_config=client.provider_config,
         )
+        chat_after_runtime = self.tavern_service.update_worldbook_runtime_after_turn(
+            chat_id=chat_id,
+            matched_worldbook_entries=prepared['promptDebug'].matched_worldbook_entries,
+            rejected_worldbook_entries=prepared['promptDebug'].rejected_worldbook_entries,
+        )
         return {
             'requestId': request_id,
             'userMessage': user_message,
             'assistantMessage': assistant_message,
             'promptDebug': prepared['promptDebug'],
             'summary': summary_result,
+            'chat': chat_after_runtime,
         }
 
     def stream(self, chat_id: str, *, text: str, preset_id: str = '', provider_id: str = ''):
@@ -84,6 +90,11 @@ class TavernStreamingService:
                 chat_id=chat_id,
                 provider_config=client.provider_config,
             )
+            chat_after_runtime = self.tavern_service.update_worldbook_runtime_after_turn(
+                chat_id=chat_id,
+                matched_worldbook_entries=prepared['promptDebug'].matched_worldbook_entries,
+                rejected_worldbook_entries=prepared['promptDebug'].rejected_worldbook_entries,
+            )
             return {
                 'requestId': request_id,
                 'userMessage': user_message,
@@ -92,6 +103,7 @@ class TavernStreamingService:
                 'deltas': deltas,
                 'promptDebug': prepared['promptDebug'],
                 'summary': summary_result,
+                'chat': chat_after_runtime,
             }
 
         return {
