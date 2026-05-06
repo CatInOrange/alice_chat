@@ -504,6 +504,7 @@ class TavernPromptDebug {
     this.renderedStoryString = '',
     this.renderedExamples = '',
     this.runtimeContext = const <String, dynamic>{},
+    this.contextUsage = const <String, dynamic>{},
     this.matchedWorldbookEntries = const <Map<String, dynamic>>[],
     this.rejectedWorldbookEntries = const <Map<String, dynamic>>[],
     this.characterLoreBindings = const <Map<String, dynamic>>[],
@@ -518,6 +519,7 @@ class TavernPromptDebug {
   final String renderedStoryString;
   final String renderedExamples;
   final Map<String, dynamic> runtimeContext;
+  final Map<String, dynamic> contextUsage;
   final List<Map<String, dynamic>> matchedWorldbookEntries;
   final List<Map<String, dynamic>> rejectedWorldbookEntries;
   final List<Map<String, dynamic>> characterLoreBindings;
@@ -540,6 +542,9 @@ class TavernPromptDebug {
       renderedExamples: (json['renderedExamples'] ?? '').toString(),
       runtimeContext: Map<String, dynamic>.from(
         (json['runtimeContext'] as Map?) ?? const <String, dynamic>{},
+      ),
+      contextUsage: Map<String, dynamic>.from(
+        (json['contextUsage'] as Map?) ?? const <String, dynamic>{},
       ),
       matchedWorldbookEntries: parseMapList('matchedWorldbookEntries'),
       rejectedWorldbookEntries: parseMapList('rejectedWorldbookEntries'),

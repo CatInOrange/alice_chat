@@ -137,6 +137,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   Future<void> _refreshFromServer() async {
     final store = context.read<TavernStore>();
     try {
+      final shouldKeepAtBottom = _stickToBottom || !_didInitialScroll;
       final results = await Future.wait([
         store.getCharacter(_chat.characterId),
         store.getChat(_chat.id),
@@ -153,6 +154,9 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         _selectedPresetId = _chat.presetId.isNotEmpty ? _chat.presetId : null;
         _isRefreshing = false;
       });
+      if (shouldKeepAtBottom) {
+        _scrollToBottom(animated: false, force: true);
+      }
       await store.saveChatSnapshot(
         chat: chat,
         character: character,
@@ -314,10 +318,12 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     }
     return ListView.builder(
       controller: _scrollController,
+      reverse: true,
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
       itemCount: _messages.length,
       itemBuilder: (context, index) {
-        final message = _messages[index];
+        final actualIndex = _messages.length - 1 - index;
+        final message = _messages[actualIndex];
         final isUser = message.role == 'user';
         final bubbleMaxWidth = MediaQuery.of(context).size.width * 0.72;
         final bubble = ConstrainedBox(
@@ -850,112 +856,326 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   }
 
   Future<void> _showSummariesSheet() async {
-    final summaries = _summaryItems().reversed.toList(growable: false);
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => SafeArea(
-        child: DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.72,
-          maxChildSize: 0.92,
-          minChildSize: 0.35,
-          builder: (context, controller) => Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '剧情摘要',
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            summaries.isEmpty
-                                ? '当前还没有可用摘要'
-                                : '共 ${summaries.length} 条，新的在前',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: '刷新',
-                      onPressed: () async {
-                        Navigator.of(context).pop();
-                        await _refreshChatMetaOnly();
-                        if (!mounted) return;
-                        await _showSummariesSheet();
-                      },
-                      icon: const Icon(Icons.refresh),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: summaries.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text(
-                            '还没有生成摘要。\n继续聊一会儿，系统后面会逐步沉淀剧情。',
-                            textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.bodyMedium,
+    if (_isLoadingDebug) return;
+    setState(() => _isLoadingDebug = true);
+    try {
+      final debug = await context.read<TavernStore>().getPromptDebug(_chat.id);
+      final summaries = _summaryItems().reversed.toList(growable: false);
+      if (!mounted) return;
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        builder: (context) => SafeArea(
+          child: DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.76,
+            maxChildSize: 0.94,
+            minChildSize: 0.38,
+            builder: (context, controller) => DefaultTabController(
+              length: 2,
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '剧情摘要',
+                                style: Theme.of(context).textTheme.titleLarge,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                summaries.isEmpty
+                                    ? '当前还没有可用摘要'
+                                    : '共 ${summaries.length} 条，新的在前',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
                           ),
                         ),
-                      )
-                    : ListView.separated(
-                        controller: controller,
-                        padding: const EdgeInsets.all(16),
-                        itemBuilder: (context, index) {
-                          final item = summaries[index];
-                          final createdAt = _tryParseDateTime(item['createdAt']);
-                          final endIndex = item['endMessageIndex'];
-                          return Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context).colorScheme.surfaceContainerLow,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: Theme.of(context).dividerColor.withValues(alpha: 0.35),
-                              ),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    _summaryMetaChip('ID', (item['id'] ?? '-').toString()),
-                                    if (endIndex != null)
-                                      _summaryMetaChip('截至消息', '$endIndex'),
-                                    if (createdAt != null)
-                                      _summaryMetaChip('时间', _formatSummaryTime(createdAt)),
-                                  ],
-                                ),
-                                const SizedBox(height: 10),
-                                SelectableText(
-                                  (item['content'] ?? '').toString().trim(),
-                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.45),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                        separatorBuilder: (_, __) => const SizedBox(height: 12),
-                        itemCount: summaries.length,
-                      ),
+                        IconButton(
+                          tooltip: '刷新',
+                          onPressed: () async {
+                            Navigator.of(context).pop();
+                            await _refreshChatMetaOnly();
+                            if (!mounted) return;
+                            await _showSummariesSheet();
+                          },
+                          icon: const Icon(Icons.refresh),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const TabBar(
+                    tabs: [
+                      Tab(text: '闭环状态'),
+                      Tab(text: '摘要内容'),
+                    ],
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: TabBarView(
+                      children: [
+                        _buildSummaryClosureTab(debug: debug, summaries: summaries, controller: controller),
+                        _buildSummaryContentTab(summaries: summaries, controller: controller),
+                      ],
+                    ),
+                  ),
+                ],
               ),
+            ),
+          ),
+        ),
+      );
+    } catch (exc) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('加载剧情摘要失败：$exc')));
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingDebug = false);
+      }
+    }
+  }
+
+  Widget _buildSummaryClosureTab({
+    required TavernPromptDebug debug,
+    required List<Map<String, dynamic>> summaries,
+    required ScrollController controller,
+  }) {
+    final metadata = _chat.metadata;
+    final summarySettings =
+        metadata['summarySettings'] is Map
+            ? Map<String, dynamic>.from(metadata['summarySettings'] as Map)
+            : const <String, dynamic>{};
+    final injectLatestOnly = summarySettings['injectLatestOnly'] != false;
+    final useRecentAfterLatest =
+        summarySettings['useRecentMessagesAfterLatest'] != false;
+    final summaryBlocks = debug.blocks
+        .where((block) => (block['kind'] ?? '').toString() == 'summary')
+        .toList(growable: false);
+    final latestSummaryBlock = summaryBlocks.cast<Map<String, dynamic>?>().firstWhere(
+          (block) =>
+              ((block?['meta'] as Map?)?['summaryTier'] ?? '').toString() ==
+              'latest',
+          orElse: () => summaryBlocks.isNotEmpty ? summaryBlocks.last : null,
+        );
+    final latestSummaryMeta = latestSummaryBlock?['meta'] is Map
+        ? Map<String, dynamic>.from(latestSummaryBlock!['meta'] as Map)
+        : const <String, dynamic>{};
+    final latestSummary = summaries.isNotEmpty ? summaries.first : null;
+    final latestSummaryId =
+        (latestSummaryMeta['summaryId'] ?? latestSummary?['id'] ?? '-').toString();
+    final latestSummaryEndMessageId =
+        (latestSummary?['endMessageId'] ?? '-').toString();
+    final latestSummaryEndMessageIndex = latestSummary?['endMessageIndex'];
+    final recentStartIndex = latestSummaryEndMessageIndex is num
+        ? latestSummaryEndMessageIndex.toInt() + 1
+        : null;
+    final contextUsage = debug.contextUsage;
+    final trimPlan = contextUsage['meta'] is Map
+        ? (((contextUsage['meta'] as Map)['trimPlan'] as Map?) ?? const <String, dynamic>{})
+        : const <String, dynamic>{};
+    final suggestedCuts = ((trimPlan['suggestedCuts'] as List?) ?? const <dynamic>[])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
+
+    return ListView(
+      controller: controller,
+      padding: const EdgeInsets.all(16),
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _summaryMetaChip('注入模式', injectLatestOnly ? '仅最新摘要' : '多摘要'),
+            _summaryMetaChip('历史模式', useRecentAfterLatest ? '摘要后新消息' : '全历史'),
+            _summaryMetaChip('已注入摘要块', '${summaryBlocks.length}'),
+            _summaryMetaChip('Prompt 消息', '${debug.summary['messageCount'] ?? debug.messages.length}'),
+          ],
+        ),
+        const SizedBox(height: 16),
+        _sectionCard(
+          title: '当前生效摘要',
+          subtitle: latestSummary == null
+              ? '当前还没有生成摘要，系统仍主要依赖完整历史。'
+              : '当前应以这条摘要作为长程记忆入口。',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _infoRow('摘要 ID', latestSummaryId),
+              _infoRow('截止消息 ID', latestSummaryEndMessageId),
+              _infoRow(
+                '截止消息序号',
+                latestSummaryEndMessageIndex?.toString() ?? '-',
+              ),
+              _infoRow(
+                'Recent 起点',
+                recentStartIndex?.toString() ?? '未截断',
+              ),
+              if (latestSummary != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  (latestSummary['content'] ?? '').toString().trim(),
+                  maxLines: 5,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.45),
+                ),
+              ],
             ],
           ),
         ),
+        const SizedBox(height: 12),
+        _sectionCard(
+          title: '上下文预算',
+          subtitle: '看这轮 prompt 有没有接近上限，以及系统建议裁哪里。',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _infoRow('总 Token', '${contextUsage['totalTokens'] ?? '-'}'),
+              _infoRow('最大上下文', '${contextUsage['maxContext'] ?? '-'}'),
+              _infoRow(
+                '超限 Token',
+                '${trimPlan['overLimitTokens'] ?? debug.summary['overLimitTokens'] ?? 0}',
+              ),
+              _infoRow(
+                '建议裁剪数',
+                '${suggestedCuts.length}',
+              ),
+              if (suggestedCuts.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                ...suggestedCuts.map(
+                  (cut) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      '• ${(cut['component'] ?? cut['label'] ?? cut['mode'] ?? 'cut').toString()} · ${(cut['suggestedTrimTokens'] ?? 0)} tok${cut['lastResort'] == true ? ' · last-resort' : ''}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSummaryContentTab({
+    required List<Map<String, dynamic>> summaries,
+    required ScrollController controller,
+  }) {
+    if (summaries.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            '还没有生成摘要。\n继续聊一会儿，系统后面会逐步沉淀剧情。',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ),
+      );
+    }
+    return ListView.separated(
+      controller: controller,
+      padding: const EdgeInsets.all(16),
+      itemBuilder: (context, index) {
+        final item = summaries[index];
+        final createdAt = _tryParseDateTime(item['createdAt']);
+        final endIndex = item['endMessageIndex'];
+        return Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: Theme.of(context).dividerColor.withValues(alpha: 0.35),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _summaryMetaChip('ID', (item['id'] ?? '-').toString()),
+                  if (endIndex != null) _summaryMetaChip('截至消息', '$endIndex'),
+                  if (createdAt != null)
+                    _summaryMetaChip('时间', _formatSummaryTime(createdAt)),
+                  _summaryMetaChip('来源', (item['source'] ?? 'auto').toString()),
+                ],
+              ),
+              const SizedBox(height: 10),
+              SelectableText(
+                (item['content'] ?? '').toString().trim(),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.45),
+              ),
+            ],
+          ),
+        );
+      },
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemCount: summaries.length,
+    );
+  }
+
+  Widget _sectionCard({
+    required String title,
+    String? subtitle,
+    required Widget child,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: Theme.of(context).dividerColor.withValues(alpha: 0.35),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: Theme.of(context).textTheme.titleSmall),
+          if ((subtitle ?? '').trim().isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              subtitle!,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.4),
+            ),
+          ],
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 92,
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.labelMedium,
+            ),
+          ),
+          Expanded(
+            child: Text(value, style: Theme.of(context).textTheme.bodyMedium),
+          ),
+        ],
       ),
     );
   }
@@ -1464,9 +1684,60 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   }
 
   Widget _buildDebugWorldInfoTab(TavernPromptDebug debug) {
+    final metadata = _chat.metadata;
+    final runtime = metadata['worldbookRuntime'] is Map
+        ? Map<String, dynamic>.from(metadata['worldbookRuntime'] as Map)
+        : const <String, dynamic>{};
+    final entriesMap = runtime['entries'] is Map
+        ? Map<String, dynamic>.from(runtime['entries'] as Map)
+        : const <String, dynamic>{};
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        _sectionCard(
+          title: 'Runtime 状态',
+          subtitle: '这里展示每条 lore 当前是否处于 sticky / cooldown / delay 中。',
+          child: entriesMap.isEmpty
+              ? const Text('当前没有运行中的 WorldBook 状态。')
+              : Column(
+                  children: entriesMap.entries.map((entry) {
+                    final state = entry.value is Map
+                        ? Map<String, dynamic>.from(entry.value as Map)
+                        : const <String, dynamic>{};
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _summaryMetaChip('Entry', entry.key),
+                            _summaryMetaChip(
+                              'Sticky',
+                              '${state['stickyRemaining'] ?? 0}',
+                            ),
+                            _summaryMetaChip(
+                              'Cooldown',
+                              '${state['cooldownRemaining'] ?? 0}',
+                            ),
+                            _summaryMetaChip(
+                              'Delay',
+                              '${state['delayRemaining'] ?? 0}',
+                            ),
+                            _summaryMetaChip(
+                              'Pending',
+                              state['pendingActivation'] == true ? 'Yes' : 'No',
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(growable: false),
+                ),
+        ),
+        const SizedBox(height: 16),
         Text('Matched', style: Theme.of(context).textTheme.titleSmall),
         const SizedBox(height: 6),
         if (debug.matchedWorldbookEntries.isEmpty)
@@ -1482,10 +1753,26 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                     Text(
                       '${entry['id'] ?? '-'} · ${(entry['_matchMeta'] is Map) ? ((entry['_matchMeta'] as Map)['corpus'] ?? '-') : '-'}',
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'priority=${entry['priority'] ?? '-'} position=${entry['insertionPosition'] ?? '-'}',
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _summaryMetaChip('Priority', '${entry['priority'] ?? '-'}'),
+                        _summaryMetaChip('Position', '${entry['insertionPosition'] ?? '-'}'),
+                        if (entry['_matchMeta'] is Map && ((entry['_matchMeta'] as Map)['kind'] ?? '').toString().isNotEmpty)
+                          _summaryMetaChip('命中原因', ((entry['_matchMeta'] as Map)['kind'] ?? '-').toString()),
+                        if (entry['_matchMeta'] is Map && ((entry['_matchMeta'] as Map)['state'] is Map))
+                          _summaryMetaChip('Runtime', '已参与'),
+                      ],
                     ),
+                    if (entry['_matchMeta'] is Map && ((entry['_matchMeta'] as Map)['state'] is Map)) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'state=${((entry['_matchMeta'] as Map)['state'] as Map).toString()}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     SelectableText((entry['content'] ?? '').toString()),
                   ],
@@ -1507,8 +1794,14 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${((entry['entry'] as Map?)?['id'] ?? '-')} · ${entry['reason'] ?? '-'}',
+                      '${((entry['entry'] as Map?)?['id'] ?? '-')} · ${_worldInfoRejectReasonLabel((entry['reason'] ?? '-').toString())}',
                     ),
+                    const SizedBox(height: 6),
+                    if ((entry['state'] is Map))
+                      Text(
+                        'state=${(entry['state'] as Map).toString()}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
                     if (entry['details'] != null) ...[
                       const SizedBox(height: 4),
                       Text(
@@ -1523,6 +1816,19 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           ),
       ],
     );
+  }
+
+  String _worldInfoRejectReasonLabel(String reason) {
+    switch (reason) {
+      case 'cooldown_active':
+        return '冷却中';
+      case 'delay_scheduled':
+        return '已延迟排队';
+      case 'prevent_recursion_blocked':
+        return '递归被阻止';
+      default:
+        return reason;
+    }
   }
 
   Widget _buildDebugRuntimeTab(TavernPromptDebug debug) {
@@ -1559,15 +1865,14 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   void _handleScrollChanged() {
     if (!_scrollController.hasClients) return;
     final position = _scrollController.position;
-    _stickToBottom =
-        position.maxScrollExtent - position.pixels <= 80;
+    _stickToBottom = position.pixels <= 80;
   }
 
   void _scrollToBottom({bool animated = true, bool force = false}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients || !mounted) return;
       if (!force && !_stickToBottom && _didInitialScroll) return;
-      final target = _scrollController.position.maxScrollExtent + 80;
+      const target = 0.0;
       _didInitialScroll = true;
       if (animated) {
         _scrollController.animateTo(
