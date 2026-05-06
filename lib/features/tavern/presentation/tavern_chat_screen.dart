@@ -48,10 +48,12 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   bool _isRefreshing = false;
   bool _isSending = false;
   bool _isLoadingDebug = false;
+  bool _isLoadingContextState = false;
   bool _didInitialScroll = false;
   bool _stickToBottom = true;
   String? _error;
   String? _serverBaseUrl;
+  TavernPromptDebug? _latestPromptDebug;
   String? _selectedPresetId;
   String? _streamingAssistantMessageId;
   List<TavernMessage> _messages = const <TavernMessage>[];
@@ -100,6 +102,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           }
         });
         unawaited(_refreshFromServer());
+        unawaited(_refreshContextState());
         return;
       }
 
@@ -119,6 +122,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         character: _character,
         messages: messages,
       );
+      unawaited(_refreshContextState());
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _scrollToBottom(animated: false, force: true);
@@ -162,6 +166,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         character: character,
         messages: messages,
       );
+      unawaited(_refreshContextState());
     } catch (exc) {
       if (!mounted) return;
       setState(() {
@@ -251,6 +256,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
             children: [
               Expanded(child: _buildBody(context)),
               _buildQuickActionsBar(),
+              _buildContextStatusBar(),
               if (_isRefreshing)
                 const LinearProgressIndicator(minHeight: 2),
               SafeArea(
@@ -803,7 +809,24 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         _chat = refreshed;
       });
       await _persistSnapshot();
+      unawaited(_refreshContextState());
     } catch (_) {}
+  }
+
+  Future<void> _refreshContextState() async {
+    if (_isLoadingContextState) return;
+    _isLoadingContextState = true;
+    try {
+      final debug = await context.read<TavernStore>().getPromptDebug(_chat.id);
+      if (!mounted) return;
+      setState(() {
+        _latestPromptDebug = debug;
+      });
+    } catch (_) {
+      // keep stale state quietly
+    } finally {
+      _isLoadingContextState = false;
+    }
   }
 
   List<Map<String, dynamic>> _summaryItems() {
@@ -851,6 +874,84 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         },
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemCount: actions.length,
+      ),
+    );
+  }
+
+  Widget _buildContextStatusBar() {
+    final debug = _latestPromptDebug;
+    final contextUsage = debug?.contextUsage ?? const <String, dynamic>{};
+    final totalTokens = (contextUsage['totalTokens'] as num?)?.toInt() ?? 0;
+    final maxContext = (contextUsage['maxContext'] as num?)?.toInt() ?? 0;
+    final trimPlan = contextUsage['meta'] is Map
+        ? (((contextUsage['meta'] as Map)['trimPlan'] as Map?) ?? const <String, dynamic>{})
+        : const <String, dynamic>{};
+    final overLimit = (trimPlan['overLimitTokens'] as num?)?.toInt() ?? 0;
+    final summarySettings = _chat.metadata['summarySettings'] is Map
+        ? Map<String, dynamic>.from(_chat.metadata['summarySettings'] as Map)
+        : const <String, dynamic>{};
+    final injectLatestOnly = summarySettings['injectLatestOnly'] != false;
+    final summaryBlocks = debug?.blocks.where((b) => (b['kind'] ?? '').toString() == 'summary').length ?? 0;
+    final matchedLore = debug?.matchedWorldbookEntries.length ?? 0;
+    final rejectedLore = debug?.rejectedWorldbookEntries.length ?? 0;
+    final percent = maxContext > 0 ? (totalTokens / maxContext).clamp(0, 1).toDouble() : 0.0;
+    final statusColor = overLimit > 0
+        ? Colors.red
+        : percent >= 0.85
+            ? Colors.orange
+            : percent >= 0.65
+                ? Colors.amber
+                : Colors.green;
+
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      child: InkWell(
+        onTap: _showPromptDebug,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(99),
+                      child: LinearProgressIndicator(
+                        value: percent,
+                        minHeight: 6,
+                        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        valueColor: AlwaysStoppedAnimation<Color>(statusColor),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    maxContext > 0 ? '$totalTokens / $maxContext' : '上下文加载中',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: statusColor,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _summaryMetaChip('摘要', summaryBlocks > 0 ? (injectLatestOnly ? '最新摘要接管' : '多摘要接管') : '未接管'),
+                    const SizedBox(width: 8),
+                    _summaryMetaChip('Lore', '$matchedLore 命中 / $rejectedLore 拦截'),
+                    const SizedBox(width: 8),
+                    _summaryMetaChip('裁剪', overLimit > 0 ? '超限 $overLimit tok' : '无超限'),
+                    const SizedBox(width: 8),
+                    _summaryMetaChip('模式', _chat.authorNoteEnabled ? 'AN 开' : 'AN 关'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1127,6 +1228,44 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     );
   }
 
+  Widget _intStepper(
+    BuildContext context, {
+    required String label,
+    required int value,
+    required int min,
+    required int max,
+    int step = 1,
+    required ValueChanged<int> onChanged,
+  }) {
+    final effectiveStep = step <= 0 ? 1 : step;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(label, style: Theme.of(context).textTheme.titleSmall),
+          ),
+          IconButton(
+            onPressed: value <= min ? null : () => onChanged((value - effectiveStep).clamp(min, max)),
+            icon: const Icon(Icons.remove_circle_outline),
+          ),
+          SizedBox(
+            width: 56,
+            child: Text(
+              '$value',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
+          IconButton(
+            onPressed: value >= max ? null : () => onChanged((value + effectiveStep).clamp(min, max)),
+            icon: const Icon(Icons.add_circle_outline),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _sectionCard({
     required String title,
     String? subtitle,
@@ -1282,6 +1421,16 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
               const SizedBox(height: 12),
               ListTile(
                 contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.auto_awesome_motion_outlined),
+                title: const Text('上下文 / 摘要策略'),
+                subtitle: const Text('自动总结、注入模式、recent 历史保留'),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  _editContextSummarySettings();
+                },
+              ),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.sticky_note_2_outlined),
                 title: const Text('Author Note'),
                 subtitle: Text(
@@ -1312,6 +1461,176 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     final base = (_serverBaseUrl ?? '').trim();
     if (base.isEmpty) return null;
     return '$base$first';
+  }
+
+  Future<void> _editContextSummarySettings() async {
+    final currentMetadata = Map<String, dynamic>.from(_chat.metadata);
+    final current = currentMetadata['summarySettings'] is Map
+        ? Map<String, dynamic>.from(currentMetadata['summarySettings'] as Map)
+        : <String, dynamic>{};
+    bool enabled = current['enabled'] != false;
+    bool injectLatestOnly = current['injectLatestOnly'] != false;
+    bool useRecentAfterLatest = current['useRecentMessagesAfterLatest'] != false;
+    double threshold = ((current['threshold'] as num?)?.toDouble() ?? 0.8).clamp(0.5, 0.98);
+    int minMessages = (current['minMessages'] as num?)?.toInt() ?? 8;
+    int minNewMessages = (current['minNewMessages'] as num?)?.toInt() ?? 4;
+    int minNewTokens = (current['minNewTokens'] as num?)?.toInt() ?? 192;
+    bool saving = false;
+
+    final saved = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setModalState) => SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 16,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('上下文 / 摘要策略', style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 12),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('自动总结'),
+                    subtitle: const Text('只在 assistant 完成后触发，影响下一轮'),
+                    value: enabled,
+                    onChanged: (value) => setModalState(() => enabled = value),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('仅注入最新摘要'),
+                    subtitle: const Text('关闭后可让更老的摘要也参与 prompt'),
+                    value: injectLatestOnly,
+                    onChanged: (value) => setModalState(() => injectLatestOnly = value),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('仅保留最新摘要后的 recent history'),
+                    subtitle: const Text('开启后，历史主要由 summary + recent 组成'),
+                    value: useRecentAfterLatest,
+                    onChanged: (value) => setModalState(() => useRecentAfterLatest = value),
+                  ),
+                  const SizedBox(height: 8),
+                  Text('总结触发阈值：${threshold.toStringAsFixed(2)}'),
+                  Slider(
+                    value: threshold,
+                    min: 0.5,
+                    max: 0.98,
+                    divisions: 24,
+                    label: threshold.toStringAsFixed(2),
+                    onChanged: (value) => setModalState(() => threshold = value),
+                  ),
+                  _intStepper(
+                    context,
+                    label: '最少历史消息数',
+                    value: minMessages,
+                    min: 2,
+                    max: 64,
+                    onChanged: (value) => setModalState(() => minMessages = value),
+                  ),
+                  _intStepper(
+                    context,
+                    label: '最少新增消息数',
+                    value: minNewMessages,
+                    min: 1,
+                    max: 32,
+                    onChanged: (value) => setModalState(() => minNewMessages = value),
+                  ),
+                  _intStepper(
+                    context,
+                    label: '最少新增 Token',
+                    value: minNewTokens,
+                    min: 32,
+                    max: 2048,
+                    step: 32,
+                    onChanged: (value) => setModalState(() => minNewTokens = value),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.surfaceContainerLow,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '说明：本轮生成使用“本轮开始前的上下文状态 + 当前输入”。新 summary 和 worldbook runtime 更新会在回复完成后写回，并影响下一轮。',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.45),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: saving ? null : () => Navigator.of(context).pop(false),
+                        child: const Text('取消'),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        onPressed: saving
+                            ? null
+                            : () async {
+                                setModalState(() => saving = true);
+                                try {
+                                  final nextMetadata = Map<String, dynamic>.from(currentMetadata);
+                                  nextMetadata['summarySettings'] = {
+                                    ...current,
+                                    'enabled': enabled,
+                                    'injectLatestOnly': injectLatestOnly,
+                                    'useRecentMessagesAfterLatest': useRecentAfterLatest,
+                                    'threshold': double.parse(threshold.toStringAsFixed(2)),
+                                    'minMessages': minMessages,
+                                    'minNewMessages': minNewMessages,
+                                    'minNewTokens': minNewTokens,
+                                  };
+                                  final updated = await context.read<TavernStore>().updateChat(
+                                    chatId: _chat.id,
+                                    payload: {'metadata': nextMetadata},
+                                  );
+                                  if (!context.mounted) return;
+                                  setState(() {
+                                    _chat = updated;
+                                  });
+                                  unawaited(_refreshContextState());
+                                  Navigator.of(context).pop(true);
+                                } catch (exc) {
+                                  if (!context.mounted) return;
+                                  setModalState(() => saving = false);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('保存上下文策略失败：$exc')),
+                                  );
+                                }
+                              },
+                        child: saving
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Text('保存'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (saved == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('上下文 / 摘要策略已更新')),
+      );
+    }
   }
 
   Future<void> _editAuthorNote() async {
