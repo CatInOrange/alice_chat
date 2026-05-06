@@ -639,6 +639,11 @@ class _TavernScreenState extends State<TavernScreen>
                       onPressed: () => _editWorldBook(context, worldbook: book),
                       icon: const Icon(Icons.edit_outlined),
                     ),
+                    IconButton(
+                      tooltip: '删除 WorldBook',
+                      onPressed: () => _confirmDeleteWorldBook(context, book),
+                      icon: const Icon(Icons.delete_outline),
+                    ),
                   ],
                 ),
                 children: [
@@ -1951,12 +1956,20 @@ class _TavernScreenState extends State<TavernScreen>
                               },
                               itemBuilder: (context, index) {
                                 final item = items[index];
+                                final label = _promptOrderItemLabel(
+                                  store,
+                                  item,
+                                );
                                 return Card(
                                   key: ValueKey(
                                     '${item.identifier}:${item.blockId}:$index',
                                   ),
+                                  margin: const EdgeInsets.symmetric(vertical: 4),
                                   child: Padding(
-                                    padding: const EdgeInsets.all(12),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 8,
+                                    ),
                                     child: Column(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
@@ -1965,24 +1978,49 @@ class _TavernScreenState extends State<TavernScreen>
                                           children: [
                                             ReorderableDragStartListener(
                                               index: index,
-                                              child: const Icon(
-                                                Icons.drag_indicator,
+                                              child: const Padding(
+                                                padding: EdgeInsets.symmetric(horizontal: 2),
+                                                child: Icon(
+                                                  Icons.drag_indicator,
+                                                  size: 18,
+                                                ),
                                               ),
                                             ),
-                                            const SizedBox(width: 8),
+                                            const SizedBox(width: 6),
                                             Expanded(
-                                              child: Text(
-                                                _promptOrderItemLabel(
-                                                  store,
-                                                  item,
-                                                ),
-                                                style:
-                                                    Theme.of(
-                                                      context,
-                                                    ).textTheme.titleSmall,
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    label,
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style:
+                                                        Theme.of(
+                                                          context,
+                                                        ).textTheme.titleSmall,
+                                                  ),
+                                                  const SizedBox(height: 4),
+                                                  Wrap(
+                                                    spacing: 6,
+                                                    runSpacing: 6,
+                                                    children: [
+                                                      _chip('Pos', item.position),
+                                                      if (item.position == 'at_depth')
+                                                        _chip('Depth', '${item.depth ?? 0}'),
+                                                      _chip(
+                                                        'State',
+                                                        item.enabled ? 'on' : 'off',
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ],
                                               ),
                                             ),
                                             Switch(
+                                              materialTapTargetSize:
+                                                  MaterialTapTargetSize.shrinkWrap,
                                               value: item.enabled,
                                               onChanged:
                                                   (value) {
@@ -1995,6 +2033,7 @@ class _TavernScreenState extends State<TavernScreen>
                                                   },
                                             ),
                                             IconButton(
+                                              visualDensity: VisualDensity.compact,
                                               onPressed: () {
                                                 if (shouldIgnoreTap()) return;
                                                 setModalState(() => items.removeAt(index));
@@ -2012,6 +2051,7 @@ class _TavernScreenState extends State<TavernScreen>
                                               child: DropdownButtonFormField<
                                                 String
                                               >(
+                                                isDense: true,
                                                 value:
                                                     _promptOrderPositions
                                                             .contains(
@@ -2035,6 +2075,7 @@ class _TavernScreenState extends State<TavernScreen>
                                                             value: position,
                                                             child: Text(
                                                               position,
+                                                              overflow: TextOverflow.ellipsis,
                                                             ),
                                                           ),
                                                     )
@@ -2055,9 +2096,9 @@ class _TavernScreenState extends State<TavernScreen>
                                                     }),
                                               ),
                                             ),
-                                            const SizedBox(width: 12),
+                                            const SizedBox(width: 8),
                                             SizedBox(
-                                              width: 120,
+                                              width: 92,
                                               child: TextFormField(
                                                 initialValue:
                                                     '${item.depth ?? ''}',
@@ -2067,6 +2108,7 @@ class _TavernScreenState extends State<TavernScreen>
                                                     TextInputType.number,
                                                 decoration:
                                                     const InputDecoration(
+                                                      isDense: true,
                                                       labelText: 'Depth',
                                                       border:
                                                           OutlineInputBorder(),

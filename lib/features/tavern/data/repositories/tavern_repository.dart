@@ -303,7 +303,13 @@ class TavernRepository {
   }
 
   Future<void> deleteWorldBook(String worldbookId) async {
-    await _postJson('/api/tavern/worldbooks/$worldbookId/delete', const {});
+    final config = await OpenClawSettingsStore.load();
+    final client = OpenClawHttpClient(config);
+    try {
+      await client.deleteJson('/api/tavern/worldbooks/$worldbookId');
+    } catch (_) {
+      await _postJson('/api/tavern/worldbooks/$worldbookId/delete', const {});
+    }
   }
 
   Future<List<TavernWorldBookEntry>> listWorldBookEntries(
