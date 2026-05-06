@@ -725,7 +725,7 @@ class _TavernScreenState extends State<TavernScreen>
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '把模型参数、Prompt Order 和注入策略收成可复用模板。列表先看用途，点进再看细节。',
+                          '把模型参数和注入策略收成可复用模板。列表先看用途，点进再看细节。',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ],
@@ -805,7 +805,7 @@ class _TavernScreenState extends State<TavernScreen>
     TavernPreset preset,
   ) {
     final usageCount = _presetUsageCount(store, preset.id);
-    final promptOrderName = _promptOrderName(store, preset.promptOrderId);
+    final promptOrderName = '全局提示词管理';
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
@@ -878,7 +878,7 @@ class _TavernScreenState extends State<TavernScreen>
                 runSpacing: 8,
                 children: [
                   _compactInfoPill(_presetModelLabel(preset)),
-                  _compactInfoPill('Prompt Order · $promptOrderName'),
+                  _compactInfoPill(promptOrderName),
                   _compactInfoPill('Max ${preset.maxTokens > 0 ? preset.maxTokens : '默认'}'),
                   _compactInfoPill('Temp ${preset.temperature.toStringAsFixed(2)}'),
                 ],
@@ -979,7 +979,7 @@ class _TavernScreenState extends State<TavernScreen>
                       color: usageCount > 0 ? const Color(0xFF3FB950) : const Color(0xFF98A1B3),
                     ),
                     _presetStatePill(
-                      'Prompt Order · ${_promptOrderName(store, preset.promptOrderId)}',
+                      '全局提示词管理',
                       color: const Color(0xFF7C4DFF),
                     ),
                   ],
@@ -993,7 +993,7 @@ class _TavernScreenState extends State<TavernScreen>
                   children: [
                     _infoRow('Provider', preset.provider.isEmpty ? '默认 / 未指定' : preset.provider),
                     _infoRow('Model', preset.model.isEmpty ? '默认 / 未指定' : preset.model),
-                    _infoRow('Prompt Order', _promptOrderName(store, preset.promptOrderId)),
+                    _infoRow('提示词管理', '全局默认'),
                   ],
                 ),
               ),
@@ -1160,9 +1160,8 @@ class _TavernScreenState extends State<TavernScreen>
   }
 
   String _presetSummaryLine(TavernStore store, TavernPreset preset) {
-    final orderName = _promptOrderName(store, preset.promptOrderId);
     final maxTokens = preset.maxTokens > 0 ? '${preset.maxTokens} tok' : '默认长度';
-    return '${_presetModelLabel(preset)} · $orderName · $maxTokens';
+    return '${_presetModelLabel(preset)} · $maxTokens';
   }
 
   Future<void> _importCharacter() async {
@@ -1525,7 +1524,6 @@ class _TavernScreenState extends State<TavernScreen>
         'repetitionPenalty': preset.repetitionPenalty,
         'maxTokens': preset.maxTokens,
         'stopSequences': preset.stopSequences,
-        'promptOrderId': preset.promptOrderId,
         'storyString': preset.storyString,
         'chatStart': preset.chatStart,
         'exampleSeparator': preset.exampleSeparator,
@@ -1548,7 +1546,6 @@ class _TavernScreenState extends State<TavernScreen>
   Future<void> _editPreset(BuildContext context, {TavernPreset? preset}) async {
     final store = context.read<TavernStore>();
     final providers = store.providers;
-    final promptOrders = store.promptOrders;
     final isCreate = preset == null;
     final existingPreset = preset;
     final nameController = TextEditingController(
@@ -1568,9 +1565,6 @@ class _TavernScreenState extends State<TavernScreen>
       text: (preset?.stopSequences ?? const <String>[]).join('\n'),
     );
     String providerId = preset?.provider ?? '';
-    String promptOrderId =
-        preset?.promptOrderId ??
-        (promptOrders.isNotEmpty ? promptOrders.first.id : '');
     String storyPosition = preset?.storyStringPosition ?? 'in_prompt';
     String storyRole = preset?.storyStringRole ?? 'system';
     double temperature = preset?.temperature ?? 1;
@@ -1666,29 +1660,22 @@ class _TavernScreenState extends State<TavernScreen>
                                   ),
                                 ),
                                 const SizedBox(height: 12),
-                                DropdownButtonFormField<String>(
-                                  value:
-                                      promptOrders.any((item) => item.id == promptOrderId)
-                                          ? promptOrderId
-                                          : null,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Prompt Order',
-                                    border: OutlineInputBorder(),
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF8F7FC),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: const Color(0xFFE9E5F4)),
                                   ),
-                                  items: promptOrders
-                                      .map(
-                                        (order) => DropdownMenuItem<String>(
-                                          value: order.id,
-                                          child: Text(order.name),
-                                        ),
-                                      )
-                                      .toList(growable: false),
-                                  onChanged:
-                                      promptOrders.isEmpty
-                                          ? null
-                                          : (value) => setModalState(
-                                            () => promptOrderId = value ?? '',
-                                          ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: const [
+                                      Text('提示词管理', style: TextStyle(fontWeight: FontWeight.w600)),
+                                      SizedBox(height: 4),
+                                      Text('Preset 不再单独绑定 Prompt Order；统一使用全局提示词管理。'),
+                                    ],
+                                  ),
                                 ),
                               ],
                             ),
@@ -1920,7 +1907,6 @@ class _TavernScreenState extends State<TavernScreen>
                                               'provider': providerId,
                                               'model':
                                                   modelController.text.trim(),
-                                              'promptOrderId': promptOrderId,
                                               'storyString':
                                                   storyController.text,
                                               'chatStart':
@@ -2883,14 +2869,6 @@ class _TavernScreenState extends State<TavernScreen>
       if (!context.mounted) return;
       await refreshedStore.loadHome();
     }
-  }
-
-  String _promptOrderName(TavernStore store, String promptOrderId) {
-    if (promptOrderId.isEmpty) return '未设置';
-    for (final order in store.promptOrders) {
-      if (order.id == promptOrderId) return order.name;
-    }
-    return promptOrderId;
   }
 
   Widget _buildPromptOrderCompactRow(

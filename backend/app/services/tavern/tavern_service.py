@@ -446,15 +446,16 @@ class TavernService:
     ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         effective_preset_id = preset_id or chat.get('presetId') or ''
         preset = None
-        prompt_order = None
         presets = self.store.list_presets()
         if effective_preset_id:
             preset = next((item for item in presets if item['id'] == effective_preset_id), None)
         if preset is None and presets:
             preset = presets[0]
-        prompt_order_id = str((preset or {}).get('promptOrderId') or '').strip()
-        if prompt_order_id:
-            prompt_order = self.store.get_prompt_order(prompt_order_id)
+
+        prompt_order = None
+        prompt_orders = self.store.list_prompt_orders()
+        if prompt_orders:
+            prompt_order = prompt_orders[0]
         return preset, prompt_order
 
     def _collect_effective_worldbook_entries(self, character_id: str) -> list[dict[str, Any]]:
