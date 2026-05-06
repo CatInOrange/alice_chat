@@ -28,17 +28,18 @@ const List<String> _storyPositions = <String>[
 const List<String> _storyRoles = <String>['system', 'user', 'assistant'];
 const List<_BuiltinPromptOrderOption> _builtinPromptOrderOptions =
     <_BuiltinPromptOrderOption>[
-      _BuiltinPromptOrderOption('main', 'Main / System Prompt'),
-      _BuiltinPromptOrderOption('worldInfoBefore', 'World Info Before History'),
-      _BuiltinPromptOrderOption('charDescription', 'Character Description'),
-      _BuiltinPromptOrderOption('charPersonality', 'Character Personality'),
-      _BuiltinPromptOrderOption('scenario', 'Scenario'),
-      _BuiltinPromptOrderOption('worldInfoAfter', 'World Info After Character'),
-      _BuiltinPromptOrderOption('dialogueExamples', 'Dialogue Examples'),
-      _BuiltinPromptOrderOption('chatHistory', 'Chat History'),
-      _BuiltinPromptOrderOption('jailbreak', 'Post History Instructions'),
-      _BuiltinPromptOrderOption('personaDescription', 'Persona Description'),
-      _BuiltinPromptOrderOption('nsfw', 'NSFW Block'),
+      _BuiltinPromptOrderOption('main', '主提示词', icon: Icons.auto_awesome_outlined, colorValue: 0xFF7C4DFF),
+      _BuiltinPromptOrderOption('personaDescription', '用户人设', icon: Icons.person_outline, colorValue: 0xFF2563EB),
+      _BuiltinPromptOrderOption('charDescription', '角色描述', icon: Icons.badge_outlined, colorValue: 0xFF0F766E),
+      _BuiltinPromptOrderOption('charPersonality', '角色性格', icon: Icons.psychology_alt_outlined, colorValue: 0xFF9333EA),
+      _BuiltinPromptOrderOption('scenario', '场景设定', icon: Icons.landscape_outlined, colorValue: 0xFFEA580C),
+      _BuiltinPromptOrderOption('worldInfoBefore', '世界信息（前）', icon: Icons.public_outlined, colorValue: 0xFF0891B2),
+      _BuiltinPromptOrderOption('dialogueExamples', '示例对话', icon: Icons.forum_outlined, colorValue: 0xFF4F46E5),
+      _BuiltinPromptOrderOption('authorNote', '作者注入', icon: Icons.edit_note_outlined, colorValue: 0xFFDB2777),
+      _BuiltinPromptOrderOption('summaries', '剧情摘要', icon: Icons.summarize_outlined, colorValue: 0xFFCA8A04),
+      _BuiltinPromptOrderOption('chatHistory', '聊天历史', icon: Icons.history_outlined, colorValue: 0xFF475569),
+      _BuiltinPromptOrderOption('worldInfoAfter', '世界信息（后）', icon: Icons.travel_explore_outlined, colorValue: 0xFF0284C7),
+      _BuiltinPromptOrderOption('postHistoryInstructions', '历史后指令', icon: Icons.rule_folder_outlined, colorValue: 0xFFB45309),
     ];
 
 class TavernScreen extends StatefulWidget {
@@ -317,7 +318,7 @@ class _TavernScreenState extends State<TavernScreen>
           title: '提示词管理',
           subtitle: '像 Native 一样管理内建段落与自定义提示词',
           trailingText: '${store.promptOrders.length}',
-          onTap: () => _showPromptOrdersManager(context, store),
+          onTap: () => _editPromptOrder(context, promptOrder: store.promptOrders.isNotEmpty ? store.promptOrders.first : null),
         ),
         const SizedBox(height: 12),
         _settingsEntryCard(
@@ -332,94 +333,90 @@ class _TavernScreenState extends State<TavernScreen>
     );
   }
 
-  Widget _buildPromptOrdersTab(BuildContext context, TavernStore store) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Prompt Order',
-                style: Theme.of(context).textTheme.titleMedium,
+  Future<void> _showPresetsManager(BuildContext context, TavernStore store) async {
+    final navigator = Navigator.of(context);
+    await navigator.push(
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(
+            title: const Text('Presets'),
+            actions: [
+              IconButton(
+                tooltip: '刷新',
+                onPressed: () => this.context.read<TavernStore>().loadHome(),
+                icon: const Icon(Icons.refresh),
               ),
-            ),
-            FilledButton.icon(
-              onPressed: () => _editPromptOrder(context),
-              icon: const Icon(Icons.add),
-              label: const Text('新增'),
-            ),
+              IconButton(
+                tooltip: '新增 Preset',
+                onPressed: () => _editPreset(context),
+                icon: const Icon(Icons.add),
+              ),
+            ],
+          ),
+          body: _buildPresetsTab(context, store),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await this.context.read<TavernStore>().loadHome();
+  }
+
+  Future<void> _showWorldBooksManager(BuildContext context, TavernStore store) async {
+    final navigator = Navigator.of(context);
+    await navigator.push(
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(
+            title: const Text('WorldBooks'),
+            actions: [
+              IconButton(
+                tooltip: '新增 WorldBook',
+                onPressed: () => _editWorldBook(context),
+                icon: const Icon(Icons.add),
+              ),
+            ],
+          ),
+          body: _buildWorldBooksTab(context, store),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await this.context.read<TavernStore>().loadHome();
+  }
+
+  Widget _settingsEntryCard(
+    BuildContext context, {
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required String trailingText,
+    required VoidCallback onTap,
+  }) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0xFFF6F3FF),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: const Color(0xFF7C4DFF)),
+        ),
+        title: Text(title, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+        subtitle: Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _compactInfoPill(trailingText),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right),
           ],
         ),
-        const SizedBox(height: 12),
-        if (store.promptOrders.isEmpty)
-          const Card(
-            child: ListTile(
-              title: Text('还没有提示词配置'),
-              subtitle: Text('拖拽编排内建段落顺序，并按需新增自定义提示词。'),
-            ),
-          )
-        else
-          ...store.promptOrders.map(
-            (order) => Card(
-              margin: const EdgeInsets.only(bottom: 10),
-              child: Theme(
-                data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-                child: ExpansionTile(
-                  tilePadding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
-                  childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                  minTileHeight: 56,
-                  title: Text(
-                    order.name,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(
-                      '${order.items.length} 项',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF7D8596),
-                      ),
-                    ),
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: '编辑 Prompt Order',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () => _editPromptOrder(context, promptOrder: order),
-                        icon: const Icon(Icons.edit_outlined, size: 20),
-                      ),
-                      const Icon(Icons.expand_more, size: 20),
-                    ],
-                  ),
-                  children: [
-                    if (order.items.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.fromLTRB(4, 2, 4, 2),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text('暂无 items'),
-                        ),
-                      )
-                    else
-                      ...order.items.asMap().entries.map(
-                        (entry) => _buildPromptOrderCompactRow(
-                          context,
-                          store,
-                          entry.value,
-                          index: entry.key,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-      ],
+        onTap: onTap,
+      ),
     );
   }
 
@@ -567,114 +564,6 @@ class _TavernScreenState extends State<TavernScreen>
           ),
       ],
     );
-  }
-
-  Widget _settingsEntryCard(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-    String? trailingText,
-  }) {
-    return Card(
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        leading: Icon(icon),
-        title: Text(title),
-        subtitle: Text(subtitle),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (trailingText != null) ...[
-              Text(
-                trailingText,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: const Color(0xFF7D8596),
-                ),
-              ),
-              const SizedBox(width: 8),
-            ],
-            const Icon(Icons.chevron_right),
-          ],
-        ),
-        onTap: onTap,
-      ),
-    );
-  }
-
-  Future<void> _showPresetsManager(BuildContext context, TavernStore store) async {
-    final navigator = Navigator.of(context);
-    await navigator.push(
-      MaterialPageRoute(
-        builder: (_) => Scaffold(
-          appBar: AppBar(
-            title: const Text('Presets'),
-            actions: [
-              IconButton(
-                tooltip: '刷新',
-                onPressed: () => this.context.read<TavernStore>().loadHome(),
-                icon: const Icon(Icons.refresh),
-              ),
-              IconButton(
-                tooltip: '新增 Preset',
-                onPressed: () => _editPreset(context),
-                icon: const Icon(Icons.add),
-              ),
-            ],
-          ),
-          body: _buildPresetsTab(context, store),
-        ),
-      ),
-    );
-    if (!mounted) return;
-    await this.context.read<TavernStore>().loadHome();
-  }
-
-  Future<void> _showPromptOrdersManager(BuildContext context, TavernStore store) async {
-    final navigator = Navigator.of(context);
-    await navigator.push(
-      MaterialPageRoute(
-        builder: (_) => Scaffold(
-          appBar: AppBar(
-            title: const Text('提示词管理'),
-            actions: [
-              IconButton(
-                tooltip: '新增自定义提示词',
-                onPressed: () => _editPromptOrder(context),
-                icon: const Icon(Icons.add),
-              ),
-            ],
-          ),
-          body: _buildPromptOrdersTab(context, store),
-        ),
-      ),
-    );
-    if (!mounted) return;
-    await this.context.read<TavernStore>().loadHome();
-  }
-
-  Future<void> _showWorldBooksManager(BuildContext context, TavernStore store) async {
-    final navigator = Navigator.of(context);
-    await navigator.push(
-      MaterialPageRoute(
-        builder: (_) => Scaffold(
-          appBar: AppBar(
-            title: const Text('WorldBooks'),
-            actions: [
-              IconButton(
-                tooltip: '新增 WorldBook',
-                onPressed: () => _editWorldBook(context),
-                icon: const Icon(Icons.add),
-              ),
-            ],
-          ),
-          body: _buildWorldBooksTab(context, store),
-        ),
-      ),
-    );
-    if (!mounted) return;
-    await this.context.read<TavernStore>().loadHome();
   }
 
   Widget _buildPresetsTab(BuildContext context, TavernStore store) {
@@ -1569,6 +1458,9 @@ class _TavernScreenState extends State<TavernScreen>
     String storyRole = preset?.storyStringRole ?? 'system';
     double temperature = preset?.temperature ?? 1;
     double topP = preset?.topP ?? 1;
+    double frequencyPenalty = preset?.frequencyPenalty ?? 0;
+    double presencePenalty = preset?.presencePenalty ?? 0;
+    double topA = preset?.topA ?? 0;
     double minP = preset?.minP ?? 0;
     double typicalP = preset?.typicalP ?? 1;
     double repetitionPenalty = preset?.repetitionPenalty ?? 1;
@@ -1818,6 +1710,36 @@ class _TavernScreenState extends State<TavernScreen>
                                 ),
                                 _sliderField(
                                   context,
+                                  label: 'Frequency Penalty',
+                                  value: frequencyPenalty,
+                                  min: -2,
+                                  max: 2,
+                                  divisions: 40,
+                                  onChanged:
+                                      (value) => setModalState(() => frequencyPenalty = value),
+                                ),
+                                _sliderField(
+                                  context,
+                                  label: 'Presence Penalty',
+                                  value: presencePenalty,
+                                  min: -2,
+                                  max: 2,
+                                  divisions: 40,
+                                  onChanged:
+                                      (value) => setModalState(() => presencePenalty = value),
+                                ),
+                                _sliderField(
+                                  context,
+                                  label: 'Top A',
+                                  value: topA,
+                                  min: 0,
+                                  max: 1,
+                                  divisions: 20,
+                                  onChanged:
+                                      (value) => setModalState(() => topA = value),
+                                ),
+                                _sliderField(
+                                  context,
                                   label: 'Min P',
                                   value: minP,
                                   min: 0,
@@ -1919,6 +1841,9 @@ class _TavernScreenState extends State<TavernScreen>
                                               'storyStringDepth': storyDepth,
                                               'temperature': temperature,
                                               'topP': topP,
+                                              'frequencyPenalty': frequencyPenalty,
+                                              'presencePenalty': presencePenalty,
+                                              'topA': topA,
                                               'topK': topK,
                                               'minP': minP,
                                               'typicalP': typicalP,
@@ -2001,14 +1926,13 @@ class _TavernScreenState extends State<TavernScreen>
     TavernPromptOrder? promptOrder,
   }) async {
     final store = context.read<TavernStore>();
-    final isCreate = promptOrder == null;
-    final baseOrder = promptOrder ?? (store.promptOrders.isNotEmpty ? store.promptOrders.first : null);
+    final baseOrder = promptOrder ??
+        (store.promptOrders.isNotEmpty ? store.promptOrders.first : null);
+    final normalizedItems = _buildPromptManagerItems(baseOrder?.items ?? const <TavernPromptOrderItem>[]);
+    final items = <TavernPromptOrderItem>[...normalizedItems];
     final nameController = TextEditingController(
-      text: promptOrder?.name ?? baseOrder?.name ?? '默认提示词管理',
+      text: baseOrder?.name ?? '默认提示词管理',
     );
-    final items = <TavernPromptOrderItem>[
-      ...(baseOrder?.items ?? const <TavernPromptOrderItem>[]),
-    ]..sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
     bool saving = false;
     DateTime? lastReorderAt;
 
@@ -2052,13 +1976,10 @@ class _TavernScreenState extends State<TavernScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    isCreate ? '新建提示词管理' : '编辑提示词管理',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
+                  Text('提示词管理', style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 8),
                   Text(
-                    '内建段落只负责移动和开关；自定义项才编辑内容。',
+                    '统一管理标准段落与自定义提示词。内建项只负责顺序与开关，自定义项才编辑内容。',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   const SizedBox(height: 12),
@@ -2074,7 +1995,7 @@ class _TavernScreenState extends State<TavernScreen>
                     children: [
                       Expanded(
                         child: Text(
-                          '提示词项（拖拽即顺序）',
+                          '段落顺序',
                           style: Theme.of(context).textTheme.titleSmall,
                         ),
                       ),
@@ -2103,45 +2024,62 @@ class _TavernScreenState extends State<TavernScreen>
                       },
                       itemBuilder: (context, index) {
                         final item = items[index];
+                        final option = _builtinOptionFor(item.identifier);
                         final isCustom = item.isCustom;
+                        final accent = isCustom
+                            ? const Color(0xFF64748B)
+                            : Color(option?.colorValue ?? 0xFF7C4DFF);
+                        final tileColor = isCustom
+                            ? const Color(0xFFF8FAFC)
+                            : Color((option?.colorValue ?? 0xFF7C4DFF)).withValues(alpha: 0.08);
                         return Card(
                           key: ValueKey('${item.identifier}:${item.blockId}:${item.name}:$index'),
                           margin: const EdgeInsets.symmetric(vertical: 4),
+                          color: tileColor,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                           child: ListTile(
                             dense: true,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                            leading: ReorderableDragStartListener(
-                              index: index,
-                              child: const Icon(Icons.drag_indicator, size: 18),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            leading: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                ReorderableDragStartListener(
+                                  index: index,
+                                  child: Icon(Icons.drag_indicator, size: 18, color: accent),
+                                ),
+                                const SizedBox(width: 8),
+                                Container(
+                                  width: 30,
+                                  height: 30,
+                                  decoration: BoxDecoration(
+                                    color: accent.withValues(alpha: 0.14),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Icon(
+                                    option?.icon ?? Icons.notes_outlined,
+                                    size: 16,
+                                    color: accent,
+                                  ),
+                                ),
+                              ],
                             ),
                             title: Text(
                               _promptOrderItemLabel(store, item),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleSmall,
+                              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                             subtitle: Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
                                 children: [
-                                  Text(
-                                    isCustom
-                                        ? '${item.role} · ${item.content.trim().isEmpty ? '未填写内容' : item.content.trim()}'
-                                        : '内建段落',
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Wrap(
-                                    spacing: 6,
-                                    runSpacing: 6,
-                                    children: [
-                                      _compactInfoPill(isCustom ? '自定义' : '内建'),
-                                      _compactInfoPill(item.enabled ? '已启用' : '已关闭'),
-                                      if (isCustom) _compactInfoPill(item.role),
-                                    ],
-                                  ),
+                                  _compactInfoPill(isCustom ? '自定义' : '标准段落'),
+                                  _compactInfoPill(item.enabled ? '已启用' : '已关闭'),
+                                  if (isCustom) _compactInfoPill(item.role),
                                 ],
                               ),
                             ),
@@ -2209,8 +2147,8 @@ class _TavernScreenState extends State<TavernScreen>
                                       current.copyWith(
                                         orderIndex: i * 10,
                                         position: itemPositionFor(current),
-                                        depth: null,
-                                        clearDepth: true,
+                                        depth: current.identifier == 'authorNote' ? 4 : null,
+                                        clearDepth: current.identifier != 'authorNote',
                                         builtIn: current.identifier.isNotEmpty,
                                       ).toJson(),
                                     );
@@ -2221,8 +2159,8 @@ class _TavernScreenState extends State<TavernScreen>
                                         : nameController.text.trim(),
                                     'items': normalized,
                                   };
-                                  final targetPromptOrderId = promptOrder?.id ?? baseOrder?.id ?? '';
-                                  if (isCreate || targetPromptOrderId.isEmpty) {
+                                  final targetPromptOrderId = baseOrder?.id ?? '';
+                                  if (targetPromptOrderId.isEmpty) {
                                     await store.createPromptOrder(payload);
                                   } else {
                                     await store.updatePromptOrder(
@@ -2237,7 +2175,7 @@ class _TavernScreenState extends State<TavernScreen>
                                   if (!context.mounted) return;
                                   setModalState(() => saving = false);
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('${isCreate ? '创建' : '保存'}提示词管理失败：$exc')),
+                                    SnackBar(content: Text('保存提示词管理失败：$exc')),
                                   );
                                 }
                               },
@@ -2247,7 +2185,7 @@ class _TavernScreenState extends State<TavernScreen>
                                 height: 16,
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               )
-                            : Text(isCreate ? '创建' : '保存'),
+                            : const Text('保存'),
                       ),
                     ],
                   ),
@@ -2263,16 +2201,51 @@ class _TavernScreenState extends State<TavernScreen>
 
     if (saved == true && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isCreate ? '提示词管理已创建' : '提示词管理已更新')),
+        const SnackBar(content: Text('提示词管理已更新')),
       );
       await context.read<TavernStore>().loadHome();
     }
   }
 
+  List<TavernPromptOrderItem> _buildPromptManagerItems(List<TavernPromptOrderItem> rawItems) {
+    final normalized = <TavernPromptOrderItem>[];
+    final byIdentifier = <String, TavernPromptOrderItem>{};
+    for (final item in rawItems) {
+      if (item.identifier.isNotEmpty) {
+        byIdentifier[item.identifier] = item;
+      }
+    }
+    for (var i = 0; i < _builtinPromptOrderOptions.length; i += 1) {
+      final option = _builtinPromptOrderOptions[i];
+      final existing = byIdentifier[option.identifier];
+      normalized.add(
+        (existing ?? TavernPromptOrderItem(identifier: option.identifier, enabled: true, builtIn: true, orderIndex: i * 10))
+            .copyWith(
+              identifier: option.identifier,
+              name: option.label,
+              builtIn: true,
+              role: 'system',
+              content: '',
+              orderIndex: existing?.orderIndex ?? i * 10,
+            ),
+      );
+    }
+    final customItems = rawItems.where((item) => item.isCustom).toList()
+      ..sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
+    normalized.addAll(customItems);
+    normalized.sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
+    for (var i = 0; i < normalized.length; i += 1) {
+      normalized[i] = normalized[i].copyWith(orderIndex: i * 10);
+    }
+    return normalized;
+  }
+
   String itemPositionFor(TavernPromptOrderItem item) {
-    if (item.position == 'at_depth') return 'at_depth';
+    if (item.position == 'at_depth' || item.identifier == 'authorNote') return 'at_depth';
     switch (item.identifier) {
       case 'main':
+        return 'after_system';
+      case 'personaDescription':
         return 'after_system';
       case 'charDescription':
       case 'charPersonality':
@@ -2287,6 +2260,8 @@ class _TavernScreenState extends State<TavernScreen>
         return 'before_chat_history';
       case 'chatHistory':
         return 'before_last_user';
+      case 'postHistoryInstructions':
+        return 'after_chat_history';
       default:
         return item.position.isEmpty ? 'after_chat_history' : item.position;
     }
@@ -2871,121 +2846,42 @@ class _TavernScreenState extends State<TavernScreen>
     }
   }
 
-  Widget _buildPromptOrderCompactRow(
-    BuildContext context,
-    TavernStore store,
-    TavernPromptOrderItem item, {
-    required int index,
-  }) {
-    final enabledColor = item.enabled
-        ? const Color(0xFF7C4DFF)
-        : const Color(0xFFB7BFCE);
-    final theme = Theme.of(context);
-    return Container(
-      margin: EdgeInsets.only(bottom: index == 0 ? 0 : 8),
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8F7FC),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE9E5F4)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Icon(
-              item.enabled ? Icons.check_circle : Icons.radio_button_unchecked,
-              size: 16,
-              color: enabledColor,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _promptOrderItemLabel(store, item),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    height: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    _compactInfoPill(_promptOrderItemSourceLabel(item)),
-                    _compactInfoPill(_promptOrderPositionLabel(item.position)),
-                    if (item.depth != null) _compactInfoPill('深度 ${item.depth}'),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+  _BuiltinPromptOrderOption? _builtinOptionFor(String identifier) {
+    for (final option in _builtinPromptOrderOptions) {
+      if (option.identifier == identifier) return option;
+    }
+    return null;
   }
 
   String _promptOrderItemLabel(TavernStore store, TavernPromptOrderItem item) {
     if (item.identifier.isNotEmpty) {
-      for (final option in _builtinPromptOrderOptions) {
-        if (option.identifier == item.identifier) return option.label;
-      }
+      final option = _builtinOptionFor(item.identifier);
+      if (option != null) return option.label;
       return item.identifier;
     }
+    if (item.name.trim().isNotEmpty) return item.name.trim();
     if (item.blockId.isNotEmpty) {
       for (final block in store.promptBlocks) {
         if (block.id == item.blockId) return block.name;
       }
       return item.blockId;
     }
-    return '未命名 item';
-  }
-
-  String _promptOrderItemSourceLabel(TavernPromptOrderItem item) {
-    if (item.identifier.isNotEmpty) return '内置';
-    if (item.blockId.isNotEmpty) return 'Prompt Block';
-    return '自定义';
-  }
-
-  String _promptOrderPositionLabel(String position) {
-    switch (position) {
-      case 'after_system':
-        return '系统后';
-      case 'before_chat_history':
-        return '历史前';
-      case 'after_chat_history':
-        return '历史后';
-      case 'in_chat':
-        return '消息中';
-      case 'at_depth':
-        return '指定深度';
-      default:
-        return position;
-    }
+    return '未命名自定义项';
   }
 
   Widget _compactInfoPill(String text) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: const Color(0xFFF1F5F9),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0xFFE4DFF2)),
       ),
       child: Text(
         text,
         style: const TextStyle(
           fontSize: 11,
-          height: 1.1,
-          color: Color(0xFF6F7788),
-          fontWeight: FontWeight.w500,
+          fontWeight: FontWeight.w600,
+          color: Color(0xFF475569),
         ),
       ),
     );
@@ -3458,8 +3354,13 @@ class _CharacterImportSummary {
 }
 
 class _BuiltinPromptOrderOption {
-  const _BuiltinPromptOrderOption(this.identifier, this.label);
+  const _BuiltinPromptOrderOption(this.identifier, this.label, {
+    required this.icon,
+    required this.colorValue,
+  });
 
   final String identifier;
   final String label;
+  final IconData icon;
+  final int colorValue;
 }

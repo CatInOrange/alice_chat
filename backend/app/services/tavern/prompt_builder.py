@@ -59,7 +59,6 @@ class PromptBuilder:
         'authorNote': 'author_note',
         'postHistoryInstructions': 'post_history_instructions',
         'jailbreak': 'post_history_instructions',
-        'nsfw': 'nsfw',
     }
 
     def build_messages(
@@ -351,14 +350,17 @@ class PromptBuilder:
         if not order_items:
             order_items = [
                 {'identifier': 'main', 'enabled': True, 'order_index': 0},
-                {'identifier': 'worldInfoBefore', 'enabled': True, 'order_index': 10, 'position': 'before_chat_history'},
-                {'identifier': 'charDescription', 'enabled': True, 'order_index': 20, 'position': 'before_character'},
-                {'identifier': 'charPersonality', 'enabled': True, 'order_index': 30, 'position': 'before_character'},
-                {'identifier': 'scenario', 'enabled': True, 'order_index': 40, 'position': 'after_character'},
-                {'identifier': 'dialogueExamples', 'enabled': True, 'order_index': 50, 'position': 'before_example_messages'},
-                {'identifier': 'summaries', 'enabled': True, 'order_index': 55, 'position': 'before_chat_history'},
-                {'identifier': 'chatHistory', 'enabled': True, 'order_index': 60, 'position': 'before_last_user'},
-                {'identifier': 'postHistoryInstructions', 'enabled': True, 'order_index': 70, 'position': 'after_chat_history'},
+                {'identifier': 'personaDescription', 'enabled': True, 'order_index': 10},
+                {'identifier': 'charDescription', 'enabled': True, 'order_index': 20},
+                {'identifier': 'charPersonality', 'enabled': True, 'order_index': 30},
+                {'identifier': 'scenario', 'enabled': True, 'order_index': 40},
+                {'identifier': 'worldInfoBefore', 'enabled': True, 'order_index': 50},
+                {'identifier': 'dialogueExamples', 'enabled': True, 'order_index': 60},
+                {'identifier': 'authorNote', 'enabled': True, 'order_index': 70},
+                {'identifier': 'summaries', 'enabled': True, 'order_index': 80},
+                {'identifier': 'chatHistory', 'enabled': True, 'order_index': 90},
+                {'identifier': 'worldInfoAfter', 'enabled': True, 'order_index': 100},
+                {'identifier': 'postHistoryInstructions', 'enabled': True, 'order_index': 110},
             ]
 
         prompt_blocks_by_id = {
@@ -753,29 +755,19 @@ class PromptBuilder:
         story_depth = int(preset.get('storyStringDepth') or 1)
         story_role = str(preset.get('storyStringRole') or 'system').strip() or 'system'
 
-        blocks_by_position: dict[str, list[dict[str, Any]]] = {}
-        for block in ordered_blocks:
-            content = str(block.get('content') or '').strip()
-            if not content:
-                continue
-            normalized = self._normalize_position(str(block.get('position') or 'after_chat_history'))
-            blocks_by_position.setdefault(normalized, []).append(block)
-
-        before_system_blocks = blocks_by_position.get('before_system', [])
-        after_system_blocks = blocks_by_position.get('after_system', [])
-        before_story_blocks = blocks_by_position.get('before_character', [])
-        after_story_blocks = blocks_by_position.get('after_character', [])
-        before_examples_blocks = blocks_by_position.get('before_example_messages', [])
-        after_examples_blocks = blocks_by_position.get('after_example_messages', [])
-        before_history_blocks = blocks_by_position.get('before_chat_history', [])
-        after_history_blocks = blocks_by_position.get('after_chat_history', [])
-        post_history_blocks = blocks_by_position.get('post_history', [])
-        before_last_user_blocks = blocks_by_position.get('before_last_user', [])
-        depth_blocks = blocks_by_position.get('at_depth', [])
-
         messages: list[dict[str, Any]] = []
         depth_inserts: list[dict[str, Any]] = []
         story_inserted = False
+
+        rendered_history = [
+            {
+                'role': str(item.get('role') or 'user'),
+                'content': str(item.get('content') or item.get('text') or ''),
+            }
+            for item in history
+            if str(item.get('content') or item.get('text') or '').strip()
+        ]
+        history_length = len(rendered_history)
 
         def insert_story_string(*, depth: int | None = None) -> None:
             nonlocal story_inserted
@@ -795,6 +787,9 @@ class PromptBuilder:
         def emit_block(block: dict[str, Any], *, extra_meta: dict[str, Any] | None = None) -> None:
             if str(block.get('name') or '') == 'system_prompt':
                 return
+            content = str(block.get('content') or '').strip()
+            if not content:
+                return
             meta = {
                 'kind': block.get('kind'),
                 'position': self._normalize_position(str(block.get('position') or 'after_chat_history')),
@@ -809,67 +804,42 @@ class PromptBuilder:
                 'meta': meta,
             })
 
-        for block in before_system_blocks:
-            emit_block(block)
+        def emit_depth_blocks(depth_from_end: int) -> None:
+            for block in ordered_blocks:
+                if self._normalize_position(str(block.get('position') or 'after_chat_history')) != 'at_depth':
+                    continue
+                if int(block.get('depth') or 0) != depth_from_end:
+                    continue
+                rendered_block = self._decorate_depth_block(block)
+                messages.append({
+                    'role': str(block.get('role') or 'system'),
+                    'content': rendered_block,
+                    'meta': {
+                        'kind': block.get('kind'),
+                        'position': 'at_depth',
+                        'depth': depth_from_end,
+                        **(block.get('meta') or {}),
+                    },
+                })
+                depth_inserts.append({'depth': depth_from_end, 'block': block, 'content': rendered_block})
 
-        if story_position not in {'at_depth', 'before_last_user'}:
-            insert_story_string()
-
-        for block in after_system_blocks:
-            emit_block(block)
-
-        for block in before_story_blocks:
-            emit_block(block, extra_meta={'position': 'before_character'})
-
-        for block in after_story_blocks:
-            emit_block(block, extra_meta={'position': 'after_character'})
-
-        for block in before_examples_blocks:
-            emit_block(block, extra_meta={'position': 'before_example_messages'})
-
-        if example_text.strip():
-            messages.append({'role': 'system', 'content': example_text, 'meta': {'kind': 'example_messages'}})
-
-        for block in after_examples_blocks:
-            emit_block(block, extra_meta={'position': 'after_example_messages'})
-
-        for block in before_history_blocks:
-            emit_block(block, extra_meta={'position': 'before_chat_history'})
-
-        rendered_history = [
-            {
-                'role': str(item.get('role') or 'user'),
-                'content': str(item.get('content') or item.get('text') or ''),
-            }
-            for item in history
-            if str(item.get('content') or item.get('text') or '').strip()
-        ]
-
-        if rendered_history:
-            for i, message in enumerate(rendered_history):
-                depth_from_end = len(rendered_history) - 1 - i
-                for block in depth_blocks:
-                    if int(block.get('depth') or 0) == depth_from_end:
-                        rendered_block = self._decorate_depth_block(block)
-                        messages.append({
-                            'role': str(block.get('role') or 'system'),
-                            'content': rendered_block,
-                            'meta': {
-                                'kind': block.get('kind'),
-                                'position': 'at_depth',
-                                'depth': depth_from_end,
-                                **(block.get('meta') or {}),
-                            },
-                        })
-                        depth_inserts.append({'depth': depth_from_end, 'block': block, 'content': rendered_block})
-                if story_position == 'at_depth' and story_depth == depth_from_end:
-                    insert_story_string(depth=depth_from_end)
-                messages.append(message)
-        else:
-            if story_position == 'at_depth':
-                insert_story_string(depth=story_depth)
-            for block in depth_blocks:
-                if int(block.get('depth') or 0) >= 0:
+        def emit_history_once() -> None:
+            nonlocal story_inserted
+            if rendered_history:
+                for i, message in enumerate(rendered_history):
+                    depth_from_end = history_length - 1 - i
+                    emit_depth_blocks(depth_from_end)
+                    if story_position == 'at_depth' and story_depth == depth_from_end:
+                        insert_story_string(depth=depth_from_end)
+                    messages.append(message)
+            else:
+                if story_position == 'at_depth':
+                    insert_story_string(depth=story_depth)
+                for block in ordered_blocks:
+                    if self._normalize_position(str(block.get('position') or 'after_chat_history')) != 'at_depth':
+                        continue
+                    if int(block.get('depth') or 0) < 0:
+                        continue
                     rendered_block = self._decorate_depth_block(block)
                     messages.append({
                         'role': str(block.get('role') or 'system'),
@@ -883,17 +853,42 @@ class PromptBuilder:
                     })
                     depth_inserts.append({'depth': int(block.get('depth') or 0), 'block': block, 'content': rendered_block})
 
-        for block in after_history_blocks:
-            emit_block(block, extra_meta={'position': 'after_chat_history'})
+        history_emitted = False
 
-        for block in post_history_blocks:
-            emit_block(block, extra_meta={'position': 'post_history'})
+        for block in ordered_blocks:
+            name = str(block.get('name') or '')
+            position = self._normalize_position(str(block.get('position') or 'after_chat_history'))
+
+            if name == 'system_prompt':
+                if story_position not in {'at_depth', 'before_last_user'}:
+                    insert_story_string()
+                continue
+
+            if name == 'example_messages':
+                if example_text.strip():
+                    messages.append({'role': 'system', 'content': example_text, 'meta': {'kind': 'example_messages'}})
+                continue
+
+            if name == 'chat_history':
+                if not history_emitted:
+                    emit_history_once()
+                    history_emitted = True
+                continue
+
+            if position == 'at_depth':
+                continue
+
+            emit_block(block)
+
+        if not story_inserted and story_position not in {'at_depth', 'before_last_user'} and not messages:
+            insert_story_string()
+
+        if not history_emitted:
+            emit_history_once()
+            history_emitted = True
 
         if story_position == 'before_last_user':
             insert_story_string(depth=story_depth)
-
-        for block in before_last_user_blocks:
-            emit_block(block, extra_meta={'position': 'before_last_user'})
 
         if user_text.strip():
             chat_start = str(preset.get('chatStart') or '').strip()
