@@ -76,23 +76,23 @@ const List<_BuiltinPromptOrderOption> _builtinPromptOrderOptions =
     ];
 
 class TavernScreen extends StatefulWidget {
-  const TavernScreen({super.key});
+  const TavernScreen({super.key, this.configOnly = false});
+
+  final bool configOnly;
 
   @override
   State<TavernScreen> createState() => _TavernScreenState();
 }
 
 class _TavernScreenState extends State<TavernScreen>
-    with AutomaticKeepAliveClientMixin, TickerProviderStateMixin {
+    with AutomaticKeepAliveClientMixin {
   final ImagePicker _picker = ImagePicker();
-  late final TabController _tabController;
   bool _isImporting = false;
   String? _serverBaseUrl;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       context.read<TavernStore>().loadCharacters();
@@ -105,12 +105,6 @@ class _TavernScreenState extends State<TavernScreen>
         );
       });
     });
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
   }
 
   @override
@@ -140,45 +134,22 @@ class _TavernScreenState extends State<TavernScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('酒馆'),
-        actions: [
-          IconButton(
-            tooltip: '新建 Preset',
-            onPressed: () => _editPreset(context),
-            icon: const Icon(Icons.add_circle_outline),
-          ),
-          IconButton(
-            tooltip: '导入角色',
-            onPressed: _isImporting ? null : _importCharacter,
-            icon:
-                _isImporting
-                    ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                    : const Icon(Icons.file_upload_outlined),
-          ),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: '会话'),
-            Tab(text: '角色'),
-            Tab(text: '配置'),
-          ],
-        ),
+        title: Text(widget.configOnly ? '酒馆配置' : '酒馆'),
+        actions: widget.configOnly
+            ? null
+            : [
+                IconButton(
+                  tooltip: '角色页',
+                  onPressed: () => _showCharactersSheet(context, store),
+                  icon: const Icon(Icons.account_box_outlined),
+                ),
+              ],
       ),
       body: RefreshIndicator(
         onRefresh: store.loadCharacters,
-        child: TabBarView(
-          controller: _tabController,
-          children: [
-            _buildChatsTab(context, store),
-            _buildCharactersTab(context, store),
-            _buildConfigHubTab(context, store),
-          ],
-        ),
+        child: widget.configOnly
+            ? _buildConfigHubTab(context, store)
+            : _buildChatsTab(context, store),
       ),
     );
   }
@@ -187,17 +158,13 @@ class _TavernScreenState extends State<TavernScreen>
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text('最近会话', style: Theme.of(context).textTheme.titleMedium),
-            ),
-            TextButton.icon(
-              onPressed: () => _tabController.animateTo(1),
-              icon: const Icon(Icons.people_outline),
-              label: const Text('去角色页'),
-            ),
-          ],
+        Text('最近会话', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 6),
+        Text(
+          '进来先直接聊天。角色和配置都收进次级入口。',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: const Color(0xFF667085),
+          ),
         ),
         const SizedBox(height: 8),
         if (store.recentChats.isEmpty)
@@ -242,67 +209,119 @@ class _TavernScreenState extends State<TavernScreen>
     );
   }
 
-  Widget _buildCharactersTab(BuildContext context, TavernStore store) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text('角色', style: Theme.of(context).textTheme.titleMedium),
-            ),
-            TextButton.icon(
-              onPressed: _isImporting ? null : _importCharacter,
-              icon: const Icon(Icons.file_upload_outlined),
-              label: const Text('导入'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        if (store.isLoading)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 24),
-            child: Center(child: CircularProgressIndicator()),
-          )
-        else if ((store.error ?? '').isNotEmpty)
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.error_outline),
-              title: const Text('加载角色失败'),
-              subtitle: Text(store.error!),
-            ),
-          )
-        else if (store.characters.isEmpty)
-          const Card(
-            child: ListTile(
-              title: Text('还没有角色'),
-              subtitle: Text('支持导入 JSON / PNG / CharX 角色卡。'),
-            ),
-          )
-        else
-          ...store.characters.map(
-            (character) => Card(
-              child: ListTile(
-                leading: buildTavernAvatar(
-                  avatarPath: character.avatarPath,
-                  serverBaseUrl: _serverBaseUrl,
-                  useDefaultAssetFallback: true,
+  Future<void> _showCharactersSheet(BuildContext context, TavernStore store) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: FractionallySizedBox(
+          heightFactor: 0.92,
+          child: StatefulBuilder(
+            builder: (context, setModalState) => Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('角色页', style: Theme.of(context).textTheme.titleLarge),
+                            const SizedBox(height: 4),
+                            Text(
+                              '角色不在酒馆首页常驻，按一下再展开。',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      FilledButton.icon(
+                        onPressed: _isImporting
+                            ? null
+                            : () async {
+                                Navigator.of(context).pop();
+                                await _importCharacter();
+                              },
+                        icon: const Icon(Icons.file_upload_outlined),
+                        label: const Text('导入'),
+                      ),
+                    ],
+                  ),
                 ),
-                title: Text(character.name),
-                subtitle: Text(
-                  character.description.isNotEmpty
-                      ? character.description
-                      : character.scenario,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                Expanded(
+                  child: Builder(
+                    builder: (context) {
+                      if (store.isLoading) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      if ((store.error ?? '').isNotEmpty) {
+                        return ListView(
+                          padding: const EdgeInsets.all(16),
+                          children: [
+                            Card(
+                              child: ListTile(
+                                leading: const Icon(Icons.error_outline),
+                                title: const Text('加载角色失败'),
+                                subtitle: Text(store.error!),
+                              ),
+                            ),
+                          ],
+                        );
+                      }
+                      if (store.characters.isEmpty) {
+                        return ListView(
+                          padding: const EdgeInsets.all(16),
+                          children: const [
+                            Card(
+                              child: ListTile(
+                                title: Text('还没有角色'),
+                                subtitle: Text('支持导入 JSON / PNG / CharX 角色卡。'),
+                              ),
+                            ),
+                          ],
+                        );
+                      }
+                      return ListView(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+                        children: store.characters
+                            .map(
+                              (character) => Card(
+                                child: ListTile(
+                                  leading: buildTavernAvatar(
+                                    avatarPath: character.avatarPath,
+                                    serverBaseUrl: _serverBaseUrl,
+                                    useDefaultAssetFallback: true,
+                                  ),
+                                  title: Text(character.name),
+                                  subtitle: Text(
+                                    character.description.isNotEmpty ? character.description : character.scenario,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  trailing: const Icon(Icons.chevron_right),
+                                  onTap: () async {
+                                    await _showCharacterDetail(character);
+                                    if (context.mounted) setModalState(() {});
+                                  },
+                                  onLongPress: () async {
+                                    await _confirmDeleteCharacter(this.context, character);
+                                    if (context.mounted) setModalState(() {});
+                                  },
+                                ),
+                              ),
+                            )
+                            .toList(growable: false),
+                      );
+                    },
+                  ),
                 ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _showCharacterDetail(character),
-                onLongPress: () => _confirmDeleteCharacter(context, character),
-              ),
+              ],
             ),
           ),
-      ],
+        ),
+      ),
     );
   }
 

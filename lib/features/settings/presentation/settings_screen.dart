@@ -15,6 +15,7 @@ import '../../../core/openclaw/openclaw_settings.dart';
 import '../../chat/application/chat_session_store.dart';
 import '../../music/application/music_platform_store.dart';
 import '../../notifications/application/notification_service.dart';
+import '../../tavern/presentation/tavern_screen.dart';
 import 'debug_logs_panel.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -528,6 +529,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               icon: Icons.admin_panel_settings_rounded,
               accentColor: const Color(0xFFD97706),
               builder: (context) => _buildServiceManagementContent(context),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _SettingsEntryCard(
+            icon: Icons.auto_awesome_rounded,
+            accentColor: const Color(0xFF2563EB),
+            title: '酒馆配置',
+            subtitle: '把 Presets、Prompt Order、Prompt Blocks、WorldBooks 收到全局设置页里。',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const TavernScreen(configOnly: true),
+              ),
             ),
           ),
           const SizedBox(height: 12),
