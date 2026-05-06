@@ -38,11 +38,16 @@ class TavernStreamingService:
                 },
             },
         )
+        summary_result = self.tavern_service.maybe_generate_summary(
+            chat_id=chat_id,
+            provider_config=client.provider_config,
+        )
         return {
             'requestId': request_id,
             'userMessage': user_message,
             'assistantMessage': assistant_message,
             'promptDebug': prepared['promptDebug'],
+            'summary': summary_result,
         }
 
     def stream(self, chat_id: str, *, text: str, preset_id: str = '', provider_id: str = ''):
@@ -75,6 +80,10 @@ class TavernStreamingService:
                     },
                 },
             )
+            summary_result = self.tavern_service.maybe_generate_summary(
+                chat_id=chat_id,
+                provider_config=client.provider_config,
+            )
             return {
                 'requestId': request_id,
                 'userMessage': user_message,
@@ -82,6 +91,7 @@ class TavernStreamingService:
                 'text': result.text,
                 'deltas': deltas,
                 'promptDebug': prepared['promptDebug'],
+                'summary': summary_result,
             }
 
         return {

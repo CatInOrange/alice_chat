@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:provider/provider.dart';
@@ -43,6 +45,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   final TextEditingController _inputController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _isLoading = true;
+  bool _isRefreshing = false;
   bool _isSending = false;
   bool _isLoadingDebug = false;
   bool _didInitialScroll = false;
@@ -75,8 +78,31 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   Future<void> _bootstrap() async {
     final store = context.read<TavernStore>();
     try {
+      final cached = await store.loadCachedChatSnapshot(_chat.id);
       final settings = await OpenClawSettingsStore.load();
-      final character = await store.getCharacter(_chat.characterId);
+      if (!mounted) return;
+      if (cached != null) {
+        setState(() {
+          _serverBaseUrl = settings.baseUrl.trim().replaceFirst(
+            RegExp(r'/+$'),
+            '',
+          );
+          _chat = cached.chat ?? _chat;
+          _character = cached.character ?? _character;
+          _messages = cached.messages;
+          _selectedPresetId = _chat.presetId.isNotEmpty ? _chat.presetId : null;
+          _isLoading = false;
+          _isRefreshing = true;
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _scrollToBottom(animated: false, force: true);
+          }
+        });
+        unawaited(_refreshFromServer());
+        return;
+      }
+
       final messages = await store.listChatMessages(_chat.id);
       if (!mounted) return;
       setState(() {
@@ -84,21 +110,59 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           RegExp(r'/+$'),
           '',
         );
-        _character = character;
         _messages = messages;
         _selectedPresetId = _chat.presetId.isNotEmpty ? _chat.presetId : null;
         _isLoading = false;
       });
-      _scrollToBottom(animated: false, force: true);
-      Future<void>.delayed(
-        const Duration(milliseconds: 80),
-        () => _scrollToBottom(animated: false, force: true),
+      await store.saveChatSnapshot(
+        chat: _chat,
+        character: _character,
+        messages: messages,
       );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _scrollToBottom(animated: false, force: true);
+        }
+      });
     } catch (exc) {
       if (!mounted) return;
       setState(() {
         _error = exc.toString();
         _isLoading = false;
+        _isRefreshing = false;
+      });
+    }
+  }
+
+  Future<void> _refreshFromServer() async {
+    final store = context.read<TavernStore>();
+    try {
+      final results = await Future.wait([
+        store.getCharacter(_chat.characterId),
+        store.getChat(_chat.id),
+        store.listChatMessages(_chat.id),
+      ]);
+      if (!mounted) return;
+      final character = results[0] as TavernCharacter;
+      final chat = results[1] as TavernChat;
+      final messages = results[2] as List<TavernMessage>;
+      setState(() {
+        _character = character;
+        _chat = chat;
+        _messages = messages;
+        _selectedPresetId = _chat.presetId.isNotEmpty ? _chat.presetId : null;
+        _isRefreshing = false;
+      });
+      await store.saveChatSnapshot(
+        chat: chat,
+        character: character,
+        messages: messages,
+      );
+    } catch (exc) {
+      if (!mounted) return;
+      setState(() {
+        _isRefreshing = false;
+        _error ??= exc.toString();
       });
     }
   }
@@ -109,6 +173,15 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     return Scaffold(
       appBar: AppBar(
         actions: [
+          IconButton(
+            tooltip: '剧情摘要',
+            onPressed: _showSummariesSheet,
+            icon: Badge(
+              isLabelVisible: _summaryItems().isNotEmpty,
+              label: Text('${_summaryItems().length}'),
+              child: const Icon(Icons.auto_stories_outlined),
+            ),
+          ),
           IconButton(
             tooltip: '会话设置',
             onPressed: _showChatOptions,
@@ -173,6 +246,9 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           child: Column(
             children: [
               Expanded(child: _buildBody(context)),
+              _buildQuickActionsBar(),
+              if (_isRefreshing)
+                const LinearProgressIndicator(minHeight: 2),
               SafeArea(
                 top: false,
                 child: Padding(
@@ -552,10 +628,19 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   }
 
   Future<void> _handleSend() async {
-    final text = _inputController.text.trim();
+    return _sendText(_inputController.text.trim());
+  }
+
+  Future<void> _sendQuickAction(String text) async {
+    await _sendText(text, replaceComposer: false);
+  }
+
+  Future<void> _sendText(String text, {bool replaceComposer = true}) async {
     if (text.isEmpty || _isSending) return;
     FocusScope.of(context).unfocus();
-    _inputController.clear();
+    if (replaceComposer) {
+      _inputController.clear();
+    }
 
     final optimisticUserMessage = TavernMessage(
       id: 'local_user_${DateTime.now().microsecondsSinceEpoch}',
@@ -570,6 +655,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       _messages = [..._messages, optimisticUserMessage];
       _streamingAssistantMessageId = null;
     });
+    unawaited(_persistSnapshot());
     _scrollToBottom();
 
     try {
@@ -595,6 +681,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                       .toList(growable: true)
                     ..add(parsed);
                 });
+                unawaited(_persistSnapshot());
                 _scrollToBottom();
               }
               break;
@@ -631,6 +718,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                   _messages = [..._messages, nextMessage];
                 }
               });
+              unawaited(_persistSnapshot());
               _scrollToBottom();
               break;
             case 'final':
@@ -664,6 +752,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                   _messages = nextMessages;
                   _streamingAssistantMessageId = null;
                 });
+                unawaited(_persistSnapshot());
+                unawaited(_refreshChatMetaOnly());
                 _scrollToBottom();
               }
               break;
@@ -680,6 +770,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
             .toList(growable: false);
         _streamingAssistantMessageId = null;
       });
+      unawaited(_persistSnapshot());
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('发送失败：$exc')));
@@ -688,6 +779,212 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         setState(() => _isSending = false);
       }
     }
+  }
+
+  Future<void> _persistSnapshot() async {
+    await context.read<TavernStore>().saveChatSnapshot(
+      chat: _chat,
+      character: _character,
+      messages: _messages,
+    );
+  }
+
+  Future<void> _refreshChatMetaOnly() async {
+    try {
+      final refreshed = await context.read<TavernStore>().getChat(_chat.id);
+      if (!mounted) return;
+      setState(() {
+        _chat = refreshed;
+      });
+      await _persistSnapshot();
+    } catch (_) {}
+  }
+
+  List<Map<String, dynamic>> _summaryItems() {
+    final metadata = _chat.metadata;
+    final raw = metadata['summaries'];
+    if (raw is! List) return const <Map<String, dynamic>>[];
+    return raw
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .where((item) => (item['content'] ?? '').toString().trim().isNotEmpty)
+        .toList(growable: false);
+  }
+
+  Widget _buildQuickActionsBar() {
+    final actions = <({IconData icon, String label, String text})>[
+      (
+        icon: Icons.play_arrow_rounded,
+        label: '推进剧情',
+        text: '请继续推进当前剧情，保持人物设定一致，并自然引出下一步发展。',
+      ),
+      (
+        icon: Icons.favorite_outline,
+        label: '强化互动',
+        text: '请延续当前氛围，增强人物互动与情绪张力，但不要脱离现有剧情。',
+      ),
+      (
+        icon: Icons.explore_outlined,
+        label: '制造转折',
+        text: '请在不破坏角色设定的前提下，为当前剧情加入一个自然的新转折或新信息。',
+      ),
+    ];
+
+    return SizedBox(
+      height: 44,
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+        scrollDirection: Axis.horizontal,
+        itemBuilder: (context, index) {
+          final item = actions[index];
+          return ActionChip(
+            avatar: Icon(item.icon, size: 16),
+            label: Text(item.label),
+            onPressed: _isSending ? null : () => _sendQuickAction(item.text),
+          );
+        },
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemCount: actions.length,
+      ),
+    );
+  }
+
+  Future<void> _showSummariesSheet() async {
+    final summaries = _summaryItems().reversed.toList(growable: false);
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.72,
+          maxChildSize: 0.92,
+          minChildSize: 0.35,
+          builder: (context, controller) => Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '剧情摘要',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            summaries.isEmpty
+                                ? '当前还没有可用摘要'
+                                : '共 ${summaries.length} 条，新的在前',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: '刷新',
+                      onPressed: () async {
+                        Navigator.of(context).pop();
+                        await _refreshChatMetaOnly();
+                        if (!mounted) return;
+                        await _showSummariesSheet();
+                      },
+                      icon: const Icon(Icons.refresh),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: summaries.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text(
+                            '还没有生成摘要。\n继续聊一会儿，系统后面会逐步沉淀剧情。',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ),
+                      )
+                    : ListView.separated(
+                        controller: controller,
+                        padding: const EdgeInsets.all(16),
+                        itemBuilder: (context, index) {
+                          final item = summaries[index];
+                          final createdAt = _tryParseDateTime(item['createdAt']);
+                          final endIndex = item['endMessageIndex'];
+                          return Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.surfaceContainerLow,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: Theme.of(context).dividerColor.withValues(alpha: 0.35),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    _summaryMetaChip('ID', (item['id'] ?? '-').toString()),
+                                    if (endIndex != null)
+                                      _summaryMetaChip('截至消息', '$endIndex'),
+                                    if (createdAt != null)
+                                      _summaryMetaChip('时间', _formatSummaryTime(createdAt)),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                SelectableText(
+                                  (item['content'] ?? '').toString().trim(),
+                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.45),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                        separatorBuilder: (_, __) => const SizedBox(height: 12),
+                        itemCount: summaries.length,
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _summaryMetaChip(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        '$label · $value',
+        style: Theme.of(context).textTheme.labelSmall,
+      ),
+    );
+  }
+
+  DateTime? _tryParseDateTime(Object? raw) {
+    if (raw == null) return null;
+    return DateTime.tryParse(raw.toString())?.toLocal();
+  }
+
+  String _formatSummaryTime(DateTime time) {
+    final month = time.month.toString().padLeft(2, '0');
+    final day = time.day.toString().padLeft(2, '0');
+    final hour = time.hour.toString().padLeft(2, '0');
+    final minute = time.minute.toString().padLeft(2, '0');
+    return '$month-$day $hour:$minute';
   }
 
   Future<void> _showChatOptions() async {

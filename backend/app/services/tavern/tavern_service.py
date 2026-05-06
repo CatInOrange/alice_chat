@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 
 from ...config import get_tavern_config
 from ...store.tavern import TavernStore
+from .chat_summarization_service import TavernChatSummarizationService
 from .prompt_builder import PromptBuilder, PromptDebugResult
 
 
@@ -37,10 +38,12 @@ class TavernService:
         store: TavernStore | None = None,
         prompt_builder: PromptBuilder | None = None,
         uploads_dir: Path | None = None,
+        summarization_service: TavernChatSummarizationService | None = None,
     ):
         self.store = store or TavernStore()
         self.prompt_builder = prompt_builder or PromptBuilder()
         self.uploads_dir = uploads_dir
+        self.summarization_service = summarization_service or TavernChatSummarizationService()
 
     def ensure_schema(self) -> None:
         self.store.ensure_schema()
@@ -207,24 +210,15 @@ class TavernService:
             raise ValueError('character not found')
         history = self.store.list_chat_messages(chat_id)
         worldbook_entries = self._collect_effective_worldbook_entries(character['id'])
-        preset = None
-        prompt_order = None
-        effective_preset_id = str(chat.get('presetId') or '').strip()
-        presets = self.store.list_presets()
-        if effective_preset_id:
-            preset = next((item for item in presets if item['id'] == effective_preset_id), None)
-        if preset is None and presets:
-            preset = presets[0]
-        prompt_order_id = str((preset or {}).get('promptOrderId') or '').strip()
-        if prompt_order_id:
-            prompt_order = self.store.get_prompt_order(prompt_order_id)
+        preset, prompt_order = self._resolve_preset_and_prompt_order(chat=chat)
+        character_lore_bindings = self.store.list_character_lore_bindings(character['id'])
         debug = self.prompt_builder.build_messages(
             character=character,
             preset=preset,
             prompt_order=prompt_order,
             prompt_blocks=self.store.list_prompt_blocks(),
             worldbook_entries=worldbook_entries,
-            character_lore_bindings=[],
+            character_lore_bindings=character_lore_bindings,
             history=history,
             user_text='',
             chat=chat,
@@ -241,11 +235,16 @@ class TavernService:
             'renderedExamples': debug.rendered_examples,
             'runtimeContext': debug.runtime_context,
             'depthInserts': debug.depth_inserts,
+            'contextUsage': debug.context_usage,
             'summary': {
                 'matchedWorldbookCount': len(debug.matched_worldbook_entries),
                 'rejectedWorldbookCount': len(debug.rejected_worldbook_entries),
                 'blockCount': len(debug.blocks),
                 'messageCount': len(debug.messages),
+                'totalTokens': (debug.context_usage.get('totalTokens') if isinstance(debug.context_usage, dict) else None),
+                'maxContext': (debug.context_usage.get('maxContext') if isinstance(debug.context_usage, dict) else None),
+                'overLimitTokens': (((debug.context_usage.get('meta') or {}).get('trimPlan') or {}).get('overLimitTokens') if isinstance(debug.context_usage, dict) else None),
+                'suggestedCutCount': (len((((debug.context_usage.get('meta') or {}).get('trimPlan') or {}).get('suggestedCuts') or [])) if isinstance(debug.context_usage, dict) else 0),
             },
         }
 
@@ -257,32 +256,20 @@ class TavernService:
         if character is None:
             raise ValueError('character not found')
 
-        effective_preset_id = preset_id or chat.get('presetId') or ''
-        preset = None
-        prompt_order = None
-        if effective_preset_id:
-            preset = next((item for item in self.store.list_presets() if item['id'] == effective_preset_id), None)
-            prompt_order_id = str((preset or {}).get('promptOrderId') or '').strip()
-            if prompt_order_id:
-                prompt_order = self.store.get_prompt_order(prompt_order_id)
-        if preset is None:
-            presets = self.store.list_presets()
-            preset = presets[0] if presets else None
-            prompt_order_id = str((preset or {}).get('promptOrderId') or '').strip()
-            if prompt_order_id:
-                prompt_order = self.store.get_prompt_order(prompt_order_id)
+        preset, prompt_order = self._resolve_preset_and_prompt_order(chat=chat, preset_id=preset_id)
 
         history = self.store.list_chat_messages(chat_id)
         prompt_blocks = self.store.list_prompt_blocks()
         worldbook_entries = self._collect_effective_worldbook_entries(character['id'])
 
+        character_lore_bindings = self.store.list_character_lore_bindings(character['id'])
         prompt_debug = self.prompt_builder.build_messages(
             character=character,
             preset=preset,
             prompt_order=prompt_order,
             prompt_blocks=prompt_blocks,
             worldbook_entries=worldbook_entries,
-            character_lore_bindings=[],
+            character_lore_bindings=character_lore_bindings,
             history=history,
             user_text=text,
             chat=chat,
@@ -310,6 +297,81 @@ class TavernService:
             merged['stopSequences'] = list(preset.get('stopSequences') or merged.get('stopSequences') or [])
         return merged
 
+    def maybe_generate_summary(
+        self,
+        *,
+        chat_id: str,
+        provider_config: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        chat = self.store.get_chat(chat_id)
+        if chat is None:
+            return None
+        character = self.store.get_character(chat['characterId'])
+        if character is None:
+            return None
+        history = self.store.list_chat_messages(chat_id)
+        preset, prompt_order = self._resolve_preset_and_prompt_order(chat=chat)
+        prompt_debug = self.prompt_builder.build_messages(
+            character=character,
+            preset=preset,
+            prompt_order=prompt_order,
+            prompt_blocks=self.store.list_prompt_blocks(),
+            worldbook_entries=self._collect_effective_worldbook_entries(character['id']),
+            character_lore_bindings=self.store.list_character_lore_bindings(character['id']),
+            history=history,
+            user_text='',
+            chat=chat,
+        )
+        summaries = self.summarization_service.list_summaries(chat)
+        recent_messages = self.summarization_service.get_recent_messages(
+            all_messages=history,
+            existing_summaries=summaries,
+        )
+        if not self.summarization_service.should_summarize(
+            context_usage=prompt_debug.context_usage,
+            chat=chat,
+            message_count=len(history),
+            new_message_count=len(recent_messages),
+            new_token_count=self.summarization_service.count_tokens_for_messages(recent_messages),
+            existing_summaries=summaries,
+            latest_message=history[-1] if history else None,
+        ):
+            return None
+        summary = self.summarization_service.generate_summary(
+            chat=chat,
+            character=character,
+            all_messages=history,
+            existing_summaries=summaries,
+            provider_config=provider_config,
+        )
+        if summary is None:
+            return None
+        metadata = self.summarization_service.append_summary_to_chat_metadata(chat=chat, summary=summary)
+        updated = self.store.update_chat(chat_id, {'metadata': metadata})
+        return {
+            'summary': summary,
+            'chat': updated or chat,
+        }
+
+    def _resolve_preset_and_prompt_order(
+        self,
+        *,
+        chat: dict[str, Any],
+        preset_id: str = '',
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        effective_preset_id = preset_id or chat.get('presetId') or ''
+        preset = None
+        prompt_order = None
+        presets = self.store.list_presets()
+        if effective_preset_id:
+            preset = next((item for item in presets if item['id'] == effective_preset_id), None)
+        if preset is None and presets:
+            preset = presets[0]
+        prompt_order_id = str((preset or {}).get('promptOrderId') or '').strip()
+        if prompt_order_id:
+            prompt_order = self.store.get_prompt_order(prompt_order_id)
+        return preset, prompt_order
+
     def _collect_effective_worldbook_entries(self, character_id: str) -> list[dict[str, Any]]:
         worldbook_map = {
             item['id']: item
@@ -326,14 +388,21 @@ class TavernService:
             for entry in self.store.list_worldbook_entries(worldbook_id):
                 entry_id = str(entry.get('id') or '').strip()
                 if entry_id and entry_id not in seen_ids:
-                    collected.append(entry)
+                    annotated = dict(entry)
+                    annotated['_sourceScope'] = 'character'
+                    annotated['_binding'] = binding
+                    if binding.get('priorityOverride') is not None:
+                        annotated['priority'] = int(binding.get('priorityOverride') or 0)
+                    collected.append(annotated)
                     seen_ids.add(entry_id)
 
         for worldbook_id in worldbook_map:
             for entry in self.store.list_worldbook_entries(worldbook_id):
                 entry_id = str(entry.get('id') or '').strip()
                 if entry_id and entry_id not in seen_ids:
-                    collected.append(entry)
+                    annotated = dict(entry)
+                    annotated['_sourceScope'] = 'global'
+                    collected.append(annotated)
                     seen_ids.add(entry_id)
         return collected
 

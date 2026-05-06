@@ -821,7 +821,9 @@ class _TavernScreenState extends State<TavernScreen>
     final messenger = ScaffoldMessenger.of(context);
     try {
       final store = context.read<TavernStore>();
-      final character = await store.getCharacter(chat.characterId);
+      final cached = store.peekChatSnapshot(chat.id);
+      final character =
+          cached?.character ?? await store.getCharacter(chat.characterId);
       if (!mounted) return;
       await Navigator.of(context).push(
         MaterialPageRoute(

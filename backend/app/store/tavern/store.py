@@ -63,6 +63,7 @@ class TavernStore:
                     author_note_enabled INTEGER NOT NULL DEFAULT 0,
                     author_note TEXT NOT NULL DEFAULT '',
                     author_note_depth INTEGER NOT NULL DEFAULT 4,
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
                 );
@@ -174,6 +175,7 @@ class TavernStore:
             self._ensure_column(conn, 'tavern_chats', 'author_note_enabled', "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, 'tavern_chats', 'author_note', "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, 'tavern_chats', 'author_note_depth', "INTEGER NOT NULL DEFAULT 4")
+            self._ensure_column(conn, 'tavern_chats', 'metadata_json', "TEXT NOT NULL DEFAULT '{}' ")
             self._ensure_column(conn, 'tavern_presets', 'story_string', "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, 'tavern_presets', 'chat_start', "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, 'tavern_presets', 'example_separator', "TEXT NOT NULL DEFAULT ''")
@@ -781,15 +783,16 @@ class TavernStore:
             'authorNoteEnabled': bool(payload.get('authorNoteEnabled', False)),
             'authorNote': str(payload.get('authorNote') or '').strip(),
             'authorNoteDepth': int(payload.get('authorNoteDepth') or 4),
+            'metadata': dict(payload.get('metadata') or {}) if isinstance(payload.get('metadata'), dict) else {},
             'createdAt': now,
             'updatedAt': now,
         }
         with connect(self.db) as conn:
             conn.execute(
-                "INSERT INTO tavern_chats(id,character_id,title,preset_id,persona_id,author_note_enabled,author_note,author_note_depth,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO tavern_chats(id,character_id,title,preset_id,persona_id,author_note_enabled,author_note,author_note_depth,metadata_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     record['id'], record['characterId'], record['title'], record['presetId'],
-                    record['personaId'], 1 if record['authorNoteEnabled'] else 0, record['authorNote'], record['authorNoteDepth'], now, now,
+                    record['personaId'], 1 if record['authorNoteEnabled'] else 0, record['authorNote'], record['authorNoteDepth'], json.dumps(record['metadata'], ensure_ascii=False), now, now,
                 ),
             )
             conn.commit()
@@ -831,7 +834,7 @@ class TavernStore:
             conn.execute(
                 """
                 UPDATE tavern_chats
-                SET title=?, preset_id=?, persona_id=?, author_note_enabled=?, author_note=?, author_note_depth=?, updated_at=?
+                SET title=?, preset_id=?, persona_id=?, author_note_enabled=?, author_note=?, author_note_depth=?, metadata_json=?, updated_at=?
                 WHERE id=?
                 """,
                 (
@@ -841,6 +844,7 @@ class TavernStore:
                     1 if bool(payload.get('authorNoteEnabled', bool(current['author_note_enabled']))) else 0,
                     str(payload.get('authorNote', current['author_note']) or '').strip(),
                     int(payload.get('authorNoteDepth', current['author_note_depth']) or 4),
+                    json.dumps((payload.get('metadata', self._load_json(current['metadata_json'], default={})) or {}), ensure_ascii=False),
                     updated_at,
                     chat_id,
                 ),
@@ -997,6 +1001,7 @@ class TavernStore:
             'authorNoteEnabled': bool(row['author_note_enabled']),
             'authorNote': row['author_note'],
             'authorNoteDepth': row['author_note_depth'],
+            'metadata': self._load_json(row['metadata_json'], default={}),
             'createdAt': row['created_at'],
             'updatedAt': row['updated_at'],
         }

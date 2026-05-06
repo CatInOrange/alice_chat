@@ -80,6 +80,32 @@ class TavernCharacter {
       updatedAt: _parseDate(json['updatedAt']),
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'description': description,
+      'personality': personality,
+      'scenario': scenario,
+      'firstMessage': firstMessage,
+      'exampleDialogues': exampleDialogues,
+      'avatarPath': avatarPath,
+      'tags': tags,
+      'alternateGreetings': alternateGreetings,
+      'creatorNotes': creatorNotes,
+      'systemPrompt': systemPrompt,
+      'postHistoryInstructions': postHistoryInstructions,
+      'creator': creator,
+      'characterVersion': characterVersion,
+      'extensions': extensions,
+      'sourceType': sourceType,
+      'sourceName': sourceName,
+      'metadata': metadata,
+      if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),
+      if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
+    };
+  }
 }
 
 class TavernChat {
@@ -92,6 +118,7 @@ class TavernChat {
     this.authorNoteEnabled = false,
     this.authorNote = '',
     this.authorNoteDepth = 4,
+    this.metadata = const <String, dynamic>{},
     this.createdAt,
     this.updatedAt,
   });
@@ -104,6 +131,7 @@ class TavernChat {
   final bool authorNoteEnabled;
   final String authorNote;
   final int authorNoteDepth;
+  final Map<String, dynamic> metadata;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -117,9 +145,28 @@ class TavernChat {
       authorNoteEnabled: json['authorNoteEnabled'] == true,
       authorNote: (json['authorNote'] ?? '').toString(),
       authorNoteDepth: (json['authorNoteDepth'] as num?)?.toInt() ?? 4,
+      metadata: Map<String, dynamic>.from(
+        (json['metadata'] as Map?) ?? const <String, dynamic>{},
+      ),
       createdAt: _parseDate(json['createdAt']),
       updatedAt: _parseDate(json['updatedAt']),
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'characterId': characterId,
+      'title': title,
+      if (presetId.isNotEmpty) 'presetId': presetId,
+      if (personaId.isNotEmpty) 'personaId': personaId,
+      'authorNoteEnabled': authorNoteEnabled,
+      'authorNote': authorNote,
+      'authorNoteDepth': authorNoteDepth,
+      if (metadata.isNotEmpty) 'metadata': metadata,
+      if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),
+      if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
+    };
   }
 }
 
@@ -130,6 +177,7 @@ class TavernMessage {
     required this.role,
     required this.content,
     this.thought = '',
+    this.metadata = const <String, dynamic>{},
     this.createdAt,
   });
 
@@ -138,6 +186,7 @@ class TavernMessage {
   final String role;
   final String content;
   final String thought;
+  final Map<String, dynamic> metadata;
   final DateTime? createdAt;
 
   factory TavernMessage.fromJson(Map<String, dynamic> json) {
@@ -147,8 +196,23 @@ class TavernMessage {
       role: (json['role'] ?? '').toString(),
       content: (json['content'] ?? '').toString(),
       thought: (json['thought'] ?? '').toString(),
+      metadata: Map<String, dynamic>.from(
+        (json['metadata'] as Map?) ?? const <String, dynamic>{},
+      ),
       createdAt: _parseDate(json['createdAt']),
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'chatId': chatId,
+      'role': role,
+      'content': content,
+      if (thought.isNotEmpty) 'thought': thought,
+      if (metadata.isNotEmpty) 'metadata': metadata,
+      if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),
+    };
   }
 }
 

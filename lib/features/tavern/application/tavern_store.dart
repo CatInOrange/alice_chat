@@ -1,15 +1,19 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
 import '../data/repositories/tavern_repository.dart';
+import '../data/tavern_chat_cache_store.dart';
 import '../domain/tavern_models.dart';
 
 class TavernStore extends ChangeNotifier {
-  TavernStore({TavernRepository? repository})
-    : _repository = repository ?? TavernRepository();
+  TavernStore({TavernRepository? repository, TavernChatCacheStore? cacheStore})
+    : _repository = repository ?? TavernRepository(),
+      _cacheStore = cacheStore ?? TavernChatCacheStore.instance;
 
   final TavernRepository _repository;
+  final TavernChatCacheStore _cacheStore;
 
   bool _isLoading = false;
   String? _error;
@@ -23,6 +27,8 @@ class TavernStore extends ChangeNotifier {
   final Map<String, List<TavernWorldBookEntry>> _worldBookEntries =
       <String, List<TavernWorldBookEntry>>{};
   String? _lastImportMessage;
+  final Map<String, TavernChatCacheSnapshot> _chatSnapshots =
+      <String, TavernChatCacheSnapshot>{};
 
   bool get isLoading => _isLoading;
   String? get error => _error;
@@ -145,6 +151,39 @@ class TavernStore extends ChangeNotifier {
     return _repository.getCharacter(characterId);
   }
 
+  TavernChatCacheSnapshot? peekChatSnapshot(String chatId) {
+    return _chatSnapshots[chatId];
+  }
+
+  Future<TavernChatCacheSnapshot?> loadCachedChatSnapshot(String chatId) async {
+    final memory = _chatSnapshots[chatId];
+    if (memory != null) return memory;
+    final snapshot = await _cacheStore.loadChatSnapshot(chatId);
+    if (snapshot != null) {
+      _chatSnapshots[chatId] = snapshot;
+    }
+    return snapshot;
+  }
+
+  Future<void> saveChatSnapshot({
+    required TavernChat chat,
+    required TavernCharacter character,
+    required List<TavernMessage> messages,
+  }) async {
+    final snapshot = TavernChatCacheSnapshot(
+      messages: List<TavernMessage>.unmodifiable(messages),
+      chat: chat,
+      character: character,
+      cachedAt: DateTime.now(),
+    );
+    _chatSnapshots[chat.id] = snapshot;
+    await _cacheStore.saveChatSnapshot(
+      chat: chat,
+      character: character,
+      messages: messages,
+    );
+  }
+
   Future<void> deleteCharacter(String characterId) async {
     await _repository.deleteCharacter(characterId);
     _characters = _characters.where((item) => item.id != characterId).toList(growable: false);
@@ -170,6 +209,16 @@ class TavernStore extends ChangeNotifier {
       updated,
       ..._recentChats.where((item) => item.id != updated.id),
     ];
+    final snapshot = _chatSnapshots[chatId];
+    if (snapshot != null && snapshot.character != null) {
+      unawaited(
+        saveChatSnapshot(
+          chat: updated,
+          character: snapshot.character!,
+          messages: snapshot.messages,
+        ),
+      );
+    }
     notifyListeners();
     return updated;
   }
@@ -181,6 +230,8 @@ class TavernStore extends ChangeNotifier {
   Future<void> deleteChat(String chatId) async {
     await _repository.deleteChat(chatId);
     _recentChats = _recentChats.where((item) => item.id != chatId).toList(growable: false);
+    _chatSnapshots.remove(chatId);
+    unawaited(_cacheStore.deleteChatSnapshot(chatId));
     notifyListeners();
   }
 
