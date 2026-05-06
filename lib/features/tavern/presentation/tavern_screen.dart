@@ -318,7 +318,7 @@ class _TavernScreenState extends State<TavernScreen>
           title: '提示词管理',
           subtitle: '像 Native 一样管理内建段落与自定义提示词',
           trailingText: '${store.promptOrders.length}',
-          onTap: () => _editPromptOrder(context, promptOrder: store.promptOrders.isNotEmpty ? store.promptOrders.first : null),
+          onTap: () => _showPromptManager(context, store),
         ),
         const SizedBox(height: 12),
         _settingsEntryCard(
@@ -377,6 +377,25 @@ class _TavernScreenState extends State<TavernScreen>
             ],
           ),
           body: _buildWorldBooksTab(context, store),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await this.context.read<TavernStore>().loadHome();
+  }
+
+  Future<void> _showPromptManager(BuildContext context, TavernStore store) async {
+    final navigator = Navigator.of(context);
+    await navigator.push(
+      MaterialPageRoute(
+        builder: (_) => _PromptManagerPage(
+          promptOrder: store.promptOrders.isNotEmpty ? store.promptOrders.first : null,
+          buildItems: _buildPromptManagerItems,
+          builtinOptionFor: _builtinOptionFor,
+          itemLabelBuilder: (item) => _promptOrderItemLabel(store, item),
+          itemPositionFor: itemPositionFor,
+          editCustomItem: (pageContext, {item}) =>
+              _editPromptManagerCustomItem(pageContext, item: item),
         ),
       ),
     );
@@ -1921,291 +1940,6 @@ class _TavernScreenState extends State<TavernScreen>
     }
   }
 
-  Future<void> _editPromptOrder(
-    BuildContext context, {
-    TavernPromptOrder? promptOrder,
-  }) async {
-    final store = context.read<TavernStore>();
-    final baseOrder = promptOrder ??
-        (store.promptOrders.isNotEmpty ? store.promptOrders.first : null);
-    final normalizedItems = _buildPromptManagerItems(baseOrder?.items ?? const <TavernPromptOrderItem>[]);
-    final items = <TavernPromptOrderItem>[...normalizedItems];
-    final nameController = TextEditingController(
-      text: baseOrder?.name ?? '默认提示词管理',
-    );
-    bool saving = false;
-    DateTime? lastReorderAt;
-
-    bool shouldIgnoreTap() {
-      final at = lastReorderAt;
-      return at != null && DateTime.now().difference(at).inMilliseconds < 280;
-    }
-
-    Future<void> addCustomItem(StateSetter setModalState) async {
-      final created = await _editPromptManagerCustomItem(context);
-      if (created == null) return;
-      setModalState(() {
-        items.add(created.copyWith(orderIndex: items.length * 10));
-      });
-    }
-
-    Future<void> editCustomItem(StateSetter setModalState, int index) async {
-      final item = items[index];
-      if (!item.isCustom) return;
-      final updated = await _editPromptManagerCustomItem(context, item: item);
-      if (updated == null) return;
-      setModalState(() {
-        items[index] = updated.copyWith(orderIndex: item.orderIndex);
-      });
-    }
-
-    final saved = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => SafeArea(
-          child: Padding(
-            padding: EdgeInsets.only(
-              left: 16,
-              right: 16,
-              top: 16,
-              bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-            ),
-            child: SizedBox(
-              height: MediaQuery.of(context).size.height * 0.88,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('提示词管理', style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(height: 8),
-                  Text(
-                    '统一管理标准段落与自定义提示词。内建项只负责顺序与开关，自定义项才编辑内容。',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: nameController,
-                    decoration: const InputDecoration(
-                      labelText: '名称',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          '段落顺序',
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                      ),
-                      FilledButton.tonalIcon(
-                        onPressed: () => addCustomItem(setModalState),
-                        icon: const Icon(Icons.add),
-                        label: const Text('新增自定义项'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Expanded(
-                    child: ReorderableListView.builder(
-                      buildDefaultDragHandles: false,
-                      itemCount: items.length,
-                      onReorder: (oldIndex, newIndex) {
-                        setModalState(() {
-                          lastReorderAt = DateTime.now();
-                          if (newIndex > oldIndex) newIndex -= 1;
-                          final moved = items.removeAt(oldIndex);
-                          items.insert(newIndex, moved);
-                          for (var i = 0; i < items.length; i += 1) {
-                            items[i] = items[i].copyWith(orderIndex: i * 10);
-                          }
-                        });
-                      },
-                      itemBuilder: (context, index) {
-                        final item = items[index];
-                        final option = _builtinOptionFor(item.identifier);
-                        final isCustom = item.isCustom;
-                        final accent = isCustom
-                            ? const Color(0xFF64748B)
-                            : Color(option?.colorValue ?? 0xFF7C4DFF);
-                        final tileColor = isCustom
-                            ? const Color(0xFFF8FAFC)
-                            : Color((option?.colorValue ?? 0xFF7C4DFF)).withValues(alpha: 0.08);
-                        return Card(
-                          key: ValueKey('${item.identifier}:${item.blockId}:${item.name}:$index'),
-                          margin: const EdgeInsets.symmetric(vertical: 4),
-                          color: tileColor,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                          child: ListTile(
-                            dense: true,
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            leading: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                ReorderableDragStartListener(
-                                  index: index,
-                                  child: Icon(Icons.drag_indicator, size: 18, color: accent),
-                                ),
-                                const SizedBox(width: 8),
-                                Container(
-                                  width: 30,
-                                  height: 30,
-                                  decoration: BoxDecoration(
-                                    color: accent.withValues(alpha: 0.14),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Icon(
-                                    option?.icon ?? Icons.notes_outlined,
-                                    size: 16,
-                                    color: accent,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            title: Text(
-                              _promptOrderItemLabel(store, item),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            subtitle: Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Wrap(
-                                spacing: 6,
-                                runSpacing: 6,
-                                children: [
-                                  _compactInfoPill(isCustom ? '自定义' : '标准段落'),
-                                  _compactInfoPill(item.enabled ? '已启用' : '已关闭'),
-                                  if (isCustom) _compactInfoPill(item.role),
-                                ],
-                              ),
-                            ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Switch(
-                                  value: item.enabled,
-                                  onChanged: (value) {
-                                    setModalState(() {
-                                      items[index] = item.copyWith(enabled: value);
-                                    });
-                                  },
-                                ),
-                                if (isCustom)
-                                  IconButton(
-                                    visualDensity: VisualDensity.compact,
-                                    tooltip: '编辑',
-                                    onPressed: () {
-                                      if (shouldIgnoreTap()) return;
-                                      editCustomItem(setModalState, index);
-                                    },
-                                    icon: const Icon(Icons.edit_outlined, size: 18),
-                                  ),
-                                if (isCustom)
-                                  IconButton(
-                                    visualDensity: VisualDensity.compact,
-                                    tooltip: '删除',
-                                    onPressed: () {
-                                      if (shouldIgnoreTap()) return;
-                                      setModalState(() => items.removeAt(index));
-                                    },
-                                    icon: const Icon(Icons.delete_outline, size: 18),
-                                  ),
-                              ],
-                            ),
-                            onTap: () {
-                              if (shouldIgnoreTap() || !isCustom) return;
-                              editCustomItem(setModalState, index);
-                            },
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: saving ? null : () => Navigator.of(context).pop(false),
-                        child: const Text('取消'),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton(
-                        onPressed: saving
-                            ? null
-                            : () async {
-                                setModalState(() => saving = true);
-                                try {
-                                  final normalized = <Map<String, dynamic>>[];
-                                  for (var i = 0; i < items.length; i += 1) {
-                                    final current = items[i];
-                                    normalized.add(
-                                      current.copyWith(
-                                        orderIndex: i * 10,
-                                        position: itemPositionFor(current),
-                                        depth: current.identifier == 'authorNote' ? 4 : null,
-                                        clearDepth: current.identifier != 'authorNote',
-                                        builtIn: current.identifier.isNotEmpty,
-                                      ).toJson(),
-                                    );
-                                  }
-                                  final payload = {
-                                    'name': nameController.text.trim().isEmpty
-                                        ? '默认提示词管理'
-                                        : nameController.text.trim(),
-                                    'items': normalized,
-                                  };
-                                  final targetPromptOrderId = baseOrder?.id ?? '';
-                                  if (targetPromptOrderId.isEmpty) {
-                                    await store.createPromptOrder(payload);
-                                  } else {
-                                    await store.updatePromptOrder(
-                                      promptOrderId: targetPromptOrderId,
-                                      payload: payload,
-                                    );
-                                  }
-                                  if (context.mounted) {
-                                    Navigator.of(context).pop(true);
-                                  }
-                                } catch (exc) {
-                                  if (!context.mounted) return;
-                                  setModalState(() => saving = false);
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('保存提示词管理失败：$exc')),
-                                  );
-                                }
-                              },
-                        child: saving
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Text('保存'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-
-    nameController.dispose();
-
-    if (saved == true && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('提示词管理已更新')),
-      );
-      await context.read<TavernStore>().loadHome();
-    }
-  }
 
   List<TavernPromptOrderItem> _buildPromptManagerItems(List<TavernPromptOrderItem> rawItems) {
     final normalized = <TavernPromptOrderItem>[];
@@ -2271,9 +2005,18 @@ class _TavernScreenState extends State<TavernScreen>
     BuildContext context, {
     TavernPromptOrderItem? item,
   }) async {
-    final nameController = TextEditingController(text: item?.name ?? '');
     final contentController = TextEditingController(text: item?.content ?? '');
     String role = (item?.role ?? 'system').trim().isEmpty ? 'system' : (item?.role ?? 'system');
+
+    String deriveName(String content) {
+      final lines = content
+          .split('\n')
+          .map((line) => line.trim())
+          .where((line) => line.isNotEmpty);
+      if (lines.isEmpty) return '自定义提示词';
+      final first = lines.first;
+      return first.length <= 18 ? first : '${first.substring(0, 18)}…';
+    }
 
     final result = await showModalBottomSheet<TavernPromptOrderItem>(
       context: context,
@@ -2294,14 +2037,6 @@ class _TavernScreenState extends State<TavernScreen>
               children: [
                 Text(item == null ? '新增自定义提示词' : '编辑自定义提示词', style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 12),
-                TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: '名称',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   value: _storyRoles.contains(role) ? role : 'system',
                   decoration: const InputDecoration(
@@ -2317,8 +2052,8 @@ class _TavernScreenState extends State<TavernScreen>
                 const SizedBox(height: 12),
                 TextField(
                   controller: contentController,
-                  minLines: 5,
-                  maxLines: 10,
+                  minLines: 8,
+                  maxLines: 14,
                   decoration: const InputDecoration(
                     labelText: '内容',
                     border: OutlineInputBorder(),
@@ -2338,7 +2073,7 @@ class _TavernScreenState extends State<TavernScreen>
                         Navigator.of(context).pop(
                           TavernPromptOrderItem(
                             identifier: '',
-                            name: nameController.text.trim().isEmpty ? '未命名自定义项' : nameController.text.trim(),
+                            name: deriveName(contentController.text),
                             role: role,
                             content: contentController.text,
                             enabled: item?.enabled ?? true,
@@ -2359,7 +2094,6 @@ class _TavernScreenState extends State<TavernScreen>
       ),
     );
 
-    nameController.dispose();
     contentController.dispose();
     return result;
   }
@@ -2860,6 +2594,15 @@ class _TavernScreenState extends State<TavernScreen>
       return item.identifier;
     }
     if (item.name.trim().isNotEmpty) return item.name.trim();
+    final contentPreview = item.content
+        .split('\n')
+        .map((line) => line.trim())
+        .firstWhere((line) => line.isNotEmpty, orElse: () => '');
+    if (contentPreview.isNotEmpty) {
+      return contentPreview.length <= 18
+          ? contentPreview
+          : '${contentPreview.substring(0, 18)}…';
+    }
     if (item.blockId.isNotEmpty) {
       for (final block in store.promptBlocks) {
         if (block.id == item.blockId) return block.name;
@@ -3363,4 +3106,274 @@ class _BuiltinPromptOrderOption {
   final String label;
   final IconData icon;
   final int colorValue;
+}
+
+class _PromptManagerPage extends StatefulWidget {
+  const _PromptManagerPage({
+    required this.promptOrder,
+    required this.buildItems,
+    required this.builtinOptionFor,
+    required this.itemLabelBuilder,
+    required this.itemPositionFor,
+    required this.editCustomItem,
+  });
+
+  final TavernPromptOrder? promptOrder;
+  final List<TavernPromptOrderItem> Function(List<TavernPromptOrderItem>) buildItems;
+  final _BuiltinPromptOrderOption? Function(String identifier) builtinOptionFor;
+  final String Function(TavernPromptOrderItem item) itemLabelBuilder;
+  final String Function(TavernPromptOrderItem item) itemPositionFor;
+  final Future<TavernPromptOrderItem?> Function(BuildContext context, {TavernPromptOrderItem? item}) editCustomItem;
+
+  @override
+  State<_PromptManagerPage> createState() => _PromptManagerPageState();
+}
+
+class _PromptManagerPageState extends State<_PromptManagerPage> {
+  late List<TavernPromptOrderItem> _items;
+  bool _saving = false;
+  DateTime? _lastReorderAt;
+
+  @override
+  void initState() {
+    super.initState();
+    _items = <TavernPromptOrderItem>[
+      ...widget.buildItems(widget.promptOrder?.items ?? const <TavernPromptOrderItem>[]),
+    ];
+  }
+
+  bool _shouldIgnoreTap() {
+    final at = _lastReorderAt;
+    return at != null && DateTime.now().difference(at).inMilliseconds < 280;
+  }
+
+  Future<void> _addCustomItem() async {
+    final created = await widget.editCustomItem(context);
+    if (created == null) return;
+    setState(() {
+      _items.add(created.copyWith(orderIndex: _items.length * 10));
+    });
+  }
+
+  Future<void> _editCustomItemAt(int index) async {
+    final item = _items[index];
+    if (!item.isCustom) return;
+    final updated = await widget.editCustomItem(context, item: item);
+    if (updated == null) return;
+    setState(() {
+      _items[index] = updated.copyWith(orderIndex: item.orderIndex);
+    });
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      final store = context.read<TavernStore>();
+      final normalized = <Map<String, dynamic>>[];
+      for (var i = 0; i < _items.length; i += 1) {
+        final current = _items[i];
+        normalized.add(
+          current.copyWith(
+            orderIndex: i * 10,
+            position: widget.itemPositionFor(current),
+            depth: current.identifier == 'authorNote' ? 4 : null,
+            clearDepth: current.identifier != 'authorNote',
+            builtIn: current.identifier.isNotEmpty,
+          ).toJson(),
+        );
+      }
+      final payload = {'name': '默认提示词管理', 'items': normalized};
+      final targetPromptOrderId = widget.promptOrder?.id ?? '';
+      if (targetPromptOrderId.isEmpty) {
+        await store.createPromptOrder(payload);
+      } else {
+        await store.updatePromptOrder(
+          promptOrderId: targetPromptOrderId,
+          payload: payload,
+        );
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('提示词管理已更新')),
+      );
+    } catch (exc) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('保存提示词管理失败：$exc')),
+      );
+      setState(() => _saving = false);
+      return;
+    }
+    if (!mounted) return;
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('提示词管理'),
+        actions: [
+          IconButton(
+            tooltip: '新增自定义项',
+            onPressed: _saving ? null : _addCustomItem,
+            icon: const Icon(Icons.add),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          child: ReorderableListView.builder(
+            buildDefaultDragHandles: false,
+            itemCount: _items.length,
+            onReorder: _saving
+                ? (_, __) {}
+                : (oldIndex, newIndex) {
+                    setState(() {
+                      _lastReorderAt = DateTime.now();
+                      if (newIndex > oldIndex) newIndex -= 1;
+                      final moved = _items.removeAt(oldIndex);
+                      _items.insert(newIndex, moved);
+                      for (var i = 0; i < _items.length; i += 1) {
+                        _items[i] = _items[i].copyWith(orderIndex: i * 10);
+                      }
+                    });
+                  },
+            itemBuilder: (context, index) {
+              final item = _items[index];
+              final option = widget.builtinOptionFor(item.identifier);
+              final isCustom = item.isCustom;
+              final accent = isCustom
+                  ? const Color(0xFF64748B)
+                  : Color(option?.colorValue ?? 0xFF7C4DFF);
+              final tileColor = Color(option?.colorValue ?? 0xFF7C4DFF)
+                  .withValues(alpha: isCustom ? 0.08 : 0.12);
+              return Card(
+                key: ValueKey('${item.identifier}:${item.blockId}:${item.name}:$index'),
+                margin: const EdgeInsets.only(bottom: 10),
+                color: tileColor,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  leading: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ReorderableDragStartListener(
+                        index: index,
+                        child: Icon(Icons.drag_indicator, size: 18, color: accent),
+                      ),
+                      const SizedBox(width: 10),
+                      Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          color: accent.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(option?.icon ?? Icons.notes_outlined, size: 18, color: accent),
+                      ),
+                    ],
+                  ),
+                  title: Text(
+                    widget.itemLabelBuilder(item),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                  subtitle: Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        _PromptTag(text: isCustom ? '自定义' : '内建'),
+                        _PromptTag(text: item.enabled ? '已启用' : '已关闭'),
+                        if (isCustom) _PromptTag(text: item.role),
+                      ],
+                    ),
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Switch(
+                        value: item.enabled,
+                        onChanged: _saving
+                            ? null
+                            : (value) {
+                                setState(() {
+                                  _items[index] = item.copyWith(enabled: value);
+                                });
+                              },
+                      ),
+                      if (isCustom)
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          tooltip: '编辑',
+                          onPressed: _saving || _shouldIgnoreTap() ? null : () => _editCustomItemAt(index),
+                          icon: const Icon(Icons.edit_outlined, size: 18),
+                        ),
+                      if (isCustom)
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          tooltip: '删除',
+                          onPressed: _saving || _shouldIgnoreTap()
+                              ? null
+                              : () {
+                                  setState(() => _items.removeAt(index));
+                                },
+                          icon: const Icon(Icons.delete_outline, size: 18),
+                        ),
+                    ],
+                  ),
+                  onTap: _saving || _shouldIgnoreTap() || !isCustom ? null : () => _editCustomItemAt(index),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: FilledButton(
+            onPressed: _saving ? null : _save,
+            child: _saving
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('保存'),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PromptTag extends StatelessWidget {
+  const _PromptTag({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: Color(0xFF475569),
+        ),
+      ),
+    );
+  }
 }
