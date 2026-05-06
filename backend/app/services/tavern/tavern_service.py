@@ -109,6 +109,9 @@ class TavernService:
     def update_worldbook(self, worldbook_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
         return self.store.update_worldbook(worldbook_id, payload)
 
+    def delete_worldbook(self, worldbook_id: str) -> bool:
+        return self.store.delete_worldbook(worldbook_id)
+
     def create_worldbook_entry(self, worldbook_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.store.create_worldbook_entry(worldbook_id, payload)
 
@@ -127,6 +130,9 @@ class TavernService:
 
     def update_prompt_block(self, block_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
         return self.store.update_prompt_block(block_id, payload)
+
+    def delete_prompt_block(self, block_id: str) -> bool:
+        return self.store.delete_prompt_block(block_id)
 
     def create_prompt_order(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self.store.create_prompt_order(payload)

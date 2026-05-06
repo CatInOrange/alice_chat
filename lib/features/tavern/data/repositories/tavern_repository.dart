@@ -197,6 +197,10 @@ class TavernRepository {
     );
   }
 
+  Future<void> deletePromptBlock(String blockId) async {
+    await _postJson('/api/tavern/prompt-blocks/$blockId/delete', const {});
+  }
+
   Future<List<TavernPromptOrder>> listPromptOrders() async {
     final response = await _getJson('/api/tavern/prompt-orders');
     final list = (response['promptOrders'] as List?) ?? const <dynamic>[];
@@ -296,6 +300,10 @@ class TavernRepository {
     return TavernWorldBook.fromJson(
       Map<String, dynamic>.from(response['worldbook'] as Map),
     );
+  }
+
+  Future<void> deleteWorldBook(String worldbookId) async {
+    await _postJson('/api/tavern/worldbooks/$worldbookId/delete', const {});
   }
 
   Future<List<TavernWorldBookEntry>> listWorldBookEntries(

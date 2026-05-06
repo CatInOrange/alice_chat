@@ -112,6 +112,20 @@ def create_tavern_router(context: AppContext) -> APIRouter:
             raise HTTPException(status_code=404, detail='worldbook not found')
         return {'ok': True, 'worldbook': worldbook}
 
+    def _delete_worldbook_impl(worldbook_id: str):
+        deleted = service.delete_worldbook(worldbook_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail='worldbook not found')
+        return {'ok': True}
+
+    @router.delete('/api/tavern/worldbooks/{worldbook_id}')
+    async def delete_worldbook(worldbook_id: str):
+        return _delete_worldbook_impl(worldbook_id)
+
+    @router.post('/api/tavern/worldbooks/{worldbook_id}/delete')
+    async def delete_worldbook_post(worldbook_id: str):
+        return _delete_worldbook_impl(worldbook_id)
+
     @router.get('/api/tavern/worldbooks/{worldbook_id}/entries')
     async def list_worldbook_entries(worldbook_id: str):
         return {'ok': True, 'entries': service.list_worldbook_entries(worldbook_id)}
@@ -142,6 +156,20 @@ def create_tavern_router(context: AppContext) -> APIRouter:
         if block is None:
             raise HTTPException(status_code=404, detail='prompt block not found')
         return {'ok': True, 'promptBlock': block}
+
+    def _delete_prompt_block_impl(block_id: str):
+        deleted = service.delete_prompt_block(block_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail='prompt block not found')
+        return {'ok': True}
+
+    @router.delete('/api/tavern/prompt-blocks/{block_id}')
+    async def delete_prompt_block(block_id: str):
+        return _delete_prompt_block_impl(block_id)
+
+    @router.post('/api/tavern/prompt-blocks/{block_id}/delete')
+    async def delete_prompt_block_post(block_id: str):
+        return _delete_prompt_block_impl(block_id)
 
     @router.get('/api/tavern/prompt-orders')
     async def list_prompt_orders():

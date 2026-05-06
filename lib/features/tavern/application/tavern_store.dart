@@ -262,6 +262,25 @@ class TavernStore extends ChangeNotifier {
     return updated;
   }
 
+  Future<void> deletePromptBlock(String blockId) async {
+    await _repository.deletePromptBlock(blockId);
+    _promptBlocks = _promptBlocks.where((item) => item.id != blockId).toList(growable: false);
+    _promptOrders = _promptOrders
+        .map(
+          (order) => TavernPromptOrder(
+            id: order.id,
+            name: order.name,
+            items: order.items
+                .where((item) => item.blockId != blockId)
+                .toList(growable: false),
+            createdAt: order.createdAt,
+            updatedAt: order.updatedAt,
+          ),
+        )
+        .toList(growable: false);
+    notifyListeners();
+  }
+
   Future<TavernPromptOrder> createPromptOrder(
     Map<String, dynamic> payload,
   ) async {
@@ -314,6 +333,13 @@ class TavernStore extends ChangeNotifier {
     ];
     notifyListeners();
     return updated;
+  }
+
+  Future<void> deleteWorldBook(String worldbookId) async {
+    await _repository.deleteWorldBook(worldbookId);
+    _worldBooks = _worldBooks.where((item) => item.id != worldbookId).toList(growable: false);
+    _worldBookEntries.remove(worldbookId);
+    notifyListeners();
   }
 
   Future<List<TavernWorldBookEntry>> loadWorldBookEntries(

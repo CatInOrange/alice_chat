@@ -186,8 +186,6 @@ class _TavernScreenState extends State<TavernScreen>
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _buildOverviewCard(context, store),
-        const SizedBox(height: 20),
         Row(
           children: [
             Expanded(
@@ -304,69 +302,6 @@ class _TavernScreenState extends State<TavernScreen>
             ),
           ),
       ],
-    );
-  }
-
-  Widget _buildOverviewCard(BuildContext context, TavernStore store) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.tune_outlined),
-                const SizedBox(width: 8),
-                Text('配置概览', style: Theme.of(context).textTheme.titleSmall),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _configRow(
-              'Preset',
-              store.presets.isEmpty
-                  ? '还没有 Tavern Preset'
-                  : store.presets.first.name,
-            ),
-            _configRow(
-              'Provider',
-              store.providers.isEmpty
-                  ? '未配置 Tavern Provider'
-                  : '${store.providers.first.label}${store.providers.first.model.isNotEmpty ? ' · ${store.providers.first.model}' : ''}',
-            ),
-            _configRow(
-              'Prompt Order',
-              store.promptOrders.isEmpty
-                  ? '未配置'
-                  : store.promptOrders.first.name,
-            ),
-            _configRow('Prompt Blocks', '${store.promptBlocks.length} 个'),
-            _configRow('WorldBooks', '${store.worldBooks.length} 本'),
-            if (store.presets.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  Chip(
-                    label: Text(
-                      'story: ${store.presets.first.storyStringPosition}',
-                    ),
-                  ),
-                  Chip(
-                    label: Text('role: ${store.presets.first.storyStringRole}'),
-                  ),
-                  Chip(
-                    label: Text(
-                      'depth: ${store.presets.first.storyStringDepth}',
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
     );
   }
 
@@ -508,6 +443,7 @@ class _TavernScreenState extends State<TavernScreen>
           ...blocks.map(
             (block) => Card(
               child: ListTile(
+                onLongPress: () => _confirmDeletePromptBlock(context, block),
                 leading: Switch(
                   value: block.enabled,
                   onChanged:
@@ -580,40 +516,60 @@ class _TavernScreenState extends State<TavernScreen>
         else
           ...store.promptOrders.map(
             (order) => Card(
-              child: ExpansionTile(
-                title: Text(order.name),
-                subtitle: Text('${order.items.length} items'),
-                trailing: IconButton(
-                  tooltip: '编辑 Prompt Order',
-                  onPressed:
-                      () => _editPromptOrder(context, promptOrder: order),
-                  icon: const Icon(Icons.edit_outlined),
-                ),
-                children: [
-                  if (order.items.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text('暂无 items'),
-                      ),
-                    )
-                  else
-                    ...order.items.map(
-                      (item) => ListTile(
-                        dense: true,
-                        leading: Icon(
-                          item.enabled
-                              ? Icons.check_circle
-                              : Icons.radio_button_unchecked,
-                        ),
-                        title: Text(_promptOrderItemLabel(store, item)),
-                        subtitle: Text(
-                          'position=${item.position}${item.depth != null ? ' · depth=${item.depth}' : ''}',
-                        ),
+              margin: const EdgeInsets.only(bottom: 10),
+              child: Theme(
+                data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  tilePadding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+                  childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  minTileHeight: 56,
+                  title: Text(
+                    order.name,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  subtitle: Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      '${order.items.length} 项',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF7D8596),
                       ),
                     ),
-                ],
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: '编辑 Prompt Order',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => _editPromptOrder(context, promptOrder: order),
+                        icon: const Icon(Icons.edit_outlined, size: 20),
+                      ),
+                      const Icon(Icons.expand_more, size: 20),
+                    ],
+                  ),
+                  children: [
+                    if (order.items.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(4, 2, 4, 2),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text('暂无 items'),
+                        ),
+                      )
+                    else
+                      ...order.items.asMap().entries.map(
+                        (entry) => _buildPromptOrderCompactRow(
+                          context,
+                          store,
+                          entry.value,
+                          index: entry.key,
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -651,9 +607,12 @@ class _TavernScreenState extends State<TavernScreen>
         else
           ...store.worldBooks.map(
             (book) => Card(
-              child: ExpansionTile(
-                initiallyExpanded: false,
-                onExpansionChanged: (expanded) {
+              child: GestureDetector(
+                onLongPress: () => _confirmDeleteWorldBook(context, book),
+                behavior: HitTestBehavior.opaque,
+                child: ExpansionTile(
+                  initiallyExpanded: false,
+                  onExpansionChanged: (expanded) {
                   if (expanded && store.worldBookEntriesOf(book.id).isEmpty) {
                     context.read<TavernStore>().loadWorldBookEntries(book.id);
                   }
@@ -743,6 +702,7 @@ class _TavernScreenState extends State<TavernScreen>
                       ),
                     ),
                 ],
+                ),
               ),
             ),
           ),
@@ -931,6 +891,118 @@ class _TavernScreenState extends State<TavernScreen>
     } catch (exc) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(content: Text('删除会话失败：$exc')));
+    }
+  }
+
+  Future<void> _confirmDeletePromptBlock(
+    BuildContext context,
+    TavernPromptBlock block,
+  ) async {
+    if (!mounted) return;
+    final store = context.read<TavernStore>();
+    final messenger = ScaffoldMessenger.of(context);
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+              title: const Text('删除 Prompt Block'),
+              subtitle: Text(block.name),
+              onTap: () => Navigator.of(context).pop(true),
+            ),
+            const ListTile(
+              leading: Icon(Icons.close),
+              title: Text('取消'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final doubleConfirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认删除 Prompt Block？'),
+        content: Text('删除后，会从所有 Prompt Order 中移除该块引用。\n\n${block.name}'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (doubleConfirmed != true || !mounted) return;
+    try {
+      await store.deletePromptBlock(block.id);
+      if (!mounted) return;
+      messenger.showSnackBar(const SnackBar(content: Text('Prompt Block 已删除')));
+    } catch (exc) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('删除 Prompt Block 失败：$exc')));
+    }
+  }
+
+  Future<void> _confirmDeleteWorldBook(
+    BuildContext context,
+    TavernWorldBook worldbook,
+  ) async {
+    if (!mounted) return;
+    final store = context.read<TavernStore>();
+    final messenger = ScaffoldMessenger.of(context);
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+              title: const Text('删除 WorldBook'),
+              subtitle: Text(worldbook.name),
+              onTap: () => Navigator.of(context).pop(true),
+            ),
+            const ListTile(
+              leading: Icon(Icons.close),
+              title: Text('取消'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final doubleConfirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认删除 WorldBook？'),
+        content: Text('删除后，该世界书下的条目也会一并移除。\n\n${worldbook.name}'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (doubleConfirmed != true || !mounted) return;
+    try {
+      await store.deleteWorldBook(worldbook.id);
+      if (!mounted) return;
+      messenger.showSnackBar(const SnackBar(content: Text('WorldBook 已删除')));
+    } catch (exc) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('删除 WorldBook 失败：$exc')));
     }
   }
 
@@ -2567,6 +2639,67 @@ class _TavernScreenState extends State<TavernScreen>
     return promptOrderId;
   }
 
+  Widget _buildPromptOrderCompactRow(
+    BuildContext context,
+    TavernStore store,
+    TavernPromptOrderItem item, {
+    required int index,
+  }) {
+    final enabledColor = item.enabled
+        ? const Color(0xFF7C4DFF)
+        : const Color(0xFFB7BFCE);
+    final theme = Theme.of(context);
+    return Container(
+      margin: EdgeInsets.only(bottom: index == 0 ? 0 : 8),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8F7FC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE9E5F4)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(
+              item.enabled ? Icons.check_circle : Icons.radio_button_unchecked,
+              size: 16,
+              color: enabledColor,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _promptOrderItemLabel(store, item),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    height: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    _compactInfoPill(_promptOrderItemSourceLabel(item)),
+                    _compactInfoPill(_promptOrderPositionLabel(item.position)),
+                    if (item.depth != null) _compactInfoPill('深度 ${item.depth}'),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _promptOrderItemLabel(TavernStore store, TavernPromptOrderItem item) {
     if (item.identifier.isNotEmpty) {
       for (final option in _builtinPromptOrderOptions) {
@@ -2576,11 +2709,54 @@ class _TavernScreenState extends State<TavernScreen>
     }
     if (item.blockId.isNotEmpty) {
       for (final block in store.promptBlocks) {
-        if (block.id == item.blockId) return '${block.name} (block)';
+        if (block.id == item.blockId) return block.name;
       }
       return item.blockId;
     }
     return '未命名 item';
+  }
+
+  String _promptOrderItemSourceLabel(TavernPromptOrderItem item) {
+    if (item.identifier.isNotEmpty) return '内置';
+    if (item.blockId.isNotEmpty) return 'Prompt Block';
+    return '自定义';
+  }
+
+  String _promptOrderPositionLabel(String position) {
+    switch (position) {
+      case 'after_system':
+        return '系统后';
+      case 'before_chat_history':
+        return '历史前';
+      case 'after_chat_history':
+        return '历史后';
+      case 'in_chat':
+        return '消息中';
+      case 'at_depth':
+        return '指定深度';
+      default:
+        return position;
+    }
+  }
+
+  Widget _compactInfoPill(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFE4DFF2)),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 11,
+          height: 1.1,
+          color: Color(0xFF6F7788),
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
   }
 
   Widget _sliderField(
@@ -2642,22 +2818,6 @@ class _TavernScreenState extends State<TavernScreen>
           icon: const Icon(Icons.add_circle_outline),
         ),
       ],
-    );
-  }
-
-  Widget _configRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 96,
-            child: Text(label, style: Theme.of(context).textTheme.labelMedium),
-          ),
-          Expanded(child: Text(value)),
-        ],
-      ),
     );
   }
 

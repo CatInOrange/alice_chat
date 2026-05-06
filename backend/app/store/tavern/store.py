@@ -457,6 +457,14 @@ class TavernStore:
             conn.commit()
         return self.get_worldbook(worldbook_id)
 
+    def delete_worldbook(self, worldbook_id: str) -> bool:
+        self.ensure_schema()
+        with connect(self.db) as conn:
+            conn.execute("DELETE FROM tavern_worldbook_entries WHERE worldbook_id=?", (worldbook_id,))
+            cursor = conn.execute("DELETE FROM tavern_worldbooks WHERE id=?", (worldbook_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
     def create_worldbook_entry(self, worldbook_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         self.ensure_schema()
         now = _now()
@@ -596,6 +604,22 @@ class TavernStore:
             conn.commit()
             row = conn.execute("SELECT * FROM tavern_prompt_blocks WHERE id=? LIMIT 1", (block_id,)).fetchone()
             return self._row_to_prompt_block(row) if row is not None else None
+
+    def delete_prompt_block(self, block_id: str) -> bool:
+        self.ensure_schema()
+        with connect(self.db) as conn:
+            rows = conn.execute("SELECT id, items_json FROM tavern_prompt_orders").fetchall()
+            for row in rows:
+                items = self._load_json(row['items_json'], default=[])
+                filtered = [item for item in items if str((item or {}).get('blockId') or '').strip() != block_id]
+                if len(filtered) != len(items):
+                    conn.execute(
+                        "UPDATE tavern_prompt_orders SET items_json=?, updated_at=? WHERE id=?",
+                        (json.dumps(filtered, ensure_ascii=False), _now(), row['id']),
+                    )
+            cursor = conn.execute("DELETE FROM tavern_prompt_blocks WHERE id=?", (block_id,))
+            conn.commit()
+            return cursor.rowcount > 0
 
     def create_prompt_order(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.ensure_schema()
