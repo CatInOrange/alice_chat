@@ -55,54 +55,71 @@ class _TavernCharacterProfilePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('角色页')),
-      body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
-              child: Row(
-                children: [
-                  buildTavernAvatar(
-                    avatarPath: character.avatarPath,
-                    serverBaseUrl: serverBaseUrl,
-                    useDefaultAssetFallback: true,
-                    radius: 32,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(character.name, style: Theme.of(context).textTheme.titleLarge),
-                        const SizedBox(height: 4),
-                        Text(
-                          [
-                            if (character.creator.isNotEmpty) 'by ${character.creator}',
-                            if (character.characterVersion.isNotEmpty) 'v${character.characterVersion}',
-                            if (character.sourceType.isNotEmpty) character.sourceType.toUpperCase(),
-                          ].join(' · '),
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+      body: CustomScrollView(
+        slivers: [
+          SliverAppBar(
+            expandedHeight: 300,
+            pinned: true,
+            stretch: true,
+            title: Text(
+              character.name,
+              style: const TextStyle(
+                shadows: [Shadow(color: Colors.black54, blurRadius: 12)],
               ),
             ),
-            Expanded(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            flexibleSpace: FlexibleSpaceBar(
+              background: _buildHeroBackground(context),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (character.tags.isNotEmpty) ...[
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
-                      children: character.tags.map((tag) => Chip(label: Text(tag))).toList(growable: false),
+                      children: character.tags
+                          .map(
+                            (tag) => Chip(
+                              label: Text(tag),
+                              backgroundColor: Theme.of(context)
+                                  .colorScheme
+                                  .primary
+                                  .withValues(alpha: 0.10),
+                            ),
+                          )
+                          .toList(growable: false),
                     ),
                     const SizedBox(height: 16),
                   ],
+                  Wrap(
+                    spacing: 14,
+                    runSpacing: 8,
+                    children: [
+                      if (character.creator.isNotEmpty)
+                        _metaInfo(
+                          context,
+                          Icons.person_outline,
+                          'by ${character.creator}',
+                        ),
+                      if (character.characterVersion.isNotEmpty)
+                        _metaInfo(
+                          context,
+                          Icons.update_outlined,
+                          'v${character.characterVersion}',
+                        ),
+                      if (character.sourceType.isNotEmpty)
+                        _metaInfo(
+                          context,
+                          Icons.inventory_2_outlined,
+                          character.sourceType.toUpperCase(),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
                   _profileSectionCard(
                     context,
                     title: '基础信息',
@@ -115,7 +132,7 @@ class _TavernCharacterProfilePage extends StatelessWidget {
                       _profileBlock(context, 'Example Dialogues', character.exampleDialogues),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
                   _profileSectionCard(
                     context,
                     title: 'Prompt / Notes',
@@ -126,7 +143,7 @@ class _TavernCharacterProfilePage extends StatelessWidget {
                       _profileBlock(context, 'Creator Notes', character.creatorNotes),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
                   _profileSectionCard(
                     context,
                     title: '问候与 Lore',
@@ -137,31 +154,126 @@ class _TavernCharacterProfilePage extends StatelessWidget {
                         'Alternate Greetings',
                         character.alternateGreetings.isEmpty
                             ? ''
-                            : character.alternateGreetings.asMap().entries.map((e) => '${e.key + 1}. ${e.value}').join('\n\n'),
+                            : character.alternateGreetings
+                                  .asMap()
+                                  .entries
+                                  .map((e) => '${e.key + 1}. ${e.value}')
+                                  .join('\n\n'),
                       ),
-                      _profileBlock(
-                        context,
-                        '来源文件',
-                        character.sourceName,
-                      ),
+                      _profileBlock(context, '来源文件', character.sourceName),
                     ],
                   ),
+                  const SizedBox(height: 96),
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: onStartChat,
-                  child: const Text('用这个角色开始聊天'),
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: onStartChat,
+        icon: const Icon(Icons.chat_bubble_outline),
+        label: const Text('开始聊天'),
+      ),
+    );
+  }
+
+  Widget _buildHeroBackground(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        buildTavernAvatar(
+          avatarPath: character.avatarPath,
+          serverBaseUrl: serverBaseUrl,
+          useDefaultAssetFallback: true,
+          radius: 0,
+        ),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withValues(alpha: 0.12),
+                Colors.black.withValues(alpha: 0.22),
+                Colors.black.withValues(alpha: 0.55),
+              ],
+            ),
+          ),
+        ),
+        Align(
+          alignment: Alignment.bottomLeft,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 72),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.5), width: 2),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black26, blurRadius: 18, offset: Offset(0, 10)),
+                    ],
+                  ),
+                  child: buildTavernAvatar(
+                    avatarPath: character.avatarPath,
+                    serverBaseUrl: serverBaseUrl,
+                    useDefaultAssetFallback: true,
+                    radius: 42,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        character.name,
+                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          shadows: const [Shadow(color: Colors.black45, blurRadius: 10)],
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        character.scenario.isNotEmpty
+                            ? character.scenario
+                            : (character.description.isNotEmpty ? character.description : '查看角色设定与导入内容'),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Colors.white.withValues(alpha: 0.92),
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _metaInfo(BuildContext context, IconData icon, String text) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 15, color: const Color(0xFF98A1B3)),
+        const SizedBox(width: 4),
+        Text(
+          text,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: const Color(0xFF667085),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 
@@ -174,6 +286,8 @@ class _TavernCharacterProfilePage extends StatelessWidget {
     final visible = children.where((w) => w is! SizedBox).toList(growable: false);
     if (visible.isEmpty) return const SizedBox.shrink();
     return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -183,7 +297,12 @@ class _TavernCharacterProfilePage extends StatelessWidget {
               children: [
                 Icon(icon, size: 18),
                 const SizedBox(width: 8),
-                Text(title, style: Theme.of(context).textTheme.titleSmall),
+                Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -201,9 +320,17 @@ class _TavernCharacterProfilePage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           const SizedBox(height: 6),
-          Text(value),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.5),
+          ),
         ],
       ),
     );
