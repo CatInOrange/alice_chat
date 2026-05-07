@@ -206,13 +206,17 @@ class ChatSessionStore extends ChangeNotifier {
     await _sendMessageInternal(session, text: text, attachments: const []);
   }
 
-  Future<void> sendImageMessage(
+  Future<void> sendAttachmentMessage(
     ChatSession session, {
     required String filePath,
+    String? filename,
     String caption = '',
   }) async {
     await _ensureConfigReady();
-    final upload = await _client.uploadMedia(filePath: filePath);
+    final upload = await _client.uploadMedia(
+      filePath: filePath,
+      filename: filename,
+    );
     await _sendMessageInternal(
       session,
       text: caption,
@@ -236,13 +240,16 @@ class ChatSessionStore extends ChangeNotifier {
     _ensureEventSubscription(session, sessionId);
 
     final clientMessageId = 'client_${_uuid.v4()}';
+    final firstAttachment =
+        attachments.isNotEmpty ? attachments.first : const <String, dynamic>{};
+    final firstKind = (firstAttachment['kind'] ?? '').toString().trim();
     final userMessage =
-        attachments.isNotEmpty
+        attachments.isNotEmpty && firstKind == 'image'
             ? core.ImageMessage(
               id: clientMessageId,
               authorId: 'user',
               createdAt: DateTime.now(),
-              source: (attachments.first['url'] ?? '').toString(),
+              source: (firstAttachment['url'] ?? '').toString(),
               text: trimmed.isEmpty ? null : trimmed,
               metadata: {'attachments': attachments},
             )
@@ -251,6 +258,8 @@ class ChatSessionStore extends ChangeNotifier {
               authorId: 'user',
               createdAt: DateTime.now(),
               text: trimmed,
+              metadata:
+                  attachments.isEmpty ? null : {'attachments': attachments},
             );
 
     state
@@ -1387,6 +1396,8 @@ class ChatSessionStore extends ChangeNotifier {
     }
   }
 
+  String resolveMediaUrlForView(String rawUrl) => _resolveMediaUrl(rawUrl);
+
   String _resolveMediaUrl(String rawUrl) {
     final value = rawUrl.trim();
     if (value.isEmpty) return value;
@@ -1426,6 +1437,24 @@ class ChatSessionStore extends ChangeNotifier {
     return windowsDrive.hasMatch(value);
   }
 
+  List<Map<String, dynamic>> _serializeAttachments(
+    List<domain.ChatAttachment> attachments,
+  ) {
+    return attachments
+        .map(
+          (e) => {
+            'id': e.id,
+            'kind': e.kind,
+            'url': _resolveMediaUrl(e.url),
+            'rawUrl': e.url,
+            'mimeType': e.mimeType,
+            'name': e.name,
+            'size': e.size,
+          },
+        )
+        .toList(growable: false);
+  }
+
   core.Message _toCoreMessage(domain.ChatMessage message) {
     final id = message.id.isEmpty ? _uuid.v4() : message.id;
     final firstAttachment =
@@ -1442,20 +1471,7 @@ class ChatSessionStore extends ChangeNotifier {
         width: firstAttachment.width,
         height: firstAttachment.height,
         size: firstAttachment.size,
-        metadata: {
-          'attachments': message.attachments
-              .map(
-                (e) => {
-                  'id': e.id,
-                  'kind': e.kind,
-                  'url': _resolveMediaUrl(e.url),
-                  'rawUrl': e.url,
-                  'mimeType': e.mimeType,
-                  'name': e.name,
-                },
-              )
-              .toList(growable: false),
-        },
+        metadata: {'attachments': _serializeAttachments(message.attachments)},
       );
     }
     return core.TextMessage(
@@ -1466,20 +1482,7 @@ class ChatSessionStore extends ChangeNotifier {
       metadata:
           message.attachments.isEmpty
               ? null
-              : {
-                'attachments': message.attachments
-                    .map(
-                      (e) => {
-                        'id': e.id,
-                        'kind': e.kind,
-                        'url': _resolveMediaUrl(e.url),
-                        'rawUrl': e.url,
-                        'mimeType': e.mimeType,
-                        'name': e.name,
-                      },
-                    )
-                    .toList(growable: false),
-              },
+              : {'attachments': _serializeAttachments(message.attachments)},
     );
   }
 }

@@ -64,18 +64,28 @@ class ChatService:
         for item in attachments:
             if not isinstance(item, dict):
                 continue
-            kind = str(item.get("kind") or "").strip().lower()
+            kind = str(item.get("kind") or item.get("type") or "file").strip().lower() or "file"
             att_type = str(item.get("type") or ("url" if item.get("url") else "base64")).strip()
             att_data = str(item.get("data") or item.get("url") or "").strip()
             if not att_data:
                 continue
             att_media_type = item.get("mimeType") or item.get("mediaType") or item.get("media_type") or None
-            if kind and kind != 'image':
-                continue
+            att_name = str(item.get("name") or item.get("filename") or "").strip() or None
+            att_size_raw = item.get("size")
+            att_size = att_size_raw if isinstance(att_size_raw, int) else None
             # Reuse backend Attachment model.
             from ..agents.base import ChatAttachment
 
-            parsed_attachments.append(ChatAttachment(type=att_type, data=att_data, media_type=att_media_type))
+            parsed_attachments.append(
+                ChatAttachment(
+                    type=att_type,
+                    data=att_data,
+                    media_type=att_media_type,
+                    kind=kind,
+                    name=att_name,
+                    size=att_size,
+                )
+            )
 
         return ChatResolvedRequest(
             model_config=model_config,
@@ -108,23 +118,35 @@ class ChatService:
 
         user_attachments = []
         for att in attachments:
+            att_kind = str(getattr(att, "kind", "file") or "file").strip() or "file"
+            att_name = getattr(att, "name", None)
+            att_size = getattr(att, "size", None)
+            base_payload = {
+                "id": f"att_{__import__('uuid').uuid4().hex[:12]}",
+                "kind": att_kind,
+                "mimeType": getattr(att, "media_type") or ("image/png" if att_kind == "image" else "application/octet-stream"),
+                "status": "ready",
+                "meta": {},
+            }
+            if att_name:
+                base_payload["name"] = att_name
+                base_payload["filename"] = att_name
+            if isinstance(att_size, int) and att_size >= 0:
+                base_payload["size"] = att_size
             if getattr(att, "type") == "url":
                 user_attachments.append({
-                    "id": f"att_{__import__('uuid').uuid4().hex[:12]}",
-                    "kind": "image",
-                    "mimeType": getattr(att, "media_type") or "image/png",
+                    **base_payload,
                     "url": getattr(att, "data"),
-                    "status": "ready",
-                    "meta": {},
                 })
             elif getattr(att, "type") == "base64":
                 user_attachments.append({
-                    "id": f"att_{__import__('uuid').uuid4().hex[:12]}",
-                    "kind": "image",
-                    "mimeType": getattr(att, "media_type") or "image/png",
+                    **base_payload,
                     "data": getattr(att, "data"),
-                    "status": "ready",
-                    "meta": {},
+                })
+            elif getattr(att, "type") == "path":
+                user_attachments.append({
+                    **base_payload,
+                    "url": normalize_attachment_url(getattr(att, "data")),
                 })
 
         if not history_text and not user_attachments:

@@ -200,6 +200,26 @@ def _prepare_bridge_attachments(attachments: list[ChatAttachment]) -> list[dict]
     import base64
     result: list[dict] = []
     for att in attachments:
+        att_kind = str(getattr(att, "kind", "image") or "image").strip().lower() or "image"
+        if att_kind != "image":
+            payload = {
+                "kind": att_kind,
+                "mimeType": att.media_type or "application/octet-stream",
+            }
+            if getattr(att, "name", None):
+                payload["name"] = att.name
+                payload["filename"] = att.name
+            if isinstance(getattr(att, "size", None), int):
+                payload["size"] = att.size
+            if att.type == "url":
+                payload["url"] = att.data
+            elif att.type == "path":
+                payload["url"] = build_protected_media_url(att.data)
+            elif att.type == "base64":
+                payload["content"] = _normalize_base64_payload(att.data)
+            result.append(payload)
+            continue
+
         if att.type == "url":
             local_path = _local_upload_url_to_path(att.data)
             if local_path is not None:

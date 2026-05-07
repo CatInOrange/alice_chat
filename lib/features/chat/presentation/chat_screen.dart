@@ -2,13 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart' as core;
 import 'package:image_picker/image_picker.dart';
-import 'package:flutter_chat_core/flutter_chat_core.dart'
-    show Builders, TimeAndStatusPosition;
+import 'package:flutter_chat_core/flutter_chat_core.dart' show Builders;
 import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:markdown/markdown.dart' as md;
@@ -104,16 +104,22 @@ class _QuotedMessageDraft {
   final String rawText;
 }
 
-class _PendingImageDraft {
-  const _PendingImageDraft({
+class _PendingAttachmentDraft {
+  const _PendingAttachmentDraft({
     required this.filePath,
     required this.fileName,
     required this.fileSize,
+    required this.kind,
+    this.mimeType,
   });
 
   final String filePath;
   final String fileName;
   final int fileSize;
+  final String kind;
+  final String? mimeType;
+
+  bool get isImage => kind == 'image';
 }
 
 class _SlashSuggestionItem {
@@ -311,8 +317,8 @@ class _ChatScreenState extends State<ChatScreen> {
   String _lastStreamingHintSignature = '';
   bool _streamingHintPulseActive = false;
   _QuotedMessageDraft? _quotedMessageDraft;
-  _PendingImageDraft? _pendingImageDraft;
-  bool _isSendingImage = false;
+  _PendingAttachmentDraft? _pendingAttachmentDraft;
+  bool _isSendingAttachment = false;
   List<_SlashSuggestionItem> _slashSuggestions = const [];
 
   // Composer height tracking for relative positioning of floating elements
@@ -1084,8 +1090,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _handleSend(String text) async {
     final trimmed = text.trim();
-    final pendingImage = _pendingImageDraft;
-    if (trimmed.isEmpty && pendingImage == null) return;
+    final pendingAttachment = _pendingAttachmentDraft;
+    if (trimmed.isEmpty && pendingAttachment == null) return;
     final store = context.read<ChatSessionStore>();
     final quoteDraft = _quotedMessageDraft;
     final payload =
@@ -1095,17 +1101,18 @@ class _ChatScreenState extends State<ChatScreen> {
     _composerController.clear();
     setState(() {
       _quotedMessageDraft = null;
-      if (pendingImage != null) {
-        _pendingImageDraft = null;
-        _isSendingImage = true;
+      if (pendingAttachment != null) {
+        _pendingAttachmentDraft = null;
+        _isSendingAttachment = true;
       }
     });
 
     try {
-      if (pendingImage != null) {
-        await store.sendImageMessage(
+      if (pendingAttachment != null) {
+        await store.sendAttachmentMessage(
           widget.session,
-          filePath: pendingImage.filePath,
+          filePath: pendingAttachment.filePath,
+          filename: pendingAttachment.fileName,
           caption: payload,
         );
       } else {
@@ -1114,18 +1121,18 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        if (pendingImage != null) {
-          _pendingImageDraft = pendingImage;
-          _isSendingImage = false;
+        if (pendingAttachment != null) {
+          _pendingAttachmentDraft = pendingAttachment;
+          _isSendingAttachment = false;
         }
       });
-      _showSnackBar('发送图片失败：${_humanizeUiError(error)}');
+      _showSnackBar('发送附件失败：${_humanizeUiError(error)}');
       return;
     }
 
     if (!mounted) return;
-    if (pendingImage != null) {
-      setState(() => _isSendingImage = false);
+    if (pendingAttachment != null) {
+      setState(() => _isSendingAttachment = false);
     }
   }
 
@@ -1334,16 +1341,57 @@ class _ChatScreenState extends State<ChatScreen> {
         return;
       }
       setState(() {
-        _pendingImageDraft = _PendingImageDraft(
+        _pendingAttachmentDraft = _PendingAttachmentDraft(
           filePath: file.path,
           fileName: file.name,
           fileSize: fileSize,
+          kind: 'image',
+          mimeType: 'image/*',
         );
       });
       _composerFocusNode.requestFocus();
     } catch (error) {
       if (!mounted) return;
       _showSnackBar('选取图片失败：${_humanizeUiError(error)}');
+    }
+  }
+
+  Future<void> _handlePickFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(withData: false);
+      if (!mounted || result == null || result.files.isEmpty) return;
+      final picked = result.files.first;
+      final path = picked.path;
+      if (path == null || path.isEmpty) {
+        _showSnackBar('所选文件不可用');
+        return;
+      }
+      final fileSize = picked.size;
+      const maxUploadBytes = 100 * 1024 * 1024;
+      if (fileSize > maxUploadBytes) {
+        _showSnackBar('文件不能超过 100MB');
+        return;
+      }
+      final lowerName = picked.name.toLowerCase();
+      final isImage =
+          lowerName.endsWith('.png') ||
+          lowerName.endsWith('.jpg') ||
+          lowerName.endsWith('.jpeg') ||
+          lowerName.endsWith('.gif') ||
+          lowerName.endsWith('.webp');
+      setState(() {
+        _pendingAttachmentDraft = _PendingAttachmentDraft(
+          filePath: path,
+          fileName: picked.name,
+          fileSize: fileSize,
+          kind: isImage ? 'image' : 'file',
+          mimeType: picked.extension,
+        );
+      });
+      _composerFocusNode.requestFocus();
+    } catch (error) {
+      if (!mounted) return;
+      _showSnackBar('选取文件失败：${_humanizeUiError(error)}');
     }
   }
 
@@ -1409,8 +1457,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  subtitle: const Text('暂未支持，后端目前只能上传图片'),
-                  enabled: false,
+                  subtitle: const Text('选择任意文件作为附件发送'),
+                  onTap: () => Navigator.of(sheetContext).pop('file'),
                 ),
               ],
             ),
@@ -1423,6 +1471,9 @@ class _ChatScreenState extends State<ChatScreen> {
     switch (action) {
       case 'image':
         await _handlePickImage();
+        break;
+      case 'file':
+        await _handlePickFile();
         break;
     }
   }
@@ -1443,6 +1494,169 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  List<Map<String, dynamic>> _extractFileAttachments(core.Message message) {
+    final dynamic metadata = message.metadata;
+    if (metadata is! Map) return const [];
+    final raw = metadata['attachments'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .where((e) => (e['kind'] ?? '').toString() != 'image')
+        .toList(growable: false);
+  }
+
+  Future<void> _openAttachmentUrl(String rawUrl) async {
+    final resolved = _resolveAttachmentUrl(rawUrl);
+    if (resolved.isEmpty) return;
+    final uri = Uri.tryParse(resolved);
+    if (uri == null) return;
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  String _resolveAttachmentUrl(String rawUrl) {
+    final trimmed = rawUrl.trim();
+    if (trimmed.isEmpty) return '';
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed;
+    }
+    final store = context.read<ChatSessionStore>();
+    return store.resolveMediaUrlForView(trimmed);
+  }
+
+  Widget _buildFileAttachmentCard(
+    BuildContext context, {
+    required Map<String, dynamic> attachment,
+    required bool sentByMe,
+  }) {
+    final theme = Theme.of(context);
+    final name = (attachment['name'] ?? attachment['filename'] ?? '附件')
+        .toString();
+    final size = attachment['size'];
+    final url = (attachment['url'] ?? attachment['rawUrl'] ?? '').toString();
+    final mimeType = (attachment['mimeType'] ?? '').toString();
+    return InkWell(
+      onTap: url.trim().isEmpty ? null : () => _openAttachmentUrl(url),
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(top: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color:
+              sentByMe
+                  ? Colors.white.withValues(alpha: 0.14)
+                  : const Color(0xFFF6F7FB),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color:
+                sentByMe
+                    ? Colors.white.withValues(alpha: 0.12)
+                    : const Color(0xFFE7EAF3),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.insert_drive_file_outlined,
+              color: sentByMe ? Colors.white : const Color(0xFF667085),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: sentByMe ? Colors.white : const Color(0xFF1F2430),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    [
+                      if (mimeType.trim().isNotEmpty) mimeType,
+                      if (size is num) _formatFileSize(size.toInt()),
+                    ].join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color:
+                          sentByMe
+                              ? Colors.white.withValues(alpha: 0.78)
+                              : const Color(0xFF98A1B3),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.open_in_new_rounded,
+              size: 18,
+              color:
+                  sentByMe
+                      ? Colors.white.withValues(alpha: 0.9)
+                      : const Color(0xFF98A1B3),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUserTextBubble(
+    BuildContext context, {
+    required core.TextMessage message,
+    required int index,
+    required double maxWidth,
+    required BorderRadius bubbleRadius,
+    required List<Map<String, dynamic>> fileAttachments,
+  }) {
+    final theme = Theme.of(context);
+    final text = message.text.trim();
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onLongPress:
+          () => _showMessageActionSheet(
+            context,
+            message: message,
+            sentByMe: true,
+          ),
+      child: Container(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        decoration: BoxDecoration(
+          color: const Color(0xFF7C4DFF),
+          borderRadius: bubbleRadius,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (text.isNotEmpty)
+                Text(
+                  text,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              for (final attachment in fileAttachments)
+                _buildFileAttachmentCard(
+                  context,
+                  attachment: attachment,
+                  sentByMe: true,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildTextMessage(
     BuildContext context,
     core.TextMessage message,
@@ -1459,6 +1673,7 @@ class _ChatScreenState extends State<ChatScreen> {
       bottomLeft: Radius.circular(sentByMe ? 20 : 8),
       bottomRight: Radius.circular(sentByMe ? 8 : 20),
     );
+    final fileAttachments = _extractFileAttachments(message);
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -1494,50 +1709,13 @@ class _ChatScreenState extends State<ChatScreen> {
                         : CrossAxisAlignment.start,
                 children: [
                   sentByMe
-                      ? GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onLongPress:
-                            () => _showMessageActionSheet(
-                              context,
-                              message: message,
-                              sentByMe: sentByMe,
-                            ),
-                        child: SimpleTextMessage(
-                          message: message,
-                          index: index,
-                          showStatus: false,
-                          timeAndStatusPosition: TimeAndStatusPosition.end,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 11,
-                          ),
-                          constraints: BoxConstraints(maxWidth: maxWidth),
-                          borderRadius: bubbleRadius,
-                          sentBackgroundColor: const Color(0xFF7C4DFF),
-                          receivedBackgroundColor: Colors.white,
-                          sentTextStyle: Theme.of(
-                            context,
-                          ).textTheme.bodyLarge?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w500,
-                          ),
-                          receivedTextStyle: Theme.of(
-                            context,
-                          ).textTheme.bodyLarge?.copyWith(
-                            color: const Color(0xFF1F2430),
-                            fontWeight: FontWeight.w500,
-                          ),
-                          timeStyle: Theme.of(
-                            context,
-                          ).textTheme.bodySmall?.copyWith(
-                            color:
-                                sentByMe
-                                    ? Colors.white.withValues(alpha: 0.72)
-                                    : const Color(0xFF98A1B3),
-                            fontSize: 11,
-                          ),
-                          topWidget: null,
-                        ),
+                      ? _buildUserTextBubble(
+                        context,
+                        message: message,
+                        index: index,
+                        maxWidth: maxWidth,
+                        bubbleRadius: bubbleRadius,
+                        fileAttachments: fileAttachments,
                       )
                       : _buildAssistantMarkdownBubble(
                         context,
@@ -1567,6 +1745,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }) {
     final theme = Theme.of(context);
     final markdownTheme = _getMarkdownStyleSheet(theme);
+    final fileAttachments = _extractFileAttachments(message);
 
     return RepaintBoundary(
       child: GestureDetector(
@@ -1595,10 +1774,17 @@ class _ChatScreenState extends State<ChatScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildMarkdownBody(
-                  _stripModelNamePrefix(message.text),
-                  markdownTheme,
-                ),
+                if (_stripModelNamePrefix(message.text).trim().isNotEmpty)
+                  _buildMarkdownBody(
+                    _stripModelNamePrefix(message.text),
+                    markdownTheme,
+                  ),
+                for (final attachment in fileAttachments)
+                  _buildFileAttachmentCard(
+                    context,
+                    attachment: attachment,
+                    sentByMe: false,
+                  ),
                 const SizedBox(height: 8),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
@@ -2482,7 +2668,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         ],
                       ),
                     ),
-                  if (_pendingImageDraft != null)
+                  if (_pendingAttachmentDraft != null)
                     Container(
                       width: double.infinity,
                       margin: const EdgeInsets.only(bottom: 10),
@@ -2494,25 +2680,36 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                       child: Row(
                         children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: Image.file(
-                              File(_pendingImageDraft!.filePath),
-                              width: 56,
-                              height: 56,
-                              fit: BoxFit.cover,
-                              errorBuilder:
-                                  (_, __, ___) => Container(
-                                    width: 56,
-                                    height: 56,
-                                    color: const Color(0xFFF1F3F9),
-                                    alignment: Alignment.center,
-                                    child: const Icon(
-                                      Icons.broken_image_outlined,
-                                    ),
-                                  ),
-                            ),
-                          ),
+                          _pendingAttachmentDraft!.isImage
+                              ? ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Image.file(
+                                  File(_pendingAttachmentDraft!.filePath),
+                                  width: 56,
+                                  height: 56,
+                                  fit: BoxFit.cover,
+                                  errorBuilder:
+                                      (_, __, ___) => Container(
+                                        width: 56,
+                                        height: 56,
+                                        color: const Color(0xFFF1F3F9),
+                                        alignment: Alignment.center,
+                                        child: const Icon(
+                                          Icons.broken_image_outlined,
+                                        ),
+                                      ),
+                                ),
+                              )
+                              : Container(
+                                width: 56,
+                                height: 56,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF3F5FA),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                alignment: Alignment.center,
+                                child: const Icon(Icons.insert_drive_file_outlined),
+                              ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
@@ -2520,14 +2717,14 @@ class _ChatScreenState extends State<ChatScreen> {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Text(
-                                  '准备发送图片',
+                                  _pendingAttachmentDraft!.isImage ? '准备发送图片' : '准备发送附件',
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  _pendingImageDraft!.fileName,
+                                  _pendingAttachmentDraft!.fileName,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: theme.textTheme.bodySmall?.copyWith(
@@ -2536,7 +2733,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  _formatFileSize(_pendingImageDraft!.fileSize),
+                                  _formatFileSize(_pendingAttachmentDraft!.fileSize),
                                   style: theme.textTheme.bodySmall?.copyWith(
                                     color: const Color(0xFF98A1B3),
                                   ),
@@ -2546,15 +2743,15 @@ class _ChatScreenState extends State<ChatScreen> {
                           ),
                           IconButton(
                             onPressed:
-                                _isSendingImage
+                                _isSendingAttachment
                                     ? null
                                     : () => setState(
-                                      () => _pendingImageDraft = null,
+                                      () => _pendingAttachmentDraft = null,
                                     ),
                             icon: const Icon(Icons.close_rounded, size: 18),
                             color: const Color(0xFF98A1B3),
                             splashRadius: 18,
-                            tooltip: '取消图片',
+                            tooltip: '取消附件',
                           ),
                         ],
                       ),
@@ -2571,12 +2768,12 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                         child: IconButton(
                           onPressed:
-                              (state.isSubmitting || _isSendingImage)
+                              (state.isSubmitting || _isSendingAttachment)
                                   ? null
                                   : () => _showAttachmentMenu(state),
                           icon: const Icon(Icons.add_rounded),
                           color:
-                              (state.isSubmitting || _isSendingImage)
+                              (state.isSubmitting || _isSendingAttachment)
                                   ? const Color(0xFF98A1B3)
                                   : theme.colorScheme.primary,
                           tooltip: '附件',
@@ -2608,9 +2805,9 @@ class _ChatScreenState extends State<ChatScreen> {
                             ),
                             onSubmitted: (value) {
                               if ((value.trim().isNotEmpty ||
-                                      _pendingImageDraft != null) &&
+                                      _pendingAttachmentDraft != null) &&
                                   !state.isSubmitting &&
-                                  !_isSendingImage) {
+                                  !_isSendingAttachment) {
                                 _handleSend(value);
                               }
                             },
@@ -2624,7 +2821,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         height: 44,
                         decoration: BoxDecoration(
                           color:
-                              (state.isSubmitting || _isSendingImage)
+                              (state.isSubmitting || _isSendingAttachment)
                                   ? const Color(0xFFD7CCFF)
                                   : theme.colorScheme.primary,
                           borderRadius: BorderRadius.circular(22),
@@ -2638,17 +2835,17 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                         child: IconButton(
                           onPressed:
-                              (state.isSubmitting || _isSendingImage)
+                              (state.isSubmitting || _isSendingAttachment)
                                   ? null
                                   : () {
                                     final text = _composerController.text;
                                     if (text.trim().isNotEmpty ||
-                                        _pendingImageDraft != null) {
+                                        _pendingAttachmentDraft != null) {
                                       _handleSend(text);
                                     }
                                   },
                           icon:
-                              (state.isSubmitting || _isSendingImage)
+                              (state.isSubmitting || _isSendingAttachment)
                                   ? const SizedBox(
                                     width: 18,
                                     height: 18,

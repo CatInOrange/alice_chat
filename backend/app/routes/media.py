@@ -3,6 +3,7 @@ from __future__ import annotations
 import imghdr
 import mimetypes
 import os
+import re
 import time
 import uuid
 from pathlib import Path
@@ -28,11 +29,14 @@ _IMAGE_KIND_BY_IMGHDR = {
     'gif': ('image/gif', '.gif'),
 }
 
+_MAX_IMAGE_UPLOAD_BYTES = 20 * 1024 * 1024
+_MAX_FILE_UPLOAD_BYTES = 100 * 1024 * 1024
 
-def _normalize_image_attachment(*, file_id: str, url: str, filename: str, mime_type: str, size: int) -> dict:
+
+def _normalize_attachment(*, file_id: str, kind: str, url: str, filename: str, mime_type: str, size: int) -> dict:
     return {
         'id': file_id,
-        'kind': 'image',
+        'kind': kind,
         'mimeType': mime_type,
         'name': filename,
         'filename': filename,
@@ -42,6 +46,17 @@ def _normalize_image_attachment(*, file_id: str, url: str, filename: str, mime_t
         'meta': {},
     }
 
+
+_SAFE_NAME_RE = re.compile(r'[^A-Za-z0-9._-]+')
+
+
+def _sanitize_filename(name: str) -> str:
+    value = str(name or '').strip()
+    if not value:
+        return 'file'
+    value = value.replace('/', '_').replace('\\', '_')
+    value = _SAFE_NAME_RE.sub('_', value).strip('._')
+    return value or 'file'
 
 
 def _is_within(path: Path, base: Path) -> bool:
@@ -87,31 +102,45 @@ def create_media_router(context: AppContext) -> APIRouter:
         raw = await file.read()
         if not raw:
             raise HTTPException(status_code=400, detail='empty file')
-        if len(raw) > 20 * 1024 * 1024:
-            raise HTTPException(status_code=413, detail='file too large')
 
-        detected = imghdr.what(None, h=raw)
-        if detected not in _IMAGE_KIND_BY_IMGHDR:
-            raise HTTPException(status_code=400, detail='only image upload is supported for now')
-
-        mime_type, ext = _IMAGE_KIND_BY_IMGHDR[detected]
         original_name = (file.filename or '').strip()
-        if original_name and '.' in original_name:
-            candidate_ext = Path(original_name).suffix.lower()
-            if candidate_ext in _IMAGE_EXT_BY_MIME.values():
-                ext = candidate_ext
-
-        file_id = f'att_{uuid.uuid4().hex[:12]}'
+        detected = imghdr.what(None, h=raw)
         year_month = time.strftime('%Y/%m')
-        media_dir = context.uploads_dir / 'media' / year_month
-        media_dir.mkdir(parents=True, exist_ok=True)
-        stored_name = f'{file_id}{ext}'
-        stored_path = media_dir / stored_name
+        file_id = f'att_{uuid.uuid4().hex[:12]}'
+
+        if detected in _IMAGE_KIND_BY_IMGHDR:
+            if len(raw) > _MAX_IMAGE_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail='image too large')
+            kind = 'image'
+            mime_type, ext = _IMAGE_KIND_BY_IMGHDR[detected]
+            if original_name and '.' in original_name:
+                candidate_ext = Path(original_name).suffix.lower()
+                if candidate_ext in _IMAGE_EXT_BY_MIME.values():
+                    ext = candidate_ext
+            target_dir = context.uploads_dir / 'media' / year_month
+            url_prefix = '/uploads/media'
+        else:
+            if len(raw) > _MAX_FILE_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail='file too large')
+            kind = 'file'
+            mime_type = (file.content_type or '').strip() or (mimetypes.guess_type(original_name)[0] or 'application/octet-stream')
+            ext = Path(original_name).suffix.lower()
+            if not ext:
+                guessed_ext = mimetypes.guess_extension(mime_type or '') or ''
+                ext = guessed_ext.lower()
+            target_dir = context.uploads_dir / 'files' / year_month
+            url_prefix = '/uploads/files'
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+        safe_base = _sanitize_filename(Path(original_name).stem if original_name else file_id)
+        stored_name = f'{safe_base[:48] or file_id}_{file_id[-6:]}{ext}'
+        stored_path = target_dir / stored_name
         stored_path.write_bytes(raw)
 
-        url = f'/uploads/media/{year_month}/{stored_name}'
-        attachment = _normalize_image_attachment(
+        url = f'{url_prefix}/{year_month}/{stored_name}'
+        attachment = _normalize_attachment(
             file_id=file_id,
+            kind=kind,
             url=url,
             filename=original_name or stored_name,
             mime_type=mime_type,

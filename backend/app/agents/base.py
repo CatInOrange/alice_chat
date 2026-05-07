@@ -9,20 +9,25 @@ StreamEmitter = Callable[[dict], None]
 
 @dataclass(slots=True)
 class ChatAttachment:
-    """Represents an image attachment in a chat message.
+    """Represents a chat attachment in a message.
 
     Supports multiple sources:
-    - url: HTTP/HTTPS URL to an image
-    - base64: Base64-encoded image data
+    - url: HTTP/HTTPS URL or local app-served URL
+    - base64: Base64-encoded payload
     - path: Local file path (server-side only)
     """
 
     type: str  # "url", "base64", "path"
     data: str  # URL, base64 string, or file path
-    media_type: str | None = None  # e.g., "image/jpeg", "image/png"
+    media_type: str | None = None  # e.g., "image/jpeg", "application/pdf"
+    kind: str = "image"  # image | file | audio | video
+    name: str | None = None
+    size: int | None = None
 
     def to_openai_content(self) -> dict:
-        """Convert to OpenAI Vision API content format."""
+        """Convert image attachment to OpenAI Vision API content format."""
+        if self.kind != "image":
+            raise ValueError(f"Unsupported attachment kind for OpenAI vision: {self.kind}")
         if self.type == "url":
             return {"type": "image_url", "image_url": {"url": self.data}}
         elif self.type == "base64":
