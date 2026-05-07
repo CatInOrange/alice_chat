@@ -248,7 +248,17 @@ class TavernService:
             },
         }
 
-    def prepare_generation(self, chat_id: str, *, text: str, preset_id: str = '') -> dict[str, Any]:
+    def _hidden_instruction_text(self, mode: str) -> str:
+        normalized = str(mode or '').strip().lower()
+        if normalized == 'continue':
+            return '请紧接当前剧情自然续写，优先承接最近的互动、情绪、动作与场景，不要生硬跳转；若无明显新事件，就顺着当前节奏继续推进。'
+        if normalized == 'twist':
+            return '请在保持当前剧情连续性的前提下，引入一个自然的新变化、事件、线索、来人或冲突，让剧情出现新的转折，但不要硬切或脱离当前语境。'
+        if normalized == 'describe':
+            return '请延续当前场景，放慢节奏，重点加强动作、神态、环境、触感、声音与氛围等细节描写，先细致展开当前内容，不急着推动重大新事件。'
+        return ''
+
+    def prepare_generation(self, chat_id: str, *, text: str, preset_id: str = '', hidden_instruction: str = '') -> dict[str, Any]:
         chat = self.store.get_chat(chat_id)
         if chat is None:
             raise ValueError('chat not found')
@@ -262,6 +272,10 @@ class TavernService:
         prompt_blocks = self.store.list_prompt_blocks()
         worldbook_entries = self._collect_effective_worldbook_entries(character['id'])
 
+        effective_text = text
+        if hidden_instruction.strip():
+            effective_text = f"{text.rstrip()}\n\n[Hidden instruction: {hidden_instruction.strip()}]"
+
         character_lore_bindings = self.store.list_character_lore_bindings(character['id'])
         prompt_debug = self.prompt_builder.build_messages(
             character=character,
@@ -271,7 +285,7 @@ class TavernService:
             worldbook_entries=worldbook_entries,
             character_lore_bindings=character_lore_bindings,
             history=history,
-            user_text=text,
+            user_text=effective_text,
             chat=chat,
         )
         provider_id = str((preset or {}).get('provider') or (get_tavern_config().get('defaultProviderId') or '')).strip()
@@ -284,6 +298,8 @@ class TavernService:
             'messages': prompt_debug.messages,
             'promptDebug': prompt_debug,
             'providerId': provider_id,
+            'hiddenInstruction': hidden_instruction.strip(),
+            'sourceText': text,
         }
 
     def merge_generation_provider(self, provider: dict[str, Any], preset: dict[str, Any] | None) -> dict[str, Any]:

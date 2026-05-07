@@ -143,10 +143,14 @@ class TavernRepository {
     required String chatId,
     required String text,
     String presetId = '',
+    String instructionMode = '',
+    bool suppressUserMessage = false,
   }) {
     return _postJson('/api/tavern/chats/$chatId/send', {
       'text': text,
       if (presetId.isNotEmpty) 'presetId': presetId,
+      if (instructionMode.isNotEmpty) 'instructionMode': instructionMode,
+      if (suppressUserMessage) 'suppressUserMessage': true,
     });
   }
 
@@ -154,6 +158,8 @@ class TavernRepository {
     required String chatId,
     required String text,
     String presetId = '',
+    String instructionMode = '',
+    bool suppressUserMessage = false,
     required TavernStreamEventHandler onEvent,
   }) async {
     final config = await OpenClawSettingsStore.load();
@@ -163,6 +169,8 @@ class TavernRepository {
       body: {
         'text': text,
         if (presetId.isNotEmpty) 'presetId': presetId,
+        if (instructionMode.isNotEmpty) 'instructionMode': instructionMode,
+        if (suppressUserMessage) 'suppressUserMessage': true,
       },
       onEvent: onEvent,
     );

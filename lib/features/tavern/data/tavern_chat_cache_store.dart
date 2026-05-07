@@ -11,12 +11,14 @@ class TavernChatCacheSnapshot {
     required this.messages,
     this.chat,
     this.character,
+    this.promptDebug,
     this.cachedAt,
   });
 
   final List<TavernMessage> messages;
   final TavernChat? chat;
   final TavernCharacter? character;
+  final TavernPromptDebug? promptDebug;
   final DateTime? cachedAt;
 }
 
@@ -24,7 +26,7 @@ class TavernChatCacheStore {
   TavernChatCacheStore._();
 
   static const String _dbName = 'alice_tavern_cache.db';
-  static const int _dbVersion = 1;
+  static const int _dbVersion = 2;
   static const int maxMessagesPerChat = 200;
 
   static final TavernChatCacheStore instance = TavernChatCacheStore._();
@@ -45,6 +47,7 @@ class TavernChatCacheStore {
             chat_id TEXT PRIMARY KEY,
             chat_json TEXT,
             character_json TEXT,
+            prompt_debug_json TEXT,
             cached_at INTEGER NOT NULL
           )
         ''');
@@ -63,6 +66,13 @@ class TavernChatCacheStore {
         await db.execute(
           'CREATE INDEX idx_tavern_message_cache_chat_created ON tavern_message_cache(chat_id, created_at, id)',
         );
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            'ALTER TABLE tavern_chat_cache ADD COLUMN prompt_debug_json TEXT',
+          );
+        }
       },
     );
     return _db!;
@@ -90,6 +100,7 @@ class TavernChatCacheStore {
         messages: messages,
         chat: _decodeChat(chatRow['chat_json']),
         character: _decodeCharacter(chatRow['character_json']),
+        promptDebug: _decodePromptDebug(chatRow['prompt_debug_json']),
         cachedAt: _dateTimeOrNull(chatRow['cached_at']),
       );
     } catch (error, stackTrace) {
@@ -102,6 +113,7 @@ class TavernChatCacheStore {
     required TavernChat chat,
     required TavernCharacter character,
     required List<TavernMessage> messages,
+    TavernPromptDebug? promptDebug,
   }) async {
     try {
       final db = await _database();
@@ -114,6 +126,9 @@ class TavernChatCacheStore {
             'chat_id': chat.id,
             'chat_json': jsonEncode(chat.toJson()),
             'character_json': jsonEncode(character.toJson()),
+            'prompt_debug_json': promptDebug == null
+                ? null
+                : jsonEncode(promptDebug.toJson()),
             'cached_at': nowMs,
           },
           conflictAlgorithm: ConflictAlgorithm.replace,
@@ -203,6 +218,11 @@ class TavernChatCacheStore {
   TavernCharacter? _decodeCharacter(Object? raw) {
     final map = _decodeMap(raw);
     return map == null ? null : TavernCharacter.fromJson(map);
+  }
+
+  TavernPromptDebug? _decodePromptDebug(Object? raw) {
+    final map = _decodeMap(raw);
+    return map == null ? null : TavernPromptDebug.fromJson(map);
   }
 
   Map<String, dynamic>? _decodeMap(Object? raw) {

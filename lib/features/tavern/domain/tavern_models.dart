@@ -613,6 +613,24 @@ class TavernPromptDebug {
       ),
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'messages': messages,
+      'blocks': blocks,
+      'presetId': presetId,
+      'promptOrderId': promptOrderId,
+      'renderedStoryString': renderedStoryString,
+      'renderedExamples': renderedExamples,
+      'runtimeContext': runtimeContext,
+      'contextUsage': contextUsage,
+      'matchedWorldbookEntries': matchedWorldbookEntries,
+      'rejectedWorldbookEntries': rejectedWorldbookEntries,
+      'characterLoreBindings': characterLoreBindings,
+      'depthInserts': depthInserts,
+      'summary': summary,
+    };
+  }
 }
 
 class TavernWorldBook {

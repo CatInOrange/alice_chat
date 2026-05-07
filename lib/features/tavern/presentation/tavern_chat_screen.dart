@@ -388,6 +388,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           _chat = cached.chat ?? _chat;
           _character = cached.character ?? _character;
           _messages = cached.messages;
+          _latestPromptDebug = cached.promptDebug;
           _selectedPresetId = _chat.presetId.isNotEmpty ? _chat.presetId : null;
           _isLoading = false;
           _isRefreshing = true;
@@ -398,7 +399,6 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           }
         });
         unawaited(_refreshFromServer());
-        unawaited(_refreshContextState());
         return;
       }
 
@@ -417,8 +417,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         chat: _chat,
         character: _character,
         messages: messages,
+        promptDebug: _latestPromptDebug,
       );
-      unawaited(_refreshContextState());
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _scrollToBottom(animated: false, force: true);
@@ -461,8 +461,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         chat: chat,
         character: character,
         messages: messages,
+        promptDebug: _latestPromptDebug,
       );
-      unawaited(_refreshContextState());
     } catch (exc) {
       if (!mounted) return;
       setState(() {
@@ -1011,14 +1011,22 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     return _sendText(_inputController.text.trim());
   }
 
-  Future<void> _sendSilentQuickReply(String text) async {
-    return _sendText(text, replaceComposer: false, showUserMessage: false);
+  Future<void> _sendSilentQuickReply(String instructionMode) async {
+    return _sendText(
+      instructionMode,
+      replaceComposer: false,
+      showUserMessage: false,
+      instructionMode: instructionMode,
+      suppressUserMessage: true,
+    );
   }
 
   Future<void> _sendText(
     String text, {
     bool replaceComposer = true,
     bool showUserMessage = true,
+    String instructionMode = '',
+    bool suppressUserMessage = false,
   }) async {
     if (text.isEmpty || _isSending) return;
     FocusScope.of(context).unfocus();
@@ -1051,6 +1059,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         chatId: _chat.id,
         text: text,
         presetId: _selectedPresetId ?? '',
+        instructionMode: instructionMode,
+        suppressUserMessage: suppressUserMessage,
         onEvent: (event, data) {
           if (!mounted) return;
           switch (event) {
@@ -1142,6 +1152,15 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                   _messages = nextMessages;
                   _streamingAssistantMessageId = null;
                 });
+                final rawPromptDebug = data['promptDebug'];
+                final promptDebug = rawPromptDebug is Map
+                    ? TavernPromptDebug.fromJson(Map<String, dynamic>.from(rawPromptDebug))
+                    : null;
+                setState(() {
+                  if (promptDebug != null) {
+                    _latestPromptDebug = promptDebug;
+                  }
+                });
                 unawaited(_persistSnapshot());
                 unawaited(_refreshChatMetaOnly());
                 _scrollToBottom();
@@ -1177,6 +1196,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       chat: _chat,
       character: _character,
       messages: _messages,
+      promptDebug: _latestPromptDebug,
     );
   }
 
@@ -1188,7 +1208,6 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         _chat = refreshed;
       });
       await _persistSnapshot();
-      unawaited(_refreshContextState());
     } catch (_) {}
   }
 
@@ -1221,8 +1240,9 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
 
   List<Map<String, String>> _quickReplies() {
     return const [
-      {'label': '推进剧情', 'prompt': '推进剧情发展，给出新的事件、互动或转折。'},
-      {'label': '细化描写', 'prompt': '延续当前场景，增加动作、表情、环境和细节描写。'},
+      {'label': '继续', 'mode': 'continue'},
+      {'label': '转折', 'mode': 'twist'},
+      {'label': '描写', 'mode': 'describe'},
     ];
   }
 
@@ -1456,7 +1476,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
             onPressed:
                 _isSending
                     ? null
-                    : () => _sendSilentQuickReply(item['prompt']!),
+                    : () => _sendSilentQuickReply(item['mode']!),
           );
         },
         separatorBuilder: (_, __) => const SizedBox(width: 8),
@@ -1621,7 +1641,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                 Text('上下文使用', style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 6),
                 Text(
-                  '这里展示的是按当前配置即时重新组装后的结果，不需要先发送一条消息才生效。',
+                  '这里优先展示最近一次真实生成所使用的上下文统计；若你打开完整 Debug，再按当前配置即时重算。',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
                 const SizedBox(height: 14),
@@ -2758,7 +2778,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                '按当前配置实时重新计算，不依赖上一条发送时的缓存。',
+                                '这里会按当前配置实时重新计算，不依赖聊天页缓存的小窗结果。',
                                 style: Theme.of(context).textTheme.bodySmall,
                               ),
                               const SizedBox(height: 8),

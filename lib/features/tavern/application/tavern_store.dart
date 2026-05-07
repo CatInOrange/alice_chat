@@ -175,11 +175,13 @@ class TavernStore extends ChangeNotifier {
     required TavernChat chat,
     required TavernCharacter character,
     required List<TavernMessage> messages,
+    TavernPromptDebug? promptDebug,
   }) async {
     final snapshot = TavernChatCacheSnapshot(
       messages: List<TavernMessage>.unmodifiable(messages),
       chat: chat,
       character: character,
+      promptDebug: promptDebug,
       cachedAt: DateTime.now(),
     );
     _chatSnapshots[chat.id] = snapshot;
@@ -187,6 +189,7 @@ class TavernStore extends ChangeNotifier {
       chat: chat,
       character: character,
       messages: messages,
+      promptDebug: promptDebug,
     );
   }
 
@@ -245,11 +248,15 @@ class TavernStore extends ChangeNotifier {
     required String chatId,
     required String text,
     String presetId = '',
+    String instructionMode = '',
+    bool suppressUserMessage = false,
   }) {
     return _repository.sendMessage(
       chatId: chatId,
       text: text,
       presetId: presetId,
+      instructionMode: instructionMode,
+      suppressUserMessage: suppressUserMessage,
     );
   }
 
@@ -257,12 +264,16 @@ class TavernStore extends ChangeNotifier {
     required String chatId,
     required String text,
     String presetId = '',
+    String instructionMode = '',
+    bool suppressUserMessage = false,
     required TavernStreamEventHandler onEvent,
   }) {
     return _repository.streamMessage(
       chatId: chatId,
       text: text,
       presetId: presetId,
+      instructionMode: instructionMode,
+      suppressUserMessage: suppressUserMessage,
       onEvent: onEvent,
     );
   }

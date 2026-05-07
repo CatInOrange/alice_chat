@@ -266,6 +266,8 @@ def create_tavern_router(context: AppContext) -> APIRouter:
                 text=text,
                 preset_id=str(body.get('presetId') or '').strip(),
                 provider_id=str(body.get('providerId') or '').strip(),
+                instruction_mode=str(body.get('instructionMode') or '').strip(),
+                suppress_user_message=body.get('suppressUserMessage') is True,
             )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -279,6 +281,28 @@ def create_tavern_router(context: AppContext) -> APIRouter:
             'requestId': result['requestId'],
             'userMessage': result['userMessage'],
             'assistantMessage': result['assistantMessage'],
+            'promptDebug': {
+                'presetId': result['promptDebug'].preset_id,
+                'promptOrderId': result['promptDebug'].prompt_order_id,
+                'matchedWorldbookEntries': result['promptDebug'].matched_worldbook_entries,
+                'rejectedWorldbookEntries': result['promptDebug'].rejected_worldbook_entries,
+                'characterLoreBindings': result['promptDebug'].character_lore_bindings,
+                'blocks': result['promptDebug'].blocks,
+                'messages': result['promptDebug'].messages,
+                'renderedStoryString': result['promptDebug'].rendered_story_string,
+                'renderedExamples': result['promptDebug'].rendered_examples,
+                'runtimeContext': result['promptDebug'].runtime_context,
+                'depthInserts': result['promptDebug'].depth_inserts,
+                'contextUsage': result['promptDebug'].context_usage,
+                'summary': {
+                    'matchedWorldbookCount': len(result['promptDebug'].matched_worldbook_entries),
+                    'rejectedWorldbookCount': len(result['promptDebug'].rejected_worldbook_entries),
+                    'blockCount': len(result['promptDebug'].blocks),
+                    'messageCount': len(result['promptDebug'].messages),
+                    'totalTokens': (result['promptDebug'].context_usage.get('totalTokens') if isinstance(result['promptDebug'].context_usage, dict) else None),
+                    'maxContext': (result['promptDebug'].context_usage.get('maxContext') if isinstance(result['promptDebug'].context_usage, dict) else None),
+                },
+            },
         }
 
     @router.post('/api/tavern/chats/{chat_id}/stream')
@@ -292,6 +316,8 @@ def create_tavern_router(context: AppContext) -> APIRouter:
                 text=text,
                 preset_id=str(body.get('presetId') or '').strip(),
                 provider_id=str(body.get('providerId') or '').strip(),
+                instruction_mode=str(body.get('instructionMode') or '').strip(),
+                suppress_user_message=body.get('suppressUserMessage') is True,
             )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -301,7 +327,11 @@ def create_tavern_router(context: AppContext) -> APIRouter:
         async def event_stream():
             request_id = state['requestId']
             assistant_message_id = state['assistantMessageId']
-            yield format_sse({'requestId': request_id, 'messageId': state['userMessage']['id'], 'userMessage': state['userMessage']}, event_name='start', include_id=False)
+            start_payload = {'requestId': request_id}
+            if state.get('userMessage') is not None:
+                start_payload['messageId'] = state['userMessage']['id']
+                start_payload['userMessage'] = state['userMessage']
+            yield format_sse(start_payload, event_name='start', include_id=False)
             queue: asyncio.Queue[str] = asyncio.Queue()
             loop = asyncio.get_running_loop()
 
@@ -334,6 +364,28 @@ def create_tavern_router(context: AppContext) -> APIRouter:
                     'messageId': final['assistantMessage']['id'],
                     'text': final['text'],
                     'assistantMessage': final['assistantMessage'],
+                    'promptDebug': {
+                        'presetId': final['promptDebug'].preset_id,
+                        'promptOrderId': final['promptDebug'].prompt_order_id,
+                        'matchedWorldbookEntries': final['promptDebug'].matched_worldbook_entries,
+                        'rejectedWorldbookEntries': final['promptDebug'].rejected_worldbook_entries,
+                        'characterLoreBindings': final['promptDebug'].character_lore_bindings,
+                        'blocks': final['promptDebug'].blocks,
+                        'messages': final['promptDebug'].messages,
+                        'renderedStoryString': final['promptDebug'].rendered_story_string,
+                        'renderedExamples': final['promptDebug'].rendered_examples,
+                        'runtimeContext': final['promptDebug'].runtime_context,
+                        'depthInserts': final['promptDebug'].depth_inserts,
+                        'contextUsage': final['promptDebug'].context_usage,
+                        'summary': {
+                            'matchedWorldbookCount': len(final['promptDebug'].matched_worldbook_entries),
+                            'rejectedWorldbookCount': len(final['promptDebug'].rejected_worldbook_entries),
+                            'blockCount': len(final['promptDebug'].blocks),
+                            'messageCount': len(final['promptDebug'].messages),
+                            'totalTokens': (final['promptDebug'].context_usage.get('totalTokens') if isinstance(final['promptDebug'].context_usage, dict) else None),
+                            'maxContext': (final['promptDebug'].context_usage.get('maxContext') if isinstance(final['promptDebug'].context_usage, dict) else None),
+                        },
+                    },
                 }, event_name='final', include_id=False)
             except Exception as exc:
                 if not final_task.done():
