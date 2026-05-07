@@ -327,6 +327,7 @@ def create_tavern_router(context: AppContext) -> APIRouter:
         async def event_stream():
             request_id = state['requestId']
             assistant_message_id = state['assistantMessageId']
+            release_state = state.get('release')
             start_payload = {'requestId': request_id}
             if state.get('userMessage') is not None:
                 start_payload['messageId'] = state['userMessage']['id']
@@ -341,11 +342,12 @@ def create_tavern_router(context: AppContext) -> APIRouter:
                     return
                 loop.call_soon_threadsafe(queue.put_nowait, delta)
 
-            final_task = asyncio.create_task(
-                asyncio.to_thread(state['finalize'], emit=emit_delta),
-            )
+            final_task = None
             last_keepalive = time.monotonic()
             try:
+                final_task = asyncio.create_task(
+                    asyncio.to_thread(state['finalize'], emit=emit_delta),
+                )
                 while True:
                     try:
                         delta = await asyncio.wait_for(queue.get(), timeout=1.0)
@@ -388,10 +390,12 @@ def create_tavern_router(context: AppContext) -> APIRouter:
                     },
                 }, event_name='final', include_id=False)
             except Exception as exc:
-                if not final_task.done():
+                if final_task is not None and not final_task.done():
                     final_task.cancel()
                     with contextlib.suppress(Exception):
                         await final_task
+                elif release_state is not None:
+                    release_state()
                 yield format_sse({'requestId': request_id, 'error': str(exc)}, event_name='error', include_id=False)
 
         return StreamingResponse(event_stream(), media_type='text/event-stream')

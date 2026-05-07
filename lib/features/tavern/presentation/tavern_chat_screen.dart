@@ -343,6 +343,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   bool _isLoading = true;
   bool _isRefreshing = false;
   bool _isSending = false;
+  bool _isPostProcessing = false;
+  int _sendEpoch = 0;
   bool _isLoadingDebug = false;
   bool _isLoadingContextState = false;
   bool _didInitialScroll = false;
@@ -549,6 +551,19 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
               Expanded(child: _buildBody(context)),
               _buildContextStatusBar(),
               _buildQuickReplyBar(),
+              if (_isPostProcessing && !_isSending)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 2),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      '处理中…',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Theme.of(context).hintColor.withValues(alpha: 0.7),
+                      ),
+                    ),
+                  ),
+                ),
               if (_isRefreshing)
                 const LinearProgressIndicator(minHeight: 2),
               SafeArea(
@@ -1042,8 +1057,19 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       createdAt: DateTime.now(),
     );
 
+    final sendEpoch = ++_sendEpoch;
+
+    void settleSendState({required bool isSending, required bool isPostProcessing}) {
+      if (!mounted || sendEpoch != _sendEpoch) return;
+      setState(() {
+        _isSending = isSending;
+        _isPostProcessing = isPostProcessing;
+      });
+    }
+
     setState(() {
       _isSending = true;
+      _isPostProcessing = false;
       if (showUserMessage) {
         _messages = [..._messages, optimisticUserMessage];
       }
@@ -1161,6 +1187,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                     _latestPromptDebug = promptDebug;
                   }
                 });
+                settleSendState(isSending: false, isPostProcessing: true);
                 unawaited(_persistSnapshot());
                 unawaited(_refreshChatMetaOnly());
                 _scrollToBottom();
@@ -1172,6 +1199,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         },
       );
     } catch (exc) {
+      settleSendState(isSending: false, isPostProcessing: false);
       if (!mounted) return;
       setState(() {
         _messages = _messages
@@ -1185,8 +1213,12 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text('流式连接中断，正在同步结果…')));
     } finally {
-      if (mounted) {
-        setState(() => _isSending = false);
+      if (mounted && sendEpoch == _sendEpoch) {
+        setState(() {
+          if (!_isSending) {
+            _isPostProcessing = false;
+          }
+        });
       }
     }
   }
