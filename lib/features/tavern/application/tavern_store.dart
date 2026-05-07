@@ -249,6 +249,7 @@ class TavernStore extends ChangeNotifier {
     required String text,
     String presetId = '',
     String instructionMode = '',
+    String hiddenInstruction = '',
     bool suppressUserMessage = false,
   }) {
     return _repository.sendMessage(
@@ -256,6 +257,7 @@ class TavernStore extends ChangeNotifier {
       text: text,
       presetId: presetId,
       instructionMode: instructionMode,
+      hiddenInstruction: hiddenInstruction,
       suppressUserMessage: suppressUserMessage,
     );
   }
@@ -265,6 +267,7 @@ class TavernStore extends ChangeNotifier {
     required String text,
     String presetId = '',
     String instructionMode = '',
+    String hiddenInstruction = '',
     bool suppressUserMessage = false,
     required TavernStreamEventHandler onEvent,
   }) {
@@ -273,6 +276,7 @@ class TavernStore extends ChangeNotifier {
       text: text,
       presetId: presetId,
       instructionMode: instructionMode,
+      hiddenInstruction: hiddenInstruction,
       suppressUserMessage: suppressUserMessage,
       onEvent: onEvent,
     );

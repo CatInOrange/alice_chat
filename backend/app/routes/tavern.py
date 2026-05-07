@@ -267,6 +267,7 @@ def create_tavern_router(context: AppContext) -> APIRouter:
                 preset_id=str(body.get('presetId') or '').strip(),
                 provider_id=str(body.get('providerId') or '').strip(),
                 instruction_mode=str(body.get('instructionMode') or '').strip(),
+                hidden_instruction=str(body.get('hiddenInstruction') or '').strip(),
                 suppress_user_message=body.get('suppressUserMessage') is True,
             )
         except FileNotFoundError as exc:
@@ -317,6 +318,7 @@ def create_tavern_router(context: AppContext) -> APIRouter:
                 preset_id=str(body.get('presetId') or '').strip(),
                 provider_id=str(body.get('providerId') or '').strip(),
                 instruction_mode=str(body.get('instructionMode') or '').strip(),
+                hidden_instruction=str(body.get('hiddenInstruction') or '').strip(),
                 suppress_user_message=body.get('suppressUserMessage') is True,
             )
         except FileNotFoundError as exc:
@@ -327,7 +329,6 @@ def create_tavern_router(context: AppContext) -> APIRouter:
         async def event_stream():
             request_id = state['requestId']
             assistant_message_id = state['assistantMessageId']
-            release_state = state.get('release')
             start_payload = {'requestId': request_id}
             if state.get('userMessage') is not None:
                 start_payload['messageId'] = state['userMessage']['id']
@@ -394,8 +395,6 @@ def create_tavern_router(context: AppContext) -> APIRouter:
                     final_task.cancel()
                     with contextlib.suppress(Exception):
                         await final_task
-                elif release_state is not None:
-                    release_state()
                 yield format_sse({'requestId': request_id, 'error': str(exc)}, event_name='error', include_id=False)
 
         return StreamingResponse(event_stream(), media_type='text/event-stream')

@@ -1,5 +1,4 @@
-import 'dart:typed_data';
-
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -329,6 +328,15 @@ class _TavernScreenState extends State<TavernScreen>
           trailingText: '${store.worldBooks.length}',
           onTap: () => _showWorldBooksManager(context, store),
         ),
+        const SizedBox(height: 12),
+        _settingsEntryCard(
+          context,
+          icon: Icons.flash_on_outlined,
+          title: '快速回复',
+          subtitle: '配置继续 / 转折 / 描写的按钮文案与隐藏引导词',
+          trailingText: '3',
+          onTap: () => _showQuickReplySettings(context),
+        ),
       ],
     );
   }
@@ -401,6 +409,15 @@ class _TavernScreenState extends State<TavernScreen>
     );
     if (!mounted) return;
     await this.context.read<TavernStore>().loadHome();
+  }
+
+  Future<void> _showQuickReplySettings(BuildContext context) async {
+    final navigator = Navigator.of(context);
+    await navigator.push(
+      MaterialPageRoute(
+        builder: (_) => const _QuickReplySettingsPage(),
+      ),
+    );
   }
 
   Widget _settingsEntryCard(
@@ -3679,5 +3696,228 @@ class _PromptTag extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _QuickReplySettingsPage extends StatefulWidget {
+  const _QuickReplySettingsPage();
+
+  @override
+  State<_QuickReplySettingsPage> createState() =>
+      _QuickReplySettingsPageState();
+}
+
+class _QuickReplySettingsPageState extends State<_QuickReplySettingsPage> {
+  late final List<_QuickReplyDraft> _drafts;
+  bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _drafts = OpenClawSettingsStore.defaultTavernQuickReplies()
+        .map(_QuickReplyDraft.fromMap)
+        .toList(growable: false);
+    _load();
+  }
+
+  Future<void> _load() async {
+    final loaded = await OpenClawSettingsStore.loadTavernQuickReplies();
+    if (!mounted) return;
+    setState(() {
+      for (var i = 0; i < _drafts.length && i < loaded.length; i++) {
+        _drafts[i].labelController.text =
+            loaded[i]['label'] ?? _drafts[i].labelController.text;
+        _drafts[i].instructionController.text =
+            loaded[i]['instruction'] ??
+            _drafts[i].instructionController.text;
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    for (final draft in _drafts) {
+      draft.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final items = _drafts.map((draft) => draft.toMap()).toList(growable: false);
+    final hasEmpty = items.any(
+      (item) =>
+          (item['label'] ?? '').trim().isEmpty ||
+          (item['instruction'] ?? '').trim().isEmpty,
+    );
+    if (hasEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('按钮文案和隐藏引导词都不能为空')),
+      );
+      return;
+    }
+    setState(() => _isSaving = true);
+    try {
+      await OpenClawSettingsStore.saveTavernQuickReplies(items);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('快速回复配置已保存')));
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  void _resetDefaults() {
+    final defaults = OpenClawSettingsStore.defaultTavernQuickReplies();
+    setState(() {
+      for (var i = 0; i < _drafts.length && i < defaults.length; i++) {
+        _drafts[i].labelController.text = defaults[i]['label'] ?? '';
+        _drafts[i].instructionController.text =
+            defaults[i]['instruction'] ?? '';
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('快速回复'),
+        actions: [
+          TextButton(
+            onPressed: _isSaving ? null : _resetDefaults,
+            child: const Text('恢复默认'),
+          ),
+        ],
+      ),
+      body: ListView.separated(
+        padding: const EdgeInsets.all(16),
+        itemBuilder: (context, index) {
+          final draft = _drafts[index];
+          return Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          draft.modeLabel,
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: '复制引导词',
+                        onPressed: () {
+                          Clipboard.setData(
+                            ClipboardData(
+                              text: draft.instructionController.text,
+                            ),
+                          );
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('${draft.modeLabel} 引导词已复制'),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.copy_all_outlined),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: draft.labelController,
+                    decoration: const InputDecoration(
+                      labelText: '按钮文案',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: draft.instructionController,
+                    minLines: 3,
+                    maxLines: 6,
+                    decoration: const InputDecoration(
+                      labelText: '隐藏引导词',
+                      alignLabelWithHint: true,
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        itemCount: _drafts.length,
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: FilledButton(
+            onPressed: _isSaving ? null : _save,
+            child: Text(_isSaving ? '保存中…' : '保存'),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickReplyDraft {
+  _QuickReplyDraft({
+    required this.mode,
+    required this.modeLabel,
+    required this.labelController,
+    required this.instructionController,
+  });
+
+  factory _QuickReplyDraft.fromMap(Map<String, String> map) {
+    final mode = map['mode'] ?? '';
+    return _QuickReplyDraft(
+      mode: mode,
+      modeLabel: _modeLabel(mode),
+      labelController: TextEditingController(text: map['label'] ?? ''),
+      instructionController: TextEditingController(
+        text: map['instruction'] ?? '',
+      ),
+    );
+  }
+
+  final String mode;
+  final String modeLabel;
+  final TextEditingController labelController;
+  final TextEditingController instructionController;
+
+  Map<String, String> toMap() {
+    return {
+      'mode': mode,
+      'label': labelController.text.trim(),
+      'instruction': instructionController.text.trim(),
+    };
+  }
+
+  void dispose() {
+    labelController.dispose();
+    instructionController.dispose();
+  }
+
+  static String _modeLabel(String mode) {
+    switch (mode) {
+      case 'continue':
+        return '继续';
+      case 'twist':
+        return '转折';
+      case 'describe':
+        return '描写';
+      default:
+        return mode;
+    }
   }
 }

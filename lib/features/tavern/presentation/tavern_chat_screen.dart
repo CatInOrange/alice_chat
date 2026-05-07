@@ -343,8 +343,9 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   bool _isLoading = true;
   bool _isRefreshing = false;
   bool _isSending = false;
-  bool _isPostProcessing = false;
   int _sendEpoch = 0;
+  List<Map<String, String>> _quickReplyConfigs =
+      OpenClawSettingsStore.defaultTavernQuickReplies();
   bool _isLoadingDebug = false;
   bool _isLoadingContextState = false;
   bool _didInitialScroll = false;
@@ -381,12 +382,14 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       final cached = await store.loadCachedChatSnapshot(_chat.id);
       final settings = await OpenClawSettingsStore.load();
       if (!mounted) return;
+      final quickReplies = await OpenClawSettingsStore.loadTavernQuickReplies();
       if (cached != null) {
         setState(() {
           _serverBaseUrl = settings.baseUrl.trim().replaceFirst(
             RegExp(r'/+$'),
             '',
           );
+          _quickReplyConfigs = quickReplies;
           _chat = cached.chat ?? _chat;
           _character = cached.character ?? _character;
           _messages = cached.messages;
@@ -411,6 +414,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           RegExp(r'/+$'),
           '',
         );
+        _quickReplyConfigs = quickReplies;
         _messages = messages;
         _selectedPresetId = _chat.presetId.isNotEmpty ? _chat.presetId : null;
         _isLoading = false;
@@ -551,19 +555,6 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
               Expanded(child: _buildBody(context)),
               _buildContextStatusBar(),
               _buildQuickReplyBar(),
-              if (_isPostProcessing && !_isSending)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 2),
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: Text(
-                      '处理中…',
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: Theme.of(context).hintColor.withValues(alpha: 0.7),
-                      ),
-                    ),
-                  ),
-                ),
               if (_isRefreshing)
                 const LinearProgressIndicator(minHeight: 2),
               SafeArea(
@@ -1026,12 +1017,15 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     return _sendText(_inputController.text.trim());
   }
 
-  Future<void> _sendSilentQuickReply(String instructionMode) async {
+  Future<void> _sendSilentQuickReply(Map<String, String> item) async {
+    final instruction = (item['instruction'] ?? '').trim();
+    if (instruction.isEmpty) return;
     return _sendText(
-      instructionMode,
+      instruction,
       replaceComposer: false,
       showUserMessage: false,
-      instructionMode: instructionMode,
+      instructionMode: (item['mode'] ?? '').trim(),
+      hiddenInstruction: instruction,
       suppressUserMessage: true,
     );
   }
@@ -1041,6 +1035,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     bool replaceComposer = true,
     bool showUserMessage = true,
     String instructionMode = '',
+    String hiddenInstruction = '',
     bool suppressUserMessage = false,
   }) async {
     if (text.isEmpty || _isSending) return;
@@ -1059,17 +1054,15 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
 
     final sendEpoch = ++_sendEpoch;
 
-    void settleSendState({required bool isSending, required bool isPostProcessing}) {
+    void settleSendState({required bool isSending}) {
       if (!mounted || sendEpoch != _sendEpoch) return;
       setState(() {
         _isSending = isSending;
-        _isPostProcessing = isPostProcessing;
       });
     }
 
     setState(() {
       _isSending = true;
-      _isPostProcessing = false;
       if (showUserMessage) {
         _messages = [..._messages, optimisticUserMessage];
       }
@@ -1086,6 +1079,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         text: text,
         presetId: _selectedPresetId ?? '',
         instructionMode: instructionMode,
+        hiddenInstruction: hiddenInstruction,
         suppressUserMessage: suppressUserMessage,
         onEvent: (event, data) {
           if (!mounted) return;
@@ -1187,7 +1181,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                     _latestPromptDebug = promptDebug;
                   }
                 });
-                settleSendState(isSending: false, isPostProcessing: true);
+                settleSendState(isSending: false);
                 unawaited(_persistSnapshot());
                 unawaited(_refreshChatMetaOnly());
                 _scrollToBottom();
@@ -1199,7 +1193,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         },
       );
     } catch (exc) {
-      settleSendState(isSending: false, isPostProcessing: false);
+      settleSendState(isSending: false);
       if (!mounted) return;
       setState(() {
         _messages = _messages
@@ -1213,13 +1207,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         context,
       ).showSnackBar(SnackBar(content: Text('流式连接中断，正在同步结果…')));
     } finally {
-      if (mounted && sendEpoch == _sendEpoch) {
-        setState(() {
-          if (!_isSending) {
-            _isPostProcessing = false;
-          }
-        });
-      }
+      settleSendState(isSending: false);
     }
   }
 
@@ -1271,11 +1259,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   }
 
   List<Map<String, String>> _quickReplies() {
-    return const [
-      {'label': '继续', 'mode': 'continue'},
-      {'label': '转折', 'mode': 'twist'},
-      {'label': '描写', 'mode': 'describe'},
-    ];
+    return _quickReplyConfigs;
   }
 
   Map<String, int> _contextBreakdown(TavernPromptDebug debug) {
@@ -1504,11 +1488,11 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           final item = items[index];
           return ActionChip(
             visualDensity: VisualDensity.compact,
-            label: Text(item['label']!),
+            label: Text(item['label'] ?? ''),
             onPressed:
                 _isSending
                     ? null
-                    : () => _sendSilentQuickReply(item['mode']!),
+                    : () => _sendSilentQuickReply(item),
           );
         },
         separatorBuilder: (_, __) => const SizedBox(width: 8),

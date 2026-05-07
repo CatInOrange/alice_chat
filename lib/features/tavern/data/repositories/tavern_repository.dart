@@ -144,12 +144,15 @@ class TavernRepository {
     required String text,
     String presetId = '',
     String instructionMode = '',
+    String hiddenInstruction = '',
     bool suppressUserMessage = false,
   }) {
     return _postJson('/api/tavern/chats/$chatId/send', {
       'text': text,
       if (presetId.isNotEmpty) 'presetId': presetId,
       if (instructionMode.isNotEmpty) 'instructionMode': instructionMode,
+      if (hiddenInstruction.trim().isNotEmpty)
+        'hiddenInstruction': hiddenInstruction.trim(),
       if (suppressUserMessage) 'suppressUserMessage': true,
     });
   }
@@ -159,6 +162,7 @@ class TavernRepository {
     required String text,
     String presetId = '',
     String instructionMode = '',
+    String hiddenInstruction = '',
     bool suppressUserMessage = false,
     required TavernStreamEventHandler onEvent,
   }) async {
@@ -170,6 +174,8 @@ class TavernRepository {
         'text': text,
         if (presetId.isNotEmpty) 'presetId': presetId,
         if (instructionMode.isNotEmpty) 'instructionMode': instructionMode,
+        if (hiddenInstruction.trim().isNotEmpty)
+          'hiddenInstruction': hiddenInstruction.trim(),
         if (suppressUserMessage) 'suppressUserMessage': true,
       },
       onEvent: onEvent,

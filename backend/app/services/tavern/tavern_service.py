@@ -258,6 +258,12 @@ class TavernService:
             return '请延续当前场景，放慢节奏，重点加强动作、神态、环境、触感、声音与氛围等细节描写，先细致展开当前内容，不急着推动重大新事件。'
         return ''
 
+    def resolve_hidden_instruction(self, *, mode: str = '', hidden_instruction: str = '') -> str:
+        direct = str(hidden_instruction or '').strip()
+        if direct:
+            return direct
+        return self._hidden_instruction_text(mode)
+
     def prepare_generation(self, chat_id: str, *, text: str, preset_id: str = '', hidden_instruction: str = '') -> dict[str, Any]:
         chat = self.store.get_chat(chat_id)
         if chat is None:

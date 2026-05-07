@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'openclaw_config.dart';
@@ -12,6 +14,25 @@ class OpenClawSettingsStore {
   static const _backgroundServiceEnabledKey =
       'alicechat.backgroundServiceEnabled';
   static const _musicProviderCookiePrefix = 'music.provider.cookie.';
+  static const _tavernQuickRepliesKey = 'alicechat.tavern.quickReplies';
+
+  static const List<Map<String, String>> _defaultTavernQuickReplies = [
+    {
+      'mode': 'continue',
+      'label': '继续',
+      'instruction': '请紧接当前剧情自然续写，优先承接最近的互动、情绪、动作与场景，不要生硬跳转；若无明显新事件，就顺着当前节奏继续推进。',
+    },
+    {
+      'mode': 'twist',
+      'label': '转折',
+      'instruction': '请在保持当前剧情连续性的前提下，引入一个自然的新变化、事件、线索、来人或冲突，让剧情出现新的转折，但不要硬切或脱离当前语境。',
+    },
+    {
+      'mode': 'describe',
+      'label': '描写',
+      'instruction': '请延续当前场景，放慢节奏，重点加强动作、神态、环境、触感、声音与氛围等细节描写，先细致展开当前内容，不急着推动重大新事件。',
+    },
+  ];
 
   static const OpenClawConfig _defaultConfig = OpenClawConfig(
     baseUrl: '',
@@ -100,5 +121,68 @@ class OpenClawSettingsStore {
       return;
     }
     await prefs.setString('$_musicProviderCookiePrefix$providerId', normalized);
+  }
+
+  static List<Map<String, String>> defaultTavernQuickReplies() {
+    return _defaultTavernQuickReplies
+        .map((item) => Map<String, String>.from(item))
+        .toList(growable: false);
+  }
+
+  static Future<List<Map<String, String>>> loadTavernQuickReplies() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_tavernQuickRepliesKey)?.trim();
+    if (raw == null || raw.isEmpty) {
+      return defaultTavernQuickReplies();
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) {
+        return defaultTavernQuickReplies();
+      }
+      final normalized = <Map<String, String>>[];
+      for (final item in decoded.whereType<Map>()) {
+        final map = Map<String, dynamic>.from(item);
+        final mode = (map['mode'] ?? '').toString().trim().toLowerCase();
+        final label = (map['label'] ?? '').toString().trim();
+        final instruction = (map['instruction'] ?? '').toString().trim();
+        if (mode.isEmpty || label.isEmpty || instruction.isEmpty) continue;
+        normalized.add({
+          'mode': mode,
+          'label': label,
+          'instruction': instruction,
+        });
+      }
+      if (normalized.isEmpty) {
+        return defaultTavernQuickReplies();
+      }
+      return normalized;
+    } catch (_) {
+      return defaultTavernQuickReplies();
+    }
+  }
+
+  static Future<void> saveTavernQuickReplies(
+    List<Map<String, String>> items,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final normalized = items
+        .map((item) => {
+              'mode': (item['mode'] ?? '').trim().toLowerCase(),
+              'label': (item['label'] ?? '').trim(),
+              'instruction': (item['instruction'] ?? '').trim(),
+            })
+        .where(
+          (item) =>
+              item['mode']!.isNotEmpty &&
+              item['label']!.isNotEmpty &&
+              item['instruction']!.isNotEmpty,
+        )
+        .toList(growable: false);
+    if (normalized.isEmpty) {
+      await prefs.remove(_tavernQuickRepliesKey);
+      return;
+    }
+    await prefs.setString(_tavernQuickRepliesKey, jsonEncode(normalized));
   }
 }
