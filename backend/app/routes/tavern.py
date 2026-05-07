@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
+import contextlib
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -297,11 +300,35 @@ def create_tavern_router(context: AppContext) -> APIRouter:
 
         async def event_stream():
             request_id = state['requestId']
-            yield format_sse({'requestId': request_id, 'messageId': state['userMessage']['id']}, event_name='start', include_id=False)
+            assistant_message_id = state['assistantMessageId']
+            yield format_sse({'requestId': request_id, 'messageId': state['userMessage']['id'], 'userMessage': state['userMessage']}, event_name='start', include_id=False)
+            queue: asyncio.Queue[str] = asyncio.Queue()
+            loop = asyncio.get_running_loop()
+
+            def emit_delta(frame: dict[str, object]) -> None:
+                delta = str(frame.get('delta') or '')
+                if not delta:
+                    return
+                loop.call_soon_threadsafe(queue.put_nowait, delta)
+
+            final_task = asyncio.create_task(
+                asyncio.to_thread(state['finalize'], emit=emit_delta),
+            )
+            last_keepalive = time.monotonic()
             try:
-                final = state['finalize']()
-                for delta in final['deltas']:
-                    yield format_sse({'requestId': request_id, 'delta': delta}, event_name='delta', include_id=False)
+                while True:
+                    try:
+                        delta = await asyncio.wait_for(queue.get(), timeout=1.0)
+                        yield format_sse({'requestId': request_id, 'messageId': assistant_message_id, 'delta': delta}, event_name='delta', include_id=False)
+                        last_keepalive = time.monotonic()
+                    except asyncio.TimeoutError:
+                        if final_task.done() and queue.empty():
+                            break
+                        now = time.monotonic()
+                        if now - last_keepalive >= 10:
+                            yield ': keep-alive\n\n'
+                            last_keepalive = now
+                final = await final_task
                 yield format_sse({
                     'requestId': request_id,
                     'messageId': final['assistantMessage']['id'],
@@ -309,6 +336,10 @@ def create_tavern_router(context: AppContext) -> APIRouter:
                     'assistantMessage': final['assistantMessage'],
                 }, event_name='final', include_id=False)
             except Exception as exc:
+                if not final_task.done():
+                    final_task.cancel()
+                    with contextlib.suppress(Exception):
+                        await final_task
                 yield format_sse({'requestId': request_id, 'error': str(exc)}, event_name='error', include_id=False)
 
         return StreamingResponse(event_stream(), media_type='text/event-stream')

@@ -1071,6 +1071,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                   unawaited(_persistSnapshot());
                   _scrollToBottom();
                 }
+              } else if (showUserMessage) {
+                unawaited(_persistSnapshot());
               }
               break;
             case 'delta':
@@ -1159,9 +1161,10 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         _streamingAssistantMessageId = null;
       });
       unawaited(_persistSnapshot());
+      unawaited(_refreshFromServer());
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('发送失败：$exc')));
+      ).showSnackBar(SnackBar(content: Text('流式连接中断，正在同步结果…')));
     } finally {
       if (mounted) {
         setState(() => _isSending = false);

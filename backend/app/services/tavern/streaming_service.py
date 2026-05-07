@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Callable
 
 from ...config import get_tavern_provider
 from .model_client import TavernModelClient
@@ -62,29 +62,27 @@ class TavernStreamingService:
         client = TavernModelClient(self.tavern_service.merge_generation_provider(provider, prepared['preset']))
         request_id = f'tav_req_{uuid.uuid4().hex[:12]}'
         user_message = self.tavern_service.store.append_message(chat_id, role='user', content=text)
+        assistant_message_id = f'tav_stream_{uuid.uuid4().hex[:12]}'
+        assistant_metadata = {
+            'requestId': request_id,
+            'providerId': provider.get('id'),
+            'model': client.provider_config.get('model'),
+            'promptDebug': {
+                'presetId': prepared['promptDebug'].preset_id,
+                'promptOrderId': prepared['promptDebug'].prompt_order_id,
+            },
+        }
 
-        deltas: list[str] = []
-
-        def emit(frame: dict[str, Any]) -> None:
-            delta = str(frame.get('delta') or '')
-            if delta:
-                deltas.append(delta)
-
-        def finalize() -> dict[str, Any]:
-            result = client.stream_generate(messages=prepared['messages'], emit=emit)
+        def finalize(*, emit: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
+            result = client.stream_generate(
+                messages=prepared['messages'],
+                emit=emit or (lambda _frame: None),
+            )
             assistant_message = self.tavern_service.store.append_message(
                 chat_id,
                 role='assistant',
                 content=result.text,
-                metadata={
-                    'requestId': request_id,
-                    'providerId': provider.get('id'),
-                    'model': client.provider_config.get('model'),
-                    'promptDebug': {
-                        'presetId': prepared['promptDebug'].preset_id,
-                        'promptOrderId': prepared['promptDebug'].prompt_order_id,
-                    },
-                },
+                metadata=assistant_metadata,
             )
             summary_result = self.tavern_service.maybe_generate_summary(
                 chat_id=chat_id,
@@ -99,8 +97,8 @@ class TavernStreamingService:
                 'requestId': request_id,
                 'userMessage': user_message,
                 'assistantMessage': assistant_message,
+                'assistantMessageId': assistant_message_id,
                 'text': result.text,
-                'deltas': deltas,
                 'promptDebug': prepared['promptDebug'],
                 'summary': summary_result,
                 'chat': chat_after_runtime,
@@ -109,9 +107,8 @@ class TavernStreamingService:
         return {
             'requestId': request_id,
             'userMessage': user_message,
+            'assistantMessageId': assistant_message_id,
             'prepared': prepared,
             'provider': provider,
-            'client': client,
             'finalize': finalize,
-            'deltas': deltas,
         }
