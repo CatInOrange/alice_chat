@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 
@@ -10,6 +11,16 @@ SUSPICIOUS_FINAL_KEYWORDS = (
     'tool failed',
     'approval required',
     'exit code',
+)
+
+SUSPICIOUS_FINAL_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r'^(?:[⚠️📝\s]+)?edit:\s+in\s+.+?\s+failed\s*$',
+            re.IGNORECASE,
+        ),
+        'edit_failed',
+    ),
 )
 
 
@@ -35,6 +46,9 @@ def detect_suspicious_final(text: str) -> str | None:
     for keyword in SUSPICIOUS_FINAL_KEYWORDS:
         if keyword in lowered:
             return keyword
+    for pattern, reason in SUSPICIOUS_FINAL_PATTERNS:
+        if pattern.match(value):
+            return reason
     return None
 
 
@@ -88,5 +102,7 @@ def select_preview_recovery_text(*, final_text: str, preview_text: str) -> str:
         return ''
     lowered_preview = preview_value.lower()
     if any(keyword in lowered_preview for keyword in SUSPICIOUS_FINAL_KEYWORDS):
+        return ''
+    if any(pattern.match(preview_value) for pattern, _reason in SUSPICIOUS_FINAL_PATTERNS):
         return ''
     return preview_value
