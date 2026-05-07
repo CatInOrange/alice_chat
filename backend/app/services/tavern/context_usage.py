@@ -4,7 +4,9 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
-_CHARS_PER_TOKEN_RATIO = 3.35
+_BYTES_PER_TOKEN_RATIO = 4.0
+_TOKENS_PER_MESSAGE_OVERHEAD = 3
+_TOKENS_PER_NAME_FIELD = 1
 
 
 @dataclass(slots=True)
@@ -43,24 +45,47 @@ class ContextUsage:
 
 
 class TavernTokenizerService:
-    """NativeTavern-style lightweight tokenizer estimate service.
+    """Lightweight tokenizer estimate service.
 
-    Keep this centralized so future exact tokenizers can swap in without touching
-    prompt-builder/budget callers.
+    Standard best-practice is model/provider-specific tokenizers (for example
+    tiktoken or provider count-tokens endpoints). When an exact tokenizer is not
+    available locally, use a UTF-8-byte heuristic plus lightweight chat-message
+    framing overhead so mixed English/CJK text is less undercounted than a plain
+    chars/token ratio.
     """
 
-    chars_per_token_ratio = _CHARS_PER_TOKEN_RATIO
+    bytes_per_token_ratio = _BYTES_PER_TOKEN_RATIO
+    tokens_per_message_overhead = _TOKENS_PER_MESSAGE_OVERHEAD
+    tokens_per_name_field = _TOKENS_PER_NAME_FIELD
 
     def estimate_token_count(self, text: str) -> int:
         text = str(text or '')
         if not text:
             return 0
-        return max(1, int((len(text) / self.chars_per_token_ratio) + 0.999999))
+        byte_length = len(text.encode('utf-8'))
+        return max(1, int((byte_length / self.bytes_per_token_ratio) + 0.999999))
+
+    def estimate_message_token_count(self, message: dict[str, Any]) -> int:
+        content = str(message.get('content') or message.get('text') or '').strip()
+        if not content:
+            return 0
+        total = self.estimate_token_count(content) + self.tokens_per_message_overhead
+        if str(message.get('name') or '').strip():
+            total += self.tokens_per_name_field
+        return total
+
+    def estimate_messages_token_count(self, messages: list[dict[str, Any]]) -> int:
+        total = 0
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            total += self.estimate_message_token_count(message)
+        return total
 
     def tokens_to_chars(self, token_count: int) -> int:
         if token_count <= 0:
             return 0
-        return max(1, int((token_count * self.chars_per_token_ratio) + 0.999999))
+        return max(1, int((token_count * self.bytes_per_token_ratio) + 0.999999))
 
 
 class TavernContextUsageService:
@@ -94,6 +119,7 @@ class TavernContextUsageService:
         chat: dict[str, Any] | None,
         max_context: int = 0,
         worldbook_token_budget: int = 0,
+        rendered_messages: list[dict[str, Any]] | None = None,
     ) -> ContextUsage:
         components: list[ContextComponentUsage] = []
 
@@ -235,6 +261,19 @@ class TavernContextUsageService:
                 icon='send',
             ))
 
+        component_total_tokens = sum(component.token_count for component in components)
+        rendered_total_tokens = self.tokenizer.estimate_messages_token_count(rendered_messages or [])
+        message_overhead_tokens = max(0, rendered_total_tokens - component_total_tokens)
+        if message_overhead_tokens > 0:
+            components.append(ContextComponentUsage(
+                name='Message Framing',
+                token_count=message_overhead_tokens,
+                icon='token',
+                meta={
+                    'kind': 'message_overhead',
+                    'estimationOnly': True,
+                },
+            ))
         total_tokens = sum(component.token_count for component in components)
         trim_plan = self._build_trim_plan(components=components, max_context=max_context)
         return ContextUsage(
@@ -242,7 +281,10 @@ class TavernContextUsageService:
             max_context=max_context,
             components=components,
             meta={
-                'tokenizer': 'estimate:chars/3.35',
+                'tokenizer': 'estimate:utf8_bytes/4+message_overhead',
+                'componentTokens': component_total_tokens,
+                'renderedMessageTokens': rendered_total_tokens or None,
+                'messageOverheadTokens': message_overhead_tokens or None,
                 'worldbookTokenBudget': worldbook_token_budget or None,
                 'trimPlan': trim_plan,
             },

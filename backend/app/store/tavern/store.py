@@ -27,6 +27,18 @@ class TavernStore:
     def ensure_schema(self) -> None:
         with connect(self.db) as conn:
             migrate(conn)
+            try:
+                columns = {
+                    str(row[1])
+                    for row in conn.execute("PRAGMA table_info(tavern_presets)").fetchall()
+                }
+                if 'context_length' not in columns:
+                    conn.execute(
+                        "ALTER TABLE tavern_presets ADD COLUMN context_length INTEGER NOT NULL DEFAULT 0"
+                    )
+                    conn.commit()
+            except Exception:
+                pass
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS tavern_characters (
@@ -96,6 +108,7 @@ class TavernStore:
                     typical_p REAL NOT NULL DEFAULT 1.0,
                     repetition_penalty REAL NOT NULL DEFAULT 1.0,
                     max_tokens INTEGER NOT NULL DEFAULT 0,
+                    context_length INTEGER NOT NULL DEFAULT 0,
                     stop_sequences_json TEXT NOT NULL DEFAULT '[]',
                     prompt_order_id TEXT NOT NULL DEFAULT '',
                     story_string TEXT NOT NULL DEFAULT '',
@@ -120,6 +133,7 @@ class TavernStore:
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
                 );
+
 
                 CREATE TABLE IF NOT EXISTS tavern_prompt_orders (
                     id TEXT PRIMARY KEY,
@@ -149,6 +163,22 @@ class TavernStore:
                     recursive INTEGER NOT NULL DEFAULT 0,
                     constant INTEGER NOT NULL DEFAULT 0,
                     prevent_recursion INTEGER NOT NULL DEFAULT 0,
+                    secondary_logic TEXT NOT NULL DEFAULT 'and_any',
+                    scan_depth INTEGER NOT NULL DEFAULT 0,
+                    case_sensitive INTEGER NOT NULL DEFAULT 0,
+                    match_whole_words INTEGER NOT NULL DEFAULT 0,
+                    match_character_description INTEGER NOT NULL DEFAULT 0,
+                    match_character_personality INTEGER NOT NULL DEFAULT 0,
+                    match_scenario INTEGER NOT NULL DEFAULT 0,
+                    use_group_scoring INTEGER NOT NULL DEFAULT 0,
+                    group_weight INTEGER NOT NULL DEFAULT 100,
+                    group_override INTEGER NOT NULL DEFAULT 0,
+                    delay_until_recursion INTEGER NOT NULL DEFAULT 0,
+                    probability INTEGER NOT NULL DEFAULT 100,
+                    ignore_budget INTEGER NOT NULL DEFAULT 0,
+                    character_filter_names_json TEXT NOT NULL DEFAULT '[]',
+                    character_filter_tags_json TEXT NOT NULL DEFAULT '[]',
+                    character_filter_exclude INTEGER NOT NULL DEFAULT 0,
                     sticky INTEGER NOT NULL DEFAULT 0,
                     cooldown INTEGER NOT NULL DEFAULT 0,
                     delay INTEGER NOT NULL DEFAULT 0,
@@ -184,6 +214,22 @@ class TavernStore:
             self._ensure_column(conn, 'tavern_chats', 'author_note_depth', "INTEGER NOT NULL DEFAULT 4")
             self._ensure_column(conn, 'tavern_chats', 'metadata_json', "TEXT NOT NULL DEFAULT '{}' ")
             self._ensure_column(conn, 'tavern_worldbook_entries', 'prevent_recursion', "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, 'tavern_worldbook_entries', 'secondary_logic', "TEXT NOT NULL DEFAULT 'and_any'")
+            self._ensure_column(conn, 'tavern_worldbook_entries', 'scan_depth', "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, 'tavern_worldbook_entries', 'case_sensitive', "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, 'tavern_worldbook_entries', 'match_whole_words', "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, 'tavern_worldbook_entries', 'match_character_description', "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, 'tavern_worldbook_entries', 'match_character_personality', "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, 'tavern_worldbook_entries', 'match_scenario', "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, 'tavern_worldbook_entries', 'use_group_scoring', "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, 'tavern_worldbook_entries', 'group_weight', "INTEGER NOT NULL DEFAULT 100")
+            self._ensure_column(conn, 'tavern_worldbook_entries', 'group_override', "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, 'tavern_worldbook_entries', 'delay_until_recursion', "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, 'tavern_worldbook_entries', 'probability', "INTEGER NOT NULL DEFAULT 100")
+            self._ensure_column(conn, 'tavern_worldbook_entries', 'ignore_budget', "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, 'tavern_worldbook_entries', 'character_filter_names_json', "TEXT NOT NULL DEFAULT '[]'")
+            self._ensure_column(conn, 'tavern_worldbook_entries', 'character_filter_tags_json', "TEXT NOT NULL DEFAULT '[]'")
+            self._ensure_column(conn, 'tavern_worldbook_entries', 'character_filter_exclude', "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, 'tavern_worldbook_entries', 'sticky', "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, 'tavern_worldbook_entries', 'cooldown', "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, 'tavern_worldbook_entries', 'delay', "INTEGER NOT NULL DEFAULT 0")
@@ -495,6 +541,22 @@ class TavernStore:
             'recursive': bool(payload.get('recursive', False)),
             'constant': bool(payload.get('constant', False)),
             'preventRecursion': bool(payload.get('preventRecursion', False)),
+            'secondaryLogic': self._normalize_secondary_logic(payload.get('secondaryLogic')),
+            'scanDepth': max(0, int(payload.get('scanDepth') or 0)),
+            'caseSensitive': bool(payload.get('caseSensitive', False)),
+            'matchWholeWords': bool(payload.get('matchWholeWords', False)),
+            'matchCharacterDescription': bool(payload.get('matchCharacterDescription', False)),
+            'matchCharacterPersonality': bool(payload.get('matchCharacterPersonality', False)),
+            'matchScenario': bool(payload.get('matchScenario', False)),
+            'useGroupScoring': bool(payload.get('useGroupScoring', False)),
+            'groupWeight': max(1, int(payload.get('groupWeight') or 100)),
+            'groupOverride': bool(payload.get('groupOverride', False)),
+            'delayUntilRecursion': max(0, int(payload.get('delayUntilRecursion') or 0)),
+            'probability': min(100, max(0, int(payload.get('probability') or 100))),
+            'ignoreBudget': bool(payload.get('ignoreBudget', False)),
+            'characterFilterNames': self._normalize_string_list(payload.get('characterFilterNames')),
+            'characterFilterTags': self._normalize_string_list(payload.get('characterFilterTags')),
+            'characterFilterExclude': bool(payload.get('characterFilterExclude', False)),
             'sticky': max(0, int(payload.get('sticky') or 0)),
             'cooldown': max(0, int(payload.get('cooldown') or 0)),
             'delay': max(0, int(payload.get('delay') or 0)),
@@ -508,15 +570,25 @@ class TavernStore:
                 """
                 INSERT INTO tavern_worldbook_entries(
                   id,worldbook_id,keys_json,secondary_keys_json,content,enabled,
-                  priority,recursive,constant,prevent_recursion,sticky,cooldown,delay,insertion_position,group_name,created_at,updated_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  priority,recursive,constant,prevent_recursion,secondary_logic,scan_depth,
+                  case_sensitive,match_whole_words,match_character_description,
+                  match_character_personality,match_scenario,use_group_scoring,group_weight,group_override,
+                  delay_until_recursion,probability,ignore_budget,character_filter_names_json,character_filter_tags_json,
+                  character_filter_exclude,sticky,cooldown,delay,insertion_position,group_name,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     record['id'], worldbook_id, json.dumps(record['keys'], ensure_ascii=False),
                     json.dumps(record['secondaryKeys'], ensure_ascii=False), record['content'],
                     1 if record['enabled'] else 0, record['priority'], 1 if record['recursive'] else 0,
                     1 if record['constant'] else 0, 1 if record['preventRecursion'] else 0,
-                    record['sticky'], record['cooldown'], record['delay'], record['insertionPosition'], record['groupName'], now, now,
+                    record['secondaryLogic'], record['scanDepth'], 1 if record['caseSensitive'] else 0,
+                    1 if record['matchWholeWords'] else 0, 1 if record['matchCharacterDescription'] else 0,
+                    1 if record['matchCharacterPersonality'] else 0, 1 if record['matchScenario'] else 0,
+                    1 if record['useGroupScoring'] else 0, record['groupWeight'], 1 if record['groupOverride'] else 0,
+                    record['delayUntilRecursion'], record['probability'], 1 if record['ignoreBudget'] else 0,
+                    json.dumps(record['characterFilterNames'], ensure_ascii=False), json.dumps(record['characterFilterTags'], ensure_ascii=False),
+                    1 if record['characterFilterExclude'] else 0, record['sticky'], record['cooldown'], record['delay'], record['insertionPosition'], record['groupName'], now, now,
                 ),
             )
             conn.commit()
@@ -543,7 +615,7 @@ class TavernStore:
             conn.execute(
                 """
                 UPDATE tavern_worldbook_entries
-                SET keys_json=?, secondary_keys_json=?, content=?, enabled=?, priority=?, recursive=?, constant=?, prevent_recursion=?, sticky=?, cooldown=?, delay=?, insertion_position=?, group_name=?, updated_at=?
+                SET keys_json=?, secondary_keys_json=?, content=?, enabled=?, priority=?, recursive=?, constant=?, prevent_recursion=?, secondary_logic=?, scan_depth=?, case_sensitive=?, match_whole_words=?, match_character_description=?, match_character_personality=?, match_scenario=?, use_group_scoring=?, group_weight=?, group_override=?, delay_until_recursion=?, probability=?, ignore_budget=?, character_filter_names_json=?, character_filter_tags_json=?, character_filter_exclude=?, sticky=?, cooldown=?, delay=?, insertion_position=?, group_name=?, updated_at=?
                 WHERE id=?
                 """,
                 (
@@ -555,6 +627,22 @@ class TavernStore:
                     1 if bool(payload.get('recursive', bool(current['recursive']))) else 0,
                     1 if bool(payload.get('constant', bool(current['constant']))) else 0,
                     1 if bool(payload.get('preventRecursion', bool(current['prevent_recursion']))) else 0,
+                    self._normalize_secondary_logic(payload.get('secondaryLogic', current['secondary_logic'])),
+                    max(0, int(payload.get('scanDepth', current['scan_depth']) or 0)),
+                    1 if bool(payload.get('caseSensitive', bool(current['case_sensitive']))) else 0,
+                    1 if bool(payload.get('matchWholeWords', bool(current['match_whole_words']))) else 0,
+                    1 if bool(payload.get('matchCharacterDescription', bool(current['match_character_description']))) else 0,
+                    1 if bool(payload.get('matchCharacterPersonality', bool(current['match_character_personality']))) else 0,
+                    1 if bool(payload.get('matchScenario', bool(current['match_scenario']))) else 0,
+                    1 if bool(payload.get('useGroupScoring', bool(current['use_group_scoring']))) else 0,
+                    max(1, int(payload.get('groupWeight', current['group_weight']) or 100)),
+                    1 if bool(payload.get('groupOverride', bool(current['group_override']))) else 0,
+                    max(0, int(payload.get('delayUntilRecursion', current['delay_until_recursion']) or 0)),
+                    min(100, max(0, int(payload.get('probability', current['probability']) or 100))),
+                    1 if bool(payload.get('ignoreBudget', bool(current['ignore_budget']))) else 0,
+                    json.dumps(self._normalize_string_list(payload.get('characterFilterNames')) if 'characterFilterNames' in payload else self._load_json(current['character_filter_names_json'], default=[]), ensure_ascii=False),
+                    json.dumps(self._normalize_string_list(payload.get('characterFilterTags')) if 'characterFilterTags' in payload else self._load_json(current['character_filter_tags_json'], default=[]), ensure_ascii=False),
+                    1 if bool(payload.get('characterFilterExclude', bool(current['character_filter_exclude']))) else 0,
                     max(0, int(payload.get('sticky', current['sticky']) or 0)),
                     max(0, int(payload.get('cooldown', current['cooldown']) or 0)),
                     max(0, int(payload.get('delay', current['delay']) or 0)),
@@ -715,6 +803,7 @@ class TavernStore:
             'typicalP': float(payload.get('typicalP') or 1.0),
             'repetitionPenalty': float(payload.get('repetitionPenalty') or 1.0),
             'maxTokens': int(payload.get('maxTokens') or 0),
+            'contextLength': int(payload.get('contextLength') or 0),
             'stopSequences': self._normalize_string_list(payload.get('stopSequences')),
             'promptOrderId': str(payload.get('promptOrderId') or '').strip(),
             'storyString': str(payload.get('storyString') or '').strip(),
@@ -730,13 +819,13 @@ class TavernStore:
             conn.execute(
                 """
                 INSERT INTO tavern_presets(
-                  id,name,provider,model,temperature,top_p,frequency_penalty,presence_penalty,top_k,top_a,min_p,typical_p,repetition_penalty,max_tokens,stop_sequences_json,prompt_order_id,story_string,chat_start,example_separator,story_string_position,story_string_depth,story_string_role,created_at,updated_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  id,name,provider,model,temperature,top_p,frequency_penalty,presence_penalty,top_k,top_a,min_p,typical_p,repetition_penalty,max_tokens,context_length,stop_sequences_json,prompt_order_id,story_string,chat_start,example_separator,story_string_position,story_string_depth,story_string_role,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     record['id'], record['name'], record['provider'], record['model'], record['temperature'],
                     record['topP'], record['frequencyPenalty'], record['presencePenalty'], record['topK'], record['topA'], record['minP'], record['typicalP'], record['repetitionPenalty'],
-                    record['maxTokens'], json.dumps(record['stopSequences'], ensure_ascii=False),
+                    record['maxTokens'], record['contextLength'], json.dumps(record['stopSequences'], ensure_ascii=False),
                     record['promptOrderId'], record['storyString'], record['chatStart'], record['exampleSeparator'],
                     record['storyStringPosition'], record['storyStringDepth'], record['storyStringRole'], now, now,
                 ),
@@ -761,7 +850,7 @@ class TavernStore:
             conn.execute(
                 """
                 UPDATE tavern_presets
-                SET name=?, provider=?, model=?, temperature=?, top_p=?, frequency_penalty=?, presence_penalty=?, top_k=?, top_a=?, min_p=?, typical_p=?, repetition_penalty=?, max_tokens=?, stop_sequences_json=?, prompt_order_id=?, story_string=?, chat_start=?, example_separator=?, story_string_position=?, story_string_depth=?, story_string_role=?, updated_at=?
+                SET name=?, provider=?, model=?, temperature=?, top_p=?, frequency_penalty=?, presence_penalty=?, top_k=?, top_a=?, min_p=?, typical_p=?, repetition_penalty=?, max_tokens=?, context_length=?, stop_sequences_json=?, prompt_order_id=?, story_string=?, chat_start=?, example_separator=?, story_string_position=?, story_string_depth=?, story_string_role=?, updated_at=?
                 WHERE id=?
                 """,
                 (
@@ -778,6 +867,7 @@ class TavernStore:
                     float(payload.get('typicalP', current['typical_p']) or 1.0),
                     float(payload.get('repetitionPenalty', current['repetition_penalty']) or 1.0),
                     int(payload.get('maxTokens', current['max_tokens']) or 0),
+                    int(payload.get('contextLength', current['context_length']) or 0),
                     json.dumps(stops, ensure_ascii=False),
                     str(payload.get('promptOrderId', current['prompt_order_id']) or '').strip(),
                     str(payload.get('storyString', current['story_string']) or '').strip(),
@@ -967,6 +1057,22 @@ class TavernStore:
             'recursive': bool(row['recursive']),
             'constant': bool(row['constant']),
             'preventRecursion': bool(row['prevent_recursion']),
+            'secondaryLogic': str(row['secondary_logic'] or 'and_any'),
+            'scanDepth': int(row['scan_depth'] or 0),
+            'caseSensitive': bool(row['case_sensitive']),
+            'matchWholeWords': bool(row['match_whole_words']),
+            'matchCharacterDescription': bool(row['match_character_description']),
+            'matchCharacterPersonality': bool(row['match_character_personality']),
+            'matchScenario': bool(row['match_scenario']),
+            'useGroupScoring': bool(row['use_group_scoring']),
+            'groupWeight': int(row['group_weight'] or 100),
+            'groupOverride': bool(row['group_override']),
+            'delayUntilRecursion': int(row['delay_until_recursion'] or 0),
+            'probability': int(row['probability'] or 100),
+            'ignoreBudget': bool(row['ignore_budget']),
+            'characterFilterNames': self._load_json(row['character_filter_names_json'], default=[]),
+            'characterFilterTags': self._load_json(row['character_filter_tags_json'], default=[]),
+            'characterFilterExclude': bool(row['character_filter_exclude']),
             'sticky': int(row['sticky'] or 0),
             'cooldown': int(row['cooldown'] or 0),
             'delay': int(row['delay'] or 0),
@@ -1015,6 +1121,7 @@ class TavernStore:
             'typicalP': row['typical_p'],
             'repetitionPenalty': row['repetition_penalty'],
             'maxTokens': row['max_tokens'],
+            'contextLength': row['context_length'],
             'stopSequences': self._load_json(row['stop_sequences_json'], default=[]),
             'promptOrderId': row['prompt_order_id'],
             'storyString': row['story_string'],
@@ -1147,12 +1254,17 @@ class TavernStore:
             if not isinstance(raw_entry, dict):
                 continue
             entry_id = _new_id('tav_wbe')
+            extensions = raw_entry.get('extensions') if isinstance(raw_entry.get('extensions'), dict) else {}
             conn.execute(
                 """
                 INSERT INTO tavern_worldbook_entries(
                   id,worldbook_id,keys_json,secondary_keys_json,content,enabled,
-                  priority,recursive,constant,prevent_recursion,sticky,cooldown,delay,insertion_position,group_name,created_at,updated_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  priority,recursive,constant,prevent_recursion,secondary_logic,scan_depth,
+                  case_sensitive,match_whole_words,match_character_description,
+                  match_character_personality,match_scenario,use_group_scoring,group_weight,group_override,
+                  delay_until_recursion,probability,ignore_budget,character_filter_names_json,character_filter_tags_json,
+                  character_filter_exclude,sticky,cooldown,delay,insertion_position,group_name,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     entry_id,
@@ -1165,6 +1277,22 @@ class TavernStore:
                     1 if self._coerce_bool(raw_entry.get('selective') or raw_entry.get('recursive_scanning') or raw_entry.get('recursive'), default=False) else 0,
                     1 if self._coerce_bool(raw_entry.get('constant'), default=False) else 0,
                     1 if self._coerce_bool(raw_entry.get('prevent_recursion') or raw_entry.get('preventRecursion'), default=False) else 0,
+                    self._normalize_secondary_logic(raw_entry.get('selectiveLogic') or raw_entry.get('secondaryLogic') or extensions.get('selective_logic')),
+                    max(0, self._coerce_int(extensions.get('scan_depth') if extensions else raw_entry.get('scanDepth'), default=0)),
+                    1 if self._coerce_bool(raw_entry.get('caseSensitive') if 'caseSensitive' in raw_entry else extensions.get('case_sensitive'), default=False) else 0,
+                    1 if self._coerce_bool(raw_entry.get('matchWholeWords') if 'matchWholeWords' in raw_entry else extensions.get('match_whole_words'), default=False) else 0,
+                    1 if self._coerce_bool(raw_entry.get('matchCharacterDescription') if 'matchCharacterDescription' in raw_entry else extensions.get('match_character_description'), default=False) else 0,
+                    1 if self._coerce_bool(raw_entry.get('matchCharacterPersonality') if 'matchCharacterPersonality' in raw_entry else extensions.get('match_character_personality'), default=False) else 0,
+                    1 if self._coerce_bool(raw_entry.get('matchScenario') if 'matchScenario' in raw_entry else extensions.get('match_scenario'), default=False) else 0,
+                    1 if self._coerce_bool(raw_entry.get('useGroupScoring') if 'useGroupScoring' in raw_entry else extensions.get('use_group_scoring'), default=False) else 0,
+                    max(1, self._coerce_int(raw_entry.get('groupWeight') if 'groupWeight' in raw_entry else extensions.get('group_weight'), default=100)),
+                    1 if self._coerce_bool(raw_entry.get('groupOverride') if 'groupOverride' in raw_entry else extensions.get('group_override'), default=False) else 0,
+                    max(0, self._coerce_int(raw_entry.get('delayUntilRecursion') if 'delayUntilRecursion' in raw_entry else extensions.get('delay_until_recursion'), default=0)),
+                    min(100, max(0, self._coerce_int(raw_entry.get('probability') if 'probability' in raw_entry else extensions.get('probability'), default=100))),
+                    1 if self._coerce_bool(raw_entry.get('ignoreBudget') if 'ignoreBudget' in raw_entry else extensions.get('ignore_budget'), default=False) else 0,
+                    json.dumps(self._normalize_string_list(raw_entry.get('characterFilterNames') if 'characterFilterNames' in raw_entry else (extensions.get('character_filter_names') if isinstance(extensions.get('character_filter_names'), list) else [])), ensure_ascii=False),
+                    json.dumps(self._normalize_string_list(raw_entry.get('characterFilterTags') if 'characterFilterTags' in raw_entry else (extensions.get('character_filter_tags') if isinstance(extensions.get('character_filter_tags'), list) else [])), ensure_ascii=False),
+                    1 if self._coerce_bool(raw_entry.get('characterFilterExclude') if 'characterFilterExclude' in raw_entry else extensions.get('character_filter_exclude'), default=False) else 0,
                     max(0, self._coerce_int(raw_entry.get('sticky'), default=0)),
                     max(0, self._coerce_int(raw_entry.get('cooldown'), default=0)),
                     max(0, self._coerce_int(raw_entry.get('delay'), default=0)),
@@ -1273,6 +1401,25 @@ class TavernStore:
             4: 'before_last_user',
         }
         return mapping.get(position, 'before_chat_history')
+
+    def _normalize_secondary_logic(self, value: Any) -> str:
+        normalized = str(value or '').strip().lower()
+        aliases = {
+            '0': 'and_any',
+            '1': 'not_all',
+            '2': 'not_any',
+            '3': 'and_all',
+            'any': 'and_any',
+            'all': 'and_all',
+            'and': 'and_any',
+            'or': 'and_any',
+            'not': 'not_any',
+            'and_any': 'and_any',
+            'and_all': 'and_all',
+            'not_any': 'not_any',
+            'not_all': 'not_all',
+        }
+        return aliases.get(normalized, 'and_any')
 
     def _load_json(self, raw: str, *, default: Any) -> Any:
         try:

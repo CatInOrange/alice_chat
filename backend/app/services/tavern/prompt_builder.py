@@ -120,6 +120,7 @@ class PromptBuilder:
             chat=chat or {},
             max_context=max_context,
             worldbook_token_budget=worldbook_token_budget,
+            rendered_messages=[],
         )
 
         for _ in range(6):
@@ -139,6 +140,7 @@ class PromptBuilder:
                 chat=chat or {},
                 max_context=max_context,
                 worldbook_token_budget=worldbook_token_budget,
+                rendered_messages=messages,
             )
             before_history = effective_history
             before_blocks = effective_blocks
@@ -181,6 +183,7 @@ class PromptBuilder:
             chat=chat or {},
             max_context=max_context,
             worldbook_token_budget=worldbook_token_budget,
+            rendered_messages=messages,
         )
 
         return PromptDebugResult(
@@ -936,6 +939,24 @@ class PromptBuilder:
 
 
     def _resolve_worldbook_token_budget(self, character: dict[str, Any]) -> int:
+        raw_book = self._character_book_data(character)
+        if isinstance(raw_book, dict):
+            try:
+                return max(0, int(raw_book.get('token_budget') or raw_book.get('tokenBudget') or 0))
+            except Exception:
+                return 0
+        return 0
+
+    def _resolve_worldbook_max_recursion_steps(self, character: dict[str, Any]) -> int:
+        raw_book = self._character_book_data(character)
+        if isinstance(raw_book, dict):
+            try:
+                return max(0, int(raw_book.get('max_recursion_steps') or raw_book.get('maxRecursionSteps') or 0))
+            except Exception:
+                return 0
+        return 0
+
+    def _character_book_data(self, character: dict[str, Any]) -> dict[str, Any] | None:
         metadata = character.get('metadata') if isinstance(character.get('metadata'), dict) else {}
         raw_book = None
         if isinstance(metadata, dict):
@@ -944,20 +965,24 @@ class PromptBuilder:
                 data_layer = metadata.get('data') if isinstance(metadata.get('data'), dict) else None
                 if isinstance(data_layer, dict):
                     raw_book = data_layer.get('character_book')
-        if isinstance(raw_book, dict):
-            try:
-                return max(0, int(raw_book.get('token_budget') or raw_book.get('tokenBudget') or 0))
-            except Exception:
-                return 0
-        return 0
+            if raw_book is None:
+                card_data = metadata.get('cardData') if isinstance(metadata.get('cardData'), dict) else None
+                if isinstance(card_data, dict):
+                    raw_book = card_data.get('character_book')
+        return raw_book if isinstance(raw_book, dict) else None
 
     def _resolve_max_context(self, preset: dict[str, Any]) -> int:
         try:
-            max_tokens = int(preset.get('maxTokens') or 0)
+            context_length = int(
+                preset.get('contextLength')
+                or preset.get('maxContext')
+                or preset.get('openaiMaxContext')
+                or 0
+            )
         except Exception:
-            max_tokens = 0
-        if max_tokens > 0:
-            return max_tokens
+            context_length = 0
+        if context_length > 0:
+            return context_length
         return 0
 
     def _match_worldbook_entries(
@@ -974,16 +999,9 @@ class PromptBuilder:
             for item in history[-12:]
             if str(item.get('content') or item.get('text') or '').strip()
         ]
-        base_parts = [
-            user_text,
-            *recent_history,
-            str(character.get('name') or ''),
-            str(character.get('description') or ''),
-            str(character.get('scenario') or ''),
-            str(character.get('personality') or ''),
-        ]
-        full_corpus = '\n'.join(part for part in base_parts if part).strip()
-        recursive_corpus = '\n'.join([user_text, *recent_history[-4:]]).strip()
+        recent_history_with_depth = list(enumerate(recent_history, start=1))
+        chat_corpus = '\n'.join(part for part in [user_text, *recent_history] if part).strip()
+        recursive_corpus = '\n'.join(part for part in [user_text, *recent_history[-4:]] if part).strip()
 
         worldbook_token_budget = self._resolve_worldbook_token_budget(character)
         runtime_states = self._worldbook_runtime_state_map(chat or {})
@@ -992,6 +1010,7 @@ class PromptBuilder:
             key=lambda item: (
                 0 if bool(item.get('constant')) else 1,
                 -int(item.get('priority') or 0),
+                self._entry_scan_depth(item) or 10_000,
                 len(str(item.get('content') or '')),
                 str(item.get('groupName') or ''),
                 str(item.get('id') or ''),
@@ -1005,8 +1024,16 @@ class PromptBuilder:
         selected_ids: set[str] = set()
         used_tokens = 0
         pass_index = 0
+        max_recursion_steps = self._resolve_worldbook_max_recursion_steps(character)
+        max_passes = max_recursion_steps if max_recursion_steps > 0 else 3
+        delayed_levels = sorted({
+            self._entry_delay_until_recursion_level(item)
+            for item in ordered_entries
+            if self._entry_delay_until_recursion_level(item) > 0
+        })
+        current_delay_level = delayed_levels[0] if delayed_levels else 0
 
-        while pending and pass_index < 3:
+        while pending and pass_index < max_passes:
             pass_index += 1
             next_pending: list[dict[str, Any]] = []
             progress = False
@@ -1016,7 +1043,6 @@ class PromptBuilder:
                 if bool(item.get('recursive')) and str(item.get('content') or '').strip()
             ).strip()
             expanded_recursive_corpus = '\n'.join(part for part in [recursive_corpus, recursive_seed] if part).strip()
-            expanded_full_corpus = '\n'.join(part for part in [full_corpus, recursive_seed] if part).strip()
 
             for entry in pending:
                 if str(entry.get('id') or '') in selected_ids:
@@ -1037,9 +1063,26 @@ class PromptBuilder:
                     rejected.append({'entry': entry, 'reason': 'empty_content'})
                     continue
 
+                char_filter = self._entry_character_filter(entry)
+                char_filter_result = self._entry_matches_character_filter(entry=entry, character=character)
+                if not char_filter_result['matched']:
+                    rejected.append({
+                        'entry': entry,
+                        'reason': char_filter_result['reason'],
+                        'details': char_filter_result,
+                        'sourceScope': str(entry.get('_sourceScope') or 'global'),
+                    })
+                    continue
+
                 keys = self._normalize_matchers(entry.get('keys') or [])
                 secondary = self._normalize_matchers(entry.get('secondaryKeys') or [])
-                scan_corpus = expanded_recursive_corpus if bool(entry.get('recursive')) else expanded_full_corpus
+                scan_corpus = self._build_worldbook_scan_corpus(
+                    entry=entry,
+                    chat_corpus=chat_corpus,
+                    recursive_corpus=expanded_recursive_corpus,
+                    recent_history_with_depth=recent_history_with_depth,
+                    character=character,
+                )
 
                 if sticky_remaining > 0:
                     primary_info = {'matched': True, 'kind': 'sticky', 'hits': [], 'state': state}
@@ -1051,15 +1094,24 @@ class PromptBuilder:
                 elif entry.get('constant'):
                     primary_info = {'matched': True, 'kind': 'constant', 'hits': []}
                 else:
+                    delay_until_recursion = self._entry_delay_until_recursion_level(entry)
+                    if pass_index == 1 and delay_until_recursion > 0:
+                        next_pending.append(entry)
+                        rejected.append({'entry': entry, 'reason': 'delayed_until_recursion', 'details': {'level': delay_until_recursion}, 'sourceScope': str(entry.get('_sourceScope') or 'global')})
+                        continue
+                    if pass_index > 1 and delay_until_recursion > current_delay_level:
+                        next_pending.append(entry)
+                        rejected.append({'entry': entry, 'reason': 'delayed_until_recursion_level', 'details': {'level': delay_until_recursion, 'currentLevel': current_delay_level}, 'sourceScope': str(entry.get('_sourceScope') or 'global')})
+                        continue
                     if not keys:
                         rejected.append({'entry': entry, 'reason': 'no_primary_keys'})
                         continue
                     if bool(entry.get('preventRecursion')) and pass_index > 1:
                         rejected.append({'entry': entry, 'reason': 'prevent_recursion_blocked', 'sourceScope': str(entry.get('_sourceScope') or 'global')})
                         continue
-                    primary_info = self._match_key_list(keys, scan_corpus)
+                    primary_info = self._match_key_list(keys, scan_corpus, entry=entry)
                     if not primary_info['matched']:
-                        if bool(entry.get('recursive')) and pass_index < 3:
+                        if bool(entry.get('recursive')) and pass_index < max_passes:
                             next_pending.append(entry)
                         else:
                             rejected.append({'entry': entry, 'reason': 'primary_keys_not_matched', 'details': primary_info, 'sourceScope': str(entry.get('_sourceScope') or 'global')})
@@ -1068,9 +1120,9 @@ class PromptBuilder:
                 secondary_info = {'matched': True, 'kind': 'none', 'hits': [], 'mode': 'none'}
                 if secondary:
                     secondary_mode = self._entry_secondary_mode(entry)
-                    secondary_info = self._match_key_list(secondary, scan_corpus, mode=secondary_mode)
+                    secondary_info = self._match_key_list(secondary, scan_corpus, mode=secondary_mode, entry=entry)
                     if not secondary_info['matched']:
-                        if bool(entry.get('recursive')) and pass_index < 3:
+                        if bool(entry.get('recursive')) and pass_index < max_passes:
                             next_pending.append(entry)
                         else:
                             rejected.append({'entry': entry, 'reason': 'secondary_keys_not_matched', 'details': secondary_info, 'sourceScope': str(entry.get('_sourceScope') or 'global')})
@@ -1086,25 +1138,7 @@ class PromptBuilder:
                     })
                     continue
 
-                group_name = str(entry.get('groupName') or '').strip()
-                if group_name and group_name in seen_groups:
-                    rejected.append({'entry': entry, 'reason': 'group_already_selected', 'sourceScope': str(entry.get('_sourceScope') or 'global')})
-                    continue
-
-                content_tokens = self.tokenizer.estimate_token_count(content)
-                if worldbook_token_budget > 0 and used_tokens + content_tokens > worldbook_token_budget and matched_raw:
-                    rejected.append({
-                        'entry': entry,
-                        'reason': 'budget_exceeded',
-                        'sourceScope': str(entry.get('_sourceScope') or 'global'),
-                        'details': {
-                            'usedTokens': used_tokens,
-                            'entryTokens': content_tokens,
-                            'worldbookTokenBudget': worldbook_token_budget,
-                        },
-                    })
-                    continue
-
+                match_score = self._entry_match_score(primary_info=primary_info, secondary_info=secondary_info, entry=entry)
                 enriched = {
                     **entry,
                     '_matchMeta': {
@@ -1113,20 +1147,29 @@ class PromptBuilder:
                         'corpus': 'recursive' if bool(entry.get('recursive')) else 'full',
                         'pass': pass_index,
                         'runtimeState': state,
+                        'characterFilter': char_filter,
+                        'score': match_score,
                     },
                     '_sourceScope': str(entry.get('_sourceScope') or 'global'),
                 }
-                matched_raw.append(enriched)
-                selected_ids.add(str(entry.get('id') or ''))
-                used_tokens += content_tokens
-                if group_name:
-                    seen_groups.add(group_name)
+                next_pending.append(enriched)
                 progress = True
 
             if not progress:
                 pending = next_pending
                 break
-            pending = next_pending
+            pending, accepted, pass_rejections, used_tokens, seen_groups, selected_ids = self._select_worldbook_pass_matches(
+                pending=next_pending,
+                already_matched=matched_raw,
+                seen_groups=seen_groups,
+                selected_ids=selected_ids,
+                used_tokens=used_tokens,
+                worldbook_token_budget=worldbook_token_budget,
+            )
+            matched_raw.extend(accepted)
+            rejected.extend(pass_rejections)
+            if pass_index > 1 and delayed_levels:
+                current_delay_level = self._next_delay_level(delayed_levels, current_delay_level)
 
         for entry in pending:
             rejected.append({'entry': entry, 'reason': 'recursive_match_not_resolved'})
@@ -1170,6 +1213,10 @@ class PromptBuilder:
             or 'and_any'
         ).strip().lower()
         aliases = {
+            '0': 'and_any',
+            '1': 'not_all',
+            '2': 'not_any',
+            '3': 'and_all',
             'any': 'and_any',
             'all': 'and_all',
             'and': 'and_any',
@@ -1182,9 +1229,111 @@ class PromptBuilder:
         }
         return aliases.get(raw, 'and_any')
 
-    def _match_key_list(self, keys: list[str], corpus: str, *, mode: str = 'and_any') -> dict[str, Any]:
+    def _build_worldbook_scan_corpus(
+        self,
+        *,
+        entry: dict[str, Any],
+        chat_corpus: str,
+        recursive_corpus: str,
+        recent_history_with_depth: list[tuple[int, str]],
+        character: dict[str, Any],
+    ) -> str:
+        scan_depth = self._entry_scan_depth(entry)
+        if scan_depth > 0:
+            history_slice = [text for depth, text in recent_history_with_depth if depth <= scan_depth]
+            effective_chat_corpus = '\n'.join(part for part in [*history_slice] if part).strip()
+            if not effective_chat_corpus:
+                effective_chat_corpus = str(recent_history_with_depth[0][1] if recent_history_with_depth else '').strip()
+            effective_recursive_corpus = '\n'.join(part for part in [*history_slice[: max(1, min(scan_depth, 4))]] if part).strip()
+        else:
+            effective_chat_corpus = chat_corpus
+            effective_recursive_corpus = recursive_corpus
+
+        parts = [effective_recursive_corpus if bool(entry.get('recursive')) else effective_chat_corpus]
+        if self._entry_match_character_description(entry):
+            parts.append(str(character.get('description') or '').strip())
+        if self._entry_match_character_personality(entry):
+            parts.append(str(character.get('personality') or '').strip())
+        if self._entry_match_scenario(entry):
+            parts.append(str(character.get('scenario') or '').strip())
+        return '\n'.join(part for part in parts if part).strip()
+
+    def _entry_scan_depth(self, entry: dict[str, Any]) -> int:
+        for key in ('scanDepth', 'scan_depth'):
+            try:
+                value = int(entry.get(key) or 0)
+            except Exception:
+                value = 0
+            if value > 0:
+                return value
+        return 0
+
+    def _entry_match_character_description(self, entry: dict[str, Any]) -> bool:
+        return self._entry_bool(entry, 'matchCharacterDescription', 'match_character_description')
+
+    def _entry_match_character_personality(self, entry: dict[str, Any]) -> bool:
+        return self._entry_bool(entry, 'matchCharacterPersonality', 'match_character_personality')
+
+    def _entry_match_scenario(self, entry: dict[str, Any]) -> bool:
+        return self._entry_bool(entry, 'matchScenario', 'match_scenario')
+
+    def _entry_case_sensitive(self, entry: dict[str, Any]) -> bool:
+        return self._entry_bool(entry, 'caseSensitive', 'case_sensitive')
+
+    def _entry_match_whole_words(self, entry: dict[str, Any]) -> bool:
+        return self._entry_bool(entry, 'matchWholeWords', 'match_whole_words')
+
+    def _entry_bool(self, entry: dict[str, Any], *keys: str) -> bool:
+        for key in keys:
+            if key in entry:
+                value = entry.get(key)
+                if isinstance(value, bool):
+                    return value
+                if isinstance(value, int):
+                    return value != 0
+                if isinstance(value, str):
+                    lowered = value.strip().lower()
+                    if lowered in {'1', 'true', 'yes', 'on'}:
+                        return True
+                    if lowered in {'0', 'false', 'no', 'off'}:
+                        return False
+        return False
+
+    def _entry_character_filter(self, entry: dict[str, Any]) -> dict[str, Any]:
+        names = self._normalize_matchers(entry.get('characterFilterNames') or entry.get('character_filter_names') or [])
+        tags = self._normalize_matchers(entry.get('characterFilterTags') or entry.get('character_filter_tags') or [])
+        exclude = self._entry_bool(entry, 'characterFilterExclude', 'character_filter_exclude')
+        return {'names': names, 'tags': tags, 'exclude': exclude}
+
+    def _entry_matches_character_filter(self, *, entry: dict[str, Any], character: dict[str, Any]) -> dict[str, Any]:
+        filter_data = self._entry_character_filter(entry)
+        names = filter_data['names']
+        tags = filter_data['tags']
+        exclude = bool(filter_data['exclude'])
+        if not names and not tags:
+            return {'matched': True, 'reason': 'no_character_filter', 'filter': filter_data}
+
+        char_name = str(character.get('name') or '').strip()
+        char_tags = [str(item).strip() for item in (character.get('tags') or []) if str(item).strip()]
+        name_hit = bool(char_name) and any(item == char_name for item in names)
+        tag_hit = bool(set(tags).intersection(char_tags)) if tags else False
+        raw_hit = name_hit or tag_hit
+        matched = (not raw_hit) if exclude else raw_hit
+        return {
+            'matched': matched,
+            'reason': 'character_filter_excluded' if exclude and raw_hit else ('character_filter_not_matched' if not exclude and not raw_hit else 'character_filter_matched'),
+            'filter': filter_data,
+            'characterName': char_name,
+            'characterTags': char_tags,
+            'nameHit': name_hit,
+            'tagHit': tag_hit,
+        }
+
+    def _match_key_list(self, keys: list[str], corpus: str, *, mode: str = 'and_any', entry: dict[str, Any] | None = None) -> dict[str, Any]:
         hit_map: list[dict[str, Any]] = []
-        lowered = corpus.lower()
+        case_sensitive = self._entry_case_sensitive(entry or {})
+        whole_words = self._entry_match_whole_words(entry or {})
+        haystack = corpus if case_sensitive else corpus.lower()
         for raw_key in keys:
             key = raw_key.strip()
             if not key:
@@ -1194,13 +1343,19 @@ class PromptBuilder:
             if key.startswith('re:'):
                 pattern = key[3:]
                 hit_mode = 'regex'
+                flags = 0 if case_sensitive else re.IGNORECASE
                 try:
-                    hit = bool(re.search(pattern, corpus, flags=re.IGNORECASE))
+                    hit = bool(re.search(pattern, corpus, flags=flags))
                 except re.error:
                     hit = False
                     hit_mode = 'regex_error'
             else:
-                hit = key.lower() in lowered
+                needle = key if case_sensitive else key.lower()
+                if whole_words:
+                    hit_mode = 'whole_word' if ' ' not in needle else 'phrase'
+                    hit = self._match_plaintext(haystack, needle, whole_words=whole_words)
+                else:
+                    hit = needle in haystack
             hit_map.append({'key': raw_key, 'mode': hit_mode, 'matched': hit})
 
         matched_hits = [item for item in hit_map if item['matched']]
@@ -1224,6 +1379,189 @@ class PromptBuilder:
             'mode': normalized_mode,
             'evaluated': hit_map,
         }
+
+    def _match_plaintext(self, haystack: str, needle: str, *, whole_words: bool) -> bool:
+        if not whole_words:
+            return needle in haystack
+        if not needle:
+            return False
+        if ' ' in needle:
+            return needle in haystack
+        pattern = re.compile(rf'(?<![\\w\u4e00-\u9fff]){re.escape(needle)}(?![\\w\u4e00-\u9fff])')
+        return bool(pattern.search(haystack))
+
+    def _entry_match_score(
+        self,
+        *,
+        primary_info: dict[str, Any],
+        secondary_info: dict[str, Any],
+        entry: dict[str, Any],
+    ) -> int:
+        primary_hits = len(primary_info.get('hits') or [])
+        secondary_hits = len(secondary_info.get('hits') or [])
+        mode = str(secondary_info.get('mode') or self._entry_secondary_mode(entry))
+        score = primary_hits
+        if mode == 'and_any':
+            score += secondary_hits
+        elif mode == 'and_all' and secondary_hits == len(secondary_info.get('tested') or []):
+            score += secondary_hits
+        return score
+
+    def _entry_use_group_scoring(self, entry: dict[str, Any]) -> bool:
+        return self._entry_bool(entry, 'useGroupScoring', 'use_group_scoring')
+
+    def _entry_group_override(self, entry: dict[str, Any]) -> bool:
+        return self._entry_bool(entry, 'groupOverride', 'group_override')
+
+    def _entry_group_weight(self, entry: dict[str, Any]) -> int:
+        for key in ('groupWeight', 'group_weight'):
+            try:
+                value = int(entry.get(key) or 100)
+            except Exception:
+                value = 100
+            if value > 0:
+                return value
+        return 100
+
+    def _entry_delay_until_recursion_level(self, entry: dict[str, Any]) -> int:
+        for key in ('delayUntilRecursion', 'delay_until_recursion'):
+            try:
+                value = int(entry.get(key) or 0)
+            except Exception:
+                value = 0
+            if value > 0:
+                return value
+        return 0
+
+    def _entry_probability(self, entry: dict[str, Any]) -> int:
+        for key in ('probability',):
+            try:
+                value = int(entry.get(key) or 100)
+            except Exception:
+                value = 100
+            return min(100, max(0, value))
+        return 100
+
+    def _entry_ignore_budget(self, entry: dict[str, Any]) -> bool:
+        return self._entry_bool(entry, 'ignoreBudget', 'ignore_budget')
+
+    def _next_delay_level(self, levels: list[int], current_level: int) -> int:
+        for level in levels:
+            if level > current_level:
+                return level
+        return current_level
+
+    def _select_worldbook_pass_matches(
+        self,
+        *,
+        pending: list[dict[str, Any]],
+        already_matched: list[dict[str, Any]],
+        seen_groups: set[str],
+        selected_ids: set[str],
+        used_tokens: int,
+        worldbook_token_budget: int,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], int, set[str], set[str]]:
+        carry_pending: list[dict[str, Any]] = []
+        accepted: list[dict[str, Any]] = []
+        rejected: list[dict[str, Any]] = []
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        ungrouped: list[dict[str, Any]] = []
+
+        for entry in pending:
+            group_name = str(entry.get('groupName') or '').strip()
+            if group_name:
+                grouped.setdefault(group_name, []).append(entry)
+            else:
+                ungrouped.append(entry)
+
+        candidates: list[dict[str, Any]] = []
+        for group_name, group_entries in grouped.items():
+            if group_name in seen_groups:
+                rejected.extend({
+                    'entry': item,
+                    'reason': 'group_already_selected',
+                    'sourceScope': str(item.get('_sourceScope') or 'global'),
+                } for item in group_entries)
+                continue
+
+            overrides = [item for item in group_entries if self._entry_group_override(item)]
+            if overrides:
+                chosen = sorted(overrides, key=self._group_sort_key)[0]
+                losers = [item for item in group_entries if item is not chosen]
+                rejected.extend({
+                    'entry': item,
+                    'reason': 'group_override_loser',
+                    'sourceScope': str(item.get('_sourceScope') or 'global'),
+                } for item in losers)
+                candidates.append(chosen)
+                continue
+
+            if any(self._entry_use_group_scoring(item) for item in group_entries):
+                best_score = max(int((item.get('_matchMeta') or {}).get('score') or 0) for item in group_entries)
+                group_entries = [item for item in group_entries if int((item.get('_matchMeta') or {}).get('score') or 0) == best_score]
+
+            chosen = sorted(group_entries, key=self._group_sort_key)[0]
+            losers = [item for item in group_entries if item is not chosen]
+            rejected.extend({
+                'entry': item,
+                'reason': 'group_not_selected',
+                'sourceScope': str(item.get('_sourceScope') or 'global'),
+            } for item in losers)
+            candidates.append(chosen)
+
+        candidates.extend(ungrouped)
+        candidates.sort(key=self._group_sort_key)
+
+        for entry in candidates:
+            entry_id = str(entry.get('id') or '')
+            group_name = str(entry.get('groupName') or '').strip()
+            probability = self._entry_probability(entry)
+            if probability < 100:
+                roll = random.randint(1, 100)
+                if roll > probability:
+                    rejected.append({
+                        'entry': entry,
+                        'reason': 'probability_failed',
+                        'sourceScope': str(entry.get('_sourceScope') or 'global'),
+                        'details': {'roll': roll, 'probability': probability},
+                    })
+                    continue
+            content_tokens = self.tokenizer.estimate_token_count(str(entry.get('content') or '').strip())
+            if worldbook_token_budget > 0 and used_tokens + content_tokens > worldbook_token_budget and already_matched and not self._entry_ignore_budget(entry):
+                rejected.append({
+                    'entry': entry,
+                    'reason': 'budget_exceeded',
+                    'sourceScope': str(entry.get('_sourceScope') or 'global'),
+                    'details': {
+                        'usedTokens': used_tokens,
+                        'entryTokens': content_tokens,
+                        'worldbookTokenBudget': worldbook_token_budget,
+                    },
+                })
+                continue
+            accepted.append(entry)
+            selected_ids.add(entry_id)
+            used_tokens += content_tokens
+            if group_name:
+                seen_groups.add(group_name)
+
+        for entry in pending:
+            if entry not in accepted and not any(r.get('entry') is entry for r in rejected):
+                if bool(entry.get('recursive')):
+                    carry_pending.append(entry)
+        return carry_pending, accepted, rejected, used_tokens, seen_groups, selected_ids
+
+    def _group_sort_key(self, item: dict[str, Any]) -> tuple[Any, ...]:
+        return (
+            0 if bool(item.get('constant')) else 1,
+            -int(item.get('priority') or 0),
+            -int((item.get('_matchMeta') or {}).get('score') or 0),
+            self._entry_scan_depth(item) or 10_000,
+            -self._entry_group_weight(item),
+            len(str(item.get('content') or '')),
+            str(item.get('groupName') or ''),
+            str(item.get('id') or ''),
+        )
 
     def _map_worldbook_position(self, value: str) -> str:
         normalized = str(value or '').strip() or 'before_chat_history'

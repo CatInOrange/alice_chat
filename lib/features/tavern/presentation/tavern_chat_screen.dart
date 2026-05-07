@@ -1340,13 +1340,29 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   }
 
   String _formatCompactTokenCount(int count) {
+    if (count >= 1000000) {
+      final value = count / 1000000;
+      return value >= 10
+          ? '${value.toStringAsFixed(0)}M'
+          : '${value.toStringAsFixed(1)}M';
+    }
     if (count >= 1000) {
       final value = count / 1000;
       return value >= 10
-          ? '${value.toStringAsFixed(0)}k'
-          : '${value.toStringAsFixed(1)}k';
+          ? '${value.toStringAsFixed(0)}K'
+          : '${value.toStringAsFixed(1)}K';
     }
     return '$count';
+  }
+
+  double _contextUsagePercent(int totalTokens, int maxContext) {
+    if (maxContext <= 0) return 0.0;
+    return (totalTokens / maxContext) * 100;
+  }
+
+  double _contextUsageProgress(int totalTokens, int maxContext) {
+    if (maxContext <= 0) return 0.0;
+    return (totalTokens / maxContext).clamp(0.0, 1.0).toDouble();
   }
 
   Widget _buildSegmentBar(
@@ -1463,16 +1479,14 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     final usage = debug.contextUsage;
     final totalTokens = (usage['totalTokens'] as num?)?.toInt() ?? 0;
     final maxContext = (usage['maxContext'] as num?)?.toInt() ?? 0;
-    final usagePercent = (usage['usagePercentage'] as num?)?.toDouble();
-    final percent =
-        usagePercent ??
-        (maxContext > 0 ? (totalTokens / maxContext) * 100 : 0.0);
     final trimPlan =
         usage['meta'] is Map
             ? (((usage['meta'] as Map)['trimPlan'] as Map?) ??
                 const <String, dynamic>{})
             : const <String, dynamic>{};
     final overLimit = (trimPlan['overLimitTokens'] as num?)?.toInt() ?? 0;
+    final percent = _contextUsagePercent(totalTokens, maxContext);
+    final progress = _contextUsageProgress(totalTokens, maxContext);
     final color =
         overLimit > 0
             ? Colors.red
@@ -1510,7 +1524,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                     ),
                   ),
                   CircularProgressIndicator(
-                    value: (percent / 100).clamp(0.0, 1.0),
+                    value: progress,
                     strokeWidth: 2,
                     valueColor: AlwaysStoppedAnimation<Color>(color),
                   ),
@@ -1559,7 +1573,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       final contextUsage = debug.contextUsage;
       final totalTokens = (contextUsage['totalTokens'] as num?)?.toInt() ?? 0;
       final maxContext = (contextUsage['maxContext'] as num?)?.toInt() ?? 0;
-      final percent = maxContext > 0 ? (totalTokens / maxContext).clamp(0, 1).toDouble() : 0.0;
+      final percent = _contextUsagePercent(totalTokens, maxContext);
+      final progress = _contextUsageProgress(totalTokens, maxContext);
       final trimPlan = contextUsage['meta'] is Map
           ? (((contextUsage['meta'] as Map)['trimPlan'] as Map?) ?? const <String, dynamic>{})
           : const <String, dynamic>{};
@@ -1575,9 +1590,9 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       final suggestedCuts = ((trimPlan['suggestedCuts'] as List?) ?? const <dynamic>[]).whereType<Map>().length;
       final color = overLimit > 0
           ? Colors.red
-          : percent >= 0.85
+          : percent >= 85
               ? Colors.orange
-              : percent >= 0.65
+              : percent >= 65
                   ? Colors.amber
                   : Colors.green;
       final segments = _contextSegments(debug);
@@ -1603,7 +1618,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                 Text('上下文使用', style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 6),
                 Text(
-                  '显示的是最近一次实际组装出来的上下文结果。',
+                  '这里展示的是按当前配置即时重新组装后的结果，不需要先发送一条消息才生效。',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
                 const SizedBox(height: 14),
@@ -1623,7 +1638,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(99),
                               child: LinearProgressIndicator(
-                                value: percent,
+                                value: progress,
                                 minHeight: 8,
                                 backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
                                 valueColor: AlwaysStoppedAnimation<Color>(color),
@@ -1632,7 +1647,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                           ),
                           const SizedBox(width: 12),
                           Text(
-                            maxContext > 0 ? '${(percent * 100).toStringAsFixed(0)}%' : '-',
+                            maxContext > 0 ? '${percent.toStringAsFixed(0)}%' : '-',
                             style: Theme.of(context).textTheme.titleSmall?.copyWith(
                               color: color,
                               fontWeight: FontWeight.w700,
@@ -2737,6 +2752,11 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                               Text(
                                 'Prompt Debug',
                                 style: Theme.of(context).textTheme.titleLarge,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                '按当前配置实时重新计算，不依赖上一条发送时的缓存。',
+                                style: Theme.of(context).textTheme.bodySmall,
                               ),
                               const SizedBox(height: 8),
                               Wrap(

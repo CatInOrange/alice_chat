@@ -394,12 +394,18 @@ class TavernService:
             cooldown_remaining = max(0, int(state.get('cooldownRemaining') or 0) - 1)
             delay_remaining = max(0, int(state.get('delayRemaining') or 0) - 1)
             pending_activation = bool(state.get('pendingActivation'))
-            if sticky_remaining > 0 or cooldown_remaining > 0 or delay_remaining > 0 or pending_activation:
+            activation_count = max(0, int(state.get('activationCount') or 0))
+            last_activated_at = state.get('lastActivatedAt')
+            if delay_remaining <= 0 and pending_activation:
+                pending_activation = False
+            if sticky_remaining > 0 or cooldown_remaining > 0 or delay_remaining > 0 or pending_activation or activation_count > 0 or last_activated_at:
                 next_states[str(entry_id)] = {
                     'stickyRemaining': sticky_remaining,
                     'cooldownRemaining': cooldown_remaining,
                     'delayRemaining': delay_remaining,
                     'pendingActivation': pending_activation,
+                    'activationCount': activation_count,
+                    'lastActivatedAt': last_activated_at,
                 }
 
         for item in rejected_worldbook_entries or []:
@@ -418,8 +424,11 @@ class TavernService:
                 'cooldownRemaining': max(0, int((next_states.get(entry_id, {}) or {}).get('cooldownRemaining') or 0)),
                 'delayRemaining': delay,
                 'pendingActivation': True,
+                'activationCount': max(0, int((next_states.get(entry_id, {}) or {}).get('activationCount') or 0)),
+                'lastActivatedAt': (next_states.get(entry_id, {}) or {}).get('lastActivatedAt'),
             }
 
+        now_ts = int(time.time())
         for entry in matched_worldbook_entries:
             entry_id = str(entry.get('id') or '').strip()
             if not entry_id:
@@ -431,6 +440,8 @@ class TavernService:
             current['cooldownRemaining'] = max(max(0, int(current.get('cooldownRemaining') or 0)), cooldown)
             current['delayRemaining'] = 0
             current['pendingActivation'] = False
+            current['activationCount'] = max(0, int(current.get('activationCount') or 0)) + 1
+            current['lastActivatedAt'] = now_ts
             next_states[entry_id] = current
 
         runtime['entries'] = next_states

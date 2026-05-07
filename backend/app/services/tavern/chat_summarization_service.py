@@ -4,6 +4,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from .context_usage import TavernTokenizerService
 from .model_client import TavernModelClient
 
 
@@ -33,6 +34,9 @@ class TavernChatSummary:
 
 
 class TavernChatSummarizationService:
+    def __init__(self) -> None:
+        self.tokenizer = TavernTokenizerService()
+
     def should_summarize(
         self,
         *,
@@ -111,13 +115,17 @@ class TavernChatSummarizationService:
         return list(all_messages)
 
     def count_tokens_for_messages(self, messages: list[dict[str, Any]]) -> int:
-        total = 0
+        normalized: list[dict[str, Any]] = []
         for item in messages:
             content = str(item.get('content') or item.get('text') or '').strip()
             if not content:
                 continue
-            total += max(1, int((len(content) / 3.35) + 0.999999))
-        return total
+            normalized.append({
+                'role': str(item.get('role') or 'user').strip() or 'user',
+                'content': content,
+                'name': str(item.get('name') or '').strip(),
+            })
+        return self.tokenizer.estimate_messages_token_count(normalized)
 
     def generate_summary(
         self,

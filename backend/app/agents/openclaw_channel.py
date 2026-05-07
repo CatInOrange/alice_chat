@@ -20,9 +20,11 @@ _PUSH_LISTENER_PING_TIMEOUT_SECONDS = 60
 _PUSH_LISTENER_RECV_IDLE_SECONDS = 90
 _REQUEST_PING_INTERVAL_SECONDS = 60
 _REQUEST_PING_TIMEOUT_SECONDS = 60
-_EMPTY_FINAL_GRACE_SECONDS = 8.0
-_TYPING_IDLE_TIMEOUT_SECONDS = 300.0
-_MAX_TYPING_ONLY_WINDOW_SECONDS = 1800.0
+_EMPTY_FINAL_GRACE_SECONDS = 15.0
+_INITIAL_FRAME_TIMEOUT_SECONDS = 240.0
+_TYPING_IDLE_TIMEOUT_SECONDS = 600.0
+_ACTIVE_FRAME_IDLE_TIMEOUT_SECONDS = 600.0
+_MAX_REQUEST_TIMEOUT_SECONDS = 3600.0
 _LOG = logging.getLogger(__name__)
 
 
@@ -361,7 +363,7 @@ class OpenClawChannelAgentBackend(AgentBackend):
         self,
         request: ChatRequest,
         emit: StreamEmitter | None = None,
-        timeout_seconds: float = 120.0,
+        timeout_seconds: float = _INITIAL_FRAME_TIMEOUT_SECONDS,
     ) -> dict:
         session_key_hint = str(request.context.get("sessionKey") or "").strip() or "unknown"
         max_attempts = _RETRY_ON_COMPLETED_WITHOUT_REPLY_FINAL.max_attempts
@@ -405,7 +407,7 @@ class OpenClawChannelAgentBackend(AgentBackend):
         self,
         request: ChatRequest,
         emit: StreamEmitter | None = None,
-        timeout_seconds: float = 120.0,
+        timeout_seconds: float = _INITIAL_FRAME_TIMEOUT_SECONDS,
         *,
         attempt: int = 1,
     ) -> dict:
@@ -489,6 +491,7 @@ class OpenClawChannelAgentBackend(AgentBackend):
             last_seq = 0
             request_started_at = time.monotonic()
             last_typing_at: float | None = None
+            last_activity_at: float | None = None
 
             def current_reply() -> str:
                 return str(accumulated_reply or "").strip()
@@ -497,39 +500,63 @@ class OpenClawChannelAgentBackend(AgentBackend):
                 return str(final_reply or "").strip()
 
             while True:
-                recv_timeout = timeout_seconds
+                now = time.monotonic()
+                total_elapsed = now - request_started_at
+                total_remaining = _MAX_REQUEST_TIMEOUT_SECONDS - total_elapsed
+                if total_remaining <= 0:
+                    raise RuntimeError(
+                        "Timeout waiting for OpenClaw bridge reply_final frame "
+                        f"(requestId={request_id}, last_frame_type={last_frame_type or 'none'}, "
+                        f"saw_relevant_frame={saw_relevant_frame}, total_elapsed={total_elapsed:.1f}s, reason=max_request_timeout_exceeded)"
+                    )
+
+                recv_timeout = min(timeout_seconds, total_remaining)
                 if pending_empty_final_deadline is not None:
-                    remaining = pending_empty_final_deadline - time.monotonic()
+                    remaining = pending_empty_final_deadline - now
                     if remaining <= 0:
                         break
-                    recv_timeout = max(0.1, min(timeout_seconds, remaining))
+                    recv_timeout = max(0.1, min(remaining, total_remaining))
+                elif not saw_relevant_frame:
+                    recv_timeout = max(0.1, min(timeout_seconds, total_remaining))
                 elif last_typing_at is not None and not accumulated_reply and not final_media:
-                    typing_remaining = _TYPING_IDLE_TIMEOUT_SECONDS - (time.monotonic() - last_typing_at)
-                    total_remaining = _MAX_TYPING_ONLY_WINDOW_SECONDS - (time.monotonic() - request_started_at)
-                    if total_remaining <= 0:
-                        raise RuntimeError(
-                            "Timeout waiting for OpenClaw bridge reply_final frame "
-                            f"(requestId={request_id}, last_frame_type={last_frame_type or 'none'}, "
-                            f"saw_relevant_frame={saw_relevant_frame}, reason=max_typing_window_exceeded)"
-                        )
-                    recv_timeout = max(0.1, min(timeout_seconds, _TYPING_IDLE_TIMEOUT_SECONDS, max(typing_remaining, 0.1), total_remaining))
+                    typing_remaining = _TYPING_IDLE_TIMEOUT_SECONDS - (now - last_typing_at)
+                    recv_timeout = max(0.1, min(max(typing_remaining, 0.1), total_remaining))
+                elif last_activity_at is not None:
+                    active_remaining = _ACTIVE_FRAME_IDLE_TIMEOUT_SECONDS - (now - last_activity_at)
+                    recv_timeout = max(0.1, min(max(active_remaining, 0.1), total_remaining))
+                else:
+                    recv_timeout = max(0.1, min(timeout_seconds, total_remaining))
                 try:
                     raw = await asyncio.wait_for(ws.recv(), timeout=recv_timeout)
                 except TimeoutError as exc:
+                    timeout_now = time.monotonic()
+                    total_elapsed = timeout_now - request_started_at
                     if pending_empty_final_deadline is not None:
                         break
+                    if not saw_relevant_frame:
+                        raise RuntimeError(
+                            "Timeout waiting for OpenClaw bridge reply_final frame "
+                            f"(requestId={request_id}, last_frame_type={last_frame_type or 'none'}, "
+                            f"saw_relevant_frame={saw_relevant_frame}, initial_wait_for={total_elapsed:.1f}s)"
+                        ) from exc
                     if last_typing_at is not None and not accumulated_reply and not final_media:
-                        idle_for = time.monotonic() - last_typing_at
-                        total_elapsed = time.monotonic() - request_started_at
+                        idle_for = timeout_now - last_typing_at
                         raise RuntimeError(
                             "Timeout waiting for OpenClaw bridge reply_final frame "
                             f"(requestId={request_id}, last_frame_type={last_frame_type or 'none'}, "
                             f"saw_relevant_frame={saw_relevant_frame}, typing_idle_for={idle_for:.1f}s, total_elapsed={total_elapsed:.1f}s)"
                         ) from exc
+                    if last_activity_at is not None:
+                        idle_for = timeout_now - last_activity_at
+                        raise RuntimeError(
+                            "Timeout waiting for OpenClaw bridge reply_final frame "
+                            f"(requestId={request_id}, last_frame_type={last_frame_type or 'none'}, "
+                            f"saw_relevant_frame={saw_relevant_frame}, active_idle_for={idle_for:.1f}s, total_elapsed={total_elapsed:.1f}s)"
+                        ) from exc
                     raise RuntimeError(
                         "Timeout waiting for OpenClaw bridge reply_final frame "
                         f"(requestId={request_id}, last_frame_type={last_frame_type or 'none'}, "
-                        f"saw_relevant_frame={saw_relevant_frame})"
+                        f"saw_relevant_frame={saw_relevant_frame}, total_elapsed={total_elapsed:.1f}s)"
                     ) from exc
                 print(f"[OPENCLAW_CHANNEL RAW] {raw}", flush=True)
                 _LOG.warning("[OPENCLAW_CHANNEL RAW] %s", raw)
@@ -556,6 +583,7 @@ class OpenClawChannelAgentBackend(AgentBackend):
                     continue
 
                 saw_relevant_frame = True
+                last_activity_at = time.monotonic()
                 ftype = str(frame.get("type") or "")
                 last_frame_type = ftype
                 seq = frame.get("seq")

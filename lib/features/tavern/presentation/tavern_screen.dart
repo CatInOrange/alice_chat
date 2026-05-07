@@ -787,7 +787,8 @@ class _TavernScreenState extends State<TavernScreen>
                 children: [
                   _compactInfoPill(_presetModelLabel(preset)),
                   _compactInfoPill(promptOrderName),
-                  _compactInfoPill('Max ${preset.maxTokens > 0 ? preset.maxTokens : '默认'}'),
+                  _compactInfoPill('Out ${preset.maxTokens > 0 ? _formatTokenKLabel(preset.maxTokens) : '默认'}'),
+                  _compactInfoPill('Ctx ${preset.contextLength > 0 ? _formatTokenKLabel(preset.contextLength) : '默认'}'),
                   _compactInfoPill('Temp ${preset.temperature.toStringAsFixed(2)}'),
                 ],
               ),
@@ -919,7 +920,8 @@ class _TavernScreenState extends State<TavernScreen>
                     _compactInfoPill('MinP ${preset.minP.toStringAsFixed(2)}'),
                     _compactInfoPill('Typical ${preset.typicalP.toStringAsFixed(2)}'),
                     _compactInfoPill('Repeat ${preset.repetitionPenalty.toStringAsFixed(2)}'),
-                    _compactInfoPill('MaxTokens ${preset.maxTokens > 0 ? preset.maxTokens : '默认'}'),
+                    _compactInfoPill('MaxOut ${preset.maxTokens > 0 ? _formatTokenKLabel(preset.maxTokens) : '默认'}'),
+                    _compactInfoPill('Context ${preset.contextLength > 0 ? _formatTokenKLabel(preset.contextLength) : '默认'}'),
                   ],
                 ),
               ),
@@ -1068,8 +1070,9 @@ class _TavernScreenState extends State<TavernScreen>
   }
 
   String _presetSummaryLine(TavernStore store, TavernPreset preset) {
-    final maxTokens = preset.maxTokens > 0 ? '${preset.maxTokens} tok' : '默认长度';
-    return '${_presetModelLabel(preset)} · $maxTokens';
+    final maxTokens = preset.maxTokens > 0 ? _formatTokenKLabel(preset.maxTokens) : '默认输出';
+    final contextLength = preset.contextLength > 0 ? _formatTokenKLabel(preset.contextLength) : '默认上下文';
+    return '${_presetModelLabel(preset)} · 输出 $maxTokens · 上下文 $contextLength';
   }
 
   Future<void> _importCharacter() async {
@@ -1431,6 +1434,7 @@ class _TavernScreenState extends State<TavernScreen>
         'typicalP': preset.typicalP,
         'repetitionPenalty': preset.repetitionPenalty,
         'maxTokens': preset.maxTokens,
+        'contextLength': preset.contextLength,
         'stopSequences': preset.stopSequences,
         'storyString': preset.storyString,
         'chatStart': preset.chatStart,
@@ -1484,7 +1488,8 @@ class _TavernScreenState extends State<TavernScreen>
     double typicalP = preset?.typicalP ?? 1;
     double repetitionPenalty = preset?.repetitionPenalty ?? 1;
     int topK = preset?.topK ?? 0;
-    int maxTokens = preset?.maxTokens ?? 0;
+    int maxTokens = preset?.maxTokens ?? 8192;
+    int contextLength = preset?.contextLength ?? 200000;
     int storyDepth = preset?.storyStringDepth ?? 1;
     bool saving = false;
 
@@ -1799,16 +1804,30 @@ class _TavernScreenState extends State<TavernScreen>
                                   onChanged:
                                       (value) => setModalState(() => topK = value),
                                 ),
-                                _intStepper(
+                                _tokenSliderField(
                                   context,
-                                  label: 'Max Tokens',
+                                  label: 'Max Output Tokens',
                                   value: maxTokens,
                                   min: 0,
-                                  max: 32000,
-                                  step: 128,
+                                  max: 1000000,
+                                  step: 1000,
+                                  helperText: '控制单次回复最多可生成多少 token。0 表示交给服务端默认值。',
                                   onChanged:
                                       (value) =>
                                           setModalState(() => maxTokens = value),
+                                ),
+                                const SizedBox(height: 12),
+                                _tokenSliderField(
+                                  context,
+                                  label: 'Context Length',
+                                  value: contextLength,
+                                  min: 0,
+                                  max: 1000000,
+                                  step: 1000,
+                                  helperText: '控制上下文窗口上限。DeepSeek 文档当前标注 v4-flash / v4-pro 支持 1M context。',
+                                  onChanged:
+                                      (value) =>
+                                          setModalState(() => contextLength = value),
                                 ),
                               ],
                             ),
@@ -1869,6 +1888,7 @@ class _TavernScreenState extends State<TavernScreen>
                                               'repetitionPenalty':
                                                   repetitionPenalty,
                                               'maxTokens': maxTokens,
+                                              'contextLength': contextLength,
                                               'stopSequences': stopController
                                                   .text
                                                   .split('\n')
@@ -2287,13 +2307,35 @@ class _TavernScreenState extends State<TavernScreen>
     );
     final contentController = TextEditingController(text: entry?.content ?? '');
     final groupController = TextEditingController(text: entry?.groupName ?? '');
+    final characterNamesController = TextEditingController(
+      text: (entry?.characterFilterNames ?? const <String>[]).join('\n'),
+    );
+    final characterTagsController = TextEditingController(
+      text: (entry?.characterFilterTags ?? const <String>[]).join('\n'),
+    );
     bool enabled = entry?.enabled ?? true;
     bool recursive = entry?.recursive ?? false;
     bool constant = entry?.constant ?? false;
     bool preventRecursion = entry?.preventRecursion ?? false;
+    bool caseSensitive = entry?.caseSensitive ?? false;
+    bool matchWholeWords = entry?.matchWholeWords ?? false;
+    bool matchCharacterDescription =
+        entry?.matchCharacterDescription ?? false;
+    bool matchCharacterPersonality =
+        entry?.matchCharacterPersonality ?? false;
+    bool matchScenario = entry?.matchScenario ?? false;
+    bool useGroupScoring = entry?.useGroupScoring ?? false;
+    bool groupOverride = entry?.groupOverride ?? false;
+    bool ignoreBudget = entry?.ignoreBudget ?? false;
+    bool characterFilterExclude = entry?.characterFilterExclude ?? false;
+    String secondaryLogic = entry?.secondaryLogic ?? 'and_any';
     String insertionPosition =
         entry?.insertionPosition ?? 'before_chat_history';
     int priority = entry?.priority ?? 0;
+    int scanDepth = entry?.scanDepth ?? 0;
+    int groupWeight = entry?.groupWeight ?? 100;
+    int delayUntilRecursion = entry?.delayUntilRecursion ?? 0;
+    int probability = entry?.probability ?? 100;
     int sticky = entry?.sticky ?? 0;
     int cooldown = entry?.cooldown ?? 0;
     int delay = entry?.delay ?? 0;
@@ -2377,6 +2419,121 @@ class _TavernScreenState extends State<TavernScreen>
                           ),
                           const SizedBox(height: 12),
                           DropdownButtonFormField<String>(
+                            value: secondaryLogic,
+                            decoration: const InputDecoration(
+                              labelText: 'Secondary Logic',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'and_any',
+                                child: Text('AND ANY'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'and_all',
+                                child: Text('AND ALL'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'not_any',
+                                child: Text('NOT ANY'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'not_all',
+                                child: Text('NOT ALL'),
+                              ),
+                            ],
+                            onChanged:
+                                (value) => setModalState(
+                                  () => secondaryLogic = value ?? 'and_any',
+                                ),
+                          ),
+                          const SizedBox(height: 12),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Case Sensitive'),
+                            value: caseSensitive,
+                            onChanged:
+                                (value) => setModalState(
+                                  () => caseSensitive = value,
+                                ),
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Match Whole Words'),
+                            value: matchWholeWords,
+                            onChanged:
+                                (value) => setModalState(
+                                  () => matchWholeWords = value,
+                                ),
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Scan Character Description'),
+                            value: matchCharacterDescription,
+                            onChanged:
+                                (value) => setModalState(
+                                  () =>
+                                      matchCharacterDescription = value,
+                                ),
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Scan Character Personality'),
+                            value: matchCharacterPersonality,
+                            onChanged:
+                                (value) => setModalState(
+                                  () =>
+                                      matchCharacterPersonality = value,
+                                ),
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Scan Scenario'),
+                            value: matchScenario,
+                            onChanged:
+                                (value) => setModalState(
+                                  () => matchScenario = value,
+                                ),
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Use Group Scoring'),
+                            value: useGroupScoring,
+                            onChanged:
+                                (value) => setModalState(
+                                  () => useGroupScoring = value,
+                                ),
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Group Override'),
+                            value: groupOverride,
+                            onChanged:
+                                (value) => setModalState(
+                                  () => groupOverride = value,
+                                ),
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Ignore Budget'),
+                            value: ignoreBudget,
+                            onChanged:
+                                (value) => setModalState(
+                                  () => ignoreBudget = value,
+                                ),
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Character Filter Exclude Mode'),
+                            subtitle: const Text('关闭=仅这些角色/标签生效；开启=排除这些角色/标签'),
+                            value: characterFilterExclude,
+                            onChanged:
+                                (value) => setModalState(
+                                  () => characterFilterExclude = value,
+                                ),
+                          ),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
                             value: insertionPosition,
                             decoration: const InputDecoration(
                               labelText: 'Insertion Position',
@@ -2407,6 +2564,51 @@ class _TavernScreenState extends State<TavernScreen>
                             onChanged:
                                 (value) =>
                                     setModalState(() => priority = value),
+                          ),
+                          const SizedBox(height: 12),
+                          _intStepper(
+                            context,
+                            label: 'Scan Depth (0 = recent chat all)',
+                            value: scanDepth,
+                            min: 0,
+                            max: 50,
+                            onChanged:
+                                (value) =>
+                                    setModalState(() => scanDepth = value),
+                          ),
+                          const SizedBox(height: 12),
+                          _intStepper(
+                            context,
+                            label: 'Group Weight',
+                            value: groupWeight,
+                            min: 1,
+                            max: 10000,
+                            onChanged:
+                                (value) =>
+                                    setModalState(() => groupWeight = value),
+                          ),
+                          const SizedBox(height: 12),
+                          _intStepper(
+                            context,
+                            label: 'Delay Until Recursion',
+                            value: delayUntilRecursion,
+                            min: 0,
+                            max: 20,
+                            onChanged:
+                                (value) => setModalState(
+                                  () => delayUntilRecursion = value,
+                                ),
+                          ),
+                          const SizedBox(height: 12),
+                          _intStepper(
+                            context,
+                            label: 'Probability %',
+                            value: probability,
+                            min: 0,
+                            max: 100,
+                            onChanged:
+                                (value) =>
+                                    setModalState(() => probability = value),
                           ),
                           const SizedBox(height: 12),
                           _intStepper(
@@ -2444,6 +2646,26 @@ class _TavernScreenState extends State<TavernScreen>
                             controller: groupController,
                             decoration: const InputDecoration(
                               labelText: 'Group Name',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: characterNamesController,
+                            minLines: 1,
+                            maxLines: 4,
+                            decoration: const InputDecoration(
+                              labelText: 'Character Filter Names（每行一个）',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            controller: characterTagsController,
+                            minLines: 1,
+                            maxLines: 4,
+                            decoration: const InputDecoration(
+                              labelText: 'Character Filter Tags（每行一个）',
                               border: OutlineInputBorder(),
                             ),
                           ),
@@ -2503,6 +2725,41 @@ class _TavernScreenState extends State<TavernScreen>
                                               'constant': constant,
                                               'preventRecursion':
                                                   preventRecursion,
+                                              'secondaryLogic':
+                                                  secondaryLogic,
+                                              'scanDepth': scanDepth,
+                                              'caseSensitive':
+                                                  caseSensitive,
+                                              'matchWholeWords':
+                                                  matchWholeWords,
+                                              'matchCharacterDescription':
+                                                  matchCharacterDescription,
+                                              'matchCharacterPersonality':
+                                                  matchCharacterPersonality,
+                                              'matchScenario':
+                                                  matchScenario,
+                                              'useGroupScoring':
+                                                  useGroupScoring,
+                                              'groupWeight': groupWeight,
+                                              'groupOverride': groupOverride,
+                                              'delayUntilRecursion':
+                                                  delayUntilRecursion,
+                                              'probability': probability,
+                                              'ignoreBudget': ignoreBudget,
+                                              'characterFilterNames':
+                                                  characterNamesController.text
+                                                      .split('\n')
+                                                      .map((item) => item.trim())
+                                                      .where((item) => item.isNotEmpty)
+                                                      .toList(growable: false),
+                                              'characterFilterTags':
+                                                  characterTagsController.text
+                                                      .split('\n')
+                                                      .map((item) => item.trim())
+                                                      .where((item) => item.isNotEmpty)
+                                                      .toList(growable: false),
+                                              'characterFilterExclude':
+                                                  characterFilterExclude,
                                               'sticky': sticky,
                                               'cooldown': cooldown,
                                               'delay': delay,
@@ -2699,6 +2956,54 @@ class _TavernScreenState extends State<TavernScreen>
     );
   }
 
+  Widget _tokenSliderField(
+    BuildContext context, {
+    required String label,
+    required int value,
+    required int min,
+    required int max,
+    required int step,
+    String? helperText,
+    required ValueChanged<int> onChanged,
+  }) {
+    final safeValue = value.clamp(min, max);
+    final divisions = ((max - min) ~/ step).clamp(1, 1000000);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '$label: ${_formatTokenKLabel(safeValue)}',
+          style: Theme.of(context).textTheme.labelLarge,
+        ),
+        Slider(
+          value: safeValue.toDouble(),
+          min: min.toDouble(),
+          max: max.toDouble(),
+          divisions: divisions,
+          label: _formatTokenKLabel(safeValue),
+          onChanged: (next) {
+            final rounded = ((next / step).round() * step).clamp(min, max);
+            onChanged(rounded);
+          },
+        ),
+        if (helperText != null && helperText.trim().isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(
+              helperText,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+      ],
+    );
+  }
+
+  String _formatTokenKLabel(int value) {
+    if (value <= 0) return '默认';
+    if (value >= 1000000) return '${(value / 1000000).toStringAsFixed(value % 1000000 == 0 ? 0 : 1)}M';
+    if (value >= 1000) return '${(value / 1000).toStringAsFixed(value % 1000 == 0 ? 0 : 1)}K';
+    return '$value';
+  }
 }
 
 class _CharacterImportReportSheet extends StatelessWidget {
@@ -3255,7 +3560,7 @@ class _PromptManagerPageState extends State<_PromptManagerPage> {
                 color: tileColor,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                   leading: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -3288,7 +3593,6 @@ class _PromptManagerPageState extends State<_PromptManagerPage> {
                       runSpacing: 6,
                       children: [
                         _PromptTag(text: isCustom ? '自定义' : '内建'),
-                        _PromptTag(text: item.enabled ? '已启用' : '已关闭'),
                         if (isCustom) _PromptTag(text: item.role),
                       ],
                     ),

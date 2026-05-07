@@ -244,6 +244,7 @@ class TavernPreset {
     this.frequencyPenalty = 0,
     this.presencePenalty = 0,
     this.maxTokens = 0,
+    this.contextLength = 0,
     this.stopSequences = const <String>[],
     this.topK = 0,
     this.topA = 0,
@@ -270,6 +271,7 @@ class TavernPreset {
   final double frequencyPenalty;
   final double presencePenalty;
   final int maxTokens;
+  final int contextLength;
   final List<String> stopSequences;
   final int topK;
   final double topA;
@@ -298,6 +300,7 @@ class TavernPreset {
       frequencyPenalty: (json['frequencyPenalty'] as num?)?.toDouble() ?? 0,
       presencePenalty: (json['presencePenalty'] as num?)?.toDouble() ?? 0,
       maxTokens: (json['maxTokens'] as num?)?.toInt() ?? 0,
+      contextLength: (json['contextLength'] as num?)?.toInt() ?? 0,
       stopSequences: ((json['stopSequences'] as List?) ?? const <dynamic>[])
           .map((item) => item.toString())
           .toList(growable: false),
@@ -326,6 +329,7 @@ class TavernPreset {
     double? topP,
     double? frequencyPenalty,
     double? presencePenalty,
+    int? contextLength,
     int? topK,
     double? topA,
     double? minP,
@@ -351,6 +355,7 @@ class TavernPreset {
       frequencyPenalty: frequencyPenalty ?? this.frequencyPenalty,
       presencePenalty: presencePenalty ?? this.presencePenalty,
       maxTokens: maxTokens ?? this.maxTokens,
+      contextLength: contextLength ?? this.contextLength,
       stopSequences: stopSequences ?? this.stopSequences,
       topK: topK ?? this.topK,
       topA: topA ?? this.topA,
@@ -651,6 +656,22 @@ class TavernWorldBookEntry {
     this.recursive = false,
     this.constant = false,
     this.preventRecursion = false,
+    this.secondaryLogic = 'and_any',
+    this.scanDepth = 0,
+    this.caseSensitive = false,
+    this.matchWholeWords = false,
+    this.matchCharacterDescription = false,
+    this.matchCharacterPersonality = false,
+    this.matchScenario = false,
+    this.useGroupScoring = false,
+    this.groupWeight = 100,
+    this.groupOverride = false,
+    this.delayUntilRecursion = 0,
+    this.probability = 100,
+    this.ignoreBudget = false,
+    this.characterFilterNames = const <String>[],
+    this.characterFilterTags = const <String>[],
+    this.characterFilterExclude = false,
     this.sticky = 0,
     this.cooldown = 0,
     this.delay = 0,
@@ -670,6 +691,22 @@ class TavernWorldBookEntry {
   final bool recursive;
   final bool constant;
   final bool preventRecursion;
+  final String secondaryLogic;
+  final int scanDepth;
+  final bool caseSensitive;
+  final bool matchWholeWords;
+  final bool matchCharacterDescription;
+  final bool matchCharacterPersonality;
+  final bool matchScenario;
+  final bool useGroupScoring;
+  final int groupWeight;
+  final bool groupOverride;
+  final int delayUntilRecursion;
+  final int probability;
+  final bool ignoreBudget;
+  final List<String> characterFilterNames;
+  final List<String> characterFilterTags;
+  final bool characterFilterExclude;
   final int sticky;
   final int cooldown;
   final int delay;
@@ -694,6 +731,26 @@ class TavernWorldBookEntry {
       recursive: json['recursive'] == true,
       constant: json['constant'] == true,
       preventRecursion: json['preventRecursion'] == true,
+      secondaryLogic: (json['secondaryLogic'] ?? 'and_any').toString(),
+      scanDepth: (json['scanDepth'] as num?)?.toInt() ?? 0,
+      caseSensitive: json['caseSensitive'] == true,
+      matchWholeWords: json['matchWholeWords'] == true,
+      matchCharacterDescription: json['matchCharacterDescription'] == true,
+      matchCharacterPersonality: json['matchCharacterPersonality'] == true,
+      matchScenario: json['matchScenario'] == true,
+      useGroupScoring: json['useGroupScoring'] == true,
+      groupWeight: (json['groupWeight'] as num?)?.toInt() ?? 100,
+      groupOverride: json['groupOverride'] == true,
+      delayUntilRecursion: (json['delayUntilRecursion'] as num?)?.toInt() ?? 0,
+      probability: (json['probability'] as num?)?.toInt() ?? 100,
+      ignoreBudget: json['ignoreBudget'] == true,
+      characterFilterNames: ((json['characterFilterNames'] as List?) ?? const <dynamic>[])
+          .map((item) => item.toString())
+          .toList(growable: false),
+      characterFilterTags: ((json['characterFilterTags'] as List?) ?? const <dynamic>[])
+          .map((item) => item.toString())
+          .toList(growable: false),
+      characterFilterExclude: json['characterFilterExclude'] == true,
       sticky: (json['sticky'] as num?)?.toInt() ?? 0,
       cooldown: (json['cooldown'] as num?)?.toInt() ?? 0,
       delay: (json['delay'] as num?)?.toInt() ?? 0,
