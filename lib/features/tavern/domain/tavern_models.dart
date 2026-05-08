@@ -700,6 +700,7 @@ class TavernWorldBook {
     required this.id,
     required this.name,
     this.description = '',
+    this.scope = 'local',
     this.enabled = true,
     this.createdAt,
     this.updatedAt,
@@ -708,15 +709,19 @@ class TavernWorldBook {
   final String id;
   final String name;
   final String description;
+  final String scope;
   final bool enabled;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+
+  bool get isGlobal => scope == 'global';
 
   factory TavernWorldBook.fromJson(Map<String, dynamic> json) {
     return TavernWorldBook(
       id: (json['id'] ?? '').toString(),
       name: (json['name'] ?? '').toString(),
       description: (json['description'] ?? '').toString(),
+      scope: (json['scope'] ?? 'local').toString(),
       enabled: json['enabled'] != false,
       createdAt: _parseDate(json['createdAt']),
       updatedAt: _parseDate(json['updatedAt']),

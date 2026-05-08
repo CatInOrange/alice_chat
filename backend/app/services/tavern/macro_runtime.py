@@ -9,6 +9,23 @@ import uuid
 from typing import Any
 
 
+def normalize_legacy_angle_bracket_placeholders(text: str) -> str:
+    normalized = str(text or '')
+    if not normalized:
+        return ''
+    replacements = {
+        '<user>': '{{user}}',
+        '<USER>': '{{user}}',
+        '<char>': '{{char}}',
+        '<CHAR>': '{{char}}',
+        '<persona>': '{{persona}}',
+        '<PERSONA>': '{{persona}}',
+    }
+    for src, dst in replacements.items():
+        normalized = normalized.replace(src, dst)
+    return normalized
+
+
 @dataclass(slots=True)
 class MacroRuntimeContext:
     values: dict[str, str]
@@ -45,7 +62,7 @@ class MacroEngine:
         *,
         allow_side_effects: bool = False,
     ) -> MacroRenderResult:
-        text = str(template or '')
+        text = normalize_legacy_angle_bracket_placeholders(str(template or ''))
         if not text:
             return MacroRenderResult(text='', effects=[], unknown_macros=[])
 

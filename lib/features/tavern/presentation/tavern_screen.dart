@@ -326,7 +326,7 @@ class _TavernScreenState extends State<TavernScreen>
           context,
           icon: Icons.public_outlined,
           title: 'WorldBooks',
-          subtitle: '世界书与条目管理，含 sticky / cooldown / delay',
+          subtitle: '管理世界书范围（全局/非全局）与条目触发规则',
           trailingText: '${store.worldBooks.length}',
           onTap: () => _showWorldBooksManager(context, store),
         ),
@@ -540,7 +540,7 @@ class _TavernScreenState extends State<TavernScreen>
           const Card(
             child: ListTile(
               title: Text('还没有 WorldBook'),
-              subtitle: Text('这里管理世界书和关键词条目。'),
+              subtitle: Text('这里管理世界书范围、绑定语义与关键词条目。'),
             ),
           )
         else
@@ -561,8 +561,23 @@ class _TavernScreenState extends State<TavernScreen>
                   onChanged: (value) => _toggleWorldBook(context, book, value),
                 ),
                 title: Text(book.name),
-                subtitle: Text(
-                  book.description.isEmpty ? '无描述' : book.description,
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(book.description.isEmpty ? '无描述' : book.description),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _chip('Scope', book.isGlobal ? 'global' : 'local'),
+                        if (book.isGlobal)
+                          _chip('可见性', '所有会话')
+                        else
+                          _chip('可见性', '仅绑定角色'),
+                      ],
+                    ),
+                  ],
                 ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -2268,6 +2283,7 @@ class _TavernScreenState extends State<TavernScreen>
       text: worldbook?.description ?? '',
     );
     bool enabled = worldbook?.enabled ?? true;
+    String scope = worldbook?.scope ?? 'local';
     bool saving = false;
 
     final saved = await showModalBottomSheet<bool>(
@@ -2300,6 +2316,33 @@ class _TavernScreenState extends State<TavernScreen>
                             onChanged:
                                 (value) => setModalState(() => enabled = value),
                           ),
+                          SegmentedButton<String>(
+                            segments: const [
+                              ButtonSegment<String>(
+                                value: 'local',
+                                label: Text('非全局'),
+                                icon: Icon(Icons.person_outline),
+                              ),
+                              ButtonSegment<String>(
+                                value: 'global',
+                                label: Text('全局'),
+                                icon: Icon(Icons.public_outlined),
+                              ),
+                            ],
+                            selected: <String>{scope},
+                            onSelectionChanged: (value) {
+                              final next = value.isEmpty ? 'local' : value.first;
+                              setModalState(() => scope = next);
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            scope == 'global'
+                                ? '全局世界书会对所有会话可见。'
+                                : '非全局世界书默认只对绑定角色可见；角色卡导入的书也属于这一类。',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 12),
                           TextField(
                             controller: nameController,
                             decoration: const InputDecoration(
@@ -2347,6 +2390,7 @@ class _TavernScreenState extends State<TavernScreen>
                                                           .trim(),
                                               'description':
                                                   descriptionController.text,
+                                              'scope': scope,
                                               'enabled': enabled,
                                             };
                                             if (isCreate) {

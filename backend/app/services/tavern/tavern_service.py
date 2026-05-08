@@ -17,6 +17,7 @@ from .chat_summarization_service import TavernChatSummarizationService
 from .prompt_builder import PromptBuilder, PromptDebugResult
 from .persona_service import TavernPersonaService
 from .variable_service import TavernVariableService
+from .macro_runtime import MacroEngine, build_macro_runtime_context, normalize_legacy_angle_bracket_placeholders
 
 
 @dataclass(slots=True)
@@ -48,6 +49,7 @@ class TavernService:
         self.summarization_service = summarization_service or TavernChatSummarizationService()
         self.persona_service = TavernPersonaService(self.store)
         self.variable_service = TavernVariableService(self.store)
+        self.macro_engine = MacroEngine()
 
     def ensure_schema(self) -> None:
         self.store.ensure_schema()
@@ -194,7 +196,38 @@ class TavernService:
 
     # Chat
     def create_chat(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self.store.create_chat(payload)
+        normalized_payload = dict(payload or {})
+        character_id = str(normalized_payload.get('characterId') or '').strip()
+        character = self.store.get_character(character_id) if character_id else None
+        if character is not None:
+            persona_stub = self.persona_service.resolve_for_chat({
+                'personaId': str(normalized_payload.get('personaId') or '').strip(),
+                'metadata': dict(normalized_payload.get('metadata') or {}) if isinstance(normalized_payload.get('metadata'), dict) else {},
+            })
+            variable_snapshot = self.variable_service.snapshot_for_chat({
+                'metadata': dict(normalized_payload.get('metadata') or {}) if isinstance(normalized_payload.get('metadata'), dict) else {},
+            })
+            first_message = normalize_legacy_angle_bracket_placeholders(
+                str(character.get('firstMessage') or '').strip()
+            )
+            if first_message:
+                runtime_context = build_macro_runtime_context(
+                    character={**character, 'firstMessage': first_message},
+                    chat={
+                        'id': '',
+                        'personaId': str(normalized_payload.get('personaId') or '').strip(),
+                        'metadata': dict(normalized_payload.get('metadata') or {}) if isinstance(normalized_payload.get('metadata'), dict) else {},
+                    },
+                    history=[],
+                    user_text='',
+                    persona=persona_stub,
+                    local_variables=variable_snapshot.local,
+                    global_variables=variable_snapshot.global_,
+                    original_text='',
+                )
+                rendered = self.macro_engine.render(first_message, runtime_context, allow_side_effects=False)
+                normalized_payload['seedFirstMessage'] = rendered.text
+        return self.store.create_chat(normalized_payload)
 
     def list_chats(self) -> list[dict[str, Any]]:
         return self.store.list_chats()
@@ -553,10 +586,16 @@ class TavernService:
         return preset, prompt_order
 
     def _collect_effective_worldbook_entries(self, character_id: str) -> list[dict[str, Any]]:
-        worldbook_map = {
-            item['id']: item
+        worldbooks = [
+            item
             for item in self.store.list_worldbooks()
             if item.get('enabled', True)
+        ]
+        worldbook_map = {item['id']: item for item in worldbooks}
+        global_worldbook_ids = {
+            str(item.get('id') or '').strip()
+            for item in worldbooks
+            if str(item.get('scope') or 'local').strip().lower() == 'global'
         }
         collected: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
@@ -571,17 +610,19 @@ class TavernService:
                     annotated = dict(entry)
                     annotated['_sourceScope'] = 'character'
                     annotated['_binding'] = binding
+                    annotated['_worldbookScope'] = str(worldbook_map[worldbook_id].get('scope') or 'local')
                     if binding.get('priorityOverride') is not None:
                         annotated['priority'] = int(binding.get('priorityOverride') or 0)
                     collected.append(annotated)
                     seen_ids.add(entry_id)
 
-        for worldbook_id in worldbook_map:
+        for worldbook_id in global_worldbook_ids:
             for entry in self.store.list_worldbook_entries(worldbook_id):
                 entry_id = str(entry.get('id') or '').strip()
                 if entry_id and entry_id not in seen_ids:
                     annotated = dict(entry)
                     annotated['_sourceScope'] = 'global'
+                    annotated['_worldbookScope'] = 'global'
                     collected.append(annotated)
                     seen_ids.add(entry_id)
         return collected

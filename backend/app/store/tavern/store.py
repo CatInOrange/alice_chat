@@ -147,6 +147,7 @@ class TavernStore:
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
                     description TEXT NOT NULL DEFAULT '',
+                    scope TEXT NOT NULL DEFAULT 'local',
                     enabled INTEGER NOT NULL DEFAULT 1,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
@@ -249,6 +250,7 @@ class TavernStore:
             self._ensure_column(conn, 'tavern_worldbook_entries', 'sticky', "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, 'tavern_worldbook_entries', 'cooldown', "INTEGER NOT NULL DEFAULT 0")
             self._ensure_column(conn, 'tavern_worldbook_entries', 'delay', "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, 'tavern_worldbooks', 'scope', "TEXT NOT NULL DEFAULT 'local'")
             self._ensure_column(conn, 'tavern_presets', 'story_string', "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, 'tavern_presets', 'chat_start', "TEXT NOT NULL DEFAULT ''")
             self._ensure_column(conn, 'tavern_presets', 'example_separator', "TEXT NOT NULL DEFAULT ''")
@@ -489,18 +491,22 @@ class TavernStore:
     def create_worldbook(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.ensure_schema()
         now = _now()
+        scope = str(payload.get('scope') or 'local').strip().lower()
+        if scope not in {'global', 'local'}:
+            scope = 'local'
         record = {
             'id': _new_id('tav_wb'),
             'name': str(payload.get('name') or '').strip() or '未命名世界书',
             'description': str(payload.get('description') or '').strip(),
+            'scope': scope,
             'enabled': bool(payload.get('enabled', True)),
             'createdAt': now,
             'updatedAt': now,
         }
         with connect(self.db) as conn:
             conn.execute(
-                "INSERT INTO tavern_worldbooks(id,name,description,enabled,created_at,updated_at) VALUES(?,?,?,?,?,?)",
-                (record['id'], record['name'], record['description'], 1 if record['enabled'] else 0, now, now),
+                "INSERT INTO tavern_worldbooks(id,name,description,scope,enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+                (record['id'], record['name'], record['description'], record['scope'], 1 if record['enabled'] else 0, now, now),
             )
             conn.commit()
         return record
@@ -524,13 +530,16 @@ class TavernStore:
         updated = {
             'name': str(payload.get('name', current['name']) or '').strip() or current['name'],
             'description': str(payload.get('description', current['description']) or '').strip(),
+            'scope': str(payload.get('scope', current.get('scope') or 'local') or 'local').strip().lower() or 'local',
             'enabled': bool(payload.get('enabled', current['enabled'])),
             'updatedAt': _now(),
         }
+        if updated['scope'] not in {'global', 'local'}:
+            updated['scope'] = 'local'
         with connect(self.db) as conn:
             conn.execute(
-                "UPDATE tavern_worldbooks SET name=?, description=?, enabled=?, updated_at=? WHERE id=?",
-                (updated['name'], updated['description'], 1 if updated['enabled'] else 0, updated['updatedAt'], worldbook_id),
+                "UPDATE tavern_worldbooks SET name=?, description=?, scope=?, enabled=?, updated_at=? WHERE id=?",
+                (updated['name'], updated['description'], updated['scope'], 1 if updated['enabled'] else 0, updated['updatedAt'], worldbook_id),
             )
             conn.commit()
         return self.get_worldbook(worldbook_id)
@@ -906,8 +915,8 @@ class TavernStore:
         now = _now()
         character_id = str(payload.get('characterId') or '').strip()
         title = str(payload.get('title') or '').strip()
+        character = self.get_character(character_id) if character_id else None
         if not title and character_id:
-            character = self.get_character(character_id)
             title = str((character or {}).get('name') or '').strip()
         record = {
             'id': _new_id('tav_chat'),
@@ -922,6 +931,7 @@ class TavernStore:
             'createdAt': now,
             'updatedAt': now,
         }
+        first_message = str(payload.get('seedFirstMessage') or '').strip()
         with connect(self.db) as conn:
             conn.execute(
                 "INSERT INTO tavern_chats(id,character_id,title,preset_id,persona_id,author_note_enabled,author_note,author_note_depth,metadata_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
@@ -930,6 +940,20 @@ class TavernStore:
                     record['personaId'], 1 if record['authorNoteEnabled'] else 0, record['authorNote'], record['authorNoteDepth'], json.dumps(record['metadata'], ensure_ascii=False), now, now,
                 ),
             )
+            if first_message:
+                conn.execute(
+                    "INSERT INTO tavern_messages(id,chat_id,role,content,thought,metadata_json,created_at) VALUES(?,?,?,?,?,?,?)",
+                    (
+                        _new_id('tav_msg'),
+                        record['id'],
+                        'assistant',
+                        first_message,
+                        '',
+                        json.dumps({'seeded': 'firstMessage'}, ensure_ascii=False),
+                        now,
+                    ),
+                )
+                conn.execute("UPDATE tavern_chats SET updated_at=? WHERE id=?", (now, record['id']))
             conn.commit()
         return record
 
@@ -1185,6 +1209,7 @@ class TavernStore:
             'id': row['id'],
             'name': row['name'],
             'description': row['description'],
+            'scope': str(row['scope'] or 'local'),
             'enabled': bool(row['enabled']),
             'createdAt': row['created_at'],
             'updatedAt': row['updated_at'],
@@ -1402,8 +1427,8 @@ class TavernStore:
         worldbook_name = str(raw_book.get('name') or card_layer.get('name') or 'Embedded Character Book').strip() or 'Embedded Character Book'
         worldbook_description = str(raw_book.get('description') or '').strip()
         conn.execute(
-            "INSERT INTO tavern_worldbooks(id,name,description,enabled,created_at,updated_at) VALUES(?,?,?,?,?,?)",
-            (worldbook_id, worldbook_name, worldbook_description, 1, now, now),
+            "INSERT INTO tavern_worldbooks(id,name,description,scope,enabled,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+            (worldbook_id, worldbook_name, worldbook_description, 'local', 1, now, now),
         )
 
         for raw_entry in entries:
