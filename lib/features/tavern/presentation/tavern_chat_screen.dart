@@ -141,14 +141,21 @@ class _InlineHtmlMessageView extends StatefulWidget {
 class _InlineHtmlMessageViewState extends State<_InlineHtmlMessageView> {
   static const String _heightProbeScript = '''
 (() => {
+  const root = document.getElementById('alicechat-inline-root');
   const doc = document.documentElement;
   const body = document.body;
+  if (root) {
+    return Math.max(
+      root.scrollHeight || 0,
+      root.offsetHeight || 0,
+      root.getBoundingClientRect?.()?.height || 0,
+    );
+  }
   if (!doc || !body) return 320;
   return Math.max(
     body.scrollHeight || 0,
     body.offsetHeight || 0,
     body.getBoundingClientRect?.()?.height || 0,
-    doc.clientHeight || 0,
     doc.scrollHeight || 0,
     doc.offsetHeight || 0,
     doc.getBoundingClientRect?.()?.height || 0
@@ -161,33 +168,48 @@ class _InlineHtmlMessageViewState extends State<_InlineHtmlMessageView> {
   if (window.__alicechatHeightObserverInstalled) return;
   window.__alicechatHeightObserverInstalled = true;
 
+  const measure = () => {
+    const root = document.getElementById('alicechat-inline-root');
+    if (root) {
+      return Math.max(
+        root.scrollHeight || 0,
+        root.offsetHeight || 0,
+        root.getBoundingClientRect?.()?.height || 0,
+      );
+    }
+    const doc = document.documentElement;
+    const body = document.body;
+    if (!doc || !body) return 0;
+    return Math.max(
+      body.scrollHeight || 0,
+      body.offsetHeight || 0,
+      body.getBoundingClientRect?.()?.height || 0,
+      doc.scrollHeight || 0,
+      doc.offsetHeight || 0,
+      doc.getBoundingClientRect?.()?.height || 0,
+    );
+  };
+
   const notify = () => {
     try {
-      const doc = document.documentElement;
-      const body = document.body;
-      if (!doc || !body) return;
-      const height = Math.max(
-        body.scrollHeight || 0,
-        body.offsetHeight || 0,
-        body.getBoundingClientRect?.()?.height || 0,
-        doc.clientHeight || 0,
-        doc.scrollHeight || 0,
-        doc.offsetHeight || 0,
-        doc.getBoundingClientRect?.()?.height || 0,
-      );
+      const height = measure();
+      if (!height) return;
       if (window.HeightObserver && typeof window.HeightObserver.postMessage === 'function') {
         window.HeightObserver.postMessage(String(height));
       }
     } catch (_) {}
   };
 
-  new ResizeObserver(() => notify()).observe(document.body);
-  new MutationObserver(() => notify()).observe(document.body, {
-    childList: true,
-    subtree: true,
-    characterData: true,
-    attributes: true,
-  });
+  const target = document.getElementById('alicechat-inline-root') || document.body;
+  if (target) {
+    new ResizeObserver(() => notify()).observe(target);
+    new MutationObserver(() => notify()).observe(target, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+    });
+  }
 
   window.addEventListener('load', notify);
   setTimeout(notify, 60);
@@ -1566,6 +1588,12 @@ body {
 }
 </style>
 </head>''',
+      ).replaceFirst(
+        RegExp(r'<body([^>]*)>', caseSensitive: false),
+        '<body\$1><div id="alicechat-inline-root">',
+      ).replaceFirst(
+        RegExp(r'</body>', caseSensitive: false),
+        '</div></body>',
       );
     }
     return '''
@@ -1611,7 +1639,9 @@ body {
 </style>
 </head>
 <body>
+<div id="alicechat-inline-root">
 $trimmed
+</div>
 </body>
 </html>
 ''';
