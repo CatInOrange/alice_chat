@@ -113,15 +113,15 @@ class _TavernRegexScript {
   }
 }
 
-enum _AssistantRenderKind { markdown, narration, inlineNarration, complexHtml }
+enum _AssistantRenderSegmentKind { markdown, narration, inlineNarration, complexHtml }
 
-class _AssistantRenderPayload {
-  const _AssistantRenderPayload({
+class _AssistantRenderSegment {
+  const _AssistantRenderSegment({
     required this.kind,
     required this.content,
   });
 
-  final _AssistantRenderKind kind;
+  final _AssistantRenderSegmentKind kind;
   final String content;
 }
 
@@ -1118,17 +1118,33 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       );
     }
 
-    final payload = _buildAssistantRenderPayload(normalized);
-    switch (payload.kind) {
-      case _AssistantRenderKind.complexHtml:
-        return _buildInlineHtmlContent(payload.content);
-      case _AssistantRenderKind.narration:
-        return _buildNarrationText(payload.content);
-      case _AssistantRenderKind.inlineNarration:
-        return _buildInlineNarrationRichText(payload.content);
-      case _AssistantRenderKind.markdown:
+    final segments = _buildAssistantRenderSegments(normalized);
+    if (segments.isEmpty) return const SizedBox.shrink();
+    if (segments.length == 1) {
+      return _buildAssistantSegment(segments.first);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < segments.length; i++) ...[
+          _buildAssistantSegment(segments[i]),
+          if (i != segments.length - 1) const SizedBox(height: 10),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildAssistantSegment(_AssistantRenderSegment segment) {
+    switch (segment.kind) {
+      case _AssistantRenderSegmentKind.complexHtml:
+        return _buildInlineHtmlContent(segment.content);
+      case _AssistantRenderSegmentKind.narration:
+        return _buildNarrationText(segment.content);
+      case _AssistantRenderSegmentKind.inlineNarration:
+        return _buildInlineNarrationRichText(segment.content);
+      case _AssistantRenderSegmentKind.markdown:
         return _buildMarkdownText(
-          payload.content,
+          segment.content,
           textColor: const Color(0xFF1F2430),
         );
     }
@@ -1252,31 +1268,48 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         .hasMatch(text);
   }
 
-  _AssistantRenderPayload _buildAssistantRenderPayload(String text) {
+  List<_AssistantRenderSegment> _buildAssistantRenderSegments(String text) {
     final rendered = _applyAssistantDisplayTransforms(text);
-    if (_looksLikeComplexHtml(rendered)) {
-      return _AssistantRenderPayload(
-        kind: _AssistantRenderKind.complexHtml,
-        content: rendered,
+    final segments = <_AssistantRenderSegment>[];
+    for (final chunk in _splitAssistantHtmlChunks(rendered)) {
+      final content = chunk.trim();
+      if (content.isEmpty) continue;
+      if (_looksLikeComplexHtml(content)) {
+        segments.add(
+          _AssistantRenderSegment(
+            kind: _AssistantRenderSegmentKind.complexHtml,
+            content: content,
+          ),
+        );
+        continue;
+      }
+      if (_isNarrationMessage(content)) {
+        segments.add(
+          _AssistantRenderSegment(
+            kind: _AssistantRenderSegmentKind.narration,
+            content: content,
+          ),
+        );
+        continue;
+      }
+      if (!_containsPotentialMarkdown(content) &&
+          _containsNarrationSegment(content)) {
+        segments.add(
+          _AssistantRenderSegment(
+            kind: _AssistantRenderSegmentKind.inlineNarration,
+            content: content,
+          ),
+        );
+        continue;
+      }
+      segments.add(
+        _AssistantRenderSegment(
+          kind: _AssistantRenderSegmentKind.markdown,
+          content: content,
+        ),
       );
     }
-    if (_isNarrationMessage(rendered)) {
-      return _AssistantRenderPayload(
-        kind: _AssistantRenderKind.narration,
-        content: rendered,
-      );
-    }
-    if (!_containsPotentialMarkdown(rendered) &&
-        _containsNarrationSegment(rendered)) {
-      return _AssistantRenderPayload(
-        kind: _AssistantRenderKind.inlineNarration,
-        content: rendered,
-      );
-    }
-    return _AssistantRenderPayload(
-      kind: _AssistantRenderKind.markdown,
-      content: rendered,
-    );
+    return segments;
   }
 
   String _applyAssistantDisplayTransforms(String text) {
@@ -1284,17 +1317,33 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     if (result.isEmpty) return result;
     final scripts = _characterRegexScripts();
     if (scripts.isNotEmpty) {
-      final depth = _messages.length;
       final sorted = [...scripts]..sort((a, b) => a.order.compareTo(b.order));
       for (final script in sorted) {
         final isMarkdown = script.markdownOnly || _containsPotentialMarkdown(result);
-        if (!script.appliesToAiOutput(isMarkdown: isMarkdown, depth: depth)) {
+        if (!script.appliesToAiOutput(isMarkdown: isMarkdown, depth: null)) {
           continue;
         }
         result = _runRegexScript(script, result);
       }
     }
-    return _stripWrappedCodeFenceHtml(result).trim();
+    return _unwrapFencedHtmlBlocks(result).trim();
+  }
+
+  List<String> _splitAssistantHtmlChunks(String text) {
+    final chunks = <String>[];
+    final pattern = RegExp(r'<html[\s\S]*?</html>', caseSensitive: false);
+    var cursor = 0;
+    for (final match in pattern.allMatches(text)) {
+      if (match.start > cursor) {
+        chunks.add(text.substring(cursor, match.start));
+      }
+      chunks.add(match.group(0) ?? '');
+      cursor = match.end;
+    }
+    if (cursor < text.length) {
+      chunks.add(text.substring(cursor));
+    }
+    return chunks.isEmpty ? <String>[text] : chunks;
   }
 
   List<_TavernRegexScript> _characterRegexScripts() {
@@ -1408,10 +1457,11 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         .replaceAll('\n', '<br>');
   }
 
-  String _stripWrappedCodeFenceHtml(String text) {
-    final match = RegExp(r'^```\s*(<html[\s\S]*?</html>)\s*```$', caseSensitive: false)
-        .firstMatch(text.trim());
-    return match?.group(1) ?? text;
+  String _unwrapFencedHtmlBlocks(String text) {
+    return text.replaceAllMapped(
+      RegExp(r'```(?:html)?\s*(<html[\s\S]*?</html>)\s*```', caseSensitive: false),
+      (match) => match.group(1) ?? match.group(0) ?? '',
+    );
   }
 
   bool _looksLikeComplexHtml(String text) {
@@ -1489,9 +1539,23 @@ html, body {
 }
 body {
   overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif !important;
 }
-.monitor-frame, .container, .card, .panel {
+.monitor-frame, .container, .card, .panel, .monitor-frame * {
   box-sizing: border-box;
+  max-width: 100%;
+}
+.monitor-frame {
+  font-size: clamp(11px, 3vw, 13px);
+  line-height: 1.45;
+}
+.monitor-frame .title, .monitor-frame .header, .monitor-frame .headline {
+  font-size: clamp(15px, 4.4vw, 19px) !important;
+  line-height: 1.2 !important;
+}
+.monitor-frame .value, .monitor-frame .metric, .monitor-frame .percent {
+  font-size: clamp(18px, 5vw, 28px) !important;
 }
 .detail-row, .log-box, .mono-box, .status-line, .detail-grid, .sec-group {
   word-break: break-word;
@@ -1516,10 +1580,26 @@ html, body {
   padding: 0;
   background: transparent;
   color: #1f2430;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
 }
 body {
   overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+.monitor-frame, .container, .card, .panel, .monitor-frame * {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+.monitor-frame {
+  font-size: clamp(11px, 3vw, 13px);
+  line-height: 1.45;
+}
+.monitor-frame .title, .monitor-frame .header, .monitor-frame .headline {
+  font-size: clamp(15px, 4.4vw, 19px) !important;
+  line-height: 1.2 !important;
+}
+.monitor-frame .value, .monitor-frame .metric, .monitor-frame .percent {
+  font-size: clamp(18px, 5vw, 28px) !important;
 }
 .detail-row, .log-box, .mono-box, .status-line, .detail-grid, .sec-group {
   word-break: break-word;
