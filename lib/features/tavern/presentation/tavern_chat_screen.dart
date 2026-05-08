@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:provider/provider.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../../../core/openclaw/openclaw_settings.dart';
 import '../application/tavern_store.dart';
@@ -40,6 +42,120 @@ class _NarrationSegment {
   final bool isNarration;
   final String openBracket;
   final String closeBracket;
+}
+
+class _TavernRegexScript {
+  const _TavernRegexScript({
+    required this.scriptName,
+    required this.findRegex,
+    required this.replaceString,
+    required this.placement,
+    this.disabled = false,
+    this.markdownOnly = false,
+    this.promptOnly = false,
+    this.runOnEdit = false,
+    this.substituteRegex = 0,
+    this.order = 0,
+    this.minDepth,
+    this.maxDepth,
+    this.trimStrings = const <String>[],
+  });
+
+  final String scriptName;
+  final String findRegex;
+  final String replaceString;
+  final List<dynamic> placement;
+  final bool disabled;
+  final bool markdownOnly;
+  final bool promptOnly;
+  final bool runOnEdit;
+  final int substituteRegex;
+  final int order;
+  final int? minDepth;
+  final int? maxDepth;
+  final List<String> trimStrings;
+
+  factory _TavernRegexScript.fromJson(Map<String, dynamic> json) {
+    return _TavernRegexScript(
+      scriptName: (json['scriptName'] ?? '').toString(),
+      findRegex: (json['findRegex'] ?? '').toString(),
+      replaceString: (json['replaceString'] ?? '').toString(),
+      placement: ((json['placement'] as List?) ?? const <dynamic>[])
+          .toList(growable: false),
+      disabled: json['disabled'] == true,
+      markdownOnly: json['markdownOnly'] == true,
+      promptOnly: json['promptOnly'] == true,
+      runOnEdit: json['runOnEdit'] == true,
+      substituteRegex: (json['substituteRegex'] as num?)?.toInt() ?? 0,
+      order: (json['order'] as num?)?.toInt() ?? 0,
+      minDepth: (json['minDepth'] as num?)?.toInt(),
+      maxDepth: (json['maxDepth'] as num?)?.toInt(),
+      trimStrings: ((json['trimStrings'] as List?) ?? const <dynamic>[])
+          .map((item) => item.toString())
+          .toList(growable: false),
+    );
+  }
+
+  bool appliesToAiOutput({required bool isMarkdown, required int? depth}) {
+    if (disabled || findRegex.isEmpty) return false;
+    final placements = placement
+        .map((item) => item is num ? item.toInt() : item.toString())
+        .toList(growable: false);
+    final hasAiOutput = placements.contains(1) || placements.contains('aiOutput');
+    if (!hasAiOutput) return false;
+    if (markdownOnly && !isMarkdown) return false;
+    if (promptOnly) return false;
+    if (depth != null) {
+      if (minDepth != null && minDepth! >= -1 && depth < minDepth!) return false;
+      if (maxDepth != null && maxDepth! >= 0 && depth > maxDepth!) return false;
+    }
+    return true;
+  }
+}
+
+class _InlineHtmlMessageView extends StatefulWidget {
+  const _InlineHtmlMessageView({
+    required this.html,
+    required this.height,
+  });
+
+  final String html;
+  final double height;
+
+  @override
+  State<_InlineHtmlMessageView> createState() => _InlineHtmlMessageViewState();
+}
+
+class _InlineHtmlMessageViewState extends State<_InlineHtmlMessageView> {
+  late final WebViewController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.transparent);
+    unawaited(_controller.loadHtmlString(widget.html));
+  }
+
+  @override
+  void didUpdateWidget(covariant _InlineHtmlMessageView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.html != widget.html) {
+      unawaited(_controller.loadHtmlString(widget.html));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        height: widget.height,
+        child: WebViewWidget(controller: _controller),
+      ),
+    );
+  }
 }
 
 class _TavernCharacterProfilePage extends StatelessWidget {
@@ -866,16 +982,20 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   Widget _buildMessageContent(String text, {required bool isUser}) {
     final normalized = text.trim();
     if (normalized.isEmpty) return const SizedBox.shrink();
-    if (!isUser && _isNarrationMessage(normalized)) {
-      return _buildNarrationText(normalized);
+    final rendered = !isUser ? _applyAssistantDisplayTransforms(normalized) : normalized;
+    if (!isUser && _looksLikeComplexHtml(rendered)) {
+      return _buildInlineHtmlContent(rendered);
+    }
+    if (!isUser && _isNarrationMessage(rendered)) {
+      return _buildNarrationText(rendered);
     }
     if (!isUser &&
-        !_containsPotentialMarkdown(normalized) &&
-        _containsNarrationSegment(normalized)) {
-      return _buildInlineNarrationRichText(normalized);
+        !_containsPotentialMarkdown(rendered) &&
+        _containsNarrationSegment(rendered)) {
+      return _buildInlineNarrationRichText(rendered);
     }
     return _buildMarkdownText(
-      normalized,
+      rendered,
       textColor: isUser ? Colors.white : const Color(0xFF1F2430),
     );
   }
@@ -996,6 +1116,187 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   bool _containsPotentialMarkdown(String text) {
     return RegExp(r'[`*_#\[\]~-]|^>|^\d+\.\s|^-\s', multiLine: true)
         .hasMatch(text);
+  }
+
+  String _applyAssistantDisplayTransforms(String text) {
+    var result = text.trim();
+    if (result.isEmpty) return result;
+    final scripts = _characterRegexScripts();
+    if (scripts.isNotEmpty) {
+      final depth = _messages.length;
+      final sorted = [...scripts]..sort((a, b) => a.order.compareTo(b.order));
+      for (final script in sorted) {
+        final isMarkdown = script.markdownOnly || _containsPotentialMarkdown(result);
+        if (!script.appliesToAiOutput(isMarkdown: isMarkdown, depth: depth)) {
+          continue;
+        }
+        result = _runRegexScript(script, result);
+      }
+    }
+    return _stripWrappedCodeFenceHtml(result).trim();
+  }
+
+  List<_TavernRegexScript> _characterRegexScripts() {
+    final raw = _character.extensions['regex_scripts'];
+    if (raw is! List) return const <_TavernRegexScript>[];
+    return raw
+        .whereType<Map>()
+        .map((item) => _TavernRegexScript.fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
+  }
+
+  String _runRegexScript(_TavernRegexScript script, String input) {
+    final regexString = _substituteRegexMacros(script.findRegex, script.substituteRegex);
+    final regex = _parseRegex(regexString);
+    if (regex == null) return input;
+    return input.replaceAllMapped(regex, (match) {
+      var replacement = script.replaceString;
+      replacement = replacement.replaceAll(RegExp(r'\{\{match\}\}', caseSensitive: false), match.group(0) ?? '');
+      for (var i = 0; i <= match.groupCount; i++) {
+        final group = _filterTrimStrings(match.group(i) ?? '', script.trimStrings);
+        replacement = replacement.replaceAll('\$$i', group);
+      }
+      replacement = _substituteRegexMacros(replacement, 0);
+      return replacement;
+    });
+  }
+
+  RegExp? _parseRegex(String regexString) {
+    if (regexString.isEmpty) return null;
+    try {
+      if (regexString.startsWith('/')) {
+        final lastSlash = regexString.lastIndexOf('/');
+        if (lastSlash > 0) {
+          final pattern = regexString.substring(1, lastSlash);
+          final flags = regexString.substring(lastSlash + 1);
+          return RegExp(
+            pattern,
+            caseSensitive: !flags.contains('i'),
+            multiLine: flags.contains('m'),
+            dotAll: flags.contains('s'),
+            unicode: flags.contains('u'),
+          );
+        }
+      }
+      return RegExp(regexString, dotAll: true, multiLine: true);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _substituteRegexMacros(String input, int substituteMode) {
+    var result = input;
+    final charName = _character.name;
+    final userName = _resolvedUserDisplayName();
+    if (substituteMode == 2) {
+      result = result.replaceAll(RegExp(r'\{\{char\}\}', caseSensitive: false), RegExp.escape(charName));
+      result = result.replaceAll(RegExp(r'\{\{user\}\}', caseSensitive: false), RegExp.escape(userName));
+      return result;
+    }
+    result = result.replaceAll(RegExp(r'\{\{char\}\}', caseSensitive: false), charName);
+    result = result.replaceAll(RegExp(r'\{\{user\}\}', caseSensitive: false), userName);
+    return result;
+  }
+
+  String _resolvedUserDisplayName() {
+    final personaDescription = _chat.metadata['personaDescription'];
+    if (personaDescription is String && personaDescription.trim().isNotEmpty) {
+      return personaDescription.trim();
+    }
+    final personaName = _chat.metadata['personaName'];
+    if (personaName is String && personaName.trim().isNotEmpty) {
+      return personaName.trim();
+    }
+    return 'User';
+  }
+
+  String _filterTrimStrings(String input, List<String> trimStrings) {
+    var result = input;
+    for (final trim in trimStrings) {
+      result = result.replaceAll(trim, '');
+    }
+    return result;
+  }
+
+  String _stripWrappedCodeFenceHtml(String text) {
+    final match = RegExp(r'^```\s*(<html[\s\S]*?</html>)\s*```$', caseSensitive: false)
+        .firstMatch(text.trim());
+    return match?.group(1) ?? text;
+  }
+
+  bool _looksLikeComplexHtml(String text) {
+    if (!RegExp(r'<\s*html[\s>]|<\s*style[\s>]|<\s*div[\s>]', caseSensitive: false)
+        .hasMatch(text)) {
+      return false;
+    }
+    final complexPatterns = <RegExp>[
+      RegExp(r'<\s*html[\s>]', caseSensitive: false),
+      RegExp(r'<\s*style[\s>]', caseSensitive: false),
+      RegExp(r'display\s*:\s*flex', caseSensitive: false),
+      RegExp(r'display\s*:\s*grid', caseSensitive: false),
+      RegExp(r'box-shadow\s*:', caseSensitive: false),
+      RegExp(r'transition\s*:', caseSensitive: false),
+      RegExp(r'transform\s*:', caseSensitive: false),
+      RegExp(r'animation\s*:', caseSensitive: false),
+      RegExp(r'@keyframes', caseSensitive: false),
+      RegExp(r'linear-gradient', caseSensitive: false),
+    ];
+    return complexPatterns.any((pattern) => pattern.hasMatch(text));
+  }
+
+  Widget _buildInlineHtmlContent(String html) {
+    if (kIsWeb ||
+        defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS) {
+      return _buildMarkdownText(
+        _fallbackHtmlToReadableText(html),
+        textColor: const Color(0xFF1F2430),
+      );
+    }
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: _InlineHtmlMessageView(
+        html: html,
+        height: _estimateInlineHtmlHeight(html),
+      ),
+    );
+  }
+
+  double _estimateInlineHtmlHeight(String html) {
+    final lineCount = '\n'.allMatches(html).length + 1;
+    final sectionCount = RegExp(r'class="(sec-group|detail-row|log-box|mono-box)"', caseSensitive: false)
+        .allMatches(html)
+        .length;
+    final estimated = 180 + (lineCount * 1.8) + (sectionCount * 28);
+    return estimated.clamp(220, 560).toDouble();
+  }
+
+  String _fallbackHtmlToReadableText(String html) {
+    var text = html;
+    text = text.replaceAllMapped(
+      RegExp(r'<br\s*/?>', caseSensitive: false),
+      (_) => '\n',
+    );
+    text = text.replaceAllMapped(
+      RegExp(r'</(div|p|section|article|tr|li|h[1-6])>', caseSensitive: false),
+      (_) => '\n',
+    );
+    text = text.replaceAll(RegExp(r'<style[\s\S]*?</style>', caseSensitive: false), '');
+    text = text.replaceAll(RegExp(r'<script[\s\S]*?</script>', caseSensitive: false), '');
+    text = text.replaceAll(RegExp(r'<[^>]+>'), '');
+    text = text
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll('&amp;', '&')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#39;', "'");
+    text = text.replaceAll(RegExp(r'\n{3,}'), '\n\n');
+    return text.trim();
   }
 
   List<_NarrationSegment> _parseNarrationSegments(String text) {
