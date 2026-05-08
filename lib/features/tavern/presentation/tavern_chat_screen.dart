@@ -147,11 +147,54 @@ class _InlineHtmlMessageViewState extends State<_InlineHtmlMessageView> {
   return Math.max(
     body.scrollHeight || 0,
     body.offsetHeight || 0,
+    body.getBoundingClientRect?.()?.height || 0,
     doc.clientHeight || 0,
     doc.scrollHeight || 0,
-    doc.offsetHeight || 0
+    doc.offsetHeight || 0,
+    doc.getBoundingClientRect?.()?.height || 0
   );
 })()
+''';
+
+  static const String _observerBootstrapScript = '''
+(() => {
+  if (window.__alicechatHeightObserverInstalled) return;
+  window.__alicechatHeightObserverInstalled = true;
+
+  const notify = () => {
+    try {
+      const doc = document.documentElement;
+      const body = document.body;
+      if (!doc || !body) return;
+      const height = Math.max(
+        body.scrollHeight || 0,
+        body.offsetHeight || 0,
+        body.getBoundingClientRect?.()?.height || 0,
+        doc.clientHeight || 0,
+        doc.scrollHeight || 0,
+        doc.offsetHeight || 0,
+        doc.getBoundingClientRect?.()?.height || 0,
+      );
+      if (window.HeightObserver && typeof window.HeightObserver.postMessage === 'function') {
+        window.HeightObserver.postMessage(String(height));
+      }
+    } catch (_) {}
+  };
+
+  new ResizeObserver(() => notify()).observe(document.body);
+  new MutationObserver(() => notify()).observe(document.body, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributes: true,
+  });
+
+  window.addEventListener('load', notify);
+  setTimeout(notify, 60);
+  setTimeout(notify, 220);
+  setTimeout(notify, 600);
+  notify();
+})();
 ''';
 
   late final WebViewController _controller;
@@ -164,9 +207,22 @@ class _InlineHtmlMessageViewState extends State<_InlineHtmlMessageView> {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(Colors.transparent)
+      ..addJavaScriptChannel(
+        'HeightObserver',
+        onMessageReceived: (message) {
+          final nextHeight = _parseHeightResult(message.message);
+          if (!mounted || nextHeight == null) return;
+          final clamped = nextHeight.clamp(260, 1600).toDouble();
+          if ((clamped - _height).abs() < 4) return;
+          setState(() {
+            _height = clamped;
+          });
+        },
+      )
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageFinished: (_) {
+          onPageFinished: (_) async {
+            await _installHeightObservers();
             unawaited(_syncHeight());
           },
         ),
@@ -183,6 +239,14 @@ class _InlineHtmlMessageViewState extends State<_InlineHtmlMessageView> {
     }
   }
 
+  Future<void> _installHeightObservers() async {
+    try {
+      await _controller.runJavaScript(_observerBootstrapScript);
+    } catch (_) {
+      // Ignore observer injection failures and keep manual probes.
+    }
+  }
+
   Future<void> _syncHeight() async {
     try {
       final raw = await _controller.runJavaScriptReturningResult(
@@ -190,8 +254,8 @@ class _InlineHtmlMessageViewState extends State<_InlineHtmlMessageView> {
       );
       final nextHeight = _parseHeightResult(raw);
       if (!mounted || nextHeight == null) return;
-      final clamped = nextHeight.clamp(220, 1200).toDouble();
-      if ((clamped - _height).abs() < 8) return;
+      final clamped = nextHeight.clamp(260, 1600).toDouble();
+      if ((clamped - _height).abs() < 4) return;
       setState(() {
         _height = clamped;
       });
@@ -1248,10 +1312,15 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     if (regex == null) return input;
     return input.replaceAllMapped(regex, (match) {
       var replacement = script.replaceString;
-      replacement = replacement.replaceAll(RegExp(r'\{\{match\}\}', caseSensitive: false), match.group(0) ?? '');
+      replacement = replacement.replaceAll(
+        RegExp(r'\{\{match\}\}', caseSensitive: false),
+        match.group(0) ?? '',
+      );
+      final replacementLooksHtml = _looksLikeHtmlTemplate(replacement);
       for (var i = 0; i <= match.groupCount; i++) {
         final group = _filterTrimStrings(match.group(i) ?? '', script.trimStrings);
-        replacement = replacement.replaceAll('\$$i', group);
+        final safeGroup = replacementLooksHtml ? _formatHtmlReplacementText(group) : group;
+        replacement = replacement.replaceAll('\$$i', safeGroup);
       }
       replacement = _substituteRegexMacros(replacement, 0);
       return replacement;
@@ -1325,6 +1394,20 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     return result;
   }
 
+  bool _looksLikeHtmlTemplate(String text) {
+    return RegExp(r'<\s*(html|head|body|style|div|section|article|table|span)\b', caseSensitive: false)
+        .hasMatch(text);
+  }
+
+  String _formatHtmlReplacementText(String text) {
+    final escaped = const HtmlEscape(HtmlEscapeMode.element).convert(text);
+    return escaped
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n')
+        .replaceAll('\n\n', '<br><br>')
+        .replaceAll('\n', '<br>');
+  }
+
   String _stripWrappedCodeFenceHtml(String text) {
     final match = RegExp(r'^```\s*(<html[\s\S]*?</html>)\s*```$', caseSensitive: false)
         .firstMatch(text.trim());
@@ -1361,25 +1444,97 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         textColor: const Color(0xFF1F2430),
       );
     }
+    final wrappedHtml = _wrapInlineHtmlDocument(html);
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 14,
+            offset: Offset(0, 6),
+          ),
+        ],
       ),
       child: _InlineHtmlMessageView(
-        html: html,
-        initialHeight: _estimateInlineHtmlHeight(html),
+        html: wrappedHtml,
+        initialHeight: _estimateInlineHtmlHeight(wrappedHtml),
       ),
     );
   }
 
   double _estimateInlineHtmlHeight(String html) {
     final lineCount = '\n'.allMatches(html).length + 1;
-    final sectionCount = RegExp(r'class="(sec-group|detail-row|log-box|mono-box)"', caseSensitive: false)
-        .allMatches(html)
-        .length;
-    final estimated = 180 + (lineCount * 1.8) + (sectionCount * 28);
-    return estimated.clamp(220, 560).toDouble();
+    final sectionCount = RegExp(
+      r'class="([^"]*(sec-group|detail-row|log-box|mono-box|detail-grid|monitor-frame)[^"]*)"',
+      caseSensitive: false,
+    ).allMatches(html).length;
+    final estimated = 220 + (lineCount * 2.4) + (sectionCount * 34);
+    return estimated.clamp(260, 900).toDouble();
+  }
+
+  String _wrapInlineHtmlDocument(String html) {
+    final trimmed = html.trim();
+    final hasHtmlRoot = RegExp(r'<\s*html\b', caseSensitive: false).hasMatch(trimmed);
+    if (hasHtmlRoot) {
+      return trimmed.replaceFirst(
+        RegExp(r'</head>', caseSensitive: false),
+        '''
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent !important;
+}
+body {
+  overflow-x: hidden;
+}
+.monitor-frame, .container, .card, .panel {
+  box-sizing: border-box;
+}
+.detail-row, .log-box, .mono-box, .status-line, .detail-grid, .sec-group {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.log-box, .mono-box, .detail-value, .detail-row, .status-line {
+  white-space: pre-wrap;
+}
+</style>
+</head>''',
+      );
+    }
+    return '''
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: #1f2430;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+}
+body {
+  overflow-x: hidden;
+}
+.detail-row, .log-box, .mono-box, .status-line, .detail-grid, .sec-group {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.log-box, .mono-box, .detail-value, .detail-row, .status-line {
+  white-space: pre-wrap;
+}
+</style>
+</head>
+<body>
+$trimmed
+</body>
+</html>
+''';
   }
 
   String _fallbackHtmlToReadableText(String html) {
