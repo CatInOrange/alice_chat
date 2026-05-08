@@ -1555,18 +1555,41 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         '''
 <style>
 html, body {
-  margin: 0;
-  padding: 0;
+  margin: 0 !important;
+  padding: 0 !important;
   background: transparent !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
 }
 body {
-  overflow-x: hidden;
+  overflow-x: hidden !important;
+  overflow-y: hidden !important;
   -webkit-text-size-adjust: 100%;
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif !important;
+}
+#alicechat-inline-root {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: hidden;
+}
+#alicechat-inline-root, #alicechat-inline-root * {
+  box-sizing: border-box;
 }
 .monitor-frame, .container, .card, .panel, .monitor-frame * {
   box-sizing: border-box;
   max-width: 100%;
+}
+.monitor-frame, .container, .card, .panel {
+  width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  margin: 0 !important;
 }
 .monitor-frame {
   font-size: clamp(11px, 3vw, 13px);
@@ -1604,19 +1627,42 @@ body {
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <style>
 html, body {
-  margin: 0;
-  padding: 0;
+  margin: 0 !important;
+  padding: 0 !important;
   background: transparent;
   color: #1f2430;
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
 }
 body {
-  overflow-x: hidden;
+  overflow-x: hidden !important;
+  overflow-y: hidden !important;
   -webkit-text-size-adjust: 100%;
+}
+#alicechat-inline-root {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto !important;
+  min-height: 0 !important;
+  overflow: hidden;
+}
+#alicechat-inline-root, #alicechat-inline-root * {
+  box-sizing: border-box;
 }
 .monitor-frame, .container, .card, .panel, .monitor-frame * {
   box-sizing: border-box;
   max-width: 100%;
+}
+.monitor-frame, .container, .card, .panel {
+  width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  margin: 0 !important;
 }
 .monitor-frame {
   font-size: clamp(11px, 3vw, 13px);
