@@ -390,6 +390,12 @@ class _TavernScreenState extends State<TavernScreen>
   }
 
   Future<void> _showWorldBooksManager(BuildContext context, TavernStore store) async {
+    for (final book in store.worldBooks) {
+      if (store.worldBookEntriesOf(book.id).isEmpty &&
+          !store.isLoadingWorldBookEntries(book.id)) {
+        store.loadWorldBookEntries(book.id).catchError((_) => const <TavernWorldBookEntry>[]);
+      }
+    }
     final navigator = Navigator.of(context);
     await navigator.push(
       MaterialPageRoute(
@@ -517,225 +523,224 @@ class _TavernScreenState extends State<TavernScreen>
   }
 
   Widget _buildWorldBooksTab(BuildContext context, TavernStore store) {
+    final theme = Theme.of(context);
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'WorldBooks',
-                style: Theme.of(context).textTheme.titleMedium,
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8F7FF),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFE7E3F8)),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('WorldBooks', style: theme.textTheme.titleMedium),
+                    const SizedBox(height: 6),
+                    Text(
+                      '先看内容，再碰高级规则。这里优先展示可见范围、条目预览和实际文本。',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF667085),
+                        height: 1.45,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            FilledButton.icon(
-              onPressed: () => _editWorldBook(context),
-              icon: const Icon(Icons.add),
-              label: const Text('新增'),
-            ),
-          ],
+              const SizedBox(width: 12),
+              FilledButton.icon(
+                onPressed: () => _editWorldBook(context),
+                icon: const Icon(Icons.add),
+                label: const Text('新增'),
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
         if (store.worldBooks.isEmpty)
           const Card(
             child: ListTile(
               title: Text('还没有 WorldBook'),
-              subtitle: Text('这里管理世界书范围、绑定语义与关键词条目。'),
+              subtitle: Text('先建一本书，再往里填关键词和正文内容。'),
             ),
           )
         else
-          ...store.worldBooks.map(
-            (book) => Card(
+          ...store.worldBooks.map((book) {
+            final entries = store.worldBookEntriesOf(book.id);
+            final isLoading = store.isLoadingWorldBookEntries(book.id);
+            final error = store.worldBookEntriesErrorOf(book.id) ?? '';
+            final hasLoaded = entries.isNotEmpty || error.isNotEmpty;
+            final previewEntries = entries.take(3).toList(growable: false);
+            return Card(
+              margin: const EdgeInsets.only(bottom: 14),
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+                side: const BorderSide(color: Color(0xFFE8EAF2)),
+              ),
               child: GestureDetector(
                 onLongPress: () => _confirmDeleteWorldBook(context, book),
                 behavior: HitTestBehavior.opaque,
                 child: ExpansionTile(
                   initiallyExpanded: false,
-                  tilePadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  childrenPadding: const EdgeInsets.only(bottom: 8),
+                  tilePadding: const EdgeInsets.fromLTRB(16, 14, 10, 10),
+                  childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                   onExpansionChanged: (expanded) {
-                    if (expanded &&
-                        store.worldBookEntriesOf(book.id).isEmpty &&
-                        !store.isLoadingWorldBookEntries(book.id)) {
+                    if (expanded && entries.isEmpty && !isLoading) {
                       context.read<TavernStore>().loadWorldBookEntries(book.id);
                     }
                   },
-                  leading: Switch(
+                  leading: Switch.adaptive(
                     value: book.enabled,
                     onChanged: (value) => _toggleWorldBook(context, book, value),
                   ),
-                  title: Text(
-                    book.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  title: Row(
                     children: [
-                      if (book.description.isNotEmpty) ...[
-                        Text(
-                          book.description,
+                      Expanded(
+                        child: Text(
+                          book.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
-                        const SizedBox(height: 6),
-                      ],
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _chip('Scope', book.isGlobal ? 'global' : 'local'),
-                          if (book.isGlobal)
-                            _chip('可见性', '所有会话')
-                          else
-                            _chip('可见性', '仅绑定角色'),
-                        ],
+                      ),
+                      const SizedBox(width: 8),
+                      _softPill(
+                        book.isGlobal ? '全局' : '角色绑定',
+                        icon: book.isGlobal
+                            ? Icons.public_outlined
+                            : Icons.person_outline,
+                        tone: book.isGlobal
+                            ? const Color(0xFFE0F2FE)
+                            : const Color(0xFFF3E8FF),
+                        textColor: book.isGlobal
+                            ? const Color(0xFF0C4A6E)
+                            : const Color(0xFF6B21A8),
                       ),
                     ],
                   ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      tooltip: '新增条目',
-                      onPressed:
-                          () => _editWorldBookEntry(context, worldbook: book),
-                      icon: const Icon(Icons.note_add_outlined),
-                    ),
-                    IconButton(
-                      tooltip: '编辑 WorldBook',
-                      onPressed: () => _editWorldBook(context, worldbook: book),
-                      icon: const Icon(Icons.edit_outlined),
-                    ),
-                    IconButton(
-                      tooltip: '删除 WorldBook',
-                      onPressed: () => _confirmDeleteWorldBook(context, book),
-                      icon: const Icon(Icons.delete_outline),
-                    ),
-                  ],
-                ),
-                children: [
-                  if (store.isLoadingWorldBookEntries(book.id))
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Row(
-                          children: [
-                            SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
+                  subtitle: Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (book.description.trim().isNotEmpty)
+                          Text(
+                            book.description.trim(),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF667085),
+                              height: 1.45,
                             ),
-                            SizedBox(width: 8),
-                            Text('正在加载条目...'),
+                          )
+                        else
+                          Text(
+                            book.isGlobal
+                                ? '这本书会被所有会话看到。'
+                                : '这本书只会对绑定的角色生效。',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF667085),
+                            ),
+                          ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _softMetaChip(book.enabled ? '已启用' : '已停用'),
+                            _softMetaChip(book.isGlobal ? '所有会话可见' : '仅绑定角色可见'),
+                            if (entries.isNotEmpty)
+                              _softMetaChip('${entries.length} 条内容')
+                            else if (isLoading)
+                              _softMetaChip('正在加载内容')
+                            else if (error.isNotEmpty)
+                              _softMetaChip('加载失败')
+                            else if (hasLoaded)
+                              _softMetaChip('暂无条目')
+                            else
+                              _softMetaChip('展开查看条目'),
                           ],
                         ),
-                      ),
-                    )
-                  else if ((store.worldBookEntriesErrorOf(book.id) ?? '').isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '条目加载失败：${store.worldBookEntriesErrorOf(book.id)}',
-                              style: TextStyle(
-                                color: Theme.of(context).colorScheme.error,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            TextButton.icon(
-                              onPressed: () => context
-                                  .read<TavernStore>()
-                                  .loadWorldBookEntries(book.id),
+                        const SizedBox(height: 12),
+                        if (isLoading)
+                          const _WorldBookInfoBanner(
+                            icon: Icons.hourglass_top_rounded,
+                            text: '正在读取这本书的条目内容…',
+                          )
+                        else if (error.isNotEmpty)
+                          _WorldBookInfoBanner(
+                            icon: Icons.error_outline,
+                            text: '条目加载失败：$error',
+                            trailing: TextButton.icon(
+                              onPressed: () => context.read<TavernStore>().loadWorldBookEntries(book.id),
                               icon: const Icon(Icons.refresh),
                               label: const Text('重试'),
                             ),
-                          ],
-                        ),
-                      ),
-                    )
-                  else ...[
-                    ...store
-                        .worldBookEntriesOf(book.id)
-                        .map(
-                          (entry) => ListTile(
-                            title: Text(
-                              entry.keys.isEmpty
-                                  ? '(无关键词)'
-                                  : entry.keys.join(', '),
-                            ),
-                            subtitle: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const SizedBox(height: 4),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    _chip('Priority', '${entry.priority}'),
-                                    _chip('Pos', entry.insertionPosition),
-                                    _chip(
-                                      'Enabled',
-                                      entry.enabled ? 'on' : 'off',
-                                    ),
-                                    if (entry.constant) _chip('Constant', 'yes'),
-                                    if (entry.preventRecursion)
-                                      _chip('NoRecur', 'yes'),
-                                    if (entry.recursive)
-                                      _chip('Recursive', 'yes'),
-                                    if (entry.sticky > 0)
-                                      _chip('Sticky', '${entry.sticky}'),
-                                    if (entry.cooldown > 0)
-                                      _chip('Cooldown', '${entry.cooldown}'),
-                                    if (entry.delay > 0)
-                                      _chip('Delay', '${entry.delay}'),
-                                    if (entry.groupName.isNotEmpty)
-                                      _chip('Group', entry.groupName),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  entry.content,
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                            trailing: IconButton(
-                              tooltip: '编辑条目',
-                              onPressed:
-                                  () => _editWorldBookEntry(
-                                    context,
-                                    worldbook: book,
-                                    entry: entry,
-                                  ),
-                              icon: const Icon(Icons.edit_outlined),
-                            ),
-                            isThreeLine: true,
+                          )
+                        else if (previewEntries.isEmpty)
+                          const _WorldBookInfoBanner(
+                            icon: Icons.notes_outlined,
+                            text: '还没有条目。先加关键词，再写注入内容。',
+                          )
+                        else
+                          Column(
+                            children: previewEntries
+                                .map((entry) => _buildWorldBookEntryPreview(context, book, entry))
+                                .toList(growable: false),
                           ),
-                        ),
-                    if (store.worldBookEntriesOf(book.id).isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      ],
+                    ),
+                  ),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: '新增条目',
+                        onPressed: () => _editWorldBookEntry(context, worldbook: book),
+                        icon: const Icon(Icons.note_add_outlined),
+                      ),
+                      IconButton(
+                        tooltip: '编辑 WorldBook',
+                        onPressed: () => _editWorldBook(context, worldbook: book),
+                        icon: const Icon(Icons.edit_outlined),
+                      ),
+                      IconButton(
+                        tooltip: '删除 WorldBook',
+                        onPressed: () => _confirmDeleteWorldBook(context, book),
+                        icon: const Icon(Icons.delete_outline),
+                      ),
+                    ],
+                  ),
+                  children: [
+                    if (!isLoading && error.isEmpty && entries.length > 3) ...[
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
                         child: Align(
                           alignment: Alignment.centerLeft,
-                          child: Text('还没有条目'),
+                          child: Text(
+                            '其余 ${entries.length - 3} 条',
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              color: const Color(0xFF7C4DFF),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ),
                       ),
+                      ...entries.skip(3).map((entry) => _buildWorldBookEntryPreview(context, book, entry)),
+                    ],
                   ],
-                ],
                 ),
               ),
-            ),
-          ),
+            );
+          }),
       ],
     );
   }
@@ -2565,6 +2570,7 @@ class _TavernScreenState extends State<TavernScreen>
     int cooldown = entry?.cooldown ?? 0;
     int delay = entry?.delay ?? 0;
     bool saving = false;
+    bool showAdvanced = existingEntry != null && _entryUsesAdvancedOptions(existingEntry);
 
     final saved = await showModalBottomSheet<bool>(
       context: context,
@@ -2600,297 +2606,18 @@ class _TavernScreenState extends State<TavernScreen>
                           ),
                           SwitchListTile(
                             contentPadding: EdgeInsets.zero,
-                            title: const Text('Constant（始终注入）'),
+                            title: const Text('常驻注入'),
+                            subtitle: const Text('打开后，不等关键词命中也会持续注入。'),
                             value: constant,
                             onChanged:
-                                (value) =>
-                                    setModalState(() => constant = value),
-                          ),
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Recursive'),
-                            value: recursive,
-                            onChanged:
-                                (value) =>
-                                    setModalState(() => recursive = value),
-                          ),
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Prevent Recursion'),
-                            value: preventRecursion,
-                            onChanged:
-                                (value) => setModalState(
-                                  () => preventRecursion = value,
-                                ),
+                                (value) => setModalState(() => constant = value),
                           ),
                           TextField(
                             controller: keysController,
                             minLines: 2,
                             maxLines: 5,
                             decoration: const InputDecoration(
-                              labelText: 'Keys（每行一个）',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: secondaryController,
-                            minLines: 2,
-                            maxLines: 5,
-                            decoration: const InputDecoration(
-                              labelText: 'Secondary Keys（每行一个）',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          DropdownButtonFormField<String>(
-                            value: secondaryLogic,
-                            decoration: const InputDecoration(
-                              labelText: 'Secondary Logic',
-                              border: OutlineInputBorder(),
-                            ),
-                            items: const [
-                              DropdownMenuItem(
-                                value: 'and_any',
-                                child: Text('AND ANY'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'and_all',
-                                child: Text('AND ALL'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'not_any',
-                                child: Text('NOT ANY'),
-                              ),
-                              DropdownMenuItem(
-                                value: 'not_all',
-                                child: Text('NOT ALL'),
-                              ),
-                            ],
-                            onChanged:
-                                (value) => setModalState(
-                                  () => secondaryLogic = value ?? 'and_any',
-                                ),
-                          ),
-                          const SizedBox(height: 12),
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Case Sensitive'),
-                            value: caseSensitive,
-                            onChanged:
-                                (value) => setModalState(
-                                  () => caseSensitive = value,
-                                ),
-                          ),
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Match Whole Words'),
-                            value: matchWholeWords,
-                            onChanged:
-                                (value) => setModalState(
-                                  () => matchWholeWords = value,
-                                ),
-                          ),
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Scan Character Description'),
-                            value: matchCharacterDescription,
-                            onChanged:
-                                (value) => setModalState(
-                                  () =>
-                                      matchCharacterDescription = value,
-                                ),
-                          ),
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Scan Character Personality'),
-                            value: matchCharacterPersonality,
-                            onChanged:
-                                (value) => setModalState(
-                                  () =>
-                                      matchCharacterPersonality = value,
-                                ),
-                          ),
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Scan Scenario'),
-                            value: matchScenario,
-                            onChanged:
-                                (value) => setModalState(
-                                  () => matchScenario = value,
-                                ),
-                          ),
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Use Group Scoring'),
-                            value: useGroupScoring,
-                            onChanged:
-                                (value) => setModalState(
-                                  () => useGroupScoring = value,
-                                ),
-                          ),
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Group Override'),
-                            value: groupOverride,
-                            onChanged:
-                                (value) => setModalState(
-                                  () => groupOverride = value,
-                                ),
-                          ),
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Ignore Budget'),
-                            value: ignoreBudget,
-                            onChanged:
-                                (value) => setModalState(
-                                  () => ignoreBudget = value,
-                                ),
-                          ),
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Character Filter Exclude Mode'),
-                            subtitle: const Text('关闭=仅这些角色/标签生效；开启=排除这些角色/标签'),
-                            value: characterFilterExclude,
-                            onChanged:
-                                (value) => setModalState(
-                                  () => characterFilterExclude = value,
-                                ),
-                          ),
-                          const SizedBox(height: 12),
-                          DropdownButtonFormField<String>(
-                            value: insertionPosition,
-                            decoration: const InputDecoration(
-                              labelText: 'Insertion Position',
-                              border: OutlineInputBorder(),
-                            ),
-                            items: _worldbookPositions
-                                .map(
-                                  (item) => DropdownMenuItem<String>(
-                                    value: item,
-                                    child: Text(item),
-                                  ),
-                                )
-                                .toList(growable: false),
-                            onChanged:
-                                (value) => setModalState(
-                                  () =>
-                                      insertionPosition =
-                                          value ?? 'before_chat_history',
-                                ),
-                          ),
-                          const SizedBox(height: 12),
-                          _intStepper(
-                            context,
-                            label: 'Priority',
-                            value: priority,
-                            min: -20,
-                            max: 50,
-                            onChanged:
-                                (value) =>
-                                    setModalState(() => priority = value),
-                          ),
-                          const SizedBox(height: 12),
-                          _intStepper(
-                            context,
-                            label: 'Scan Depth (0 = recent chat all)',
-                            value: scanDepth,
-                            min: 0,
-                            max: 50,
-                            onChanged:
-                                (value) =>
-                                    setModalState(() => scanDepth = value),
-                          ),
-                          const SizedBox(height: 12),
-                          _intStepper(
-                            context,
-                            label: 'Group Weight',
-                            value: groupWeight,
-                            min: 1,
-                            max: 10000,
-                            onChanged:
-                                (value) =>
-                                    setModalState(() => groupWeight = value),
-                          ),
-                          const SizedBox(height: 12),
-                          _intStepper(
-                            context,
-                            label: 'Delay Until Recursion',
-                            value: delayUntilRecursion,
-                            min: 0,
-                            max: 20,
-                            onChanged:
-                                (value) => setModalState(
-                                  () => delayUntilRecursion = value,
-                                ),
-                          ),
-                          const SizedBox(height: 12),
-                          _intStepper(
-                            context,
-                            label: 'Probability %',
-                            value: probability,
-                            min: 0,
-                            max: 100,
-                            onChanged:
-                                (value) =>
-                                    setModalState(() => probability = value),
-                          ),
-                          const SizedBox(height: 12),
-                          _intStepper(
-                            context,
-                            label: 'Sticky Turns',
-                            value: sticky,
-                            min: 0,
-                            max: 20,
-                            onChanged:
-                                (value) => setModalState(() => sticky = value),
-                          ),
-                          const SizedBox(height: 12),
-                          _intStepper(
-                            context,
-                            label: 'Cooldown Turns',
-                            value: cooldown,
-                            min: 0,
-                            max: 20,
-                            onChanged:
-                                (value) =>
-                                    setModalState(() => cooldown = value),
-                          ),
-                          const SizedBox(height: 12),
-                          _intStepper(
-                            context,
-                            label: 'Delay Turns',
-                            value: delay,
-                            min: 0,
-                            max: 20,
-                            onChanged:
-                                (value) => setModalState(() => delay = value),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: groupController,
-                            decoration: const InputDecoration(
-                              labelText: 'Group Name',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: characterNamesController,
-                            minLines: 1,
-                            maxLines: 4,
-                            decoration: const InputDecoration(
-                              labelText: 'Character Filter Names（每行一个）',
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: characterTagsController,
-                            minLines: 1,
-                            maxLines: 4,
-                            decoration: const InputDecoration(
-                              labelText: 'Character Filter Tags（每行一个）',
+                              labelText: '关键词（每行一个）',
                               border: OutlineInputBorder(),
                             ),
                           ),
@@ -2904,6 +2631,256 @@ class _TavernScreenState extends State<TavernScreen>
                               border: OutlineInputBorder(),
                             ),
                           ),
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            value: insertionPosition,
+                            decoration: const InputDecoration(
+                              labelText: '插入位置',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: _worldbookPositions
+                                .map(
+                                  (item) => DropdownMenuItem<String>(
+                                    value: item,
+                                    child: Text(item),
+                                  ),
+                                )
+                                .toList(growable: false),
+                            onChanged:
+                                (value) => setModalState(
+                                  () => insertionPosition = value ?? 'before_chat_history',
+                                ),
+                          ),
+                          const SizedBox(height: 12),
+                          _intStepper(
+                            context,
+                            label: '优先级',
+                            value: priority,
+                            min: -20,
+                            max: 50,
+                            onChanged:
+                                (value) => setModalState(() => priority = value),
+                          ),
+                          const SizedBox(height: 16),
+                          OutlinedButton.icon(
+                            onPressed: () => setModalState(() => showAdvanced = !showAdvanced),
+                            icon: Icon(showAdvanced ? Icons.expand_less : Icons.tune),
+                            label: Text(showAdvanced ? '收起高级设置' : '展开高级设置'),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '大多数情况下，下面这些兼容参数都用不上。只有你真的在做复杂触发逻辑时再碰它们。',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF667085),
+                              height: 1.45,
+                            ),
+                          ),
+                          if (showAdvanced) ...[
+                            const SizedBox(height: 16),
+                            Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '高级兼容参数',
+                                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  SwitchListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('允许递归触发'),
+                                    value: recursive,
+                                    onChanged: (value) => setModalState(() => recursive = value),
+                                  ),
+                                  SwitchListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('禁止重复连锁'),
+                                    value: preventRecursion,
+                                    onChanged: (value) => setModalState(() => preventRecursion = value),
+                                  ),
+                                  TextField(
+                                    controller: secondaryController,
+                                    minLines: 2,
+                                    maxLines: 5,
+                                    decoration: const InputDecoration(
+                                      labelText: '副关键词（每行一个）',
+                                      border: OutlineInputBorder(),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  DropdownButtonFormField<String>(
+                                    value: secondaryLogic,
+                                    decoration: const InputDecoration(
+                                      labelText: '副关键词逻辑',
+                                      border: OutlineInputBorder(),
+                                    ),
+                                    items: const [
+                                      DropdownMenuItem(value: 'and_any', child: Text('AND ANY')),
+                                      DropdownMenuItem(value: 'and_all', child: Text('AND ALL')),
+                                      DropdownMenuItem(value: 'not_any', child: Text('NOT ANY')),
+                                      DropdownMenuItem(value: 'not_all', child: Text('NOT ALL')),
+                                    ],
+                                    onChanged: (value) => setModalState(() => secondaryLogic = value ?? 'and_any'),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  SwitchListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('区分大小写'),
+                                    value: caseSensitive,
+                                    onChanged: (value) => setModalState(() => caseSensitive = value),
+                                  ),
+                                  SwitchListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('仅匹配完整单词'),
+                                    value: matchWholeWords,
+                                    onChanged: (value) => setModalState(() => matchWholeWords = value),
+                                  ),
+                                  SwitchListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('扫描角色描述'),
+                                    value: matchCharacterDescription,
+                                    onChanged: (value) => setModalState(() => matchCharacterDescription = value),
+                                  ),
+                                  SwitchListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('扫描角色性格'),
+                                    value: matchCharacterPersonality,
+                                    onChanged: (value) => setModalState(() => matchCharacterPersonality = value),
+                                  ),
+                                  SwitchListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('扫描场景设定'),
+                                    value: matchScenario,
+                                    onChanged: (value) => setModalState(() => matchScenario = value),
+                                  ),
+                                  SwitchListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('启用组评分'),
+                                    value: useGroupScoring,
+                                    onChanged: (value) => setModalState(() => useGroupScoring = value),
+                                  ),
+                                  SwitchListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('组覆盖'),
+                                    value: groupOverride,
+                                    onChanged: (value) => setModalState(() => groupOverride = value),
+                                  ),
+                                  SwitchListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('忽略预算限制'),
+                                    value: ignoreBudget,
+                                    onChanged: (value) => setModalState(() => ignoreBudget = value),
+                                  ),
+                                  SwitchListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: const Text('角色过滤排除模式'),
+                                    subtitle: const Text('关闭=仅这些角色/标签生效；开启=排除这些角色/标签'),
+                                    value: characterFilterExclude,
+                                    onChanged: (value) => setModalState(() => characterFilterExclude = value),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  _intStepper(
+                                    context,
+                                    label: '扫描深度（0 = 最近聊天全部）',
+                                    value: scanDepth,
+                                    min: 0,
+                                    max: 50,
+                                    onChanged: (value) => setModalState(() => scanDepth = value),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  _intStepper(
+                                    context,
+                                    label: '组权重',
+                                    value: groupWeight,
+                                    min: 1,
+                                    max: 10000,
+                                    onChanged: (value) => setModalState(() => groupWeight = value),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  _intStepper(
+                                    context,
+                                    label: '递归前延迟',
+                                    value: delayUntilRecursion,
+                                    min: 0,
+                                    max: 20,
+                                    onChanged: (value) => setModalState(() => delayUntilRecursion = value),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  _intStepper(
+                                    context,
+                                    label: '触发概率 %',
+                                    value: probability,
+                                    min: 0,
+                                    max: 100,
+                                    onChanged: (value) => setModalState(() => probability = value),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  _intStepper(
+                                    context,
+                                    label: '持续生效轮数',
+                                    value: sticky,
+                                    min: 0,
+                                    max: 20,
+                                    onChanged: (value) => setModalState(() => sticky = value),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  _intStepper(
+                                    context,
+                                    label: '冷却轮数',
+                                    value: cooldown,
+                                    min: 0,
+                                    max: 20,
+                                    onChanged: (value) => setModalState(() => cooldown = value),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  _intStepper(
+                                    context,
+                                    label: '延迟生效轮数',
+                                    value: delay,
+                                    min: 0,
+                                    max: 20,
+                                    onChanged: (value) => setModalState(() => delay = value),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  TextField(
+                                    controller: groupController,
+                                    decoration: const InputDecoration(
+                                      labelText: '分组名',
+                                      border: OutlineInputBorder(),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  TextField(
+                                    controller: characterNamesController,
+                                    minLines: 1,
+                                    maxLines: 4,
+                                    decoration: const InputDecoration(
+                                      labelText: '角色过滤名称（每行一个）',
+                                      border: OutlineInputBorder(),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  TextField(
+                                    controller: characterTagsController,
+                                    minLines: 1,
+                                    maxLines: 4,
+                                    decoration: const InputDecoration(
+                                      labelText: '角色过滤标签（每行一个）',
+                                      border: OutlineInputBorder(),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 12),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.end,
@@ -3174,10 +3151,169 @@ class _TavernScreenState extends State<TavernScreen>
     );
   }
 
-  Widget _chip(String label, String value) {
-    return Chip(
-      visualDensity: VisualDensity.compact,
-      label: Text('$label: $value'),
+
+  Widget _buildWorldBookEntryPreview(
+    BuildContext context,
+    TavernWorldBook worldbook,
+    TavernWorldBookEntry entry,
+  ) {
+    final theme = Theme.of(context);
+    final keywordText = entry.keys.isEmpty ? '无关键词' : entry.keys.join(' / ');
+    final summary = _entryPositionLabel(entry.insertionPosition);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAFBFF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE6EAF4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  keywordText,
+                  style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _softMetaChip(entry.enabled ? '启用' : '停用'),
+              const SizedBox(width: 6),
+              IconButton(
+                tooltip: '编辑条目',
+                visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+                padding: EdgeInsets.zero,
+                onPressed: () => _editWorldBookEntry(
+                  context,
+                  worldbook: worldbook,
+                  entry: entry,
+                ),
+                icon: const Icon(Icons.edit_outlined, size: 18),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _softMetaChip(summary),
+              _softMetaChip('优先级 ${entry.priority}'),
+              if (entry.constant) _softMetaChip('常驻注入'),
+              if (_entryUsesAdvancedOptions(entry)) _softMetaChip('含高级规则'),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            entry.content.trim().isEmpty ? '（空内容）' : entry.content.trim(),
+            maxLines: 5,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              height: 1.55,
+              color: const Color(0xFF344054),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _entryUsesAdvancedOptions(TavernWorldBookEntry? entry) {
+    if (entry == null) return false;
+    return entry.secondaryKeys.isNotEmpty ||
+        entry.secondaryLogic != 'and_any' ||
+        entry.recursive ||
+        entry.preventRecursion ||
+        entry.caseSensitive ||
+        entry.matchWholeWords ||
+        entry.matchCharacterDescription ||
+        entry.matchCharacterPersonality ||
+        entry.matchScenario ||
+        entry.useGroupScoring ||
+        entry.groupWeight != 100 ||
+        entry.groupOverride ||
+        entry.delayUntilRecursion > 0 ||
+        entry.probability != 100 ||
+        entry.ignoreBudget ||
+        entry.characterFilterNames.isNotEmpty ||
+        entry.characterFilterTags.isNotEmpty ||
+        entry.characterFilterExclude ||
+        entry.sticky > 0 ||
+        entry.cooldown > 0 ||
+        entry.delay > 0 ||
+        entry.groupName.trim().isNotEmpty ||
+        entry.scanDepth > 0;
+  }
+
+  String _entryPositionLabel(String raw) {
+    switch (raw) {
+      case 'before_character':
+        return '角色信息前';
+      case 'after_character':
+        return '角色信息后';
+      case 'before_example_messages':
+        return '示例对话前';
+      case 'before_chat_history':
+        return '聊天历史前';
+      case 'before_last_user':
+        return '最后一条用户消息前';
+      case 'at_depth':
+        return '按深度插入';
+      default:
+        return raw;
+    }
+  }
+
+  Widget _softMetaChip(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF2F4F7),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: Color(0xFF475467),
+        ),
+      ),
+    );
+  }
+
+  Widget _softPill(
+    String text, {
+    required IconData icon,
+    required Color tone,
+    required Color textColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: tone,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: textColor),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: textColor,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -3228,6 +3364,52 @@ class _TavernScreenState extends State<TavernScreen>
     if (value >= 1000000) return '${(value / 1000000).toStringAsFixed(value % 1000000 == 0 ? 0 : 1)}M';
     if (value >= 1000) return '${(value / 1000).toStringAsFixed(value % 1000 == 0 ? 0 : 1)}K';
     return '$value';
+  }
+}
+
+
+class _WorldBookInfoBanner extends StatelessWidget {
+  const _WorldBookInfoBanner({
+    required this.icon,
+    required this.text,
+    this.trailing,
+  });
+
+  final IconData icon;
+  final String text;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: const Color(0xFF667085)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: const Color(0xFF475467),
+                height: 1.45,
+              ),
+            ),
+          ),
+          if (trailing != null) ...[
+            const SizedBox(width: 8),
+            trailing!,
+          ],
+        ],
+      ),
+    );
   }
 }
 
