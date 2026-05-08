@@ -567,6 +567,9 @@ class TavernPromptDebug {
     this.rejectedWorldbookEntries = const <Map<String, dynamic>>[],
     this.characterLoreBindings = const <Map<String, dynamic>>[],
     this.depthInserts = const <Map<String, dynamic>>[],
+    this.macroEffects = const <Map<String, dynamic>>[],
+    this.unknownMacros = const <String>[],
+    this.resolvedPersona = const <String, dynamic>{},
     this.summary = const <String, dynamic>{},
   });
 
@@ -582,6 +585,9 @@ class TavernPromptDebug {
   final List<Map<String, dynamic>> rejectedWorldbookEntries;
   final List<Map<String, dynamic>> characterLoreBindings;
   final List<Map<String, dynamic>> depthInserts;
+  final List<Map<String, dynamic>> macroEffects;
+  final List<String> unknownMacros;
+  final Map<String, dynamic> resolvedPersona;
   final Map<String, dynamic> summary;
 
   factory TavernPromptDebug.fromJson(Map<String, dynamic> json) {
@@ -608,6 +614,13 @@ class TavernPromptDebug {
       rejectedWorldbookEntries: parseMapList('rejectedWorldbookEntries'),
       characterLoreBindings: parseMapList('characterLoreBindings'),
       depthInserts: parseMapList('depthInserts'),
+      macroEffects: parseMapList('macroEffects'),
+      unknownMacros: ((json['unknownMacros'] as List?) ?? const <dynamic>[])
+          .map((item) => item.toString())
+          .toList(growable: false),
+      resolvedPersona: Map<String, dynamic>.from(
+        (json['resolvedPersona'] as Map?) ?? const <String, dynamic>{},
+      ),
       summary: Map<String, dynamic>.from(
         (json['summary'] as Map?) ?? const <String, dynamic>{},
       ),
@@ -628,7 +641,56 @@ class TavernPromptDebug {
       'rejectedWorldbookEntries': rejectedWorldbookEntries,
       'characterLoreBindings': characterLoreBindings,
       'depthInserts': depthInserts,
+      'macroEffects': macroEffects,
+      'unknownMacros': unknownMacros,
+      'resolvedPersona': resolvedPersona,
       'summary': summary,
+    };
+  }
+}
+
+class TavernPersona {
+  const TavernPersona({
+    required this.id,
+    required this.name,
+    this.description = '',
+    this.metadata = const <String, dynamic>{},
+    this.isDefault = false,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String name;
+  final String description;
+  final Map<String, dynamic> metadata;
+  final bool isDefault;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  factory TavernPersona.fromJson(Map<String, dynamic> json) {
+    return TavernPersona(
+      id: (json['id'] ?? '').toString(),
+      name: (json['name'] ?? '').toString(),
+      description: (json['description'] ?? '').toString(),
+      metadata: Map<String, dynamic>.from(
+        (json['metadata'] as Map?) ?? const <String, dynamic>{},
+      ),
+      isDefault: json['isDefault'] == true,
+      createdAt: _parseDate(json['createdAt']),
+      updatedAt: _parseDate(json['updatedAt']),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'description': description,
+      'metadata': metadata,
+      'isDefault': isDefault,
+      if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),
+      if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
     };
   }
 }

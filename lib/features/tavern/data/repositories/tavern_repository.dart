@@ -86,10 +86,12 @@ class TavernRepository {
   Future<TavernChat> createChat({
     required String characterId,
     String presetId = '',
+    String personaId = '',
   }) async {
     final response = await _postJson('/api/tavern/chats', {
       'characterId': characterId,
       if (presetId.isNotEmpty) 'presetId': presetId,
+      if (personaId.isNotEmpty) 'personaId': personaId,
     });
     return TavernChat.fromJson(
       Map<String, dynamic>.from(response['chat'] as Map),
@@ -269,6 +271,82 @@ class TavernRepository {
     final response = await _getJson('/api/tavern/chats/$chatId/prompt-debug');
     return TavernPromptDebug.fromJson(
       Map<String, dynamic>.from(response['debug'] as Map),
+    );
+  }
+
+  Future<List<TavernPersona>> listPersonas() async {
+    final response = await _getJson('/api/tavern/personas');
+    final list = (response['personas'] as List?) ?? const <dynamic>[];
+    return list
+        .whereType<Map>()
+        .map((item) => TavernPersona.fromJson(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
+  }
+
+  Future<TavernPersona> createPersona(Map<String, dynamic> payload) async {
+    final response = await _postJson('/api/tavern/personas', payload);
+    return TavernPersona.fromJson(
+      Map<String, dynamic>.from(response['persona'] as Map),
+    );
+  }
+
+  Future<TavernPersona> updatePersona({
+    required String personaId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final config = await OpenClawSettingsStore.load();
+    final client = OpenClawHttpClient(config);
+    final response = await client.putJson(
+      '/api/tavern/personas/$personaId',
+      payload,
+    );
+    return TavernPersona.fromJson(
+      Map<String, dynamic>.from(response['persona'] as Map),
+    );
+  }
+
+  Future<void> deletePersona(String personaId) async {
+    await _postJson('/api/tavern/personas/$personaId/delete', const {});
+  }
+
+  Future<Map<String, dynamic>> getGlobalVariables() async {
+    final response = await _getJson('/api/tavern/variables/global');
+    return Map<String, dynamic>.from(
+      (response['variables'] as Map?) ?? const <String, dynamic>{},
+    );
+  }
+
+  Future<Map<String, dynamic>> updateGlobalVariables(
+    Map<String, dynamic> variables,
+  ) async {
+    final config = await OpenClawSettingsStore.load();
+    final client = OpenClawHttpClient(config);
+    final response = await client.putJson('/api/tavern/variables/global', {
+      'variables': variables,
+    });
+    return Map<String, dynamic>.from(
+      (response['variables'] as Map?) ?? const <String, dynamic>{},
+    );
+  }
+
+  Future<Map<String, dynamic>> getChatVariables(String chatId) async {
+    final response = await _getJson('/api/tavern/chats/$chatId/variables');
+    return Map<String, dynamic>.from(
+      (response['variables'] as Map?) ?? const <String, dynamic>{},
+    );
+  }
+
+  Future<Map<String, dynamic>> updateChatVariables({
+    required String chatId,
+    required Map<String, dynamic> variables,
+  }) async {
+    final config = await OpenClawSettingsStore.load();
+    final client = OpenClawHttpClient(config);
+    final response = await client.putJson('/api/tavern/chats/$chatId/variables', {
+      'variables': variables,
+    });
+    return Map<String, dynamic>.from(
+      (response['variables'] as Map?) ?? const <String, dynamic>{},
     );
   }
 

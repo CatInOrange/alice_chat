@@ -5,7 +5,7 @@ import re
 from typing import Any
 
 from .context_usage import TavernContextUsageService, TavernTokenizerService
-from .prompt_runtime import PromptRuntimeContext, PromptTemplateRenderer, build_prompt_runtime_context
+from .macro_runtime import MacroEngine, MacroRuntimeContext, build_macro_runtime_context
 
 
 @dataclass(slots=True)
@@ -19,6 +19,8 @@ class PromptDebugResult:
     rendered_story_string: str
     rendered_examples: str
     runtime_context: dict[str, str]
+    macro_effects: list[dict[str, Any]]
+    unknown_macros: list[str]
     rejected_worldbook_entries: list[dict[str, Any]]
     depth_inserts: list[dict[str, Any]]
     context_usage: dict[str, Any]
@@ -35,7 +37,7 @@ class PromptBuilder:
     """
 
     def __init__(self) -> None:
-        self.renderer = PromptTemplateRenderer()
+        self.renderer = MacroEngine()
         self.tokenizer = TavernTokenizerService()
         self.context_usage_service = TavernContextUsageService(self.tokenizer)
 
@@ -73,15 +75,28 @@ class PromptBuilder:
         history: list[dict[str, Any]] | None,
         user_text: str,
         chat: dict[str, Any] | None = None,
+        persona: dict[str, Any] | None = None,
+        local_variables: dict[str, Any] | None = None,
+        global_variables: dict[str, Any] | None = None,
+        provider_id: str = '',
+        model_name: str = '',
+        allow_side_effects: bool = False,
     ) -> PromptDebugResult:
         history = list(history or [])
         prompt_blocks = list(prompt_blocks or [])
         summaries, history = self._extract_context_summaries(history=history, chat=chat or {})
-        runtime_context = build_prompt_runtime_context(
+        runtime_context = build_macro_runtime_context(
             character=character,
             chat=chat or {},
             history=history,
             user_text=user_text,
+            persona=persona,
+            preset=preset or {},
+            provider_id=provider_id,
+            model_name=model_name,
+            local_variables=local_variables,
+            global_variables=global_variables,
+            original_text=user_text,
         )
         matched_worldbook_entries, rejected_worldbook_entries = self._match_worldbook_entries(
             entries=worldbook_entries or [],
@@ -124,13 +139,14 @@ class PromptBuilder:
         )
 
         for _ in range(6):
-            messages, rendered_story_string, rendered_examples, depth_inserts = self._render_messages(
+            messages, rendered_story_string, rendered_examples, depth_inserts, macro_effects, unknown_macros = self._render_messages(
                 ordered_blocks=effective_blocks,
                 history=effective_history,
                 user_text=user_text,
                 preset=preset or {},
                 chat=chat or {},
                 runtime_context=runtime_context,
+                allow_side_effects=allow_side_effects,
             )
             context_usage = self.context_usage_service.calculate(
                 ordered_blocks=effective_blocks,
@@ -167,13 +183,14 @@ class PromptBuilder:
             if unresolved <= 0 and not suggested_cuts:
                 break
 
-        messages, rendered_story_string, rendered_examples, depth_inserts = self._render_messages(
+        messages, rendered_story_string, rendered_examples, depth_inserts, macro_effects, unknown_macros = self._render_messages(
             ordered_blocks=effective_blocks,
             history=effective_history,
             user_text=user_text,
             preset=preset or {},
             chat=chat or {},
             runtime_context=runtime_context,
+            allow_side_effects=allow_side_effects,
         )
         context_usage = self.context_usage_service.calculate(
             ordered_blocks=effective_blocks,
@@ -196,6 +213,8 @@ class PromptBuilder:
             rendered_story_string=rendered_story_string,
             rendered_examples=rendered_examples,
             runtime_context=runtime_context.preview(),
+            macro_effects=[{'scope': item.scope, 'op': item.op, 'name': item.name, 'value': item.value} for item in macro_effects],
+            unknown_macros=unknown_macros,
             rejected_worldbook_entries=rejected_worldbook_entries,
             depth_inserts=depth_inserts,
             context_usage=context_usage.to_dict(),
@@ -750,10 +769,15 @@ class PromptBuilder:
         user_text: str,
         preset: dict[str, Any],
         chat: dict[str, Any],
-        runtime_context: PromptRuntimeContext,
-    ) -> tuple[list[dict[str, Any]], str, str, list[dict[str, Any]]]:
-        system_text = self._render_story_string(ordered_blocks, preset, runtime_context)
-        example_text = self._build_examples_block(ordered_blocks, preset, runtime_context)
+        runtime_context: MacroRuntimeContext,
+        allow_side_effects: bool = False,
+    ) -> tuple[list[dict[str, Any]], str, str, list[dict[str, Any]], list[Any], list[str]]:
+        story_render = self._render_story_string(ordered_blocks, preset, runtime_context, allow_side_effects=allow_side_effects)
+        system_text = story_render.text
+        example_render = self._build_examples_block(ordered_blocks, preset, runtime_context, allow_side_effects=allow_side_effects)
+        example_text = example_render.text
+        macro_effects = [*story_render.effects, *example_render.effects]
+        unknown_macros = [*story_render.unknown_macros, *example_render.unknown_macros]
         story_position = str(preset.get('storyStringPosition') or 'in_prompt').strip() or 'in_prompt'
         story_depth = int(preset.get('storyStringDepth') or 1)
         story_role = str(preset.get('storyStringRole') or 'system').strip() or 'system'
@@ -801,9 +825,16 @@ class PromptBuilder:
             }
             if extra_meta:
                 meta.update(extra_meta)
+            render = self.renderer.render(self._decorate_depth_block(block), runtime_context, allow_side_effects=allow_side_effects)
+            if render.effects:
+                macro_effects.extend(render.effects)
+            if render.unknown_macros:
+                unknown_macros.extend(render.unknown_macros)
+            if not render.text.strip():
+                return
             messages.append({
                 'role': str(block.get('role') or 'system'),
-                'content': self._decorate_depth_block(block),
+                'content': render.text,
                 'meta': meta,
             })
 
@@ -813,10 +844,16 @@ class PromptBuilder:
                     continue
                 if int(block.get('depth') or 0) != depth_from_end:
                     continue
-                rendered_block = self._decorate_depth_block(block)
+                render = self.renderer.render(self._decorate_depth_block(block), runtime_context, allow_side_effects=allow_side_effects)
+                if render.effects:
+                    macro_effects.extend(render.effects)
+                if render.unknown_macros:
+                    unknown_macros.extend(render.unknown_macros)
+                if not render.text.strip():
+                    continue
                 messages.append({
                     'role': str(block.get('role') or 'system'),
-                    'content': rendered_block,
+                    'content': render.text,
                     'meta': {
                         'kind': block.get('kind'),
                         'position': 'at_depth',
@@ -824,7 +861,7 @@ class PromptBuilder:
                         **(block.get('meta') or {}),
                     },
                 })
-                depth_inserts.append({'depth': depth_from_end, 'block': block, 'content': rendered_block})
+                depth_inserts.append({'depth': depth_from_end, 'block': block, 'content': render.text})
 
         def emit_history_once() -> None:
             nonlocal story_inserted
@@ -843,10 +880,16 @@ class PromptBuilder:
                         continue
                     if int(block.get('depth') or 0) < 0:
                         continue
-                    rendered_block = self._decorate_depth_block(block)
+                    render = self.renderer.render(self._decorate_depth_block(block), runtime_context, allow_side_effects=allow_side_effects)
+                    if render.effects:
+                        macro_effects.extend(render.effects)
+                    if render.unknown_macros:
+                        unknown_macros.extend(render.unknown_macros)
+                    if not render.text.strip():
+                        continue
                     messages.append({
                         'role': str(block.get('role') or 'system'),
-                        'content': rendered_block,
+                        'content': render.text,
                         'meta': {
                             'kind': block.get('kind'),
                             'position': 'at_depth',
@@ -854,7 +897,7 @@ class PromptBuilder:
                             **(block.get('meta') or {}),
                         },
                     })
-                    depth_inserts.append({'depth': int(block.get('depth') or 0), 'block': block, 'content': rendered_block})
+                    depth_inserts.append({'depth': int(block.get('depth') or 0), 'block': block, 'content': render.text})
 
         history_emitted = False
 
@@ -898,13 +941,16 @@ class PromptBuilder:
             final_user = user_text.strip()
             if chat_start and not rendered_history:
                 final_user = f'{chat_start}\n{final_user}'
-            messages.append({'role': 'user', 'content': final_user})
+            user_render = self.renderer.render(final_user, runtime_context, allow_side_effects=False)
+            if user_render.unknown_macros:
+                unknown_macros.extend(user_render.unknown_macros)
+            messages.append({'role': 'user', 'content': user_render.text or final_user})
         elif not messages:
             insert_story_string(depth=story_depth if story_position == 'at_depth' else None)
 
-        return messages, system_text, example_text, depth_inserts
+        return messages, system_text, example_text, depth_inserts, macro_effects, unknown_macros
 
-    def _render_story_string(self, ordered_blocks: list[dict[str, Any]], preset: dict[str, Any], runtime_context: PromptRuntimeContext) -> str:
+    def _render_story_string(self, ordered_blocks: list[dict[str, Any]], preset: dict[str, Any], runtime_context: MacroRuntimeContext, *, allow_side_effects: bool = False):
         story_string = str(preset.get('storyString') or '').strip()
         if not story_string:
             story_string = (
@@ -923,19 +969,25 @@ class PromptBuilder:
             'wiAfter': self._story_slot_content(ordered_blocks, 'world_info_after', allow_positions={'in_prompt'}),
             'persona': self._story_slot_content(ordered_blocks, 'persona', allow_positions={'in_prompt'}) or '',
         }
-        return self.renderer.render(story_string, PromptRuntimeContext(values=values))
+        story_context = MacroRuntimeContext(
+            values=values,
+            local_variables=runtime_context.local_variables,
+            global_variables=runtime_context.global_variables,
+        )
+        return self.renderer.render(story_string, story_context, allow_side_effects=allow_side_effects)
 
-    def _build_examples_block(self, ordered_blocks: list[dict[str, Any]], preset: dict[str, Any], runtime_context: PromptRuntimeContext) -> str:
+    def _build_examples_block(self, ordered_blocks: list[dict[str, Any]], preset: dict[str, Any], runtime_context: MacroRuntimeContext, *, allow_side_effects: bool = False):
         examples = self._block_content(ordered_blocks, 'example_messages')
         if not examples:
-            return ''
+            from .macro_runtime import MacroRenderResult
+            return MacroRenderResult(text='', effects=[], unknown_macros=[])
         separator = str(preset.get('exampleSeparator') or '').strip()
-        rendered_examples = self.renderer.render(examples, runtime_context).strip()
-        if not rendered_examples:
-            return ''
-        if not separator:
+        rendered_examples = self.renderer.render(examples, runtime_context, allow_side_effects=allow_side_effects)
+        if not rendered_examples.text:
             return rendered_examples
-        return f'{separator}\n{rendered_examples}'
+        if separator:
+            rendered_examples.text = f'{separator}\n{rendered_examples.text}'
+        return rendered_examples
 
 
     def _resolve_worldbook_token_budget(self, character: dict[str, Any]) -> int:

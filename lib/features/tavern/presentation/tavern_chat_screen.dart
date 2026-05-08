@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
@@ -488,6 +489,11 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
             tooltip: '角色页',
             onPressed: _openCharacterProfilePage,
             icon: const Icon(Icons.account_box_outlined),
+          ),
+          IconButton(
+            tooltip: '会话变量',
+            onPressed: _showChatVariablesEditor,
+            icon: const Icon(Icons.data_object_outlined),
           ),
           IconButton(
             tooltip: '剧情摘要',
@@ -1000,7 +1006,13 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   Future<void> _startFreshChatFromProfile(TavernCharacter character) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final chat = await context.read<TavernStore>().createChatForCharacter(character);
+      final personaId = await _pickPersonaForNewChat();
+      if (!mounted) return;
+      if (personaId == null) return;
+      final chat = await context.read<TavernStore>().createChatForCharacter(
+        character,
+        personaId: personaId,
+      );
       if (!mounted) return;
       await Navigator.of(context).pushReplacement(
         MaterialPageRoute(
@@ -1010,6 +1022,70 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     } catch (exc) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(content: Text('创建会话失败：$exc')));
+    }
+  }
+
+  Future<String?> _pickPersonaForNewChat() async {
+    final store = context.read<TavernStore>();
+    if (store.personas.isEmpty) {
+      await store.loadPersonas();
+      if (!mounted) return null;
+    }
+    final personas = store.personas;
+    return showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ListTile(
+              title: const Text('不指定 Persona'),
+              subtitle: const Text('使用默认 persona / fallback User'),
+              onTap: () => Navigator.of(context).pop(''),
+            ),
+            ...personas.map(
+              (persona) => ListTile(
+                title: Text(persona.name),
+                subtitle: Text(
+                  persona.description.isEmpty ? '无描述' : persona.description,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: persona.isDefault ? const Chip(label: Text('默认')) : null,
+                onTap: () => Navigator.of(context).pop(persona.id),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showChatVariablesEditor() async {
+    final store = context.read<TavernStore>();
+    try {
+      final values = await store.loadChatVariables(_chat.id);
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => _TavernJsonMapEditorPage(
+            title: '会话变量',
+            initialValue: values,
+            onSave: (value) => store.updateChatVariables(
+              chatId: _chat.id,
+              values: value,
+            ),
+          ),
+        ),
+      );
+      if (!mounted) return;
+      await _refreshFromServer();
+    } catch (exc) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('加载会话变量失败：$exc')),
+      );
     }
   }
 
@@ -2780,7 +2856,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
               minChildSize: 0.42,
               builder:
                   (context, controller) => DefaultTabController(
-                    length: 5,
+                    length: 6,
                     child: Column(
                       children: [
                         Padding(
@@ -2843,6 +2919,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                             Tab(text: 'Blocks'),
                             Tab(text: 'World Info'),
                             Tab(text: 'Runtime'),
+                            Tab(text: 'Macros'),
                           ],
                         ),
                         Expanded(
@@ -2853,6 +2930,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                               _buildDebugBlocksTab(debug),
                               _buildDebugWorldInfoTab(debug),
                               _buildDebugRuntimeTab(debug),
+                              _buildDebugMacrosTab(debug),
                             ],
                           ),
                         ),
@@ -2893,6 +2971,15 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           ),
           const SizedBox(height: 6),
           SelectableText(debug.renderedExamples),
+          const SizedBox(height: 16),
+        ],
+        if (debug.resolvedPersona.isNotEmpty) ...[
+          Text(
+            'Resolved Persona',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 6),
+          SelectableText(debug.resolvedPersona.toString()),
           const SizedBox(height: 16),
         ],
         if (debug.depthInserts.isNotEmpty) ...[
@@ -3167,6 +3254,41 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     );
   }
 
+  Widget _buildDebugMacrosTab(TavernPromptDebug debug) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text('Macro Effects', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 6),
+        if (debug.macroEffects.isEmpty)
+          const Text('无副作用宏提交')
+        else
+          ...debug.macroEffects.map(
+            (item) => Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: SelectableText(item.toString()),
+              ),
+            ),
+          ),
+        const SizedBox(height: 16),
+        Text('Unknown Macros', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 6),
+        if (debug.unknownMacros.isEmpty)
+          const Text('无 unknown macros')
+        else
+          ...debug.unknownMacros.map(
+            (item) => Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: SelectableText(item),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _debugChip(String label, String value) {
     return Chip(
       visualDensity: VisualDensity.compact,
@@ -3196,5 +3318,88 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         _scrollController.jumpTo(target);
       }
     });
+  }
+}
+
+class _TavernJsonMapEditorPage extends StatefulWidget {
+  const _TavernJsonMapEditorPage({
+    required this.title,
+    required this.initialValue,
+    required this.onSave,
+  });
+
+  final String title;
+  final Map<String, dynamic> initialValue;
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic> value) onSave;
+
+  @override
+  State<_TavernJsonMapEditorPage> createState() => _TavernJsonMapEditorPageState();
+}
+
+class _TavernJsonMapEditorPageState extends State<_TavernJsonMapEditorPage> {
+  late final TextEditingController _controller;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(
+      text: const JsonEncoder.withIndent('  ').convert(widget.initialValue),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.title),
+        actions: [
+          TextButton(
+            onPressed: _saving ? null : _save,
+            child: _saving ? const Text('保存中...') : const Text('保存'),
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: TextField(
+          controller: _controller,
+          expands: true,
+          maxLines: null,
+          minLines: null,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            hintText: '{\n  "favor": 3\n}',
+          ),
+          style: const TextStyle(fontFamily: 'monospace'),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _save() async {
+    try {
+      final decoded = jsonDecode(_controller.text);
+      if (decoded is! Map) {
+        throw const FormatException('必须是 JSON object');
+      }
+      setState(() => _saving = true);
+      await widget.onSave(Map<String, dynamic>.from(decoded));
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    } catch (exc) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('保存失败：$exc')),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 }

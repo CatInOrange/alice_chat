@@ -213,7 +213,54 @@ def create_tavern_router(context: AppContext) -> APIRouter:
             'promptOrders': service.list_prompt_orders(),
             'promptBlocks': service.list_prompt_blocks(),
             'worldbooks': service.list_worldbooks(),
+            'personas': service.list_personas(),
+            'globalVariables': service.get_global_variables(),
         }
+
+    @router.get('/api/tavern/personas')
+    async def list_personas():
+        return {'ok': True, 'personas': service.list_personas()}
+
+    @router.post('/api/tavern/personas')
+    async def create_persona(body: dict):
+        return {'ok': True, 'persona': service.create_persona(body)}
+
+    @router.get('/api/tavern/personas/{persona_id}')
+    async def get_persona(persona_id: str):
+        persona = service.get_persona(persona_id)
+        if persona is None:
+            raise HTTPException(status_code=404, detail='persona not found')
+        return {'ok': True, 'persona': persona}
+
+    @router.put('/api/tavern/personas/{persona_id}')
+    async def update_persona(persona_id: str, body: dict):
+        persona = service.update_persona(persona_id, body)
+        if persona is None:
+            raise HTTPException(status_code=404, detail='persona not found')
+        return {'ok': True, 'persona': persona}
+
+    def _delete_persona_impl(persona_id: str):
+        deleted = service.delete_persona(persona_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail='persona not found')
+        return {'ok': True}
+
+    @router.delete('/api/tavern/personas/{persona_id}')
+    async def delete_persona(persona_id: str):
+        return _delete_persona_impl(persona_id)
+
+    @router.post('/api/tavern/personas/{persona_id}/delete')
+    async def delete_persona_post(persona_id: str):
+        return _delete_persona_impl(persona_id)
+
+    @router.get('/api/tavern/variables/global')
+    async def get_global_variables():
+        return {'ok': True, 'variables': service.get_global_variables()}
+
+    @router.put('/api/tavern/variables/global')
+    async def put_global_variables(body: dict):
+        values = body.get('variables') if isinstance(body.get('variables'), dict) else body
+        return {'ok': True, 'variables': service.set_global_variables(values if isinstance(values, dict) else {})}
 
     @router.get('/api/tavern/chats')
     async def list_chats():
@@ -255,6 +302,22 @@ def create_tavern_router(context: AppContext) -> APIRouter:
     async def list_chat_messages(chat_id: str):
         return {'ok': True, 'messages': service.list_chat_messages(chat_id)}
 
+    @router.get('/api/tavern/chats/{chat_id}/variables')
+    async def get_chat_variables(chat_id: str):
+        chat = service.get_chat(chat_id)
+        if chat is None:
+            raise HTTPException(status_code=404, detail='chat not found')
+        return {'ok': True, 'variables': service.get_chat_variables(chat_id)}
+
+    @router.put('/api/tavern/chats/{chat_id}/variables')
+    async def put_chat_variables(chat_id: str, body: dict):
+        values = body.get('variables') if isinstance(body.get('variables'), dict) else body
+        try:
+            variables = service.set_chat_variables(chat_id, values if isinstance(values, dict) else {})
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {'ok': True, 'variables': variables}
+
     @router.post('/api/tavern/chats/{chat_id}/send')
     async def send_chat_message(chat_id: str, body: dict):
         text = str(body.get('text') or '').strip()
@@ -293,6 +356,8 @@ def create_tavern_router(context: AppContext) -> APIRouter:
                 'renderedStoryString': result['promptDebug'].rendered_story_string,
                 'renderedExamples': result['promptDebug'].rendered_examples,
                 'runtimeContext': result['promptDebug'].runtime_context,
+                'macroEffects': result['promptDebug'].macro_effects,
+                'unknownMacros': result['promptDebug'].unknown_macros,
                 'depthInserts': result['promptDebug'].depth_inserts,
                 'contextUsage': result['promptDebug'].context_usage,
                 'summary': {
@@ -378,6 +443,8 @@ def create_tavern_router(context: AppContext) -> APIRouter:
                         'renderedStoryString': final['promptDebug'].rendered_story_string,
                         'renderedExamples': final['promptDebug'].rendered_examples,
                         'runtimeContext': final['promptDebug'].runtime_context,
+                        'macroEffects': final['promptDebug'].macro_effects,
+                        'unknownMacros': final['promptDebug'].unknown_macros,
                         'depthInserts': final['promptDebug'].depth_inserts,
                         'contextUsage': final['promptDebug'].context_usage,
                         'summary': {

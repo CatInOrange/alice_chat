@@ -24,6 +24,10 @@ class TavernStore extends ChangeNotifier {
   List<TavernProviderOption> _providers = const <TavernProviderOption>[];
   List<TavernPromptOrder> _promptOrders = const <TavernPromptOrder>[];
   List<TavernPromptBlock> _promptBlocks = const <TavernPromptBlock>[];
+  List<TavernPersona> _personas = const <TavernPersona>[];
+  Map<String, dynamic> _globalVariables = const <String, dynamic>{};
+  final Map<String, Map<String, dynamic>> _chatVariables =
+      <String, Map<String, dynamic>>{};
   final Map<String, List<TavernWorldBookEntry>> _worldBookEntries =
       <String, List<TavernWorldBookEntry>>{};
   String? _lastImportMessage;
@@ -40,6 +44,8 @@ class TavernStore extends ChangeNotifier {
   List<TavernProviderOption> get providers => _providers;
   List<TavernPromptOrder> get promptOrders => _promptOrders;
   List<TavernPromptBlock> get promptBlocks => _promptBlocks;
+  List<TavernPersona> get personas => _personas;
+  Map<String, dynamic> get globalVariables => _globalVariables;
   String? get lastImportMessage => _lastImportMessage;
   TavernCharacterImportResult? get lastImportResult => _lastImportResult;
 
@@ -88,6 +94,15 @@ class TavernStore extends ChangeNotifier {
                 TavernPromptBlock.fromJson(Map<String, dynamic>.from(item)),
           )
           .toList(growable: false);
+      _personas = (((config['personas'] as List?) ?? const <dynamic>[])
+              .whereType<Map>())
+          .map(
+            (item) => TavernPersona.fromJson(Map<String, dynamic>.from(item)),
+          )
+          .toList(growable: false);
+      _globalVariables = Map<String, dynamic>.from(
+        (config['globalVariables'] as Map?) ?? const <String, dynamic>{},
+      );
     } catch (exc) {
       _error = exc.toString();
     } finally {
@@ -461,8 +476,129 @@ class TavernStore extends ChangeNotifier {
     return updated;
   }
 
-  Future<TavernChat> createChatForCharacter(TavernCharacter character) async {
-    final chat = await _repository.createChat(characterId: character.id);
+  Map<String, dynamic> chatVariablesOf(String chatId) =>
+      _chatVariables[chatId] ?? const <String, dynamic>{};
+
+  Future<List<TavernPersona>> loadPersonas() async {
+    final personas = await _repository.listPersonas();
+    _personas = personas;
+    notifyListeners();
+    return personas;
+  }
+
+  Future<TavernPersona> createPersona(Map<String, dynamic> payload) async {
+    final created = await _repository.createPersona(payload);
+    _personas = [created, ..._personas.where((item) => item.id != created.id)];
+    notifyListeners();
+    return created;
+  }
+
+  Future<TavernPersona> updatePersona({
+    required String personaId,
+    required Map<String, dynamic> payload,
+  }) async {
+    final updated = await _repository.updatePersona(
+      personaId: personaId,
+      payload: payload,
+    );
+    _personas = [updated, ..._personas.where((item) => item.id != updated.id)];
+    notifyListeners();
+    return updated;
+  }
+
+  Future<void> deletePersona(String personaId) async {
+    await _repository.deletePersona(personaId);
+    _personas = _personas.where((item) => item.id != personaId).toList(growable: false);
+    _recentChats = _recentChats
+        .map((chat) => chat.personaId == personaId
+            ? TavernChat(
+                id: chat.id,
+                characterId: chat.characterId,
+                title: chat.title,
+                presetId: chat.presetId,
+                authorNoteEnabled: chat.authorNoteEnabled,
+                authorNote: chat.authorNote,
+                authorNoteDepth: chat.authorNoteDepth,
+                metadata: chat.metadata,
+                createdAt: chat.createdAt,
+                updatedAt: chat.updatedAt,
+              )
+            : chat)
+        .toList(growable: false);
+    notifyListeners();
+  }
+
+  Future<Map<String, dynamic>> loadGlobalVariables() async {
+    final values = await _repository.getGlobalVariables();
+    _globalVariables = values;
+    notifyListeners();
+    return values;
+  }
+
+  Future<Map<String, dynamic>> updateGlobalVariables(
+    Map<String, dynamic> values,
+  ) async {
+    final updated = await _repository.updateGlobalVariables(values);
+    _globalVariables = updated;
+    notifyListeners();
+    return updated;
+  }
+
+  Future<Map<String, dynamic>> loadChatVariables(String chatId) async {
+    final values = await _repository.getChatVariables(chatId);
+    _chatVariables[chatId] = values;
+    notifyListeners();
+    return values;
+  }
+
+  Future<Map<String, dynamic>> updateChatVariables({
+    required String chatId,
+    required Map<String, dynamic> values,
+  }) async {
+    final updated = await _repository.updateChatVariables(
+      chatId: chatId,
+      variables: values,
+    );
+    _chatVariables[chatId] = updated;
+    final snapshot = _chatSnapshots[chatId];
+    final cachedChat = snapshot?.chat;
+    if (snapshot != null && cachedChat != null) {
+      final updatedChat = TavernChat(
+        id: cachedChat.id,
+        characterId: cachedChat.characterId,
+        title: cachedChat.title,
+        presetId: cachedChat.presetId,
+        personaId: cachedChat.personaId,
+        authorNoteEnabled: cachedChat.authorNoteEnabled,
+        authorNote: cachedChat.authorNote,
+        authorNoteDepth: cachedChat.authorNoteDepth,
+        metadata: {
+          ...cachedChat.metadata,
+          'variables': updated,
+        },
+        createdAt: cachedChat.createdAt,
+        updatedAt: cachedChat.updatedAt,
+      );
+      _chatSnapshots[chatId] = TavernChatCacheSnapshot(
+        messages: snapshot.messages,
+        chat: updatedChat,
+        character: snapshot.character,
+        promptDebug: snapshot.promptDebug,
+        cachedAt: snapshot.cachedAt,
+      );
+    }
+    notifyListeners();
+    return updated;
+  }
+
+  Future<TavernChat> createChatForCharacter(
+    TavernCharacter character, {
+    String personaId = '',
+  }) async {
+    final chat = await _repository.createChat(
+      characterId: character.id,
+      personaId: personaId,
+    );
     _recentChats = [chat, ..._recentChats.where((item) => item.id != chat.id)];
     notifyListeners();
     return chat;

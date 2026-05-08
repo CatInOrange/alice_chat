@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -331,6 +333,24 @@ class _TavernScreenState extends State<TavernScreen>
         const SizedBox(height: 12),
         _settingsEntryCard(
           context,
+          icon: Icons.person_outline,
+          title: 'Personas',
+          subtitle: '管理用户人设，决定 {{user}} / {{persona}} 的来源',
+          trailingText: '${store.personas.length}',
+          onTap: () => _showPersonasManager(context, store),
+        ),
+        const SizedBox(height: 12),
+        _settingsEntryCard(
+          context,
+          icon: Icons.data_object_outlined,
+          title: 'Variables',
+          subtitle: '查看和编辑全局变量（global vars）',
+          trailingText: '${store.globalVariables.length}',
+          onTap: () => _showGlobalVariablesManager(context, store),
+        ),
+        const SizedBox(height: 12),
+        _settingsEntryCard(
+          context,
           icon: Icons.flash_on_outlined,
           title: '快速回复',
           subtitle: '配置继续 / 转折 / 描写的按钮文案与隐藏引导词',
@@ -404,6 +424,46 @@ class _TavernScreenState extends State<TavernScreen>
           itemPositionFor: itemPositionFor,
           editCustomItem: (pageContext, {item}) =>
               _editPromptManagerCustomItem(pageContext, item: item),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await this.context.read<TavernStore>().loadHome();
+  }
+
+  Future<void> _showPersonasManager(BuildContext context, TavernStore store) async {
+    await store.loadPersonas();
+    if (!context.mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _SimpleJsonListManagerPage(
+          title: 'Personas',
+          items: store.personas.map((item) => item.toJson()).toList(growable: false),
+          emptyText: '还没有 persona，可新增默认人设。',
+          onCreate: (payload) => store.createPersona(payload),
+          onUpdate: (id, payload) => store.updatePersona(personaId: id, payload: payload),
+          onDelete: (id) => store.deletePersona(id),
+          defaultCreatePayload: const {
+            'name': 'User',
+            'description': '',
+            'isDefault': false,
+          },
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await this.context.read<TavernStore>().loadHome();
+  }
+
+  Future<void> _showGlobalVariablesManager(BuildContext context, TavernStore store) async {
+    await store.loadGlobalVariables();
+    if (!context.mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _JsonMapEditorPage(
+          title: 'Global Variables',
+          initialValue: store.globalVariables,
+          onSave: (value) => store.updateGlobalVariables(value),
         ),
       ),
     );
@@ -1228,8 +1288,12 @@ class _TavernScreenState extends State<TavernScreen>
   Future<void> _startChatWithCharacter(TavernCharacter character) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
+      final personaId = await _pickPersonaForNewChat();
+      if (!mounted) return;
+      if (personaId == null) return;
       final chat = await context.read<TavernStore>().createChatForCharacter(
         character,
+        personaId: personaId,
       );
       if (!mounted) return;
       await Navigator.of(context).push(
@@ -1243,6 +1307,43 @@ class _TavernScreenState extends State<TavernScreen>
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(content: Text('创建会话失败：$exc')));
     }
+  }
+
+  Future<String?> _pickPersonaForNewChat() async {
+    final store = context.read<TavernStore>();
+    if (store.personas.isEmpty) {
+      await store.loadPersonas();
+      if (!mounted) return null;
+    }
+    final personas = store.personas;
+    return showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ListTile(
+              title: const Text('不指定 Persona'),
+              subtitle: const Text('使用默认 persona / fallback User'),
+              onTap: () => Navigator.of(context).pop(''),
+            ),
+            ...personas.map(
+              (persona) => ListTile(
+                title: Text(persona.name),
+                subtitle: Text(
+                  persona.description.isEmpty ? '无描述' : persona.description,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: persona.isDefault ? const Chip(label: Text('默认')) : null,
+                onTap: () => Navigator.of(context).pop(persona.id),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _openExistingChat(TavernChat chat) async {
@@ -3919,5 +4020,170 @@ class _QuickReplyDraft {
       default:
         return mode;
     }
+  }
+}
+
+class _JsonMapEditorPage extends StatefulWidget {
+  const _JsonMapEditorPage({
+    required this.title,
+    required this.initialValue,
+    required this.onSave,
+  });
+
+  final String title;
+  final Map<String, dynamic> initialValue;
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic> value) onSave;
+
+  @override
+  State<_JsonMapEditorPage> createState() => _JsonMapEditorPageState();
+}
+
+class _JsonMapEditorPageState extends State<_JsonMapEditorPage> {
+  late final TextEditingController _controller;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(
+      text: JsonEncoder.withIndent('  ').convert(widget.initialValue),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.title),
+        actions: [
+          TextButton(
+            onPressed: _saving ? null : _save,
+            child: _saving ? const Text('保存中...') : const Text('保存'),
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: TextField(
+          controller: _controller,
+          expands: true,
+          maxLines: null,
+          minLines: null,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            hintText: '{\n  "key": "value"\n}',
+          ),
+          style: const TextStyle(fontFamily: 'monospace'),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _save() async {
+    try {
+      final decoded = jsonDecode(_controller.text);
+      if (decoded is! Map) {
+        throw const FormatException('必须是 JSON object');
+      }
+      setState(() => _saving = true);
+      await widget.onSave(Map<String, dynamic>.from(decoded));
+      if (!mounted) return;
+      Navigator.of(context).pop();
+    } catch (exc) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('保存失败：$exc')),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+}
+
+class _SimpleJsonListManagerPage extends StatelessWidget {
+  const _SimpleJsonListManagerPage({
+    required this.title,
+    required this.items,
+    required this.emptyText,
+    required this.onCreate,
+    required this.onUpdate,
+    required this.onDelete,
+    required this.defaultCreatePayload,
+  });
+
+  final String title;
+  final List<Map<String, dynamic>> items;
+  final String emptyText;
+  final Future<dynamic> Function(Map<String, dynamic> payload) onCreate;
+  final Future<dynamic> Function(String id, Map<String, dynamic> payload) onUpdate;
+  final Future<void> Function(String id) onDelete;
+  final Map<String, dynamic> defaultCreatePayload;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(title),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add),
+            onPressed: () => _openEditor(context, initial: defaultCreatePayload),
+          ),
+        ],
+      ),
+      body: items.isEmpty
+          ? Center(child: Text(emptyText))
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                final item = items[index];
+                final id = (item['id'] ?? '').toString();
+                final title = (item['name'] ?? id).toString();
+                final subtitle = (item['description'] ?? '').toString();
+                return Card(
+                  child: ListTile(
+                    title: Text(title),
+                    subtitle: subtitle.isEmpty ? null : Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
+                    trailing: item['isDefault'] == true ? const Chip(label: Text('默认')) : null,
+                    onTap: () => _openEditor(context, id: id, initial: item),
+                    onLongPress: () async {
+                      await onDelete(id);
+                      if (context.mounted) Navigator.of(context).pop();
+                    },
+                  ),
+                );
+              },
+            ),
+    );
+  }
+
+  Future<void> _openEditor(
+    BuildContext context, {
+    String id = '',
+    required Map<String, dynamic> initial,
+  }) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _JsonMapEditorPage(
+          title: id.isEmpty ? '新增$title' : '编辑$title',
+          initialValue: initial,
+          onSave: (value) async {
+            if (id.isEmpty) {
+              await onCreate(value);
+            } else {
+              await onUpdate(id, value);
+            }
+            return value;
+          },
+        ),
+      ),
+    );
   }
 }

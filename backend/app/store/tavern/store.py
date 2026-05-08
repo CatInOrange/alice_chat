@@ -200,6 +200,22 @@ class TavernStore:
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS tavern_personas (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    is_default INTEGER NOT NULL DEFAULT 0,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS tavern_global_variables (
+                    key TEXT PRIMARY KEY,
+                    value_json TEXT NOT NULL DEFAULT '""',
+                    updated_at REAL NOT NULL
+                );
                 """
             )
             self._ensure_column(conn, 'tavern_characters', 'alternate_greetings_json', "TEXT NOT NULL DEFAULT '[]'")
@@ -1008,6 +1024,135 @@ class TavernStore:
             ).fetchall()
             return [self._row_to_character_lore_binding(row) for row in rows]
 
+    # Persona
+    def create_persona(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self.ensure_schema()
+        now = _now()
+        record = {
+            'id': _new_id('tav_persona'),
+            'name': str(payload.get('name') or '').strip() or 'User',
+            'description': str(payload.get('description') or '').strip(),
+            'metadata': dict(payload.get('metadata') or {}) if isinstance(payload.get('metadata'), dict) else {},
+            'isDefault': bool(payload.get('isDefault', False)),
+            'createdAt': now,
+            'updatedAt': now,
+        }
+        with connect(self.db) as conn:
+            if record['isDefault']:
+                conn.execute("UPDATE tavern_personas SET is_default=0 WHERE is_default=1")
+            conn.execute(
+                "INSERT INTO tavern_personas(id,name,description,metadata_json,is_default,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+                (
+                    record['id'],
+                    record['name'],
+                    record['description'],
+                    json.dumps(record['metadata'], ensure_ascii=False),
+                    1 if record['isDefault'] else 0,
+                    now,
+                    now,
+                ),
+            )
+            conn.commit()
+        return record
+
+    def list_personas(self) -> list[dict[str, Any]]:
+        self.ensure_schema()
+        with connect(self.db) as conn:
+            rows = conn.execute(
+                "SELECT * FROM tavern_personas ORDER BY is_default DESC, updated_at DESC"
+            ).fetchall()
+            return [self._row_to_persona(row) for row in rows]
+
+    def get_persona(self, persona_id: str) -> dict[str, Any] | None:
+        self.ensure_schema()
+        with connect(self.db) as conn:
+            row = conn.execute("SELECT * FROM tavern_personas WHERE id=? LIMIT 1", (persona_id,)).fetchone()
+            return self._row_to_persona(row) if row is not None else None
+
+    def get_default_persona(self) -> dict[str, Any] | None:
+        self.ensure_schema()
+        with connect(self.db) as conn:
+            row = conn.execute("SELECT * FROM tavern_personas WHERE is_default=1 ORDER BY updated_at DESC LIMIT 1").fetchone()
+            if row is None:
+                row = conn.execute("SELECT * FROM tavern_personas ORDER BY updated_at DESC LIMIT 1").fetchone()
+            return self._row_to_persona(row) if row is not None else None
+
+    def update_persona(self, persona_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        self.ensure_schema()
+        with connect(self.db) as conn:
+            current = conn.execute("SELECT * FROM tavern_personas WHERE id=? LIMIT 1", (persona_id,)).fetchone()
+            if current is None:
+                return None
+            updated_at = _now()
+            is_default = bool(payload.get('isDefault', bool(current['is_default'])))
+            if is_default:
+                conn.execute("UPDATE tavern_personas SET is_default=0 WHERE is_default=1 AND id<>?", (persona_id,))
+            conn.execute(
+                """
+                UPDATE tavern_personas
+                SET name=?, description=?, metadata_json=?, is_default=?, updated_at=?
+                WHERE id=?
+                """,
+                (
+                    str(payload.get('name', current['name']) or '').strip() or current['name'],
+                    str(payload.get('description', current['description']) or '').strip(),
+                    json.dumps((payload.get('metadata', self._load_json(current['metadata_json'], default={})) or {}), ensure_ascii=False),
+                    1 if is_default else 0,
+                    updated_at,
+                    persona_id,
+                ),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM tavern_personas WHERE id=? LIMIT 1", (persona_id,)).fetchone()
+            return self._row_to_persona(row) if row is not None else None
+
+    def delete_persona(self, persona_id: str) -> bool:
+        self.ensure_schema()
+        with connect(self.db) as conn:
+            current = conn.execute("SELECT * FROM tavern_personas WHERE id=? LIMIT 1", (persona_id,)).fetchone()
+            if current is None:
+                return False
+            conn.execute("DELETE FROM tavern_personas WHERE id=?", (persona_id,))
+            conn.execute("UPDATE tavern_chats SET persona_id='' WHERE persona_id=?", (persona_id,))
+            conn.commit()
+        return True
+
+    # Global variables
+    def list_global_variables(self) -> dict[str, Any]:
+        self.ensure_schema()
+        with connect(self.db) as conn:
+            rows = conn.execute("SELECT key, value_json FROM tavern_global_variables ORDER BY key ASC").fetchall()
+            return {str(row['key']): self._load_json(str(row['value_json']), default='') for row in rows}
+
+    def get_global_variable(self, key: str, default: Any = '') -> Any:
+        self.ensure_schema()
+        with connect(self.db) as conn:
+            row = conn.execute("SELECT value_json FROM tavern_global_variables WHERE key=? LIMIT 1", (key,)).fetchone()
+            if row is None:
+                return default
+            return self._load_json(str(row['value_json']), default=default)
+
+    def set_global_variable(self, key: str, value: Any) -> Any:
+        self.ensure_schema()
+        now = _now()
+        with connect(self.db) as conn:
+            conn.execute(
+                "INSERT INTO tavern_global_variables(key,value_json,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json, updated_at=excluded.updated_at",
+                (key, json.dumps(value, ensure_ascii=False), now),
+            )
+            conn.commit()
+        return value
+
+    def delete_global_variable(self, key: str) -> bool:
+        self.ensure_schema()
+        with connect(self.db) as conn:
+            row = conn.execute("SELECT key FROM tavern_global_variables WHERE key=? LIMIT 1", (key,)).fetchone()
+            if row is None:
+                return False
+            conn.execute("DELETE FROM tavern_global_variables WHERE key=?", (key,))
+            conn.commit()
+        return True
+
     # Row mapping
     def _row_to_character(self, row: Any) -> dict[str, Any]:
         return {
@@ -1145,6 +1290,17 @@ class TavernStore:
             'authorNote': row['author_note'],
             'authorNoteDepth': row['author_note_depth'],
             'metadata': self._load_json(row['metadata_json'], default={}),
+            'createdAt': row['created_at'],
+            'updatedAt': row['updated_at'],
+        }
+
+    def _row_to_persona(self, row: Any) -> dict[str, Any]:
+        return {
+            'id': row['id'],
+            'name': row['name'],
+            'description': row['description'],
+            'metadata': self._load_json(row['metadata_json'], default={}),
+            'isDefault': bool(row['is_default']),
             'createdAt': row['created_at'],
             'updatedAt': row['updated_at'],
         }

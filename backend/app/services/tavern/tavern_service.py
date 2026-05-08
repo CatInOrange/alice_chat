@@ -15,6 +15,8 @@ from ...config import get_tavern_config
 from ...store.tavern import TavernStore
 from .chat_summarization_service import TavernChatSummarizationService
 from .prompt_builder import PromptBuilder, PromptDebugResult
+from .persona_service import TavernPersonaService
+from .variable_service import TavernVariableService
 
 
 @dataclass(slots=True)
@@ -44,6 +46,8 @@ class TavernService:
         self.prompt_builder = prompt_builder or PromptBuilder()
         self.uploads_dir = uploads_dir
         self.summarization_service = summarization_service or TavernChatSummarizationService()
+        self.persona_service = TavernPersonaService(self.store)
+        self.variable_service = TavernVariableService(self.store)
 
     def ensure_schema(self) -> None:
         self.store.ensure_schema()
@@ -159,6 +163,35 @@ class TavernService:
     def update_preset(self, preset_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
         return self.store.update_preset(preset_id, payload)
 
+    # Persona
+    def create_persona(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.store.create_persona(payload)
+
+    def list_personas(self) -> list[dict[str, Any]]:
+        return self.store.list_personas()
+
+    def get_persona(self, persona_id: str) -> dict[str, Any] | None:
+        return self.store.get_persona(persona_id)
+
+    def update_persona(self, persona_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        return self.store.update_persona(persona_id, payload)
+
+    def delete_persona(self, persona_id: str) -> bool:
+        return self.store.delete_persona(persona_id)
+
+    # Variables
+    def get_chat_variables(self, chat_id: str) -> dict[str, Any]:
+        return self.variable_service.get_local_variables(chat_id)
+
+    def set_chat_variables(self, chat_id: str, values: dict[str, Any]) -> dict[str, Any]:
+        return self.variable_service.set_local_variables(chat_id, values)
+
+    def get_global_variables(self) -> dict[str, Any]:
+        return self.variable_service.get_global_variables()
+
+    def set_global_variables(self, values: dict[str, Any]) -> dict[str, Any]:
+        return self.variable_service.set_global_variables(values)
+
     # Chat
     def create_chat(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self.store.create_chat(payload)
@@ -212,6 +245,8 @@ class TavernService:
         worldbook_entries = self._collect_effective_worldbook_entries(character['id'])
         preset, prompt_order = self._resolve_preset_and_prompt_order(chat=chat)
         character_lore_bindings = self.store.list_character_lore_bindings(character['id'])
+        persona = self.persona_service.resolve_for_chat(chat)
+        variables = self.variable_service.snapshot_for_chat(chat)
         debug = self.prompt_builder.build_messages(
             character=character,
             preset=preset,
@@ -222,6 +257,12 @@ class TavernService:
             history=history,
             user_text='',
             chat=chat,
+            persona=persona,
+            local_variables=variables.local,
+            global_variables=variables.global_,
+            provider_id=str((preset or {}).get('provider') or ''),
+            model_name=str((preset or {}).get('model') or ''),
+            allow_side_effects=False,
         )
         return {
             'presetId': debug.preset_id,
@@ -234,6 +275,9 @@ class TavernService:
             'renderedStoryString': debug.rendered_story_string,
             'renderedExamples': debug.rendered_examples,
             'runtimeContext': debug.runtime_context,
+            'macroEffects': debug.macro_effects,
+            'unknownMacros': debug.unknown_macros,
+            'resolvedPersona': persona,
             'depthInserts': debug.depth_inserts,
             'contextUsage': debug.context_usage,
             'summary': {
@@ -283,6 +327,8 @@ class TavernService:
             effective_text = f"{text.rstrip()}\n\n[Hidden instruction: {hidden_instruction.strip()}]"
 
         character_lore_bindings = self.store.list_character_lore_bindings(character['id'])
+        persona = self.persona_service.resolve_for_chat(chat)
+        variables = self.variable_service.snapshot_for_chat(chat)
         prompt_debug = self.prompt_builder.build_messages(
             character=character,
             preset=preset,
@@ -293,6 +339,12 @@ class TavernService:
             history=history,
             user_text=effective_text,
             chat=chat,
+            persona=persona,
+            local_variables=variables.local,
+            global_variables=variables.global_,
+            provider_id=str((preset or {}).get('provider') or ''),
+            model_name=str((preset or {}).get('model') or ''),
+            allow_side_effects=True,
         )
         provider_id = str((preset or {}).get('provider') or (get_tavern_config().get('defaultProviderId') or '')).strip()
         return {
@@ -306,6 +358,7 @@ class TavernService:
             'providerId': provider_id,
             'hiddenInstruction': hidden_instruction.strip(),
             'sourceText': text,
+            'persona': persona,
         }
 
     def merge_generation_provider(self, provider: dict[str, Any], preset: dict[str, Any] | None) -> dict[str, Any]:
@@ -340,6 +393,8 @@ class TavernService:
             return None
         history = self.store.list_chat_messages(chat_id)
         preset, prompt_order = self._resolve_preset_and_prompt_order(chat=chat)
+        persona = self.persona_service.resolve_for_chat(chat)
+        variables = self.variable_service.snapshot_for_chat(chat)
         prompt_debug = self.prompt_builder.build_messages(
             character=character,
             preset=preset,
@@ -350,6 +405,12 @@ class TavernService:
             history=history,
             user_text='',
             chat=chat,
+            persona=persona,
+            local_variables=variables.local,
+            global_variables=variables.global_,
+            provider_id=str((preset or {}).get('provider') or ''),
+            model_name=str((preset or {}).get('model') or ''),
+            allow_side_effects=False,
         )
         summaries = self.summarization_service.list_summaries(chat)
         recent_messages = self.summarization_service.get_recent_messages(

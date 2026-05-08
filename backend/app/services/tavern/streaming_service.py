@@ -110,10 +110,27 @@ class TavernStreamingService:
                     },
                     'instructionMode': instruction_mode,
                     'suppressedUserMessage': suppress_user_message,
+                    'macroEffects': prepared['promptDebug'].macro_effects,
+                    'unknownMacros': prepared['promptDebug'].unknown_macros,
+                    'persona': prepared.get('persona'),
                 },
             },
         )
         warnings: list[str] = []
+        try:
+            self.tavern_service.variable_service.apply_effects(
+                chat_id=chat_id,
+                effects=prepared['promptDebug'].macro_effects,
+                request_id=request_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                'Tavern macro effect post-processing failed for chat %s: %s',
+                chat_id,
+                exc,
+                exc_info=True,
+            )
+            warnings.append(f'macro_effects_failed: {exc}')
         chat_after_runtime = None
         try:
             chat_after_runtime = self.tavern_service.update_worldbook_runtime_after_turn(
@@ -206,6 +223,9 @@ class TavernStreamingService:
                 },
                 'instructionMode': instruction_mode,
                 'suppressedUserMessage': suppress_user_message,
+                'macroEffects': prepared['promptDebug'].macro_effects,
+                'unknownMacros': prepared['promptDebug'].unknown_macros,
+                'persona': prepared.get('persona'),
             },
         }
 
@@ -224,6 +244,20 @@ class TavernStreamingService:
                 metadata=assistant_metadata,
             )
             warnings: list[str] = []
+            try:
+                self.tavern_service.variable_service.apply_effects(
+                    chat_id=chat_id,
+                    effects=prepared['promptDebug'].macro_effects,
+                    request_id=request_id,
+                )
+            except Exception as exc:
+                logger.warning(
+                    'Tavern macro effect post-processing failed for chat %s: %s',
+                    chat_id,
+                    exc,
+                    exc_info=True,
+                )
+                warnings.append(f'macro_effects_failed: {exc}')
             chat_after_runtime = None
             try:
                 chat_after_runtime = self.tavern_service.update_worldbook_runtime_after_turn(
