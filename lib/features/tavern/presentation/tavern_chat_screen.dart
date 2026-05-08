@@ -615,15 +615,16 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       return Center(child: Text('加载失败：$_error'));
     }
     if (_messages.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: _buildMarkdownText(
-            _character.firstMessage.isNotEmpty
-                ? _character.firstMessage
-                : '还没有消息，开始聊吧。',
-          ),
-        ),
+      final greeting = _character.firstMessage.isNotEmpty
+          ? _character.firstMessage
+          : '还没有消息，开始聊吧。';
+      return ListView(
+        controller: _scrollController,
+        reverse: true,
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+        children: [
+          _buildEphemeralGreetingBubble(greeting),
+        ],
       );
     }
     return ListView.builder(
@@ -735,6 +736,90 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildEphemeralGreetingBubble(String greeting) {
+    final bubbleMaxWidth = MediaQuery.of(context).size.width * 0.72;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          buildTavernAvatar(
+            avatarPath: _character.avatarPath,
+            serverBaseUrl: _serverBaseUrl,
+            radius: 18,
+            useDefaultAssetFallback: true,
+          ),
+          const SizedBox(width: 10),
+          Flexible(
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0.96, end: 1),
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              builder: (context, value, child) => Opacity(
+                opacity: value.clamp(0, 1),
+                child: Transform.scale(scale: value, alignment: Alignment.topLeft, child: child),
+              ),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: bubbleMaxWidth < 560 ? bubbleMaxWidth : 560,
+                ),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.98),
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(20),
+                      topRight: Radius.circular(20),
+                      bottomLeft: Radius.circular(8),
+                      bottomRight: Radius.circular(20),
+                    ),
+                    border: Border.all(
+                      color: const Color(0xFFE9E2FF),
+                    ),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x081F2430),
+                        blurRadius: 10,
+                        offset: Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _character.name,
+                                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                                  color: const Color(0xFF98A1B3),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            _messageMetaPill(
+                              isUser: false,
+                              icon: Icons.waving_hand_rounded,
+                              label: 'Greeting',
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        _buildMessageContent(greeting, isUser: false),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
