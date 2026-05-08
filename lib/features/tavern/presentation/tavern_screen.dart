@@ -543,7 +543,7 @@ class _TavernScreenState extends State<TavernScreen>
                     Text('WorldBooks', style: theme.textTheme.titleMedium),
                     const SizedBox(height: 6),
                     Text(
-                      '先看内容，再碰高级规则。这里优先展示可见范围、条目预览和实际文本。',
+                      '先看世界书本身；点开后，再看里面的关键词条目。',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF667085),
                         height: 1.45,
@@ -575,9 +575,8 @@ class _TavernScreenState extends State<TavernScreen>
             final isLoading = store.isLoadingWorldBookEntries(book.id);
             final error = store.worldBookEntriesErrorOf(book.id) ?? '';
             final hasLoaded = entries.isNotEmpty || error.isNotEmpty;
-            final previewEntries = entries.take(3).toList(growable: false);
             return Card(
-              margin: const EdgeInsets.only(bottom: 14),
+              margin: const EdgeInsets.only(bottom: 12),
               elevation: 0,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(18),
@@ -588,8 +587,8 @@ class _TavernScreenState extends State<TavernScreen>
                 behavior: HitTestBehavior.opaque,
                 child: ExpansionTile(
                   initiallyExpanded: false,
-                  tilePadding: const EdgeInsets.fromLTRB(16, 14, 10, 10),
-                  childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  tilePadding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+                  childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
                   onExpansionChanged: (expanded) {
                     if (expanded && entries.isEmpty && !isLoading) {
                       context.read<TavernStore>().loadWorldBookEntries(book.id);
@@ -599,103 +598,54 @@ class _TavernScreenState extends State<TavernScreen>
                     value: book.enabled,
                     onChanged: (value) => _toggleWorldBook(context, book, value),
                   ),
-                  title: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          book.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      _softPill(
-                        book.isGlobal ? '全局' : '角色绑定',
-                        icon: book.isGlobal
-                            ? Icons.public_outlined
-                            : Icons.person_outline,
-                        tone: book.isGlobal
-                            ? const Color(0xFFE0F2FE)
-                            : const Color(0xFFF3E8FF),
-                        textColor: book.isGlobal
-                            ? const Color(0xFF0C4A6E)
-                            : const Color(0xFF6B21A8),
-                      ),
-                    ],
+                  title: Text(
+                    book.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.only(top: 6),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         if (book.description.trim().isNotEmpty)
                           Text(
                             book.description.trim(),
-                            maxLines: 2,
+                            maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: const Color(0xFF667085),
-                              height: 1.45,
                             ),
                           )
                         else
                           Text(
-                            book.isGlobal
-                                ? '这本书会被所有会话看到。'
-                                : '这本书只会对绑定的角色生效。',
+                            book.isGlobal ? '所有会话可见' : '仅绑定角色可见',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: const Color(0xFF667085),
                             ),
                           ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 8),
                         Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
+                          spacing: 6,
+                          runSpacing: 6,
                           children: [
-                            _softMetaChip(book.enabled ? '已启用' : '已停用'),
-                            _softMetaChip(book.isGlobal ? '所有会话可见' : '仅绑定角色可见'),
+                            _softMetaChip(book.isGlobal ? '全局' : '角色绑定'),
+                            _softMetaChip(book.enabled ? '启用' : '停用'),
                             if (entries.isNotEmpty)
-                              _softMetaChip('${entries.length} 条内容')
+                              _softMetaChip('${entries.length} 条')
                             else if (isLoading)
-                              _softMetaChip('正在加载内容')
+                              _softMetaChip('加载中')
                             else if (error.isNotEmpty)
                               _softMetaChip('加载失败')
                             else if (hasLoaded)
-                              _softMetaChip('暂无条目')
+                              _softMetaChip('空书')
                             else
-                              _softMetaChip('展开查看条目'),
+                              _softMetaChip('点开看条目'),
                           ],
                         ),
-                        const SizedBox(height: 12),
-                        if (isLoading)
-                          const _WorldBookInfoBanner(
-                            icon: Icons.hourglass_top_rounded,
-                            text: '正在读取这本书的条目内容…',
-                          )
-                        else if (error.isNotEmpty)
-                          _WorldBookInfoBanner(
-                            icon: Icons.error_outline,
-                            text: '条目加载失败：$error',
-                            trailing: TextButton.icon(
-                              onPressed: () => context.read<TavernStore>().loadWorldBookEntries(book.id),
-                              icon: const Icon(Icons.refresh),
-                              label: const Text('重试'),
-                            ),
-                          )
-                        else if (previewEntries.isEmpty)
-                          const _WorldBookInfoBanner(
-                            icon: Icons.notes_outlined,
-                            text: '还没有条目。先加关键词，再写注入内容。',
-                          )
-                        else
-                          Column(
-                            children: previewEntries
-                                .map((entry) => _buildWorldBookEntryPreview(context, book, entry))
-                                .toList(growable: false),
-                          ),
                       ],
                     ),
                   ),
@@ -704,38 +654,47 @@ class _TavernScreenState extends State<TavernScreen>
                     children: [
                       IconButton(
                         tooltip: '新增条目',
+                        visualDensity: VisualDensity.compact,
                         onPressed: () => _editWorldBookEntry(context, worldbook: book),
                         icon: const Icon(Icons.note_add_outlined),
                       ),
                       IconButton(
                         tooltip: '编辑 WorldBook',
+                        visualDensity: VisualDensity.compact,
                         onPressed: () => _editWorldBook(context, worldbook: book),
                         icon: const Icon(Icons.edit_outlined),
                       ),
                       IconButton(
                         tooltip: '删除 WorldBook',
+                        visualDensity: VisualDensity.compact,
                         onPressed: () => _confirmDeleteWorldBook(context, book),
                         icon: const Icon(Icons.delete_outline),
                       ),
                     ],
                   ),
                   children: [
-                    if (!isLoading && error.isEmpty && entries.length > 3) ...[
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            '其余 ${entries.length - 3} 条',
-                            style: theme.textTheme.labelMedium?.copyWith(
-                              color: const Color(0xFF7C4DFF),
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
+                    if (isLoading)
+                      const _WorldBookInfoBanner(
+                        icon: Icons.hourglass_top_rounded,
+                        text: '正在读取这本书的条目内容…',
+                      )
+                    else if (error.isNotEmpty)
+                      _WorldBookInfoBanner(
+                        icon: Icons.error_outline,
+                        text: '条目加载失败：$error',
+                        trailing: TextButton.icon(
+                          onPressed: () => context.read<TavernStore>().loadWorldBookEntries(book.id),
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('重试'),
                         ),
-                      ),
-                      ...entries.skip(3).map((entry) => _buildWorldBookEntryPreview(context, book, entry)),
-                    ],
+                      )
+                    else if (entries.isEmpty)
+                      const _WorldBookInfoBanner(
+                        icon: Icons.notes_outlined,
+                        text: '还没有条目。先加关键词，再写注入内容。',
+                      )
+                    else
+                      ...entries.map((entry) => _buildWorldBookEntryPreview(context, book, entry)),
                   ],
                 ),
               ),
@@ -3161,62 +3120,71 @@ class _TavernScreenState extends State<TavernScreen>
     final keywordText = entry.keys.isEmpty ? '无关键词' : entry.keys.join(' / ');
     final summary = _entryPositionLabel(entry.insertionPosition);
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: const Color(0xFFFAFBFF),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: const Color(0xFFE6EAF4)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Text(
                   keywordText,
-                  style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF111827),
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
-              _softMetaChip(entry.enabled ? '启用' : '停用'),
-              const SizedBox(width: 6),
               IconButton(
                 tooltip: '编辑条目',
                 visualDensity: VisualDensity.compact,
-                constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+                constraints: const BoxConstraints.tightFor(width: 30, height: 30),
                 padding: EdgeInsets.zero,
                 onPressed: () => _editWorldBookEntry(
                   context,
                   worldbook: worldbook,
                   entry: entry,
                 ),
-                icon: const Icon(Icons.edit_outlined, size: 18),
+                icon: const Icon(Icons.edit_outlined, size: 17),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  entry.content.trim().isEmpty ? '（空内容）' : entry.content.trim(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF667085),
+                    height: 1.35,
+                  ),
+                ),
               ),
             ],
           ),
           const SizedBox(height: 8),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 6,
+            runSpacing: 6,
             children: [
               _softMetaChip(summary),
-              _softMetaChip('优先级 ${entry.priority}'),
-              if (entry.constant) _softMetaChip('常驻注入'),
-              if (_entryUsesAdvancedOptions(entry)) _softMetaChip('含高级规则'),
+              _softMetaChip('P${entry.priority}'),
+              _softMetaChip(entry.enabled ? '启用' : '停用'),
+              if (entry.constant) _softMetaChip('常驻'),
+              if (_entryUsesAdvancedOptions(entry)) _softMetaChip('高级'),
             ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            entry.content.trim().isEmpty ? '（空内容）' : entry.content.trim(),
-            maxLines: 5,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              height: 1.55,
-              color: const Color(0xFF344054),
-            ),
           ),
         ],
       ),
@@ -3283,36 +3251,6 @@ class _TavernScreenState extends State<TavernScreen>
           fontWeight: FontWeight.w600,
           color: Color(0xFF475467),
         ),
-      ),
-    );
-  }
-
-  Widget _softPill(
-    String text, {
-    required IconData icon,
-    required Color tone,
-    required Color textColor,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: tone,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: textColor),
-          const SizedBox(width: 6),
-          Text(
-            text,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: textColor,
-            ),
-          ),
-        ],
       ),
     );
   }
