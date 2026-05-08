@@ -2955,7 +2955,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                '这里会按当前配置实时重新计算，不依赖聊天页缓存的小窗结果。',
+                                '这里会按当前配置实时重算。想看真正要喂给模型的内容，先看「Final Prompt」。',
                                 style: Theme.of(context).textTheme.bodySmall,
                               ),
                               const SizedBox(height: 8),
@@ -2964,31 +2964,11 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                                 runSpacing: 8,
                                 children: [
                                   _debugChip(
-                                    'Preset',
-                                    debug.presetId.isEmpty
-                                        ? '默认'
-                                        : debug.presetId,
-                                  ),
-                                  _debugChip(
-                                    'PromptOrder',
-                                    debug.promptOrderId.isEmpty
-                                        ? '未设置'
-                                        : debug.promptOrderId,
-                                  ),
-                                  _debugChip(
-                                    'Blocks',
-                                    '${debug.summary['blockCount'] ?? debug.blocks.length}',
-                                  ),
-                                  _debugChip(
-                                    'Messages',
-                                    '${debug.summary['messageCount'] ?? debug.messages.length}',
-                                  ),
-                                  _debugChip(
-                                    'Matched WI',
+                                    'World Info 命中',
                                     '${debug.summary['matchedWorldbookCount'] ?? debug.matchedWorldbookEntries.length}',
                                   ),
                                   _debugChip(
-                                    'Rejected WI',
+                                    'World Info 拒绝',
                                     '${debug.summary['rejectedWorldbookCount'] ?? debug.rejectedWorldbookEntries.length}',
                                   ),
                                 ],
@@ -2999,11 +2979,11 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                         const TabBar(
                           isScrollable: true,
                           tabs: [
-                            Tab(text: 'Summary'),
-                            Tab(text: 'Messages'),
-                            Tab(text: 'Blocks'),
+                            Tab(text: 'Details'),
+                            Tab(text: 'Final Prompt'),
+                            Tab(text: 'Source Blocks'),
                             Tab(text: 'World Info'),
-                            Tab(text: 'Runtime'),
+                            Tab(text: 'Runtime Vars'),
                             Tab(text: 'Macros'),
                           ],
                         ),
