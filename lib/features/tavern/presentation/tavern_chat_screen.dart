@@ -1296,13 +1296,23 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   }
 
   String _resolvedUserDisplayName() {
-    final personaDescription = _chat.metadata['personaDescription'];
-    if (personaDescription is String && personaDescription.trim().isNotEmpty) {
-      return personaDescription.trim();
+    final personaId = _chat.personaId.trim();
+    if (personaId.isNotEmpty) {
+      final personas = context.read<TavernStore>().personas;
+      for (final persona in personas) {
+        if (persona.id == personaId && persona.name.trim().isNotEmpty) {
+          return persona.name.trim();
+        }
+      }
     }
+
     final personaName = _chat.metadata['personaName'];
     if (personaName is String && personaName.trim().isNotEmpty) {
       return personaName.trim();
+    }
+    final personaDescription = _chat.metadata['personaDescription'];
+    if (personaDescription is String && personaDescription.trim().isNotEmpty) {
+      return personaDescription.trim();
     }
     return 'User';
   }
