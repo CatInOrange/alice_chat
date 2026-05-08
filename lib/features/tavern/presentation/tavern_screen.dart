@@ -551,34 +551,51 @@ class _TavernScreenState extends State<TavernScreen>
                 behavior: HitTestBehavior.opaque,
                 child: ExpansionTile(
                   initiallyExpanded: false,
+                  tilePadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
+                  childrenPadding: const EdgeInsets.only(bottom: 8),
                   onExpansionChanged: (expanded) {
-                  if (expanded && store.worldBookEntriesOf(book.id).isEmpty) {
-                    context.read<TavernStore>().loadWorldBookEntries(book.id);
-                  }
-                },
-                leading: Switch(
-                  value: book.enabled,
-                  onChanged: (value) => _toggleWorldBook(context, book, value),
-                ),
-                title: Text(book.name),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(book.description.isEmpty ? '无描述' : book.description),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _chip('Scope', book.isGlobal ? 'global' : 'local'),
-                        if (book.isGlobal)
-                          _chip('可见性', '所有会话')
-                        else
-                          _chip('可见性', '仅绑定角色'),
+                    if (expanded &&
+                        store.worldBookEntriesOf(book.id).isEmpty &&
+                        !store.isLoadingWorldBookEntries(book.id)) {
+                      context.read<TavernStore>().loadWorldBookEntries(book.id);
+                    }
+                  },
+                  leading: Switch(
+                    value: book.enabled,
+                    onChanged: (value) => _toggleWorldBook(context, book, value),
+                  ),
+                  title: Text(
+                    book.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (book.description.isNotEmpty) ...[
+                        Text(
+                          book.description,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 6),
                       ],
-                    ),
-                  ],
-                ),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _chip('Scope', book.isGlobal ? 'global' : 'local'),
+                          if (book.isGlobal)
+                            _chip('可见性', '所有会话')
+                          else
+                            _chip('可见性', '仅绑定角色'),
+                        ],
+                      ),
+                    ],
+                  ),
                 trailing: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -601,73 +618,119 @@ class _TavernScreenState extends State<TavernScreen>
                   ],
                 ),
                 children: [
-                  ...store
-                      .worldBookEntriesOf(book.id)
-                      .map(
-                        (entry) => ListTile(
-                          title: Text(
-                            entry.keys.isEmpty
-                                ? '(无关键词)'
-                                : entry.keys.join(', '),
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const SizedBox(height: 4),
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  _chip('Priority', '${entry.priority}'),
-                                  _chip('Pos', entry.insertionPosition),
-                                  _chip(
-                                    'Enabled',
-                                    entry.enabled ? 'on' : 'off',
-                                  ),
-                                  if (entry.constant) _chip('Constant', 'yes'),
-                                  if (entry.preventRecursion)
-                                    _chip('NoRecur', 'yes'),
-                                  if (entry.recursive)
-                                    _chip('Recursive', 'yes'),
-                                  if (entry.sticky > 0)
-                                    _chip('Sticky', '${entry.sticky}'),
-                                  if (entry.cooldown > 0)
-                                    _chip('Cooldown', '${entry.cooldown}'),
-                                  if (entry.delay > 0)
-                                    _chip('Delay', '${entry.delay}'),
-                                  if (entry.groupName.isNotEmpty)
-                                    _chip('Group', entry.groupName),
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                entry.content,
-                                maxLines: 3,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ),
-                          trailing: IconButton(
-                            tooltip: '编辑条目',
-                            onPressed:
-                                () => _editWorldBookEntry(
-                                  context,
-                                  worldbook: book,
-                                  entry: entry,
-                                ),
-                            icon: const Icon(Icons.edit_outlined),
-                          ),
-                          isThreeLine: true,
-                        ),
-                      ),
-                  if (store.worldBookEntriesOf(book.id).isEmpty)
+                  if (store.isLoadingWorldBookEntries(book.id))
                     const Padding(
                       padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
                       child: Align(
                         alignment: Alignment.centerLeft,
-                        child: Text('还没有条目'),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            SizedBox(width: 8),
+                            Text('正在加载条目...'),
+                          ],
+                        ),
                       ),
-                    ),
+                    )
+                  else if ((store.worldBookEntriesErrorOf(book.id) ?? '').isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '条目加载失败：${store.worldBookEntriesErrorOf(book.id)}',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            TextButton.icon(
+                              onPressed: () => context
+                                  .read<TavernStore>()
+                                  .loadWorldBookEntries(book.id),
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('重试'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else ...[
+                    ...store
+                        .worldBookEntriesOf(book.id)
+                        .map(
+                          (entry) => ListTile(
+                            title: Text(
+                              entry.keys.isEmpty
+                                  ? '(无关键词)'
+                                  : entry.keys.join(', '),
+                            ),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const SizedBox(height: 4),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    _chip('Priority', '${entry.priority}'),
+                                    _chip('Pos', entry.insertionPosition),
+                                    _chip(
+                                      'Enabled',
+                                      entry.enabled ? 'on' : 'off',
+                                    ),
+                                    if (entry.constant) _chip('Constant', 'yes'),
+                                    if (entry.preventRecursion)
+                                      _chip('NoRecur', 'yes'),
+                                    if (entry.recursive)
+                                      _chip('Recursive', 'yes'),
+                                    if (entry.sticky > 0)
+                                      _chip('Sticky', '${entry.sticky}'),
+                                    if (entry.cooldown > 0)
+                                      _chip('Cooldown', '${entry.cooldown}'),
+                                    if (entry.delay > 0)
+                                      _chip('Delay', '${entry.delay}'),
+                                    if (entry.groupName.isNotEmpty)
+                                      _chip('Group', entry.groupName),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  entry.content,
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                            trailing: IconButton(
+                              tooltip: '编辑条目',
+                              onPressed:
+                                  () => _editWorldBookEntry(
+                                    context,
+                                    worldbook: book,
+                                    entry: entry,
+                                  ),
+                              icon: const Icon(Icons.edit_outlined),
+                            ),
+                            isThreeLine: true,
+                          ),
+                        ),
+                    if (store.worldBookEntriesOf(book.id).isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text('还没有条目'),
+                        ),
+                      ),
+                  ],
                 ],
                 ),
               ),

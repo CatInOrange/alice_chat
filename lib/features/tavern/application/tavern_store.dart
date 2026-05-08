@@ -30,6 +30,8 @@ class TavernStore extends ChangeNotifier {
       <String, Map<String, dynamic>>{};
   final Map<String, List<TavernWorldBookEntry>> _worldBookEntries =
       <String, List<TavernWorldBookEntry>>{};
+  final Set<String> _loadingWorldBookEntries = <String>{};
+  final Map<String, String> _worldBookEntriesErrors = <String, String>{};
   String? _lastImportMessage;
   TavernCharacterImportResult? _lastImportResult;
   final Map<String, TavernChatCacheSnapshot> _chatSnapshots =
@@ -51,6 +53,10 @@ class TavernStore extends ChangeNotifier {
 
   List<TavernWorldBookEntry> worldBookEntriesOf(String worldbookId) =>
       _worldBookEntries[worldbookId] ?? const <TavernWorldBookEntry>[];
+  bool isLoadingWorldBookEntries(String worldbookId) =>
+      _loadingWorldBookEntries.contains(worldbookId);
+  String? worldBookEntriesErrorOf(String worldbookId) =>
+      _worldBookEntriesErrors[worldbookId];
 
   Future<void> loadHome() async {
     _isLoading = true;
@@ -432,10 +438,20 @@ class TavernStore extends ChangeNotifier {
   Future<List<TavernWorldBookEntry>> loadWorldBookEntries(
     String worldbookId,
   ) async {
-    final entries = await _repository.listWorldBookEntries(worldbookId);
-    _worldBookEntries[worldbookId] = entries;
+    _loadingWorldBookEntries.add(worldbookId);
+    _worldBookEntriesErrors.remove(worldbookId);
     notifyListeners();
-    return entries;
+    try {
+      final entries = await _repository.listWorldBookEntries(worldbookId);
+      _worldBookEntries[worldbookId] = entries;
+      return entries;
+    } catch (exc) {
+      _worldBookEntriesErrors[worldbookId] = exc.toString();
+      rethrow;
+    } finally {
+      _loadingWorldBookEntries.remove(worldbookId);
+      notifyListeners();
+    }
   }
 
   Future<TavernWorldBookEntry> createWorldBookEntry({
