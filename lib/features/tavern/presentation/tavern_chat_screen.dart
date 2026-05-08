@@ -113,28 +113,64 @@ class _TavernRegexScript {
   }
 }
 
+enum _AssistantRenderKind { markdown, narration, inlineNarration, complexHtml }
+
+class _AssistantRenderPayload {
+  const _AssistantRenderPayload({
+    required this.kind,
+    required this.content,
+  });
+
+  final _AssistantRenderKind kind;
+  final String content;
+}
+
 class _InlineHtmlMessageView extends StatefulWidget {
   const _InlineHtmlMessageView({
     required this.html,
-    required this.height,
+    required this.initialHeight,
   });
 
   final String html;
-  final double height;
+  final double initialHeight;
 
   @override
   State<_InlineHtmlMessageView> createState() => _InlineHtmlMessageViewState();
 }
 
 class _InlineHtmlMessageViewState extends State<_InlineHtmlMessageView> {
+  static const String _heightProbeScript = '''
+(() => {
+  const doc = document.documentElement;
+  const body = document.body;
+  if (!doc || !body) return 320;
+  return Math.max(
+    body.scrollHeight || 0,
+    body.offsetHeight || 0,
+    doc.clientHeight || 0,
+    doc.scrollHeight || 0,
+    doc.offsetHeight || 0
+  );
+})()
+''';
+
   late final WebViewController _controller;
+  late double _height;
 
   @override
   void initState() {
     super.initState();
+    _height = widget.initialHeight;
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.transparent);
+      ..setBackgroundColor(Colors.transparent)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (_) {
+            unawaited(_syncHeight());
+          },
+        ),
+      );
     unawaited(_controller.loadHtmlString(widget.html));
   }
 
@@ -142,17 +178,46 @@ class _InlineHtmlMessageViewState extends State<_InlineHtmlMessageView> {
   void didUpdateWidget(covariant _InlineHtmlMessageView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.html != widget.html) {
+      _height = widget.initialHeight;
       unawaited(_controller.loadHtmlString(widget.html));
     }
   }
 
+  Future<void> _syncHeight() async {
+    try {
+      final raw = await _controller.runJavaScriptReturningResult(
+        _heightProbeScript,
+      );
+      final nextHeight = _parseHeightResult(raw);
+      if (!mounted || nextHeight == null) return;
+      final clamped = nextHeight.clamp(220, 1200).toDouble();
+      if ((clamped - _height).abs() < 8) return;
+      setState(() {
+        _height = clamped;
+      });
+    } catch (_) {
+      // Keep heuristic height when JS probing is unavailable.
+    }
+  }
+
+  double? _parseHeightResult(Object? raw) {
+    if (raw == null) return null;
+    if (raw is num) return raw.toDouble();
+    final text = raw.toString().trim();
+    return double.tryParse(text.replaceAll('"', ''));
+  }
+
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: SizedBox(
-        height: widget.height,
-        child: WebViewWidget(controller: _controller),
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: SizedBox(
+          height: _height,
+          child: WebViewWidget(controller: _controller),
+        ),
       ),
     );
   }
@@ -982,22 +1047,27 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   Widget _buildMessageContent(String text, {required bool isUser}) {
     final normalized = text.trim();
     if (normalized.isEmpty) return const SizedBox.shrink();
-    final rendered = !isUser ? _applyAssistantDisplayTransforms(normalized) : normalized;
-    if (!isUser && _looksLikeComplexHtml(rendered)) {
-      return _buildInlineHtmlContent(rendered);
+    if (isUser) {
+      return _buildMarkdownText(
+        normalized,
+        textColor: Colors.white,
+      );
     }
-    if (!isUser && _isNarrationMessage(rendered)) {
-      return _buildNarrationText(rendered);
+
+    final payload = _buildAssistantRenderPayload(normalized);
+    switch (payload.kind) {
+      case _AssistantRenderKind.complexHtml:
+        return _buildInlineHtmlContent(payload.content);
+      case _AssistantRenderKind.narration:
+        return _buildNarrationText(payload.content);
+      case _AssistantRenderKind.inlineNarration:
+        return _buildInlineNarrationRichText(payload.content);
+      case _AssistantRenderKind.markdown:
+        return _buildMarkdownText(
+          payload.content,
+          textColor: const Color(0xFF1F2430),
+        );
     }
-    if (!isUser &&
-        !_containsPotentialMarkdown(rendered) &&
-        _containsNarrationSegment(rendered)) {
-      return _buildInlineNarrationRichText(rendered);
-    }
-    return _buildMarkdownText(
-      rendered,
-      textColor: isUser ? Colors.white : const Color(0xFF1F2430),
-    );
   }
 
   Widget _buildNarrationText(String text) {
@@ -1116,6 +1186,33 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   bool _containsPotentialMarkdown(String text) {
     return RegExp(r'[`*_#\[\]~-]|^>|^\d+\.\s|^-\s', multiLine: true)
         .hasMatch(text);
+  }
+
+  _AssistantRenderPayload _buildAssistantRenderPayload(String text) {
+    final rendered = _applyAssistantDisplayTransforms(text);
+    if (_looksLikeComplexHtml(rendered)) {
+      return _AssistantRenderPayload(
+        kind: _AssistantRenderKind.complexHtml,
+        content: rendered,
+      );
+    }
+    if (_isNarrationMessage(rendered)) {
+      return _AssistantRenderPayload(
+        kind: _AssistantRenderKind.narration,
+        content: rendered,
+      );
+    }
+    if (!_containsPotentialMarkdown(rendered) &&
+        _containsNarrationSegment(rendered)) {
+      return _AssistantRenderPayload(
+        kind: _AssistantRenderKind.inlineNarration,
+        content: rendered,
+      );
+    }
+    return _AssistantRenderPayload(
+      kind: _AssistantRenderKind.markdown,
+      content: rendered,
+    );
   }
 
   String _applyAssistantDisplayTransforms(String text) {
@@ -1261,7 +1358,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       ),
       child: _InlineHtmlMessageView(
         html: html,
-        height: _estimateInlineHtmlHeight(html),
+        initialHeight: _estimateInlineHtmlHeight(html),
       ),
     );
   }
