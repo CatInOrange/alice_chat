@@ -12,6 +12,8 @@ import '../application/tavern_store.dart';
 import '../domain/tavern_models.dart';
 import 'tavern_ui_helpers.dart';
 
+import '../../../../app/theme.dart';
+
 class TavernChatScreen extends StatefulWidget {
   const TavernChatScreen({
     super.key,
@@ -80,8 +82,9 @@ class _TavernRegexScript {
       scriptName: (json['scriptName'] ?? '').toString(),
       findRegex: (json['findRegex'] ?? '').toString(),
       replaceString: (json['replaceString'] ?? '').toString(),
-      placement: ((json['placement'] as List?) ?? const <dynamic>[])
-          .toList(growable: false),
+      placement: ((json['placement'] as List?) ?? const <dynamic>[]).toList(
+        growable: false,
+      ),
       disabled: json['disabled'] == true,
       markdownOnly: json['markdownOnly'] == true,
       promptOnly: json['promptOnly'] == true,
@@ -101,25 +104,29 @@ class _TavernRegexScript {
     final placements = placement
         .map((item) => item is num ? item.toInt() : item.toString())
         .toList(growable: false);
-    final hasAiOutput = placements.contains(1) || placements.contains('aiOutput');
+    final hasAiOutput =
+        placements.contains(1) || placements.contains('aiOutput');
     if (!hasAiOutput) return false;
     if (markdownOnly && !isMarkdown) return false;
     if (promptOnly) return false;
     if (depth != null) {
-      if (minDepth != null && minDepth! >= -1 && depth < minDepth!) return false;
+      if (minDepth != null && minDepth! >= -1 && depth < minDepth!)
+        return false;
       if (maxDepth != null && maxDepth! >= 0 && depth > maxDepth!) return false;
     }
     return true;
   }
 }
 
-enum _AssistantRenderSegmentKind { markdown, narration, inlineNarration, complexHtml }
+enum _AssistantRenderSegmentKind {
+  markdown,
+  narration,
+  inlineNarration,
+  complexHtml,
+}
 
 class _AssistantRenderSegment {
-  const _AssistantRenderSegment({
-    required this.kind,
-    required this.content,
-  });
+  const _AssistantRenderSegment({required this.kind, required this.content});
 
   final _AssistantRenderSegmentKind kind;
   final String content;
@@ -226,29 +233,30 @@ class _InlineHtmlMessageViewState extends State<_InlineHtmlMessageView> {
   void initState() {
     super.initState();
     _height = widget.initialHeight;
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(Colors.transparent)
-      ..addJavaScriptChannel(
-        'HeightObserver',
-        onMessageReceived: (message) {
-          final nextHeight = _parseHeightResult(message.message);
-          if (!mounted || nextHeight == null) return;
-          final clamped = nextHeight.clamp(260, 1600).toDouble();
-          if ((clamped - _height).abs() < 4) return;
-          setState(() {
-            _height = clamped;
-          });
-        },
-      )
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageFinished: (_) async {
-            await _installHeightObservers();
-            unawaited(_syncHeight());
-          },
-        ),
-      );
+    _controller =
+        WebViewController()
+          ..setJavaScriptMode(JavaScriptMode.unrestricted)
+          ..setBackgroundColor(Colors.transparent)
+          ..addJavaScriptChannel(
+            'HeightObserver',
+            onMessageReceived: (message) {
+              final nextHeight = _parseHeightResult(message.message);
+              if (!mounted || nextHeight == null) return;
+              final clamped = nextHeight.clamp(260, 1600).toDouble();
+              if ((clamped - _height).abs() < 4) return;
+              setState(() {
+                _height = clamped;
+              });
+            },
+          )
+          ..setNavigationDelegate(
+            NavigationDelegate(
+              onPageFinished: (_) async {
+                await _installHeightObservers();
+                unawaited(_syncHeight());
+              },
+            ),
+          );
     unawaited(_controller.loadHtmlString(widget.html));
   }
 
@@ -353,10 +361,9 @@ class _TavernCharacterProfilePage extends StatelessWidget {
                           .map(
                             (tag) => Chip(
                               label: Text(tag),
-                              backgroundColor: Theme.of(context)
-                                  .colorScheme
-                                  .primary
-                                  .withValues(alpha: 0.10),
+                              backgroundColor: Theme.of(
+                                context,
+                              ).colorScheme.primary.withValues(alpha: 0.10),
                             ),
                           )
                           .toList(growable: false),
@@ -393,11 +400,27 @@ class _TavernCharacterProfilePage extends StatelessWidget {
                     title: '基础信息',
                     icon: Icons.badge_outlined,
                     children: [
-                      _profileBlock(context, 'Description', character.description),
-                      _profileBlock(context, 'Personality', character.personality),
+                      _profileBlock(
+                        context,
+                        'Description',
+                        character.description,
+                      ),
+                      _profileBlock(
+                        context,
+                        'Personality',
+                        character.personality,
+                      ),
                       _profileBlock(context, 'Scenario', character.scenario),
-                      _profileBlock(context, 'First Message', character.firstMessage),
-                      _profileBlock(context, 'Example Dialogues', character.exampleDialogues),
+                      _profileBlock(
+                        context,
+                        'First Message',
+                        character.firstMessage,
+                      ),
+                      _profileBlock(
+                        context,
+                        'Example Dialogues',
+                        character.exampleDialogues,
+                      ),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -406,9 +429,21 @@ class _TavernCharacterProfilePage extends StatelessWidget {
                     title: 'Prompt / Notes',
                     icon: Icons.psychology_alt_outlined,
                     children: [
-                      _profileBlock(context, 'System Prompt', character.systemPrompt),
-                      _profileBlock(context, 'Post-History Instructions', character.postHistoryInstructions),
-                      _profileBlock(context, 'Creator Notes', character.creatorNotes),
+                      _profileBlock(
+                        context,
+                        'System Prompt',
+                        character.systemPrompt,
+                      ),
+                      _profileBlock(
+                        context,
+                        'Post-History Instructions',
+                        character.postHistoryInstructions,
+                      ),
+                      _profileBlock(
+                        context,
+                        'Creator Notes',
+                        character.creatorNotes,
+                      ),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -423,10 +458,10 @@ class _TavernCharacterProfilePage extends StatelessWidget {
                         character.alternateGreetings.isEmpty
                             ? ''
                             : character.alternateGreetings
-                                  .asMap()
-                                  .entries
-                                  .map((e) => '${e.key + 1}. ${e.value}')
-                                  .join('\n\n'),
+                                .asMap()
+                                .entries
+                                .map((e) => '${e.key + 1}. ${e.value}')
+                                .join('\n\n'),
                       ),
                       _profileBlock(context, '来源文件', character.sourceName),
                     ],
@@ -479,9 +514,16 @@ class _TavernCharacterProfilePage extends StatelessWidget {
                 Container(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.5), width: 2),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.5),
+                      width: 2,
+                    ),
                     boxShadow: const [
-                      BoxShadow(color: Colors.black26, blurRadius: 18, offset: Offset(0, 10)),
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 18,
+                        offset: Offset(0, 10),
+                      ),
                     ],
                   ),
                   child: buildTavernAvatar(
@@ -499,17 +541,23 @@ class _TavernCharacterProfilePage extends StatelessWidget {
                     children: [
                       Text(
                         character.name,
-                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        style: Theme.of(
+                          context,
+                        ).textTheme.headlineSmall?.copyWith(
                           color: Colors.white,
                           fontWeight: FontWeight.w800,
-                          shadows: const [Shadow(color: Colors.black45, blurRadius: 10)],
+                          shadows: const [
+                            Shadow(color: Colors.black45, blurRadius: 10),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 6),
                       Text(
                         character.scenario.isNotEmpty
                             ? character.scenario
-                            : (character.description.isNotEmpty ? character.description : '查看角色设定与导入内容'),
+                            : (character.description.isNotEmpty
+                                ? character.description
+                                : '查看角色设定与导入内容'),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -551,7 +599,9 @@ class _TavernCharacterProfilePage extends StatelessWidget {
     required IconData icon,
     required List<Widget> children,
   }) {
-    final visible = children.where((w) => w is! SizedBox).toList(growable: false);
+    final visible = children
+        .where((w) => w is! SizedBox)
+        .toList(growable: false);
     if (visible.isEmpty) return const SizedBox.shrink();
     return Card(
       elevation: 0,
@@ -567,9 +617,9 @@ class _TavernCharacterProfilePage extends StatelessWidget {
                 const SizedBox(width: 8),
                 Text(
                   title,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                 ),
               ],
             ),
@@ -590,14 +640,16 @@ class _TavernCharacterProfilePage extends StatelessWidget {
         children: [
           Text(
             title,
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 6),
           Text(
             value,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.5),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(height: 1.5),
           ),
         ],
       ),
@@ -836,8 +888,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
               Expanded(child: _buildBody(context)),
               _buildContextStatusBar(),
               _buildQuickReplyBar(),
-              if (_isRefreshing)
-                const LinearProgressIndicator(minHeight: 2),
+              if (_isRefreshing) const LinearProgressIndicator(minHeight: 2),
               SafeArea(
                 top: false,
                 child: Padding(
@@ -890,16 +941,15 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       return Center(child: Text('加载失败：$_error'));
     }
     if (_messages.isEmpty) {
-      final greeting = _character.firstMessage.isNotEmpty
-          ? _character.firstMessage
-          : '还没有消息，开始聊吧。';
+      final greeting =
+          _character.firstMessage.isNotEmpty
+              ? _character.firstMessage
+              : '还没有消息，开始聊吧。';
       return ListView(
         controller: _scrollController,
         reverse: true,
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
-        children: [
-          _buildEphemeralGreetingBubble(greeting),
-        ],
+        children: [_buildEphemeralGreetingBubble(greeting)],
       );
     }
     return ListView.builder(
@@ -918,10 +968,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           ),
           child: Container(
             decoration: BoxDecoration(
-              color:
-                  isUser
-                      ? const Color(0xFF7C4DFF)
-                      : Colors.white,
+              color: isUser ? const Color(0xFF7C4DFF) : Colors.white,
               borderRadius: BorderRadius.only(
                 topLeft: const Radius.circular(20),
                 topRight: const Radius.circular(20),
@@ -940,9 +987,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
               padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
               child: Column(
                 crossAxisAlignment:
-                    isUser
-                        ? CrossAxisAlignment.end
-                        : CrossAxisAlignment.start,
+                    isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
                 children: [
                   Text(
                     isUser ? '你' : _character.name,
@@ -956,7 +1001,10 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                   ),
                   const SizedBox(height: 6),
                   _buildMessageContent(message.content, isUser: isUser),
-                  if (message.createdAt != null || (message.metadata['requestId'] ?? '').toString().isNotEmpty) ...[
+                  if (message.createdAt != null ||
+                      (message.metadata['requestId'] ?? '')
+                          .toString()
+                          .isNotEmpty) ...[
                     const SizedBox(height: 8),
                     Wrap(
                       alignment: WrapAlignment.end,
@@ -964,7 +1012,9 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                       spacing: 6,
                       runSpacing: 4,
                       children: [
-                        if ((message.metadata['requestId'] ?? '').toString().isNotEmpty)
+                        if ((message.metadata['requestId'] ?? '')
+                            .toString()
+                            .isNotEmpty)
                           _messageMetaPill(
                             isUser: isUser,
                             icon: Icons.link_outlined,
@@ -1033,10 +1083,15 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
               tween: Tween(begin: 0.96, end: 1),
               duration: const Duration(milliseconds: 180),
               curve: Curves.easeOut,
-              builder: (context, value, child) => Opacity(
-                opacity: value.clamp(0, 1),
-                child: Transform.scale(scale: value, alignment: Alignment.topLeft, child: child),
-              ),
+              builder:
+                  (context, value, child) => Opacity(
+                    opacity: value.clamp(0, 1),
+                    child: Transform.scale(
+                      scale: value,
+                      alignment: Alignment.topLeft,
+                      child: child,
+                    ),
+                  ),
               child: ConstrainedBox(
                 constraints: BoxConstraints(
                   maxWidth: bubbleMaxWidth < 560 ? bubbleMaxWidth : 560,
@@ -1050,9 +1105,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                       bottomLeft: Radius.circular(8),
                       bottomRight: Radius.circular(20),
                     ),
-                    border: Border.all(
-                      color: const Color(0xFFE9E2FF),
-                    ),
+                    border: Border.all(color: const Color(0xFFE9E2FF)),
                     boxShadow: const [
                       BoxShadow(
                         color: Color(0x081F2430),
@@ -1071,7 +1124,9 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                             Expanded(
                               child: Text(
                                 _character.name,
-                                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.labelMedium?.copyWith(
                                   color: const Color(0xFF98A1B3),
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -1130,7 +1185,9 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           borderRadius: BorderRadius.circular(10),
         ),
         blockquoteDecoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+          color: Theme.of(
+            context,
+          ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(8),
         ),
       ),
@@ -1142,10 +1199,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     final normalized = text.trim();
     if (normalized.isEmpty) return const SizedBox.shrink();
     if (isUser) {
-      return _buildMarkdownText(
-        normalized,
-        textColor: Colors.white,
-      );
+      return _buildMarkdownText(normalized, textColor: Colors.white);
     }
 
     final segments = _buildAssistantRenderSegments(normalized);
@@ -1232,7 +1286,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   }
 
   Widget _buildInlineNarrationRichText(String text) {
-    final baseStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(
+    final baseStyle =
+        Theme.of(context).textTheme.bodyMedium?.copyWith(
           color: const Color(0xFF1F2430),
           height: 1.4,
           fontWeight: FontWeight.w500,
@@ -1294,8 +1349,10 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   }
 
   bool _containsPotentialMarkdown(String text) {
-    return RegExp(r'[`*_#\[\]~-]|^>|^\d+\.\s|^-\s', multiLine: true)
-        .hasMatch(text);
+    return RegExp(
+      r'[`*_#\[\]~-]|^>|^\d+\.\s|^-\s',
+      multiLine: true,
+    ).hasMatch(text);
   }
 
   List<_AssistantRenderSegment> _buildAssistantRenderSegments(String text) {
@@ -1349,7 +1406,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     if (scripts.isNotEmpty) {
       final sorted = [...scripts]..sort((a, b) => a.order.compareTo(b.order));
       for (final script in sorted) {
-        final isMarkdown = script.markdownOnly || _containsPotentialMarkdown(result);
+        final isMarkdown =
+            script.markdownOnly || _containsPotentialMarkdown(result);
         if (!script.appliesToAiOutput(isMarkdown: isMarkdown, depth: null)) {
           continue;
         }
@@ -1381,12 +1439,18 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     if (raw is! List) return const <_TavernRegexScript>[];
     return raw
         .whereType<Map>()
-        .map((item) => _TavernRegexScript.fromJson(Map<String, dynamic>.from(item)))
+        .map(
+          (item) =>
+              _TavernRegexScript.fromJson(Map<String, dynamic>.from(item)),
+        )
         .toList(growable: false);
   }
 
   String _runRegexScript(_TavernRegexScript script, String input) {
-    final regexString = _substituteRegexMacros(script.findRegex, script.substituteRegex);
+    final regexString = _substituteRegexMacros(
+      script.findRegex,
+      script.substituteRegex,
+    );
     final regex = _parseRegex(regexString);
     if (regex == null) return input;
     return input.replaceAllMapped(regex, (match) {
@@ -1397,8 +1461,12 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       );
       final replacementLooksHtml = _looksLikeHtmlTemplate(replacement);
       for (var i = 0; i <= match.groupCount; i++) {
-        final group = _filterTrimStrings(match.group(i) ?? '', script.trimStrings);
-        final safeGroup = replacementLooksHtml ? _formatHtmlReplacementText(group) : group;
+        final group = _filterTrimStrings(
+          match.group(i) ?? '',
+          script.trimStrings,
+        );
+        final safeGroup =
+            replacementLooksHtml ? _formatHtmlReplacementText(group) : group;
         replacement = replacement.replaceAll('\$$i', safeGroup);
       }
       replacement = _substituteRegexMacros(replacement, 0);
@@ -1434,12 +1502,24 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     final charName = _character.name;
     final userName = _resolvedUserDisplayName();
     if (substituteMode == 2) {
-      result = result.replaceAll(RegExp(r'\{\{char\}\}', caseSensitive: false), RegExp.escape(charName));
-      result = result.replaceAll(RegExp(r'\{\{user\}\}', caseSensitive: false), RegExp.escape(userName));
+      result = result.replaceAll(
+        RegExp(r'\{\{char\}\}', caseSensitive: false),
+        RegExp.escape(charName),
+      );
+      result = result.replaceAll(
+        RegExp(r'\{\{user\}\}', caseSensitive: false),
+        RegExp.escape(userName),
+      );
       return result;
     }
-    result = result.replaceAll(RegExp(r'\{\{char\}\}', caseSensitive: false), charName);
-    result = result.replaceAll(RegExp(r'\{\{user\}\}', caseSensitive: false), userName);
+    result = result.replaceAll(
+      RegExp(r'\{\{char\}\}', caseSensitive: false),
+      charName,
+    );
+    result = result.replaceAll(
+      RegExp(r'\{\{user\}\}', caseSensitive: false),
+      userName,
+    );
     return result;
   }
 
@@ -1474,8 +1554,10 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   }
 
   bool _looksLikeHtmlTemplate(String text) {
-    return RegExp(r'<\s*(html|head|body|style|div|section|article|table|span)\b', caseSensitive: false)
-        .hasMatch(text);
+    return RegExp(
+      r'<\s*(html|head|body|style|div|section|article|table|span)\b',
+      caseSensitive: false,
+    ).hasMatch(text);
   }
 
   String _formatHtmlReplacementText(String text) {
@@ -1489,14 +1571,19 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
 
   String _unwrapFencedHtmlBlocks(String text) {
     return text.replaceAllMapped(
-      RegExp(r'```(?:html)?\s*(<html[\s\S]*?</html>)\s*```', caseSensitive: false),
+      RegExp(
+        r'```(?:html)?\s*(<html[\s\S]*?</html>)\s*```',
+        caseSensitive: false,
+      ),
       (match) => match.group(1) ?? match.group(0) ?? '',
     );
   }
 
   bool _looksLikeComplexHtml(String text) {
-    if (!RegExp(r'<\s*html[\s>]|<\s*style[\s>]|<\s*div[\s>]', caseSensitive: false)
-        .hasMatch(text)) {
+    if (!RegExp(
+      r'<\s*html[\s>]|<\s*style[\s>]|<\s*div[\s>]',
+      caseSensitive: false,
+    ).hasMatch(text)) {
       return false;
     }
     final complexPatterns = <RegExp>[
@@ -1546,21 +1633,24 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
 
   double _estimateInlineHtmlHeight(String html) {
     final lineCount = '\n'.allMatches(html).length + 1;
-    final sectionCount = RegExp(
-      r'class="([^"]*(sec-group|detail-row|log-box|mono-box|detail-grid|monitor-frame)[^"]*)"',
-      caseSensitive: false,
-    ).allMatches(html).length;
+    final sectionCount =
+        RegExp(
+          r'class="([^"]*(sec-group|detail-row|log-box|mono-box|detail-grid|monitor-frame)[^"]*)"',
+          caseSensitive: false,
+        ).allMatches(html).length;
     final estimated = 220 + (lineCount * 2.4) + (sectionCount * 34);
     return estimated.clamp(260, 900).toDouble();
   }
 
   String _wrapInlineHtmlDocument(String html) {
     final trimmed = html.trim();
-    final hasHtmlRoot = RegExp(r'<\s*html\b', caseSensitive: false).hasMatch(trimmed);
+    final hasHtmlRoot = RegExp(
+      r'<\s*html\b',
+      caseSensitive: false,
+    ).hasMatch(trimmed);
     if (hasHtmlRoot) {
-      return trimmed.replaceFirst(
-        RegExp(r'</head>', caseSensitive: false),
-        '''
+      return trimmed
+          .replaceFirst(RegExp(r'</head>', caseSensitive: false), '''
 <style>
 html, body {
   margin: 0 !important;
@@ -1618,14 +1708,15 @@ body {
   white-space: pre-wrap;
 }
 </style>
-</head>''',
-      ).replaceFirst(
-        RegExp(r'<body([^>]*)>', caseSensitive: false),
-        '<body\$1><div id="alicechat-inline-root">',
-      ).replaceFirst(
-        RegExp(r'</body>', caseSensitive: false),
-        '</div></body>',
-      );
+</head>''')
+          .replaceFirst(
+            RegExp(r'<body([^>]*)>', caseSensitive: false),
+            '<body\$1><div id="alicechat-inline-root">',
+          )
+          .replaceFirst(
+            RegExp(r'</body>', caseSensitive: false),
+            '</div></body>',
+          );
     }
     return '''
 <!doctype html>
@@ -1711,8 +1802,14 @@ $trimmed
       RegExp(r'</(div|p|section|article|tr|li|h[1-6])>', caseSensitive: false),
       (_) => '\n',
     );
-    text = text.replaceAll(RegExp(r'<style[\s\S]*?</style>', caseSensitive: false), '');
-    text = text.replaceAll(RegExp(r'<script[\s\S]*?</script>', caseSensitive: false), '');
+    text = text.replaceAll(
+      RegExp(r'<style[\s\S]*?</style>', caseSensitive: false),
+      '',
+    );
+    text = text.replaceAll(
+      RegExp(r'<script[\s\S]*?</script>', caseSensitive: false),
+      '',
+    );
     text = text.replaceAll(RegExp(r'<[^>]+>'), '');
     text = text
         .replaceAll('&nbsp;', ' ')
@@ -1731,9 +1828,7 @@ $trimmed
     var cursor = 0;
     for (final match in pattern.allMatches(text)) {
       if (match.start > cursor) {
-        segments.add(
-          _NarrationSegment(text.substring(cursor, match.start)),
-        );
+        segments.add(_NarrationSegment(text.substring(cursor, match.start)));
       }
       final raw = match.group(0) ?? '';
       if (raw.length >= 2) {
@@ -1767,12 +1862,10 @@ $trimmed
     required IconData icon,
     required String label,
   }) {
-    final fg = isUser
-        ? Colors.white.withValues(alpha: 0.72)
-        : const Color(0xFF98A1B3);
-    final bg = isUser
-        ? Colors.white.withValues(alpha: 0.10)
-        : const Color(0xFFF4F6FA);
+    final fg =
+        isUser ? Colors.white.withValues(alpha: 0.72) : const Color(0xFF98A1B3);
+    final bg =
+        isUser ? Colors.white.withValues(alpha: 0.10) : const Color(0xFFF4F6FA);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
@@ -1788,7 +1881,7 @@ $trimmed
             label,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
               color: fg,
-              fontSize: 10,
+              fontSize: desktopAdjustedFontSize(10),
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -1801,14 +1894,15 @@ $trimmed
     final TavernCharacter currentCharacter = _character;
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => _TavernCharacterProfilePage(
-          character: currentCharacter,
-          serverBaseUrl: _serverBaseUrl,
-          onStartChat: () async {
-            Navigator.of(context).pop();
-            await _startFreshChatFromProfile(currentCharacter);
-          },
-        ),
+        builder:
+            (_) => _TavernCharacterProfilePage(
+              character: currentCharacter,
+              serverBaseUrl: _serverBaseUrl,
+              onStartChat: () async {
+                Navigator.of(context).pop();
+                await _startFreshChatFromProfile(currentCharacter);
+              },
+            ),
       ),
     );
     if (!mounted) return;
@@ -1847,30 +1941,34 @@ $trimmed
     return showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            ListTile(
-              title: const Text('不指定 Persona'),
-              subtitle: const Text('使用默认 persona / fallback User'),
-              onTap: () => Navigator.of(context).pop(''),
-            ),
-            ...personas.map(
-              (persona) => ListTile(
-                title: Text(persona.name),
-                subtitle: Text(
-                  persona.description.isEmpty ? '无描述' : persona.description,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+      builder:
+          (context) => SafeArea(
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                ListTile(
+                  title: const Text('不指定 Persona'),
+                  subtitle: const Text('使用默认 persona / fallback User'),
+                  onTap: () => Navigator.of(context).pop(''),
                 ),
-                trailing: persona.isDefault ? const Chip(label: Text('默认')) : null,
-                onTap: () => Navigator.of(context).pop(persona.id),
-              ),
+                ...personas.map(
+                  (persona) => ListTile(
+                    title: Text(persona.name),
+                    subtitle: Text(
+                      persona.description.isEmpty ? '无描述' : persona.description,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing:
+                        persona.isDefault
+                            ? const Chip(label: Text('默认'))
+                            : null,
+                    onTap: () => Navigator.of(context).pop(persona.id),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
     );
   }
 
@@ -1955,9 +2053,8 @@ $trimmed
                 if (showUserMessage) {
                   setState(() {
                     _messages = _messages
-                        .where((item) => item.id != optimisticUserMessage.id)
-                        .toList(growable: true)
-                      ..add(parsed);
+                      .where((item) => item.id != optimisticUserMessage.id)
+                      .toList(growable: true)..add(parsed);
                   });
                   unawaited(_persistSnapshot());
                   _scrollToBottom();
@@ -2034,9 +2131,12 @@ $trimmed
                   _streamingAssistantMessageId = null;
                 });
                 final rawPromptDebug = data['promptDebug'];
-                final promptDebug = rawPromptDebug is Map
-                    ? TavernPromptDebug.fromJson(Map<String, dynamic>.from(rawPromptDebug))
-                    : null;
+                final promptDebug =
+                    rawPromptDebug is Map
+                        ? TavernPromptDebug.fromJson(
+                          Map<String, dynamic>.from(rawPromptDebug),
+                        )
+                        : null;
                 setState(() {
                   if (promptDebug != null) {
                     _latestPromptDebug = promptDebug;
@@ -2141,9 +2241,10 @@ $trimmed
         const <dynamic>[];
     for (final item in rawComponents.whereType<Map>()) {
       final map = Map<String, dynamic>.from(item);
-      final name = (map['name'] ?? map['label'] ?? map['component'] ?? '')
-          .toString()
-          .toLowerCase();
+      final name =
+          (map['name'] ?? map['label'] ?? map['component'] ?? '')
+              .toString()
+              .toLowerCase();
       final kind = (map['kind'] ?? map['type'] ?? '').toString().toLowerCase();
       final tokens =
           (map['tokenCount'] as num?)?.toInt() ??
@@ -2231,10 +2332,7 @@ $trimmed
         .where((item) => (item['tokens'] as int) > 0)
         .map((item) {
           final tokens = item['tokens'] as int;
-          return {
-            ...item,
-            'ratio': total > 0 ? tokens / total : 0.0,
-          };
+          return {...item, 'ratio': total > 0 ? tokens / total : 0.0};
         })
         .toList(growable: false);
   }
@@ -2283,14 +2381,16 @@ $trimmed
       child: SizedBox(
         height: height,
         child: Row(
-          children: segments.map((segment) {
-            final ratio = (segment['ratio'] as double?) ?? 0.0;
-            final color = segment['color'] as Color;
-            return Expanded(
-              flex: ((ratio * 1000).round()).clamp(1, 1000),
-              child: Container(color: color),
-            );
-          }).toList(growable: false),
+          children: segments
+              .map((segment) {
+                final ratio = (segment['ratio'] as double?) ?? 0.0;
+                final color = segment['color'] as Color;
+                return Expanded(
+                  flex: ((ratio * 1000).round()).clamp(1, 1000),
+                  child: Container(color: color),
+                );
+              })
+              .toList(growable: false),
         ),
       ),
     );
@@ -2326,9 +2426,9 @@ $trimmed
             percent == null
                 ? '$label · ${_formatCompactTokenCount(tokens)}'
                 : '$label · ${_formatCompactTokenCount(tokens)} · $percent%',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600),
           ),
         ],
       ),
@@ -2350,10 +2450,7 @@ $trimmed
           return ActionChip(
             visualDensity: VisualDensity.compact,
             label: Text(item['label'] ?? ''),
-            onPressed:
-                _isSending
-                    ? null
-                    : () => _sendSilentQuickReply(item),
+            onPressed: _isSending ? null : () => _sendSilentQuickReply(item),
           );
         },
         separatorBuilder: (_, __) => const SizedBox(width: 8),
@@ -2444,7 +2541,7 @@ $trimmed
               '(${percent.toStringAsFixed(0)}%)',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 color: color.withValues(alpha: 0.8),
-                fontSize: 10,
+                fontSize: desktopAdjustedFontSize(10),
               ),
             ),
             const SizedBox(width: 2),
@@ -2475,28 +2572,43 @@ $trimmed
       final maxContext = (contextUsage['maxContext'] as num?)?.toInt() ?? 0;
       final percent = _contextUsagePercent(totalTokens, maxContext);
       final progress = _contextUsageProgress(totalTokens, maxContext);
-      final trimPlan = contextUsage['meta'] is Map
-          ? (((contextUsage['meta'] as Map)['trimPlan'] as Map?) ?? const <String, dynamic>{})
-          : const <String, dynamic>{};
+      final trimPlan =
+          contextUsage['meta'] is Map
+              ? (((contextUsage['meta'] as Map)['trimPlan'] as Map?) ??
+                  const <String, dynamic>{})
+              : const <String, dynamic>{};
       final overLimit = (trimPlan['overLimitTokens'] as num?)?.toInt() ?? 0;
-      final summarySettings = _chat.metadata['summarySettings'] is Map
-          ? Map<String, dynamic>.from(_chat.metadata['summarySettings'] as Map)
-          : const <String, dynamic>{};
+      final summarySettings =
+          _chat.metadata['summarySettings'] is Map
+              ? Map<String, dynamic>.from(
+                _chat.metadata['summarySettings'] as Map,
+              )
+              : const <String, dynamic>{};
       final injectLatestOnly = summarySettings['injectLatestOnly'] != false;
-      final useRecentAfterLatest = summarySettings['useRecentMessagesAfterLatest'] != false;
-      final summaryBlocks = debug.blocks.where((b) => (b['kind'] ?? '').toString() == 'summary').length;
+      final useRecentAfterLatest =
+          summarySettings['useRecentMessagesAfterLatest'] != false;
+      final summaryBlocks =
+          debug.blocks
+              .where((b) => (b['kind'] ?? '').toString() == 'summary')
+              .length;
       final matchedLore = debug.matchedWorldbookEntries.length;
       final rejectedLore = debug.rejectedWorldbookEntries.length;
-      final suggestedCuts = ((trimPlan['suggestedCuts'] as List?) ?? const <dynamic>[]).whereType<Map>().length;
-      final color = overLimit > 0
-          ? Colors.red
-          : percent >= 85
+      final suggestedCuts =
+          ((trimPlan['suggestedCuts'] as List?) ?? const <dynamic>[])
+              .whereType<Map>()
+              .length;
+      final color =
+          overLimit > 0
+              ? Colors.red
+              : percent >= 85
               ? Colors.orange
               : percent >= 65
-                  ? Colors.amber
-                  : Colors.green;
+              ? Colors.amber
+              : Colors.green;
       final segments = _contextSegments(debug);
-      final rawComponents = ((contextUsage['components'] as List?) ?? (contextUsage['breakdown'] as List?) ?? const <dynamic>[])
+      final rawComponents = ((contextUsage['components'] as List?) ??
+              (contextUsage['breakdown'] as List?) ??
+              const <dynamic>[])
           .whereType<Map>()
           .map((item) => Map<String, dynamic>.from(item))
           .toList(growable: false);
@@ -2505,190 +2617,286 @@ $trimmed
         context: context,
         isScrollControlled: true,
         showDragHandle: true,
-        builder: (context) => SafeArea(
-          child: DraggableScrollableSheet(
-            expand: false,
-            initialChildSize: 0.72,
-            maxChildSize: 0.92,
-            minChildSize: 0.42,
-            builder: (context, controller) => ListView(
-              controller: controller,
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-              children: [
-                Text('上下文使用', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 6),
-                Text(
-                  '这里优先展示最近一次真实生成所使用的上下文统计；若你打开完整 Debug，再按当前配置即时重算。',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-                const SizedBox(height: 14),
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerLow,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: Theme.of(context).dividerColor.withValues(alpha: 0.3)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(99),
-                              child: LinearProgressIndicator(
-                                value: progress,
-                                minHeight: 8,
-                                backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-                                valueColor: AlwaysStoppedAnimation<Color>(color),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Text(
-                            maxContext > 0 ? '${percent.toStringAsFixed(0)}%' : '-',
-                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              color: color,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      _infoRow('总 Token', '$totalTokens'),
-                      _infoRow('最大上下文', '$maxContext'),
-                      _infoRow('超限 Token', '$overLimit'),
-                      _infoRow('建议裁剪数', '$suggestedCuts'),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                _sectionCard(
-                  title: '当前策略 / 状态',
-                  subtitle: '仿照 Native，把总量之外的结构也拆开看。',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _summaryMetaChip('摘要', summaryBlocks > 0 ? (injectLatestOnly ? '最新摘要接管' : '多摘要接管') : '未接管'),
-                          _summaryMetaChip('历史模式', useRecentAfterLatest ? '摘要后 recent' : '全历史'),
-                          _summaryMetaChip('Lore', '$matchedLore 命中 / $rejectedLore 拦截'),
-                          _summaryMetaChip('裁剪', overLimit > 0 ? '超限 $overLimit tok' : '无超限'),
-                          _summaryMetaChip('模式', _chat.authorNoteEnabled ? 'AN 开' : 'AN 关'),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      _buildSegmentBar(segments),
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: segments
-                            .map(
-                              (segment) => _contextLegendChip(
-                                label: segment['label'] as String,
-                                tokens: segment['tokens'] as int,
-                                color: segment['color'] as Color,
-                                ratio: segment['ratio'] as double?,
-                              ),
-                            )
-                            .toList(growable: false),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                _sectionCard(
-                  title: 'Context 明细',
-                  subtitle: rawComponents.isEmpty ? '这次没有拿到可拆分组件。' : '当前 prompt 里各部分实际占用。',
-                  child: rawComponents.isEmpty
-                      ? Text(
-                          '暂无 context component。',
+        builder:
+            (context) => SafeArea(
+              child: DraggableScrollableSheet(
+                expand: false,
+                initialChildSize: 0.72,
+                maxChildSize: 0.92,
+                minChildSize: 0.42,
+                builder:
+                    (context, controller) => ListView(
+                      controller: controller,
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                      children: [
+                        Text(
+                          '上下文使用',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '这里优先展示最近一次真实生成所使用的上下文统计；若你打开完整 Debug，再按当前配置即时重算。',
                           style: Theme.of(context).textTheme.bodySmall,
-                        )
-                      : Column(
-                          children: rawComponents.map((item) {
-                            final label = (item['name'] ?? item['label'] ?? item['component'] ?? 'component').toString();
-                            final kind = (item['meta'] is Map ? ((item['meta'] as Map)['kind'] ?? '') : '').toString();
-                            final tokens = (item['tokenCount'] as num?)?.toInt() ?? (item['tokens'] as num?)?.toInt() ?? (item['estimatedTokens'] as num?)?.toInt() ?? 0;
-                            final percent = totalTokens > 0 ? (tokens / totalTokens * 100) : 0.0;
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                        ),
+                        const SizedBox(height: 14),
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color:
+                                Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerLow,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: Theme.of(
+                                context,
+                              ).dividerColor.withValues(alpha: 0.3),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
                                 children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          label,
-                                          style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
-                                        ),
+                                  Expanded(
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(99),
+                                      child: LinearProgressIndicator(
+                                        value: progress,
+                                        minHeight: 8,
+                                        backgroundColor:
+                                            Theme.of(context)
+                                                .colorScheme
+                                                .surfaceContainerHighest,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                              color,
+                                            ),
                                       ),
-                                      Text(
-                                        '${_formatCompactTokenCount(tokens)} · ${percent.toStringAsFixed(percent >= 10 ? 0 : 1)}%',
-                                        style: Theme.of(context).textTheme.labelMedium,
-                                      ),
-                                    ],
-                                  ),
-                                  if (kind.isNotEmpty) ...[
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      kind,
-                                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).hintColor),
                                     ),
-                                  ],
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Text(
+                                    maxContext > 0
+                                        ? '${percent.toStringAsFixed(0)}%'
+                                        : '-',
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.titleSmall?.copyWith(
+                                      color: color,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
                                 ],
                               ),
-                            );
-                          }).toList(growable: false),
+                              const SizedBox(height: 12),
+                              _infoRow('总 Token', '$totalTokens'),
+                              _infoRow('最大上下文', '$maxContext'),
+                              _infoRow('超限 Token', '$overLimit'),
+                              _infoRow('建议裁剪数', '$suggestedCuts'),
+                            ],
+                          ),
                         ),
-                ),
-                const SizedBox(height: 12),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.auto_awesome_motion_outlined),
-                  title: const Text('上下文 / 摘要策略'),
-                  subtitle: const Text('自动总结、注入模式、recent 历史保留'),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _editContextSummarySettings();
-                  },
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.auto_stories_outlined),
-                  title: const Text('剧情摘要'),
-                  subtitle: Text(_summaryItems().isEmpty ? '当前还没有摘要' : '查看已生成的剧情摘要'),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _showSummariesSheet();
-                  },
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.bug_report_outlined),
-                  title: const Text('Prompt Debug'),
-                  subtitle: const Text('查看完整 prompt / worldbook / runtime 明细'),
-                  onTap: () {
-                    Navigator.of(context).pop();
-                    _showPromptDebug();
-                  },
-                ),
-              ],
+                        const SizedBox(height: 12),
+                        _sectionCard(
+                          title: '当前策略 / 状态',
+                          subtitle: '仿照 Native，把总量之外的结构也拆开看。',
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  _summaryMetaChip(
+                                    '摘要',
+                                    summaryBlocks > 0
+                                        ? (injectLatestOnly
+                                            ? '最新摘要接管'
+                                            : '多摘要接管')
+                                        : '未接管',
+                                  ),
+                                  _summaryMetaChip(
+                                    '历史模式',
+                                    useRecentAfterLatest ? '摘要后 recent' : '全历史',
+                                  ),
+                                  _summaryMetaChip(
+                                    'Lore',
+                                    '$matchedLore 命中 / $rejectedLore 拦截',
+                                  ),
+                                  _summaryMetaChip(
+                                    '裁剪',
+                                    overLimit > 0 ? '超限 $overLimit tok' : '无超限',
+                                  ),
+                                  _summaryMetaChip(
+                                    '模式',
+                                    _chat.authorNoteEnabled ? 'AN 开' : 'AN 关',
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              _buildSegmentBar(segments),
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: segments
+                                    .map(
+                                      (segment) => _contextLegendChip(
+                                        label: segment['label'] as String,
+                                        tokens: segment['tokens'] as int,
+                                        color: segment['color'] as Color,
+                                        ratio: segment['ratio'] as double?,
+                                      ),
+                                    )
+                                    .toList(growable: false),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _sectionCard(
+                          title: 'Context 明细',
+                          subtitle:
+                              rawComponents.isEmpty
+                                  ? '这次没有拿到可拆分组件。'
+                                  : '当前 prompt 里各部分实际占用。',
+                          child:
+                              rawComponents.isEmpty
+                                  ? Text(
+                                    '暂无 context component。',
+                                    style:
+                                        Theme.of(context).textTheme.bodySmall,
+                                  )
+                                  : Column(
+                                    children: rawComponents
+                                        .map((item) {
+                                          final label =
+                                              (item['name'] ??
+                                                      item['label'] ??
+                                                      item['component'] ??
+                                                      'component')
+                                                  .toString();
+                                          final kind =
+                                              (item['meta'] is Map
+                                                      ? ((item['meta']
+                                                              as Map)['kind'] ??
+                                                          '')
+                                                      : '')
+                                                  .toString();
+                                          final tokens =
+                                              (item['tokenCount'] as num?)
+                                                  ?.toInt() ??
+                                              (item['tokens'] as num?)
+                                                  ?.toInt() ??
+                                              (item['estimatedTokens'] as num?)
+                                                  ?.toInt() ??
+                                              0;
+                                          final percent =
+                                              totalTokens > 0
+                                                  ? (tokens / totalTokens * 100)
+                                                  : 0.0;
+                                          return Padding(
+                                            padding: const EdgeInsets.only(
+                                              bottom: 10,
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    Expanded(
+                                                      child: Text(
+                                                        label,
+                                                        style: Theme.of(context)
+                                                            .textTheme
+                                                            .labelLarge
+                                                            ?.copyWith(
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w700,
+                                                            ),
+                                                      ),
+                                                    ),
+                                                    Text(
+                                                      '${_formatCompactTokenCount(tokens)} · ${percent.toStringAsFixed(percent >= 10 ? 0 : 1)}%',
+                                                      style:
+                                                          Theme.of(context)
+                                                              .textTheme
+                                                              .labelMedium,
+                                                    ),
+                                                  ],
+                                                ),
+                                                if (kind.isNotEmpty) ...[
+                                                  const SizedBox(height: 2),
+                                                  Text(
+                                                    kind,
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .bodySmall
+                                                        ?.copyWith(
+                                                          color:
+                                                              Theme.of(
+                                                                context,
+                                                              ).hintColor,
+                                                        ),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          );
+                                        })
+                                        .toList(growable: false),
+                                  ),
+                        ),
+                        const SizedBox(height: 12),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(
+                            Icons.auto_awesome_motion_outlined,
+                          ),
+                          title: const Text('上下文 / 摘要策略'),
+                          subtitle: const Text('自动总结、注入模式、recent 历史保留'),
+                          onTap: () {
+                            Navigator.of(context).pop();
+                            _editContextSummarySettings();
+                          },
+                        ),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.auto_stories_outlined),
+                          title: const Text('剧情摘要'),
+                          subtitle: Text(
+                            _summaryItems().isEmpty ? '当前还没有摘要' : '查看已生成的剧情摘要',
+                          ),
+                          onTap: () {
+                            Navigator.of(context).pop();
+                            _showSummariesSheet();
+                          },
+                        ),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.bug_report_outlined),
+                          title: const Text('Prompt Debug'),
+                          subtitle: const Text(
+                            '查看完整 prompt / worldbook / runtime 明细',
+                          ),
+                          onTap: () {
+                            Navigator.of(context).pop();
+                            _showPromptDebug();
+                          },
+                        ),
+                      ],
+                    ),
+              ),
             ),
-          ),
-        ),
       );
     } catch (exc) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('加载上下文使用失败：$exc')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('加载上下文使用失败：$exc')));
     } finally {
       if (mounted) {
         setState(() => _isLoadingDebug = false);
@@ -2702,60 +2910,64 @@ $trimmed
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (context) => SafeArea(
-        child: DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.76,
-          maxChildSize: 0.94,
-          minChildSize: 0.38,
-          builder: (context, controller) => Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '剧情摘要',
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            summaries.isEmpty
-                                ? '当前还没有可用摘要'
-                                : '共 ${summaries.length} 条，新的在前',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ],
+      builder:
+          (context) => SafeArea(
+            child: DraggableScrollableSheet(
+              expand: false,
+              initialChildSize: 0.76,
+              maxChildSize: 0.94,
+              minChildSize: 0.38,
+              builder:
+                  (context, controller) => Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '剧情摘要',
+                                    style:
+                                        Theme.of(context).textTheme.titleLarge,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    summaries.isEmpty
+                                        ? '当前还没有可用摘要'
+                                        : '共 ${summaries.length} 条，新的在前',
+                                    style:
+                                        Theme.of(context).textTheme.bodySmall,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: '刷新',
+                              onPressed: () async {
+                                Navigator.of(context).pop();
+                                await _refreshChatMetaOnly();
+                                if (!mounted) return;
+                                await _showSummariesSheet();
+                              },
+                              icon: const Icon(Icons.refresh),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    IconButton(
-                      tooltip: '刷新',
-                      onPressed: () async {
-                        Navigator.of(context).pop();
-                        await _refreshChatMetaOnly();
-                        if (!mounted) return;
-                        await _showSummariesSheet();
-                      },
-                      icon: const Icon(Icons.refresh),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: _buildSummaryContentTab(
-                  summaries: summaries,
-                  controller: controller,
-                ),
-              ),
-            ],
+                      const Divider(height: 1),
+                      Expanded(
+                        child: _buildSummaryContentTab(
+                          summaries: summaries,
+                          controller: controller,
+                        ),
+                      ),
+                    ],
+                  ),
+            ),
           ),
-        ),
-      ),
     );
   }
 
@@ -2829,7 +3041,10 @@ $trimmed
                     ),
                   ),
                   if ((item['source'] ?? '').toString().trim().isNotEmpty)
-                    _summaryMetaChip('来源', (item['source'] ?? 'auto').toString()),
+                    _summaryMetaChip(
+                      '来源',
+                      (item['source'] ?? 'auto').toString(),
+                    ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -2857,23 +3072,32 @@ $trimmed
           ),
         );
       },
-      separatorBuilder: (_, __) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          children: [
-            Expanded(child: Divider(color: theme.dividerColor.withValues(alpha: 0.12))),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: Icon(
-                Icons.auto_stories_outlined,
-                size: 16,
-                color: theme.hintColor.withValues(alpha: 0.6),
-              ),
+      separatorBuilder:
+          (_, __) => Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Divider(
+                    color: theme.dividerColor.withValues(alpha: 0.12),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Icon(
+                    Icons.auto_stories_outlined,
+                    size: 16,
+                    color: theme.hintColor.withValues(alpha: 0.6),
+                  ),
+                ),
+                Expanded(
+                  child: Divider(
+                    color: theme.dividerColor.withValues(alpha: 0.12),
+                  ),
+                ),
+              ],
             ),
-            Expanded(child: Divider(color: theme.dividerColor.withValues(alpha: 0.12))),
-          ],
-        ),
-      ),
+          ),
       itemCount: summaries.length,
     );
   }
@@ -2896,7 +3120,10 @@ $trimmed
             child: Text(label, style: Theme.of(context).textTheme.titleSmall),
           ),
           IconButton(
-            onPressed: value <= min ? null : () => onChanged((value - effectiveStep).clamp(min, max)),
+            onPressed:
+                value <= min
+                    ? null
+                    : () => onChanged((value - effectiveStep).clamp(min, max)),
             icon: const Icon(Icons.remove_circle_outline),
           ),
           SizedBox(
@@ -2908,7 +3135,10 @@ $trimmed
             ),
           ),
           IconButton(
-            onPressed: value >= max ? null : () => onChanged((value + effectiveStep).clamp(min, max)),
+            onPressed:
+                value >= max
+                    ? null
+                    : () => onChanged((value + effectiveStep).clamp(min, max)),
             icon: const Icon(Icons.add_circle_outline),
           ),
         ],
@@ -2938,7 +3168,9 @@ $trimmed
             const SizedBox(height: 4),
             Text(
               subtitle!,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.4),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(height: 1.4),
             ),
           ],
           const SizedBox(height: 12),
@@ -2956,10 +3188,7 @@ $trimmed
         children: [
           SizedBox(
             width: 92,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.labelMedium,
-            ),
+            child: Text(label, style: Theme.of(context).textTheme.labelMedium),
           ),
           Expanded(
             child: Text(value, style: Theme.of(context).textTheme.bodyMedium),
@@ -3003,80 +3232,86 @@ $trimmed
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-          children: [
-            Text('会话设置', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 6),
-            Text(
-              '聊天页只保留聊天本身；不常改的能力都收进这里。',
-              style: Theme.of(context).textTheme.bodySmall,
+      builder:
+          (context) => SafeArea(
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+              children: [
+                Text('会话设置', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 6),
+                Text(
+                  '聊天页只保留聊天本身；不常改的能力都收进这里。',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.account_box_outlined),
+                  title: const Text('角色页'),
+                  subtitle: const Text('查看角色详情、问候语、导入内容'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _openCharacterProfilePage();
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.tune_outlined),
+                  title: const Text('生成配置'),
+                  subtitle: Text(
+                    _selectedPresetId == null || _selectedPresetId!.isEmpty
+                        ? '当前跟随默认 Preset'
+                        : '当前 Preset 已单独指定',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _showGenerationConfigSheet(
+                      presets: presets,
+                      messenger: messenger,
+                    );
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.analytics_outlined),
+                  title: const Text('上下文统计'),
+                  subtitle: const Text('Context usage、摘要状态、裁剪情况'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _showContextUsageSheet();
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.auto_stories_outlined),
+                  title: const Text('剧情摘要'),
+                  subtitle: Text(
+                    _summaryItems().isEmpty ? '当前还没有摘要' : '只查看已生成摘要内容',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _showSummariesSheet();
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.bug_report_outlined),
+                  title: const Text('Prompt Debug'),
+                  subtitle: const Text('WorldBook runtime、原始明细'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _showPromptDebug();
+                  },
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.account_box_outlined),
-              title: const Text('角色页'),
-              subtitle: const Text('查看角色详情、问候语、导入内容'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                Navigator.of(context).pop();
-                _openCharacterProfilePage();
-              },
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.tune_outlined),
-              title: const Text('生成配置'),
-              subtitle: Text(
-                _selectedPresetId == null || _selectedPresetId!.isEmpty
-                    ? '当前跟随默认 Preset'
-                    : '当前 Preset 已单独指定',
-              ),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                Navigator.of(context).pop();
-                _showGenerationConfigSheet(presets: presets, messenger: messenger);
-              },
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.analytics_outlined),
-              title: const Text('上下文统计'),
-              subtitle: const Text('Context usage、摘要状态、裁剪情况'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                Navigator.of(context).pop();
-                _showContextUsageSheet();
-              },
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.auto_stories_outlined),
-              title: const Text('剧情摘要'),
-              subtitle: Text(_summaryItems().isEmpty ? '当前还没有摘要' : '只查看已生成摘要内容'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                Navigator.of(context).pop();
-                _showSummariesSheet();
-              },
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.bug_report_outlined),
-              title: const Text('Prompt Debug'),
-              subtitle: const Text('WorldBook runtime、原始明细'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                Navigator.of(context).pop();
-                _showPromptDebug();
-              },
-            ),
-          ],
-        ),
-      ),
+          ),
     );
   }
 
@@ -3088,89 +3323,103 @@ $trimmed
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (context) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-          children: [
-            Text('生成配置', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 6),
-            Text(
-              '把常改项收成二级菜单，不在聊天主界面常驻。',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
-              value: presets.any((item) => item.id == _selectedPresetId) ? _selectedPresetId : null,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                isDense: true,
-                labelText: 'Preset',
-                border: OutlineInputBorder(),
-              ),
-              items: [
-                const DropdownMenuItem<String>(
-                  value: '',
-                  child: Text('跟随默认 Preset'),
+      builder:
+          (context) => SafeArea(
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+              children: [
+                Text('生成配置', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 6),
+                Text(
+                  '把常改项收成二级菜单，不在聊天主界面常驻。',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
-                ...presets.map(
-                  (preset) => DropdownMenuItem<String>(
-                    value: preset.id,
-                    child: Text(preset.name, overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value:
+                      presets.any((item) => item.id == _selectedPresetId)
+                          ? _selectedPresetId
+                          : null,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    labelText: 'Preset',
+                    border: OutlineInputBorder(),
                   ),
+                  items: [
+                    const DropdownMenuItem<String>(
+                      value: '',
+                      child: Text('跟随默认 Preset'),
+                    ),
+                    ...presets.map(
+                      (preset) => DropdownMenuItem<String>(
+                        value: preset.id,
+                        child: Text(
+                          preset.name,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  ],
+                  onChanged:
+                      presets.isEmpty
+                          ? null
+                          : (value) async {
+                            final next = (value ?? '').isEmpty ? null : value;
+                            Navigator.of(context).pop();
+                            setState(() {
+                              _selectedPresetId = next;
+                            });
+                            try {
+                              final updated = await this.context
+                                  .read<TavernStore>()
+                                  .updateChat(
+                                    chatId: _chat.id,
+                                    payload: {'presetId': next ?? ''},
+                                  );
+                              if (!mounted) return;
+                              setState(() {
+                                _chat = updated;
+                              });
+                            } catch (exc) {
+                              if (!mounted) return;
+                              messenger.showSnackBar(
+                                SnackBar(content: Text('保存会话 Preset 失败：$exc')),
+                              );
+                            }
+                          },
+                ),
+                const SizedBox(height: 12),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.auto_awesome_motion_outlined),
+                  title: const Text('上下文 / 摘要策略'),
+                  subtitle: const Text('自动总结、注入模式、recent 历史保留'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _editContextSummarySettings();
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.sticky_note_2_outlined),
+                  title: const Text('Author Note'),
+                  subtitle: Text(
+                    _chat.authorNoteEnabled
+                        ? '已启用 · depth ${_chat.authorNoteDepth}'
+                        : '未启用',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _editAuthorNote();
+                  },
                 ),
               ],
-              onChanged: presets.isEmpty
-                  ? null
-                  : (value) async {
-                      final next = (value ?? '').isEmpty ? null : value;
-                      Navigator.of(context).pop();
-                      setState(() {
-                        _selectedPresetId = next;
-                      });
-                      try {
-                        final updated = await this.context.read<TavernStore>().updateChat(
-                          chatId: _chat.id,
-                          payload: {'presetId': next ?? ''},
-                        );
-                        if (!mounted) return;
-                        setState(() {
-                          _chat = updated;
-                        });
-                      } catch (exc) {
-                        if (!mounted) return;
-                        messenger.showSnackBar(
-                          SnackBar(content: Text('保存会话 Preset 失败：$exc')),
-                        );
-                      }
-                    },
             ),
-            const SizedBox(height: 12),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.auto_awesome_motion_outlined),
-              title: const Text('上下文 / 摘要策略'),
-              subtitle: const Text('自动总结、注入模式、recent 历史保留'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                Navigator.of(context).pop();
-                _editContextSummarySettings();
-              },
-            ),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.sticky_note_2_outlined),
-              title: const Text('Author Note'),
-              subtitle: Text(_chat.authorNoteEnabled ? '已启用 · depth ${_chat.authorNoteDepth}' : '未启用'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                Navigator.of(context).pop();
-                _editAuthorNote();
-              },
-            ),
-          ],
-        ),
-      ),
+          ),
     );
   }
 
@@ -3191,13 +3440,18 @@ $trimmed
 
   Future<void> _editContextSummarySettings() async {
     final currentMetadata = Map<String, dynamic>.from(_chat.metadata);
-    final current = currentMetadata['summarySettings'] is Map
-        ? Map<String, dynamic>.from(currentMetadata['summarySettings'] as Map)
-        : <String, dynamic>{};
+    final current =
+        currentMetadata['summarySettings'] is Map
+            ? Map<String, dynamic>.from(
+              currentMetadata['summarySettings'] as Map,
+            )
+            : <String, dynamic>{};
     bool enabled = current['enabled'] != false;
     bool injectLatestOnly = current['injectLatestOnly'] != false;
-    bool useRecentAfterLatest = current['useRecentMessagesAfterLatest'] != false;
-    double threshold = ((current['threshold'] as num?)?.toDouble() ?? 0.8).clamp(0.5, 0.98);
+    bool useRecentAfterLatest =
+        current['useRecentMessagesAfterLatest'] != false;
+    double threshold = ((current['threshold'] as num?)?.toDouble() ?? 0.8)
+        .clamp(0.5, 0.98);
     int minMessages = (current['minMessages'] as num?)?.toInt() ?? 8;
     int minNewMessages = (current['minNewMessages'] as num?)?.toInt() ?? 4;
     int minNewTokens = (current['minNewTokens'] as num?)?.toInt() ?? 192;
@@ -3206,156 +3460,206 @@ $trimmed
     final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => SafeArea(
-          child: Padding(
-            padding: EdgeInsets.only(
-              left: 16,
-              right: 16,
-              top: 16,
-              bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-            ),
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('上下文 / 摘要策略', style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(height: 12),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('自动总结'),
-                    subtitle: const Text('只在 assistant 完成后触发，影响下一轮'),
-                    value: enabled,
-                    onChanged: (value) => setModalState(() => enabled = value),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('仅注入最新摘要'),
-                    subtitle: const Text('关闭后可让更老的摘要也参与 prompt'),
-                    value: injectLatestOnly,
-                    onChanged: (value) => setModalState(() => injectLatestOnly = value),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('仅保留最新摘要后的 recent history'),
-                    subtitle: const Text('开启后，历史主要由 summary + recent 组成'),
-                    value: useRecentAfterLatest,
-                    onChanged: (value) => setModalState(() => useRecentAfterLatest = value),
-                  ),
-                  const SizedBox(height: 8),
-                  Text('总结触发阈值：${threshold.toStringAsFixed(2)}'),
-                  Slider(
-                    value: threshold,
-                    min: 0.5,
-                    max: 0.98,
-                    divisions: 24,
-                    label: threshold.toStringAsFixed(2),
-                    onChanged: (value) => setModalState(() => threshold = value),
-                  ),
-                  _intStepper(
-                    context,
-                    label: '最少历史消息数',
-                    value: minMessages,
-                    min: 2,
-                    max: 64,
-                    onChanged: (value) => setModalState(() => minMessages = value),
-                  ),
-                  _intStepper(
-                    context,
-                    label: '最少新增消息数',
-                    value: minNewMessages,
-                    min: 1,
-                    max: 32,
-                    onChanged: (value) => setModalState(() => minNewMessages = value),
-                  ),
-                  _intStepper(
-                    context,
-                    label: '最少新增 Token',
-                    value: minNewTokens,
-                    min: 32,
-                    max: 2048,
-                    step: 32,
-                    onChanged: (value) => setModalState(() => minNewTokens = value),
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surfaceContainerLow,
-                      borderRadius: BorderRadius.circular(12),
+      builder:
+          (context) => StatefulBuilder(
+            builder:
+                (context, setModalState) => SafeArea(
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      left: 16,
+                      right: 16,
+                      top: 16,
+                      bottom: MediaQuery.of(context).viewInsets.bottom + 16,
                     ),
-                    child: Text(
-                      '说明：本轮生成使用“本轮开始前的上下文状态 + 当前输入”。新 summary 和 worldbook runtime 更新会在回复完成后写回，并影响下一轮。',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.45),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '上下文 / 摘要策略',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                          const SizedBox(height: 12),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('自动总结'),
+                            subtitle: const Text('只在 assistant 完成后触发，影响下一轮'),
+                            value: enabled,
+                            onChanged:
+                                (value) => setModalState(() => enabled = value),
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('仅注入最新摘要'),
+                            subtitle: const Text('关闭后可让更老的摘要也参与 prompt'),
+                            value: injectLatestOnly,
+                            onChanged:
+                                (value) => setModalState(
+                                  () => injectLatestOnly = value,
+                                ),
+                          ),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('仅保留最新摘要后的 recent history'),
+                            subtitle: const Text(
+                              '开启后，历史主要由 summary + recent 组成',
+                            ),
+                            value: useRecentAfterLatest,
+                            onChanged:
+                                (value) => setModalState(
+                                  () => useRecentAfterLatest = value,
+                                ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text('总结触发阈值：${threshold.toStringAsFixed(2)}'),
+                          Slider(
+                            value: threshold,
+                            min: 0.5,
+                            max: 0.98,
+                            divisions: 24,
+                            label: threshold.toStringAsFixed(2),
+                            onChanged:
+                                (value) =>
+                                    setModalState(() => threshold = value),
+                          ),
+                          _intStepper(
+                            context,
+                            label: '最少历史消息数',
+                            value: minMessages,
+                            min: 2,
+                            max: 64,
+                            onChanged:
+                                (value) =>
+                                    setModalState(() => minMessages = value),
+                          ),
+                          _intStepper(
+                            context,
+                            label: '最少新增消息数',
+                            value: minNewMessages,
+                            min: 1,
+                            max: 32,
+                            onChanged:
+                                (value) =>
+                                    setModalState(() => minNewMessages = value),
+                          ),
+                          _intStepper(
+                            context,
+                            label: '最少新增 Token',
+                            value: minNewTokens,
+                            min: 32,
+                            max: 2048,
+                            step: 32,
+                            onChanged:
+                                (value) =>
+                                    setModalState(() => minNewTokens = value),
+                          ),
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color:
+                                  Theme.of(
+                                    context,
+                                  ).colorScheme.surfaceContainerLow,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Text(
+                              '说明：本轮生成使用“本轮开始前的上下文状态 + 当前输入”。新 summary 和 worldbook runtime 更新会在回复完成后写回，并影响下一轮。',
+                              style: Theme.of(
+                                context,
+                              ).textTheme.bodySmall?.copyWith(height: 1.45),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              TextButton(
+                                onPressed:
+                                    saving
+                                        ? null
+                                        : () =>
+                                            Navigator.of(context).pop(false),
+                                child: const Text('取消'),
+                              ),
+                              const SizedBox(width: 8),
+                              FilledButton(
+                                onPressed:
+                                    saving
+                                        ? null
+                                        : () async {
+                                          setModalState(() => saving = true);
+                                          try {
+                                            final nextMetadata =
+                                                Map<String, dynamic>.from(
+                                                  currentMetadata,
+                                                );
+                                            nextMetadata['summarySettings'] = {
+                                              ...current,
+                                              'enabled': enabled,
+                                              'injectLatestOnly':
+                                                  injectLatestOnly,
+                                              'useRecentMessagesAfterLatest':
+                                                  useRecentAfterLatest,
+                                              'threshold': double.parse(
+                                                threshold.toStringAsFixed(2),
+                                              ),
+                                              'minMessages': minMessages,
+                                              'minNewMessages': minNewMessages,
+                                              'minNewTokens': minNewTokens,
+                                            };
+                                            final updated = await context
+                                                .read<TavernStore>()
+                                                .updateChat(
+                                                  chatId: _chat.id,
+                                                  payload: {
+                                                    'metadata': nextMetadata,
+                                                  },
+                                                );
+                                            if (!context.mounted) return;
+                                            setState(() {
+                                              _chat = updated;
+                                            });
+                                            unawaited(_refreshContextState());
+                                            Navigator.of(context).pop(true);
+                                          } catch (exc) {
+                                            if (!context.mounted) return;
+                                            setModalState(() => saving = false);
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              SnackBar(
+                                                content: Text('保存上下文策略失败：$exc'),
+                                              ),
+                                            );
+                                          }
+                                        },
+                                child:
+                                    saving
+                                        ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                        : const Text('保存'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: saving ? null : () => Navigator.of(context).pop(false),
-                        child: const Text('取消'),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton(
-                        onPressed: saving
-                            ? null
-                            : () async {
-                                setModalState(() => saving = true);
-                                try {
-                                  final nextMetadata = Map<String, dynamic>.from(currentMetadata);
-                                  nextMetadata['summarySettings'] = {
-                                    ...current,
-                                    'enabled': enabled,
-                                    'injectLatestOnly': injectLatestOnly,
-                                    'useRecentMessagesAfterLatest': useRecentAfterLatest,
-                                    'threshold': double.parse(threshold.toStringAsFixed(2)),
-                                    'minMessages': minMessages,
-                                    'minNewMessages': minNewMessages,
-                                    'minNewTokens': minNewTokens,
-                                  };
-                                  final updated = await context.read<TavernStore>().updateChat(
-                                    chatId: _chat.id,
-                                    payload: {'metadata': nextMetadata},
-                                  );
-                                  if (!context.mounted) return;
-                                  setState(() {
-                                    _chat = updated;
-                                  });
-                                  unawaited(_refreshContextState());
-                                  Navigator.of(context).pop(true);
-                                } catch (exc) {
-                                  if (!context.mounted) return;
-                                  setModalState(() => saving = false);
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('保存上下文策略失败：$exc')),
-                                  );
-                                }
-                              },
-                        child: saving
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Text('保存'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
+                ),
           ),
-        ),
-      ),
     );
 
     if (saved == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('上下文 / 摘要策略已更新')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('上下文 / 摘要策略已更新')));
     }
   }
 
@@ -3726,12 +4030,14 @@ $trimmed
 
   Widget _buildDebugWorldInfoTab(TavernPromptDebug debug) {
     final metadata = _chat.metadata;
-    final runtime = metadata['worldbookRuntime'] is Map
-        ? Map<String, dynamic>.from(metadata['worldbookRuntime'] as Map)
-        : const <String, dynamic>{};
-    final entriesMap = runtime['entries'] is Map
-        ? Map<String, dynamic>.from(runtime['entries'] as Map)
-        : const <String, dynamic>{};
+    final runtime =
+        metadata['worldbookRuntime'] is Map
+            ? Map<String, dynamic>.from(metadata['worldbookRuntime'] as Map)
+            : const <String, dynamic>{};
+    final entriesMap =
+        runtime['entries'] is Map
+            ? Map<String, dynamic>.from(runtime['entries'] as Map)
+            : const <String, dynamic>{};
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -3739,44 +4045,52 @@ $trimmed
         _sectionCard(
           title: 'Runtime 状态',
           subtitle: '这里展示每条 lore 当前是否处于 sticky / cooldown / delay 中。',
-          child: entriesMap.isEmpty
-              ? const Text('当前没有运行中的 WorldBook 状态。')
-              : Column(
-                  children: entriesMap.entries.map((entry) {
-                    final state = entry.value is Map
-                        ? Map<String, dynamic>.from(entry.value as Map)
-                        : const <String, dynamic>{};
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            _summaryMetaChip('Entry', entry.key),
-                            _summaryMetaChip(
-                              'Sticky',
-                              '${state['stickyRemaining'] ?? 0}',
+          child:
+              entriesMap.isEmpty
+                  ? const Text('当前没有运行中的 WorldBook 状态。')
+                  : Column(
+                    children: entriesMap.entries
+                        .map((entry) {
+                          final state =
+                              entry.value is Map
+                                  ? Map<String, dynamic>.from(
+                                    entry.value as Map,
+                                  )
+                                  : const <String, dynamic>{};
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  _summaryMetaChip('Entry', entry.key),
+                                  _summaryMetaChip(
+                                    'Sticky',
+                                    '${state['stickyRemaining'] ?? 0}',
+                                  ),
+                                  _summaryMetaChip(
+                                    'Cooldown',
+                                    '${state['cooldownRemaining'] ?? 0}',
+                                  ),
+                                  _summaryMetaChip(
+                                    'Delay',
+                                    '${state['delayRemaining'] ?? 0}',
+                                  ),
+                                  _summaryMetaChip(
+                                    'Pending',
+                                    state['pendingActivation'] == true
+                                        ? 'Yes'
+                                        : 'No',
+                                  ),
+                                ],
+                              ),
                             ),
-                            _summaryMetaChip(
-                              'Cooldown',
-                              '${state['cooldownRemaining'] ?? 0}',
-                            ),
-                            _summaryMetaChip(
-                              'Delay',
-                              '${state['delayRemaining'] ?? 0}',
-                            ),
-                            _summaryMetaChip(
-                              'Pending',
-                              state['pendingActivation'] == true ? 'Yes' : 'No',
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }).toList(growable: false),
-                ),
+                          );
+                        })
+                        .toList(growable: false),
+                  ),
         ),
         const SizedBox(height: 16),
         Text('Matched', style: Theme.of(context).textTheme.titleSmall),
@@ -3799,15 +4113,30 @@ $trimmed
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        _summaryMetaChip('Priority', '${entry['priority'] ?? '-'}'),
-                        _summaryMetaChip('Position', '${entry['insertionPosition'] ?? '-'}'),
-                        if (entry['_matchMeta'] is Map && ((entry['_matchMeta'] as Map)['kind'] ?? '').toString().isNotEmpty)
-                          _summaryMetaChip('命中原因', ((entry['_matchMeta'] as Map)['kind'] ?? '-').toString()),
-                        if (entry['_matchMeta'] is Map && ((entry['_matchMeta'] as Map)['state'] is Map))
+                        _summaryMetaChip(
+                          'Priority',
+                          '${entry['priority'] ?? '-'}',
+                        ),
+                        _summaryMetaChip(
+                          'Position',
+                          '${entry['insertionPosition'] ?? '-'}',
+                        ),
+                        if (entry['_matchMeta'] is Map &&
+                            ((entry['_matchMeta'] as Map)['kind'] ?? '')
+                                .toString()
+                                .isNotEmpty)
+                          _summaryMetaChip(
+                            '命中原因',
+                            ((entry['_matchMeta'] as Map)['kind'] ?? '-')
+                                .toString(),
+                          ),
+                        if (entry['_matchMeta'] is Map &&
+                            ((entry['_matchMeta'] as Map)['state'] is Map))
                           _summaryMetaChip('Runtime', '已参与'),
                       ],
                     ),
-                    if (entry['_matchMeta'] is Map && ((entry['_matchMeta'] as Map)['state'] is Map)) ...[
+                    if (entry['_matchMeta'] is Map &&
+                        ((entry['_matchMeta'] as Map)['state'] is Map)) ...[
                       const SizedBox(height: 6),
                       Text(
                         'state=${((entry['_matchMeta'] as Map)['state'] as Map).toString()}',
@@ -3972,10 +4301,12 @@ class _TavernJsonMapEditorPage extends StatefulWidget {
 
   final String title;
   final Map<String, dynamic> initialValue;
-  final Future<Map<String, dynamic>> Function(Map<String, dynamic> value) onSave;
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic> value)
+  onSave;
 
   @override
-  State<_TavernJsonMapEditorPage> createState() => _TavernJsonMapEditorPageState();
+  State<_TavernJsonMapEditorPage> createState() =>
+      _TavernJsonMapEditorPageState();
 }
 
 class _TavernJsonMapEditorPageState extends State<_TavernJsonMapEditorPage> {
@@ -4037,9 +4368,9 @@ class _TavernJsonMapEditorPageState extends State<_TavernJsonMapEditorPage> {
       Navigator.of(context).pop();
     } catch (exc) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('保存失败：$exc')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('保存失败：$exc')));
     } finally {
       if (mounted) setState(() => _saving = false);
     }

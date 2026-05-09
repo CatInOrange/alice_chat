@@ -7,6 +7,8 @@ import '../application/music_store.dart';
 import '../domain/music_models.dart';
 import 'widgets/music_artwork.dart';
 
+import '../../../app/theme.dart';
+
 class MusicPlayerScreen extends StatelessWidget {
   const MusicPlayerScreen({
     super.key,
@@ -139,7 +141,10 @@ class MusicPlayerScreen extends StatelessWidget {
                                                     0xFF5E6780,
                                                   ),
                                                   fontWeight: FontWeight.w700,
-                                                  fontSize: 10.5,
+                                                  fontSize:
+                                                      desktopAdjustedFontSize(
+                                                        10.5,
+                                                      ),
                                                 ),
                                           ),
                                         ),

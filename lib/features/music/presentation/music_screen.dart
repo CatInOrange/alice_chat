@@ -9,6 +9,8 @@ import '../domain/music_models.dart';
 import 'music_player_screen.dart';
 import 'widgets/music_artwork.dart';
 
+import '../../../app/theme.dart';
+
 Route<void> _buildMusicPlayerRoute({
   required MusicTrack track,
   required List<MusicTrack> queue,
@@ -777,7 +779,9 @@ class _MusicScreenState extends State<MusicScreen>
                             aiPlaylists: [
                               if (latestAiPlaylist != null)
                                 latestAiPlaylist.asPlaylist,
-                              ...aiPlaylistHistory.map((item) => item.asPlaylist),
+                              ...aiPlaylistHistory.map(
+                                (item) => item.asPlaylist,
+                              ),
                             ],
                             currentPlaylistId: store.currentPlaylistId,
                             isRefreshing: store.isRefreshingLibrary,
@@ -885,7 +889,8 @@ class _MusicScreenState extends State<MusicScreen>
                               await store.cycleRepeatMode();
                               if (shouldExplainBlockedIntelligence &&
                                   context.mounted &&
-                                  store.repeatMode != MusicRepeatMode.intelligence &&
+                                  store.repeatMode !=
+                                      MusicRepeatMode.intelligence &&
                                   (blockedHint ?? '').trim().isNotEmpty) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(content: Text(blockedHint!)),
@@ -1605,7 +1610,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: palette.gradient.first,
                                 fontWeight: FontWeight.w700,
-                                fontSize: 11,
+                                fontSize: desktopAdjustedFontSize(11),
                               ),
                             ),
                           ),
@@ -1635,7 +1640,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF8A93A5),
-                        fontSize: 11.5,
+                        fontSize: desktopAdjustedFontSize(11.5),
                       ),
                     ),
                   ],
@@ -1965,7 +1970,7 @@ class _RecentPlaylistTile extends StatelessWidget {
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: palette.gradient.first,
                                 fontWeight: FontWeight.w700,
-                                fontSize: 11,
+                                fontSize: desktopAdjustedFontSize(11),
                               ),
                             ),
                           ),
@@ -1990,7 +1995,7 @@ class _RecentPlaylistTile extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF8A93A5),
-                        fontSize: 11.5,
+                        fontSize: desktopAdjustedFontSize(11.5),
                       ),
                     ),
                   ],
@@ -2332,7 +2337,7 @@ class _MiniPlayerState extends State<_MiniPlayer>
                                   widget.modeBadge!,
                                   style: theme.textTheme.bodySmall?.copyWith(
                                     color: const Color(0xFF5E6780),
-                                    fontSize: 10.5,
+                                    fontSize: desktopAdjustedFontSize(10.5),
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
@@ -3605,10 +3610,7 @@ class _DesktopSidebarPlaylistTile extends StatelessWidget {
               : Colors.transparent,
       borderRadius: BorderRadius.circular(18),
       child: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: 10,
-          vertical: dense ? 8 : 10,
-        ),
+        padding: EdgeInsets.symmetric(horizontal: 10, vertical: dense ? 8 : 10),
         child: Row(
           children: [
             Expanded(
@@ -3828,7 +3830,10 @@ class _DesktopNowPlayingStage extends StatelessWidget {
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final stageHeight = (constraints.maxHeight - 20).clamp(220.0, 340.0);
+                final stageHeight = (constraints.maxHeight - 20).clamp(
+                  220.0,
+                  340.0,
+                );
                 final discSize = (stageHeight * 0.82).clamp(180.0, 280.0);
                 return Row(
                   children: [
@@ -4014,7 +4019,10 @@ class _DesktopQueueSidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final nextTracks = queue.where((item) => item.id != currentTrackId).take(6).toList(growable: false);
+    final nextTracks = queue
+        .where((item) => item.id != currentTrackId)
+        .take(6)
+        .toList(growable: false);
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -4148,7 +4156,6 @@ class _DesktopQueueTile extends StatelessWidget {
     );
   }
 }
-
 
 class _DesktopDiscStage extends StatefulWidget {
   const _DesktopDiscStage({

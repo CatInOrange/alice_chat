@@ -16,6 +16,13 @@ String? _desktopMonospaceFontFamily() {
   return 'monospace';
 }
 
+double desktopAdjustedFontSize(double size) {
+  if (Platform.isWindows && size <= 14) {
+    return size + 1;
+  }
+  return size;
+}
+
 ThemeData buildAliceChatTheme() {
   const seed = Color(0xFF7C4DFF);
   final colorScheme = ColorScheme.fromSeed(
@@ -68,7 +75,7 @@ ThemeData buildAliceChatTheme() {
       contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
       hintStyle: const TextStyle(color: Color(0xFF98A1B3), fontSize: 15),
     ),
-    textTheme: const TextTheme(
+    textTheme: TextTheme(
       bodyLarge: TextStyle(
         color: Color(0xFF1F2430),
         fontSize: 15,
@@ -76,10 +83,14 @@ ThemeData buildAliceChatTheme() {
       ),
       bodyMedium: TextStyle(
         color: Color(0xFF465065),
-        fontSize: 14,
+        fontSize: desktopAdjustedFontSize(14),
         height: 1.4,
       ),
-      bodySmall: TextStyle(color: Color(0xFF98A1B3), fontSize: 12, height: 1.3),
+      bodySmall: TextStyle(
+        color: Color(0xFF98A1B3),
+        fontSize: desktopAdjustedFontSize(12),
+        height: 1.3,
+      ),
       titleLarge: TextStyle(
         color: Color(0xFF1F2430),
         fontSize: 18,

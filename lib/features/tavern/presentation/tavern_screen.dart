@@ -12,6 +12,7 @@ import '../domain/tavern_models.dart';
 import 'tavern_chat_screen.dart';
 import 'tavern_ui_helpers.dart';
 
+import '../../../../app/theme.dart';
 
 const List<String> _worldbookPositions = <String>[
   'before_character',
@@ -29,18 +30,78 @@ const List<String> _storyPositions = <String>[
 const List<String> _storyRoles = <String>['system', 'user', 'assistant'];
 const List<_BuiltinPromptOrderOption> _builtinPromptOrderOptions =
     <_BuiltinPromptOrderOption>[
-      _BuiltinPromptOrderOption('main', '主提示词', icon: Icons.auto_awesome_outlined, colorValue: 0xFF7C4DFF),
-      _BuiltinPromptOrderOption('personaDescription', '用户人设', icon: Icons.person_outline, colorValue: 0xFF2563EB),
-      _BuiltinPromptOrderOption('charDescription', '角色描述', icon: Icons.badge_outlined, colorValue: 0xFF0F766E),
-      _BuiltinPromptOrderOption('charPersonality', '角色性格', icon: Icons.psychology_alt_outlined, colorValue: 0xFF9333EA),
-      _BuiltinPromptOrderOption('scenario', '场景设定', icon: Icons.landscape_outlined, colorValue: 0xFFEA580C),
-      _BuiltinPromptOrderOption('worldInfoBefore', '世界信息（前）', icon: Icons.public_outlined, colorValue: 0xFF0891B2),
-      _BuiltinPromptOrderOption('dialogueExamples', '示例对话', icon: Icons.forum_outlined, colorValue: 0xFF4F46E5),
-      _BuiltinPromptOrderOption('authorNote', '作者注入', icon: Icons.edit_note_outlined, colorValue: 0xFFDB2777),
-      _BuiltinPromptOrderOption('summaries', '剧情摘要', icon: Icons.summarize_outlined, colorValue: 0xFFCA8A04),
-      _BuiltinPromptOrderOption('chatHistory', '聊天历史', icon: Icons.history_outlined, colorValue: 0xFF475569),
-      _BuiltinPromptOrderOption('worldInfoAfter', '世界信息（后）', icon: Icons.travel_explore_outlined, colorValue: 0xFF0284C7),
-      _BuiltinPromptOrderOption('postHistoryInstructions', '历史后指令', icon: Icons.rule_folder_outlined, colorValue: 0xFFB45309),
+      _BuiltinPromptOrderOption(
+        'main',
+        '主提示词',
+        icon: Icons.auto_awesome_outlined,
+        colorValue: 0xFF7C4DFF,
+      ),
+      _BuiltinPromptOrderOption(
+        'personaDescription',
+        '用户人设',
+        icon: Icons.person_outline,
+        colorValue: 0xFF2563EB,
+      ),
+      _BuiltinPromptOrderOption(
+        'charDescription',
+        '角色描述',
+        icon: Icons.badge_outlined,
+        colorValue: 0xFF0F766E,
+      ),
+      _BuiltinPromptOrderOption(
+        'charPersonality',
+        '角色性格',
+        icon: Icons.psychology_alt_outlined,
+        colorValue: 0xFF9333EA,
+      ),
+      _BuiltinPromptOrderOption(
+        'scenario',
+        '场景设定',
+        icon: Icons.landscape_outlined,
+        colorValue: 0xFFEA580C,
+      ),
+      _BuiltinPromptOrderOption(
+        'worldInfoBefore',
+        '世界信息（前）',
+        icon: Icons.public_outlined,
+        colorValue: 0xFF0891B2,
+      ),
+      _BuiltinPromptOrderOption(
+        'dialogueExamples',
+        '示例对话',
+        icon: Icons.forum_outlined,
+        colorValue: 0xFF4F46E5,
+      ),
+      _BuiltinPromptOrderOption(
+        'authorNote',
+        '作者注入',
+        icon: Icons.edit_note_outlined,
+        colorValue: 0xFFDB2777,
+      ),
+      _BuiltinPromptOrderOption(
+        'summaries',
+        '剧情摘要',
+        icon: Icons.summarize_outlined,
+        colorValue: 0xFFCA8A04,
+      ),
+      _BuiltinPromptOrderOption(
+        'chatHistory',
+        '聊天历史',
+        icon: Icons.history_outlined,
+        colorValue: 0xFF475569,
+      ),
+      _BuiltinPromptOrderOption(
+        'worldInfoAfter',
+        '世界信息（后）',
+        icon: Icons.travel_explore_outlined,
+        colorValue: 0xFF0284C7,
+      ),
+      _BuiltinPromptOrderOption(
+        'postHistoryInstructions',
+        '历史后指令',
+        icon: Icons.rule_folder_outlined,
+        colorValue: 0xFFB45309,
+      ),
     ];
 
 class TavernScreen extends StatefulWidget {
@@ -106,267 +167,326 @@ class _TavernScreenState extends State<TavernScreen>
         return Scaffold(
           appBar: AppBar(
             title: Text(widget.configOnly ? '酒馆配置' : '酒馆'),
-            actions: widget.configOnly
-                ? null
-                : [
-                    IconButton(
-                      tooltip: '角色页',
-                      onPressed: () => _showCharactersSheet(context),
-                      icon: const Icon(Icons.account_box_outlined),
-                    ),
-                  ],
+            actions:
+                widget.configOnly
+                    ? null
+                    : [
+                      IconButton(
+                        tooltip: '角色页',
+                        onPressed: () => _showCharactersSheet(context),
+                        icon: const Icon(Icons.account_box_outlined),
+                      ),
+                    ],
           ),
           body: RefreshIndicator(
-            onRefresh: widget.configOnly ? store.loadConfigHubData : store.loadLandingData,
-            child: widget.configOnly
-                ? _ConfigHubTab(
-                    serverBaseUrl: _serverBaseUrl,
-                    configHubPrimed: _configHubPrimed,
-                    onPrime: () {
-                      _configHubPrimed = true;
-                      context.read<TavernStore>().loadConfigHubData();
-                    },
-                    onShowPresetsManager: () => _showPresetsManager(context, store),
-                    onShowPromptManager: () => _showPromptManager(context, store),
-                    onShowWorldBooksManager: () => _showWorldBooksManager(context, store),
-                    onShowPersonasManager: () => _showPersonasManager(context, store),
-                    onShowGlobalVariablesManager: () => _showGlobalVariablesManager(context, store),
-                    onShowQuickReplySettings: () => _showQuickReplySettings(context),
-                  )
-                : _ChatsTab(
-                    serverBaseUrl: _serverBaseUrl,
-                    onOpenChat: _openExistingChat,
-                    onConfirmDeleteChat: (chat, character) =>
-                        _confirmDeleteChat(context, chat, character),
-                  ),
+            onRefresh:
+                widget.configOnly
+                    ? store.loadConfigHubData
+                    : store.loadLandingData,
+            child:
+                widget.configOnly
+                    ? _ConfigHubTab(
+                      serverBaseUrl: _serverBaseUrl,
+                      configHubPrimed: _configHubPrimed,
+                      onPrime: () {
+                        _configHubPrimed = true;
+                        context.read<TavernStore>().loadConfigHubData();
+                      },
+                      onShowPresetsManager:
+                          () => _showPresetsManager(context, store),
+                      onShowPromptManager:
+                          () => _showPromptManager(context, store),
+                      onShowWorldBooksManager:
+                          () => _showWorldBooksManager(context, store),
+                      onShowPersonasManager:
+                          () => _showPersonasManager(context, store),
+                      onShowGlobalVariablesManager:
+                          () => _showGlobalVariablesManager(context, store),
+                      onShowQuickReplySettings:
+                          () => _showQuickReplySettings(context),
+                    )
+                    : _ChatsTab(
+                      serverBaseUrl: _serverBaseUrl,
+                      onOpenChat: _openExistingChat,
+                      onConfirmDeleteChat:
+                          (chat, character) =>
+                              _confirmDeleteChat(context, chat, character),
+                    ),
           ),
         );
       },
     );
   }
 
-
   Future<void> _showCharactersSheet(BuildContext context) async {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: FractionallySizedBox(
-          heightFactor: 0.92,
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('角色页', style: Theme.of(context).textTheme.titleLarge),
-                          const SizedBox(height: 4),
-                          Text(
-                            '角色不在酒馆首页常驻，按一下再展开。',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ],
-                      ),
-                    ),
-                    FilledButton.icon(
-                      onPressed: _isImporting
-                          ? null
-                          : () async {
-                              Navigator.of(context).pop();
-                              await _importCharacter();
-                            },
-                      icon: const Icon(Icons.file_upload_outlined),
-                      label: const Text('导入'),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: Consumer<TavernStore>(
-                  builder: (context, store, _) {
-                    if (store.isLoading) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    if ((store.error ?? '').isNotEmpty) {
-                      return ListView(
-                        padding: const EdgeInsets.all(16),
-                        children: [
-                          Card(
-                            child: ListTile(
-                              leading: const Icon(Icons.error_outline),
-                              title: const Text('加载角色失败'),
-                              subtitle: Text(store.error!),
-                            ),
-                          ),
-                        ],
-                      );
-                    }
-                    if (store.characters.isEmpty) {
-                      return ListView(
-                        padding: const EdgeInsets.all(16),
-                        children: const [
-                          Card(
-                            child: ListTile(
-                              title: Text('还没有角色'),
-                              subtitle: Text('支持导入 JSON / PNG / CharX 角色卡。'),
-                            ),
-                          ),
-                        ],
-                      );
-                    }
-                    return ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-                      children: store.characters
-                          .map(
-                            (character) => Card(
-                              child: ListTile(
-                                leading: buildTavernAvatar(
-                                  avatarPath: character.avatarPath,
-                                  serverBaseUrl: _serverBaseUrl,
-                                  useDefaultAssetFallback: true,
-                                ),
-                                title: Text(character.name),
-                                subtitle: Text(
-                                  character.description.isNotEmpty ? character.description : character.scenario,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                trailing: const Icon(Icons.chevron_right),
-                                onTap: () => _showCharacterDetail(character),
-                                onLongPress: () => _confirmDeleteCharacter(this.context, character),
+      builder:
+          (context) => SafeArea(
+            child: FractionallySizedBox(
+              heightFactor: 0.92,
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '角色页',
+                                style: Theme.of(context).textTheme.titleLarge,
                               ),
-                            ),
-                          )
-                          .toList(growable: false),
-                    );
-                  },
-                ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '角色不在酒馆首页常驻，按一下再展开。',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                        FilledButton.icon(
+                          onPressed:
+                              _isImporting
+                                  ? null
+                                  : () async {
+                                    Navigator.of(context).pop();
+                                    await _importCharacter();
+                                  },
+                          icon: const Icon(Icons.file_upload_outlined),
+                          label: const Text('导入'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: Consumer<TavernStore>(
+                      builder: (context, store, _) {
+                        if (store.isLoading) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        }
+                        if ((store.error ?? '').isNotEmpty) {
+                          return ListView(
+                            padding: const EdgeInsets.all(16),
+                            children: [
+                              Card(
+                                child: ListTile(
+                                  leading: const Icon(Icons.error_outline),
+                                  title: const Text('加载角色失败'),
+                                  subtitle: Text(store.error!),
+                                ),
+                              ),
+                            ],
+                          );
+                        }
+                        if (store.characters.isEmpty) {
+                          return ListView(
+                            padding: const EdgeInsets.all(16),
+                            children: const [
+                              Card(
+                                child: ListTile(
+                                  title: Text('还没有角色'),
+                                  subtitle: Text(
+                                    '支持导入 JSON / PNG / CharX 角色卡。',
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        }
+                        return ListView(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+                          children: store.characters
+                              .map(
+                                (character) => Card(
+                                  child: ListTile(
+                                    leading: buildTavernAvatar(
+                                      avatarPath: character.avatarPath,
+                                      serverBaseUrl: _serverBaseUrl,
+                                      useDefaultAssetFallback: true,
+                                    ),
+                                    title: Text(character.name),
+                                    subtitle: Text(
+                                      character.description.isNotEmpty
+                                          ? character.description
+                                          : character.scenario,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    trailing: const Icon(Icons.chevron_right),
+                                    onTap:
+                                        () => _showCharacterDetail(character),
+                                    onLongPress:
+                                        () => _confirmDeleteCharacter(
+                                          this.context,
+                                          character,
+                                        ),
+                                  ),
+                                ),
+                              )
+                              .toList(growable: false),
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
     );
   }
 
-  Future<void> _showPresetsManager(BuildContext context, TavernStore store) async {
+  Future<void> _showPresetsManager(
+    BuildContext context,
+    TavernStore store,
+  ) async {
     final navigator = Navigator.of(context);
     await navigator.push(
       MaterialPageRoute(
-        builder: (_) => Scaffold(
-          appBar: AppBar(
-            title: const Text('Presets'),
-            actions: [
-              IconButton(
-                tooltip: '刷新',
-                onPressed: () => this.context.read<TavernStore>().loadPresets(),
-                icon: const Icon(Icons.refresh),
+        builder:
+            (_) => Scaffold(
+              appBar: AppBar(
+                title: const Text('Presets'),
+                actions: [
+                  IconButton(
+                    tooltip: '刷新',
+                    onPressed:
+                        () => this.context.read<TavernStore>().loadPresets(),
+                    icon: const Icon(Icons.refresh),
+                  ),
+                  IconButton(
+                    tooltip: '新增 Preset',
+                    onPressed: () => _editPreset(context),
+                    icon: const Icon(Icons.add),
+                  ),
+                ],
               ),
-              IconButton(
-                tooltip: '新增 Preset',
-                onPressed: () => _editPreset(context),
-                icon: const Icon(Icons.add),
-              ),
-            ],
-          ),
-          body: _buildPresetsTab(context, store),
-        ),
+              body: _buildPresetsTab(context, store),
+            ),
       ),
     );
     if (!mounted) return;
     await this.context.read<TavernStore>().loadPresets();
   }
 
-  Future<void> _showWorldBooksManager(BuildContext context, TavernStore store) async {
+  Future<void> _showWorldBooksManager(
+    BuildContext context,
+    TavernStore store,
+  ) async {
     for (final book in store.worldBooks) {
       if (store.worldBookEntriesOf(book.id).isEmpty &&
           !store.isLoadingWorldBookEntries(book.id)) {
-        store.loadWorldBookEntries(book.id).catchError((_) => const <TavernWorldBookEntry>[]);
+        store
+            .loadWorldBookEntries(book.id)
+            .catchError((_) => const <TavernWorldBookEntry>[]);
       }
     }
     final navigator = Navigator.of(context);
     await navigator.push(
       MaterialPageRoute(
-        builder: (_) => Scaffold(
-          appBar: AppBar(
-            title: const Text('WorldBooks'),
-            actions: [
-              IconButton(
-                tooltip: '新增 WorldBook',
-                onPressed: () => _editWorldBook(context),
-                icon: const Icon(Icons.add),
+        builder:
+            (_) => Scaffold(
+              appBar: AppBar(
+                title: const Text('WorldBooks'),
+                actions: [
+                  IconButton(
+                    tooltip: '新增 WorldBook',
+                    onPressed: () => _editWorldBook(context),
+                    icon: const Icon(Icons.add),
+                  ),
+                ],
               ),
-            ],
-          ),
-          body: Consumer<TavernStore>(
-            builder: (context, liveStore, _) =>
-                _buildWorldBooksTab(context, liveStore),
-          ),
-        ),
+              body: Consumer<TavernStore>(
+                builder:
+                    (context, liveStore, _) =>
+                        _buildWorldBooksTab(context, liveStore),
+              ),
+            ),
       ),
     );
     if (!mounted) return;
     await this.context.read<TavernStore>().loadWorldBooks();
   }
 
-  Future<void> _showPromptManager(BuildContext context, TavernStore store) async {
+  Future<void> _showPromptManager(
+    BuildContext context,
+    TavernStore store,
+  ) async {
     final navigator = Navigator.of(context);
     await navigator.push(
       MaterialPageRoute(
-        builder: (_) => _PromptManagerPage(
-          promptOrder: store.promptOrders.isNotEmpty ? store.promptOrders.first : null,
-          buildItems: _buildPromptManagerItems,
-          builtinOptionFor: _builtinOptionFor,
-          itemLabelBuilder: (item) => _promptOrderItemLabel(store, item),
-          itemPositionFor: itemPositionFor,
-          editCustomItem: (pageContext, {item}) =>
-              _editPromptManagerCustomItem(pageContext, item: item),
-        ),
+        builder:
+            (_) => _PromptManagerPage(
+              promptOrder:
+                  store.promptOrders.isNotEmpty
+                      ? store.promptOrders.first
+                      : null,
+              buildItems: _buildPromptManagerItems,
+              builtinOptionFor: _builtinOptionFor,
+              itemLabelBuilder: (item) => _promptOrderItemLabel(store, item),
+              itemPositionFor: itemPositionFor,
+              editCustomItem:
+                  (pageContext, {item}) =>
+                      _editPromptManagerCustomItem(pageContext, item: item),
+            ),
       ),
     );
     if (!mounted) return;
     await this.context.read<TavernStore>().loadConfigOptions();
   }
 
-  Future<void> _showPersonasManager(BuildContext context, TavernStore store) async {
+  Future<void> _showPersonasManager(
+    BuildContext context,
+    TavernStore store,
+  ) async {
     await store.loadPersonas();
     if (!context.mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => _SimpleJsonListManagerPage(
-          title: 'Personas',
-          items: store.personas.map((item) => item.toJson()).toList(growable: false),
-          emptyText: '还没有 persona，可新增默认人设。',
-          onCreate: (payload) => store.createPersona(payload),
-          onUpdate: (id, payload) => store.updatePersona(personaId: id, payload: payload),
-          onDelete: (id) => store.deletePersona(id),
-          defaultCreatePayload: const {
-            'name': 'User',
-            'description': '',
-            'isDefault': false,
-          },
-        ),
+        builder:
+            (_) => _SimpleJsonListManagerPage(
+              title: 'Personas',
+              items: store.personas
+                  .map((item) => item.toJson())
+                  .toList(growable: false),
+              emptyText: '还没有 persona，可新增默认人设。',
+              onCreate: (payload) => store.createPersona(payload),
+              onUpdate:
+                  (id, payload) =>
+                      store.updatePersona(personaId: id, payload: payload),
+              onDelete: (id) => store.deletePersona(id),
+              defaultCreatePayload: const {
+                'name': 'User',
+                'description': '',
+                'isDefault': false,
+              },
+            ),
       ),
     );
     if (!mounted) return;
     await this.context.read<TavernStore>().loadConfigOptions();
   }
 
-  Future<void> _showGlobalVariablesManager(BuildContext context, TavernStore store) async {
+  Future<void> _showGlobalVariablesManager(
+    BuildContext context,
+    TavernStore store,
+  ) async {
     await store.loadGlobalVariables();
     if (!context.mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => _JsonMapEditorPage(
-          title: 'Global Variables',
-          initialValue: store.globalVariables,
-          onSave: (value) => store.updateGlobalVariables(value),
-        ),
+        builder:
+            (_) => _JsonMapEditorPage(
+              title: 'Global Variables',
+              initialValue: store.globalVariables,
+              onSave: (value) => store.updateGlobalVariables(value),
+            ),
       ),
     );
     if (!mounted) return;
@@ -376,9 +496,7 @@ class _TavernScreenState extends State<TavernScreen>
   Future<void> _showQuickReplySettings(BuildContext context) async {
     final navigator = Navigator.of(context);
     await navigator.push(
-      MaterialPageRoute(
-        builder: (_) => const _QuickReplySettingsPage(),
-      ),
+      MaterialPageRoute(builder: (_) => const _QuickReplySettingsPage()),
     );
   }
 
@@ -472,7 +590,8 @@ class _TavernScreenState extends State<TavernScreen>
                       opacity: isUpdating ? 0.55 : 1,
                       child: Switch.adaptive(
                         value: book.enabled,
-                        onChanged: (value) => _toggleWorldBook(context, book, value),
+                        onChanged:
+                            (value) => _toggleWorldBook(context, book, value),
                       ),
                     ),
                   ),
@@ -541,20 +660,21 @@ class _TavernScreenState extends State<TavernScreen>
                           break;
                       }
                     },
-                    itemBuilder: (context) => const [
-                      PopupMenuItem<String>(
-                        value: 'entry',
-                        child: Text('新增条目'),
-                      ),
-                      PopupMenuItem<String>(
-                        value: 'edit',
-                        child: Text('编辑 WorldBook'),
-                      ),
-                      PopupMenuItem<String>(
-                        value: 'delete',
-                        child: Text('删除 WorldBook'),
-                      ),
-                    ],
+                    itemBuilder:
+                        (context) => const [
+                          PopupMenuItem<String>(
+                            value: 'entry',
+                            child: Text('新增条目'),
+                          ),
+                          PopupMenuItem<String>(
+                            value: 'edit',
+                            child: Text('编辑 WorldBook'),
+                          ),
+                          PopupMenuItem<String>(
+                            value: 'delete',
+                            child: Text('删除 WorldBook'),
+                          ),
+                        ],
                   ),
                   children: [
                     if (isLoading)
@@ -567,7 +687,10 @@ class _TavernScreenState extends State<TavernScreen>
                         icon: Icons.error_outline,
                         text: '条目加载失败：$error',
                         trailing: TextButton.icon(
-                          onPressed: () => context.read<TavernStore>().loadWorldBookEntries(book.id),
+                          onPressed:
+                              () => context
+                                  .read<TavernStore>()
+                                  .loadWorldBookEntries(book.id),
                           icon: const Icon(Icons.refresh),
                           label: const Text('重试'),
                         ),
@@ -583,7 +706,10 @@ class _TavernScreenState extends State<TavernScreen>
                         text: '展开后加载条目内容。',
                       )
                     else
-                      ...entries.map((entry) => _buildWorldBookEntryPreview(context, book, entry)),
+                      ...entries.map(
+                        (entry) =>
+                            _buildWorldBookEntryPreview(context, book, entry),
+                      ),
                   ],
                 ),
               ),
@@ -635,9 +761,8 @@ class _TavernScreenState extends State<TavernScreen>
                       children: [
                         Text(
                           'Preset Manager',
-                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w800),
                         ),
                         const SizedBox(height: 4),
                         Text(
@@ -678,7 +803,9 @@ class _TavernScreenState extends State<TavernScreen>
               subtitle: '这些 Preset 正在至少一个 Tavern 会话里生效。',
             ),
             const SizedBox(height: 10),
-            ...usedPresets.map((preset) => _buildPresetSummaryCard(context, store, preset)),
+            ...usedPresets.map(
+              (preset) => _buildPresetSummaryCard(context, store, preset),
+            ),
             const SizedBox(height: 18),
           ],
           if (idlePresets.isNotEmpty) ...[
@@ -688,7 +815,9 @@ class _TavernScreenState extends State<TavernScreen>
               subtitle: '已保存但当前没有会话在使用。',
             ),
             const SizedBox(height: 10),
-            ...idlePresets.map((preset) => _buildPresetSummaryCard(context, store, preset)),
+            ...idlePresets.map(
+              (preset) => _buildPresetSummaryCard(context, store, preset),
+            ),
           ],
         ],
       ],
@@ -705,9 +834,9 @@ class _TavernScreenState extends State<TavernScreen>
       children: [
         Text(
           title,
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.w800,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 4),
         Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
@@ -741,16 +870,14 @@ class _TavernScreenState extends State<TavernScreen>
                       children: [
                         Text(
                           preset.name,
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(fontWeight: FontWeight.w800),
                         ),
                         const SizedBox(height: 6),
                         Text(
                           _presetSummaryLine(store, preset),
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: const Color(0xFF6F7788),
-                          ),
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: const Color(0xFF6F7788)),
                         ),
                       ],
                     ),
@@ -771,20 +898,21 @@ class _TavernScreenState extends State<TavernScreen>
                           break;
                       }
                     },
-                    itemBuilder: (context) => const [
-                      PopupMenuItem<String>(
-                        value: 'detail',
-                        child: Text('查看详情'),
-                      ),
-                      PopupMenuItem<String>(
-                        value: 'duplicate',
-                        child: Text('复制一份'),
-                      ),
-                      PopupMenuItem<String>(
-                        value: 'edit',
-                        child: Text('编辑'),
-                      ),
-                    ],
+                    itemBuilder:
+                        (context) => const [
+                          PopupMenuItem<String>(
+                            value: 'detail',
+                            child: Text('查看详情'),
+                          ),
+                          PopupMenuItem<String>(
+                            value: 'duplicate',
+                            child: Text('复制一份'),
+                          ),
+                          PopupMenuItem<String>(
+                            value: 'edit',
+                            child: Text('编辑'),
+                          ),
+                        ],
                   ),
                 ],
               ),
@@ -795,9 +923,15 @@ class _TavernScreenState extends State<TavernScreen>
                 children: [
                   _compactInfoPill(_presetModelLabel(preset)),
                   _compactInfoPill(promptOrderName),
-                  _compactInfoPill('Out ${preset.maxTokens > 0 ? _formatTokenKLabel(preset.maxTokens) : '默认'}'),
-                  _compactInfoPill('Ctx ${preset.contextLength > 0 ? _formatTokenKLabel(preset.contextLength) : '默认'}'),
-                  _compactInfoPill('Temp ${preset.temperature.toStringAsFixed(2)}'),
+                  _compactInfoPill(
+                    'Out ${preset.maxTokens > 0 ? _formatTokenKLabel(preset.maxTokens) : '默认'}',
+                  ),
+                  _compactInfoPill(
+                    'Ctx ${preset.contextLength > 0 ? _formatTokenKLabel(preset.contextLength) : '默认'}',
+                  ),
+                  _compactInfoPill(
+                    'Temp ${preset.temperature.toStringAsFixed(2)}',
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -805,7 +939,10 @@ class _TavernScreenState extends State<TavernScreen>
                 children: [
                   _presetStatePill(
                     usageCount > 0 ? '使用中 $usageCount 会话' : '当前未使用',
-                    color: usageCount > 0 ? const Color(0xFF3FB950) : const Color(0xFF98A1B3),
+                    color:
+                        usageCount > 0
+                            ? const Color(0xFF3FB950)
+                            : const Color(0xFF98A1B3),
                   ),
                   const SizedBox(width: 8),
                   if (preset.stopSequences.isNotEmpty)
@@ -822,7 +959,11 @@ class _TavernScreenState extends State<TavernScreen>
                     ),
                   ),
                   const SizedBox(width: 4),
-                  const Icon(Icons.chevron_right, size: 18, color: Color(0xFF7C4DFF)),
+                  const Icon(
+                    Icons.chevron_right,
+                    size: 18,
+                    color: Color(0xFF7C4DFF),
+                  ),
                 ],
               ),
             ],
@@ -842,150 +983,182 @@ class _TavernScreenState extends State<TavernScreen>
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: FractionallySizedBox(
-          heightFactor: 0.88,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-            children: [
-              Row(
+      builder:
+          (context) => SafeArea(
+            child: FractionallySizedBox(
+              heightFactor: 0.88,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          preset.name,
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              preset.name,
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(fontWeight: FontWeight.w800),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              _presetSummaryLine(store, preset),
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 6),
-                        Text(
-                          _presetSummaryLine(store, preset),
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                    ),
+                      ),
+                      IconButton(
+                        tooltip: '复制 Preset',
+                        onPressed: () => _duplicatePreset(this.context, preset),
+                        icon: const Icon(Icons.copy_outlined),
+                      ),
+                      IconButton(
+                        tooltip: '编辑 Preset',
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          _editPreset(this.context, preset: preset);
+                        },
+                        icon: const Icon(Icons.edit_outlined),
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    tooltip: '复制 Preset',
-                    onPressed: () => _duplicatePreset(this.context, preset),
-                    icon: const Icon(Icons.copy_outlined),
-                  ),
-                  IconButton(
-                    tooltip: '编辑 Preset',
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                      _editPreset(this.context, preset: preset);
-                    },
-                    icon: const Icon(Icons.edit_outlined),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              _presetSectionCard(
-                context,
-                title: '状态',
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _presetStatePill(
-                      usageCount > 0 ? '使用中 $usageCount 会话' : '当前未使用',
-                      color: usageCount > 0 ? const Color(0xFF3FB950) : const Color(0xFF98A1B3),
-                    ),
-                    _presetStatePill(
-                      '全局提示词管理',
-                      color: const Color(0xFF7C4DFF),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              _presetSectionCard(
-                context,
-                title: '基础',
-                child: Column(
-                  children: [
-                    _infoRow('Provider', preset.provider.isEmpty ? '默认 / 未指定' : preset.provider),
-                    _infoRow('Model', preset.model.isEmpty ? '默认 / 未指定' : preset.model),
-                    _infoRow('提示词管理', '全局默认'),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              _presetSectionCard(
-                context,
-                title: '采样参数',
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _compactInfoPill('Temp ${preset.temperature.toStringAsFixed(2)}'),
-                    _compactInfoPill('TopP ${preset.topP.toStringAsFixed(2)}'),
-                    _compactInfoPill('TopK ${preset.topK}'),
-                    _compactInfoPill('MinP ${preset.minP.toStringAsFixed(2)}'),
-                    _compactInfoPill('Typical ${preset.typicalP.toStringAsFixed(2)}'),
-                    _compactInfoPill('Repeat ${preset.repetitionPenalty.toStringAsFixed(2)}'),
-                    _compactInfoPill('MaxOut ${preset.maxTokens > 0 ? _formatTokenKLabel(preset.maxTokens) : '默认'}'),
-                    _compactInfoPill('Context ${preset.contextLength > 0 ? _formatTokenKLabel(preset.contextLength) : '默认'}'),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              _presetSectionCard(
-                context,
-                title: 'Prompt 注入',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Wrap(
+                  const SizedBox(height: 16),
+                  _presetSectionCard(
+                    context,
+                    title: '状态',
+                    child: Wrap(
                       spacing: 8,
                       runSpacing: 8,
                       children: [
-                        _compactInfoPill('Story ${preset.storyStringPosition}'),
-                        _compactInfoPill('Role ${preset.storyStringRole}'),
-                        _compactInfoPill('Depth ${preset.storyStringDepth}'),
+                        _presetStatePill(
+                          usageCount > 0 ? '使用中 $usageCount 会话' : '当前未使用',
+                          color:
+                              usageCount > 0
+                                  ? const Color(0xFF3FB950)
+                                  : const Color(0xFF98A1B3),
+                        ),
+                        _presetStatePill(
+                          '全局提示词管理',
+                          color: const Color(0xFF7C4DFF),
+                        ),
                       ],
                     ),
-                    if (preset.storyString.trim().isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      Text(
-                        preset.storyString,
-                        maxLines: 6,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    ],
-                    if (preset.chatStart.trim().isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      _infoRow('Chat Start', preset.chatStart),
-                    ],
-                    if (preset.exampleSeparator.trim().isNotEmpty) ...[
-                      _infoRow('Example Separator', preset.exampleSeparator),
-                    ],
-                  ],
-                ),
-              ),
-              if (preset.stopSequences.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                _presetSectionCard(
-                  context,
-                  title: 'Stop Sequences',
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: preset.stopSequences
-                        .map((item) => _compactInfoPill(item))
-                        .toList(growable: false),
                   ),
-                ),
-              ],
-            ],
+                  const SizedBox(height: 12),
+                  _presetSectionCard(
+                    context,
+                    title: '基础',
+                    child: Column(
+                      children: [
+                        _infoRow(
+                          'Provider',
+                          preset.provider.isEmpty
+                              ? '默认 / 未指定'
+                              : preset.provider,
+                        ),
+                        _infoRow(
+                          'Model',
+                          preset.model.isEmpty ? '默认 / 未指定' : preset.model,
+                        ),
+                        _infoRow('提示词管理', '全局默认'),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _presetSectionCard(
+                    context,
+                    title: '采样参数',
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _compactInfoPill(
+                          'Temp ${preset.temperature.toStringAsFixed(2)}',
+                        ),
+                        _compactInfoPill(
+                          'TopP ${preset.topP.toStringAsFixed(2)}',
+                        ),
+                        _compactInfoPill('TopK ${preset.topK}'),
+                        _compactInfoPill(
+                          'MinP ${preset.minP.toStringAsFixed(2)}',
+                        ),
+                        _compactInfoPill(
+                          'Typical ${preset.typicalP.toStringAsFixed(2)}',
+                        ),
+                        _compactInfoPill(
+                          'Repeat ${preset.repetitionPenalty.toStringAsFixed(2)}',
+                        ),
+                        _compactInfoPill(
+                          'MaxOut ${preset.maxTokens > 0 ? _formatTokenKLabel(preset.maxTokens) : '默认'}',
+                        ),
+                        _compactInfoPill(
+                          'Context ${preset.contextLength > 0 ? _formatTokenKLabel(preset.contextLength) : '默认'}',
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _presetSectionCard(
+                    context,
+                    title: 'Prompt 注入',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _compactInfoPill(
+                              'Story ${preset.storyStringPosition}',
+                            ),
+                            _compactInfoPill('Role ${preset.storyStringRole}'),
+                            _compactInfoPill(
+                              'Depth ${preset.storyStringDepth}',
+                            ),
+                          ],
+                        ),
+                        if (preset.storyString.trim().isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            preset.storyString,
+                            maxLines: 6,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ],
+                        if (preset.chatStart.trim().isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          _infoRow('Chat Start', preset.chatStart),
+                        ],
+                        if (preset.exampleSeparator.trim().isNotEmpty) ...[
+                          _infoRow(
+                            'Example Separator',
+                            preset.exampleSeparator,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (preset.stopSequences.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _presetSectionCard(
+                      context,
+                      title: 'Stop Sequences',
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: preset.stopSequences
+                            .map((item) => _compactInfoPill(item))
+                            .toList(growable: false),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ),
-        ),
-      ),
     );
   }
 
@@ -1008,9 +1181,9 @@ class _TavernScreenState extends State<TavernScreen>
         children: [
           Text(
             title,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
           ),
           const SizedBox(height: 10),
           child,
@@ -1078,8 +1251,12 @@ class _TavernScreenState extends State<TavernScreen>
   }
 
   String _presetSummaryLine(TavernStore store, TavernPreset preset) {
-    final maxTokens = preset.maxTokens > 0 ? _formatTokenKLabel(preset.maxTokens) : '默认输出';
-    final contextLength = preset.contextLength > 0 ? _formatTokenKLabel(preset.contextLength) : '默认上下文';
+    final maxTokens =
+        preset.maxTokens > 0 ? _formatTokenKLabel(preset.maxTokens) : '默认输出';
+    final contextLength =
+        preset.contextLength > 0
+            ? _formatTokenKLabel(preset.contextLength)
+            : '默认上下文';
     return '${_presetModelLabel(preset)} · 输出 $maxTokens · 上下文 $contextLength';
   }
 
@@ -1154,10 +1331,7 @@ class _TavernScreenState extends State<TavernScreen>
 
     try {
       setState(() => _isImporting = true);
-      await store.importCharacterFile(
-        filename: filename,
-        bytes: bytes,
-      );
+      await store.importCharacterFile(filename: filename, bytes: bytes);
       if (!mounted) return;
     } catch (exc) {
       if (!mounted) return;
@@ -1174,47 +1348,51 @@ class _TavernScreenState extends State<TavernScreen>
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: FractionallySizedBox(
-          heightFactor: 0.88,
-          child: _CharacterImportReportSheet(
-            character: result.character,
-            warnings: result.warnings,
-            serverBaseUrl: _serverBaseUrl,
-            onStartChat: () async {
-              Navigator.of(context).pop();
-              await _startChatWithCharacter(result.character);
-            },
-            onViewDetail: () async {
-              Navigator.of(context).pop();
-              await _showCharacterDetail(result.character);
-            },
+      builder:
+          (context) => SafeArea(
+            child: FractionallySizedBox(
+              heightFactor: 0.88,
+              child: _CharacterImportReportSheet(
+                character: result.character,
+                warnings: result.warnings,
+                serverBaseUrl: _serverBaseUrl,
+                onStartChat: () async {
+                  Navigator.of(context).pop();
+                  await _startChatWithCharacter(result.character);
+                },
+                onViewDetail: () async {
+                  Navigator.of(context).pop();
+                  await _showCharacterDetail(result.character);
+                },
+              ),
+            ),
           ),
-        ),
-      ),
     );
   }
 
   Future<void> _showCharacterDetail(TavernCharacter character) async {
-    final latestCharacter = await context.read<TavernStore>().getCharacter(character.id);
+    final latestCharacter = await context.read<TavernStore>().getCharacter(
+      character.id,
+    );
     if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: FractionallySizedBox(
-          heightFactor: 0.9,
-          child: _CharacterDetailSheet(
-            character: latestCharacter,
-            serverBaseUrl: _serverBaseUrl,
-            onStartChat: () async {
-              Navigator.of(context).pop();
-              await _startChatWithCharacter(latestCharacter);
-            },
+      builder:
+          (context) => SafeArea(
+            child: FractionallySizedBox(
+              heightFactor: 0.9,
+              child: _CharacterDetailSheet(
+                character: latestCharacter,
+                serverBaseUrl: _serverBaseUrl,
+                onStartChat: () async {
+                  Navigator.of(context).pop();
+                  await _startChatWithCharacter(latestCharacter);
+                },
+              ),
+            ),
           ),
-        ),
-      ),
     );
   }
 
@@ -1252,30 +1430,34 @@ class _TavernScreenState extends State<TavernScreen>
     return showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            ListTile(
-              title: const Text('不指定 Persona'),
-              subtitle: const Text('使用默认 persona / fallback User'),
-              onTap: () => Navigator.of(context).pop(''),
-            ),
-            ...personas.map(
-              (persona) => ListTile(
-                title: Text(persona.name),
-                subtitle: Text(
-                  persona.description.isEmpty ? '无描述' : persona.description,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+      builder:
+          (context) => SafeArea(
+            child: ListView(
+              shrinkWrap: true,
+              children: [
+                ListTile(
+                  title: const Text('不指定 Persona'),
+                  subtitle: const Text('使用默认 persona / fallback User'),
+                  onTap: () => Navigator.of(context).pop(''),
                 ),
-                trailing: persona.isDefault ? const Chip(label: Text('默认')) : null,
-                onTap: () => Navigator.of(context).pop(persona.id),
-              ),
+                ...personas.map(
+                  (persona) => ListTile(
+                    title: Text(persona.name),
+                    subtitle: Text(
+                      persona.description.isEmpty ? '无描述' : persona.description,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing:
+                        persona.isDefault
+                            ? const Chip(label: Text('默认'))
+                            : null,
+                    onTap: () => Navigator.of(context).pop(persona.id),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
     );
   }
 
@@ -1310,41 +1492,45 @@ class _TavernScreenState extends State<TavernScreen>
     final messenger = ScaffoldMessenger.of(context);
     final confirmed = await showModalBottomSheet<bool>(
       context: this.context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
-              title: const Text('删除会话'),
-              subtitle: Text(character?.name ?? chat.title),
-              onTap: () => Navigator.of(context).pop(true),
+      builder:
+          (context) => SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(
+                    Icons.delete_outline,
+                    color: Colors.redAccent,
+                  ),
+                  title: const Text('删除会话'),
+                  subtitle: Text(character?.name ?? chat.title),
+                  onTap: () => Navigator.of(context).pop(true),
+                ),
+                const ListTile(leading: Icon(Icons.close), title: Text('取消')),
+              ],
             ),
-            const ListTile(
-              leading: Icon(Icons.close),
-              title: Text('取消'),
-            ),
-          ],
-        ),
-      ),
+          ),
     );
     if (confirmed != true || !mounted) return;
     final doubleConfirmed = await showDialog<bool>(
       context: this.context,
-      builder: (context) => AlertDialog(
-        title: const Text('确认删除会话？'),
-        content: Text('删除后，该会话里的消息也会一并移除。\n\n${character?.name ?? chat.title}'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
+      builder:
+          (context) => AlertDialog(
+            title: const Text('确认删除会话？'),
+            content: Text(
+              '删除后，该会话里的消息也会一并移除。\n\n${character?.name ?? chat.title}',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('删除'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
     );
     if (doubleConfirmed != true || !mounted) return;
     try {
@@ -1366,41 +1552,43 @@ class _TavernScreenState extends State<TavernScreen>
     final messenger = ScaffoldMessenger.of(context);
     final confirmed = await showModalBottomSheet<bool>(
       context: this.context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
-              title: const Text('删除 WorldBook'),
-              subtitle: Text(worldbook.name),
-              onTap: () => Navigator.of(context).pop(true),
+      builder:
+          (context) => SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(
+                    Icons.delete_outline,
+                    color: Colors.redAccent,
+                  ),
+                  title: const Text('删除 WorldBook'),
+                  subtitle: Text(worldbook.name),
+                  onTap: () => Navigator.of(context).pop(true),
+                ),
+                const ListTile(leading: Icon(Icons.close), title: Text('取消')),
+              ],
             ),
-            const ListTile(
-              leading: Icon(Icons.close),
-              title: Text('取消'),
-            ),
-          ],
-        ),
-      ),
+          ),
     );
     if (confirmed != true || !mounted) return;
     final doubleConfirmed = await showDialog<bool>(
       context: this.context,
-      builder: (context) => AlertDialog(
-        title: const Text('确认删除 WorldBook？'),
-        content: Text('删除后，该世界书下的条目也会一并移除。\n\n${worldbook.name}'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
+      builder:
+          (context) => AlertDialog(
+            title: const Text('确认删除 WorldBook？'),
+            content: Text('删除后，该世界书下的条目也会一并移除。\n\n${worldbook.name}'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('删除'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
     );
     if (doubleConfirmed != true || !mounted) return;
     try {
@@ -1422,41 +1610,43 @@ class _TavernScreenState extends State<TavernScreen>
     final messenger = ScaffoldMessenger.of(context);
     final confirmed = await showModalBottomSheet<bool>(
       context: this.context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
-              title: const Text('删除角色'),
-              subtitle: Text(character.name),
-              onTap: () => Navigator.of(context).pop(true),
+      builder:
+          (context) => SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(
+                    Icons.delete_outline,
+                    color: Colors.redAccent,
+                  ),
+                  title: const Text('删除角色'),
+                  subtitle: Text(character.name),
+                  onTap: () => Navigator.of(context).pop(true),
+                ),
+                const ListTile(leading: Icon(Icons.close), title: Text('取消')),
+              ],
             ),
-            const ListTile(
-              leading: Icon(Icons.close),
-              title: Text('取消'),
-            ),
-          ],
-        ),
-      ),
+          ),
     );
     if (confirmed != true || !mounted) return;
     final doubleConfirmed = await showDialog<bool>(
       context: this.context,
-      builder: (context) => AlertDialog(
-        title: const Text('确认删除角色？'),
-        content: Text('删除角色后，会连带删除该角色下的所有会话与消息。\n\n${character.name}'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
+      builder:
+          (context) => AlertDialog(
+            title: const Text('确认删除角色？'),
+            content: Text('删除角色后，会连带删除该角色下的所有会话与消息。\n\n${character.name}'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('删除'),
+              ),
+            ],
           ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
     );
     if (doubleConfirmed != true || !mounted) return;
     try {
@@ -1590,7 +1780,9 @@ class _TavernScreenState extends State<TavernScreen>
                                 const SizedBox(height: 12),
                                 DropdownButtonFormField<String>(
                                   value:
-                                      providers.any((item) => item.id == providerId)
+                                      providers.any(
+                                            (item) => item.id == providerId,
+                                          )
                                           ? providerId
                                           : null,
                                   decoration: const InputDecoration(
@@ -1633,14 +1825,24 @@ class _TavernScreenState extends State<TavernScreen>
                                   decoration: BoxDecoration(
                                     color: const Color(0xFFF8F7FC),
                                     borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: const Color(0xFFE9E5F4)),
+                                    border: Border.all(
+                                      color: const Color(0xFFE9E5F4),
+                                    ),
                                   ),
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: const [
-                                      Text('提示词管理', style: TextStyle(fontWeight: FontWeight.w600)),
+                                      Text(
+                                        '提示词管理',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
                                       SizedBox(height: 4),
-                                      Text('Preset 不再单独绑定 Prompt Order；统一使用全局提示词管理。'),
+                                      Text(
+                                        'Preset 不再单独绑定 Prompt Order；统一使用全局提示词管理。',
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -1704,10 +1906,11 @@ class _TavernScreenState extends State<TavernScreen>
                                         ),
                                         items: _storyPositions
                                             .map(
-                                              (item) => DropdownMenuItem<String>(
-                                                value: item,
-                                                child: Text(item),
-                                              ),
+                                              (item) =>
+                                                  DropdownMenuItem<String>(
+                                                    value: item,
+                                                    child: Text(item),
+                                                  ),
                                             )
                                             .toList(growable: false),
                                         onChanged:
@@ -1728,15 +1931,17 @@ class _TavernScreenState extends State<TavernScreen>
                                         ),
                                         items: _storyRoles
                                             .map(
-                                              (item) => DropdownMenuItem<String>(
-                                                value: item,
-                                                child: Text(item),
-                                              ),
+                                              (item) =>
+                                                  DropdownMenuItem<String>(
+                                                    value: item,
+                                                    child: Text(item),
+                                                  ),
                                             )
                                             .toList(growable: false),
                                         onChanged:
                                             (value) => setModalState(
-                                              () => storyRole = value ?? 'system',
+                                              () =>
+                                                  storyRole = value ?? 'system',
                                             ),
                                       ),
                                     ),
@@ -1750,8 +1955,9 @@ class _TavernScreenState extends State<TavernScreen>
                                   min: 0,
                                   max: 12,
                                   onChanged:
-                                      (value) =>
-                                          setModalState(() => storyDepth = value),
+                                      (value) => setModalState(
+                                        () => storyDepth = value,
+                                      ),
                                 ),
                               ],
                             ),
@@ -1770,8 +1976,9 @@ class _TavernScreenState extends State<TavernScreen>
                                   max: 2,
                                   divisions: 20,
                                   onChanged:
-                                      (value) =>
-                                          setModalState(() => temperature = value),
+                                      (value) => setModalState(
+                                        () => temperature = value,
+                                      ),
                                 ),
                                 _sliderField(
                                   context,
@@ -1781,7 +1988,8 @@ class _TavernScreenState extends State<TavernScreen>
                                   max: 1,
                                   divisions: 20,
                                   onChanged:
-                                      (value) => setModalState(() => topP = value),
+                                      (value) =>
+                                          setModalState(() => topP = value),
                                 ),
                                 _sliderField(
                                   context,
@@ -1791,7 +1999,9 @@ class _TavernScreenState extends State<TavernScreen>
                                   max: 2,
                                   divisions: 40,
                                   onChanged:
-                                      (value) => setModalState(() => frequencyPenalty = value),
+                                      (value) => setModalState(
+                                        () => frequencyPenalty = value,
+                                      ),
                                 ),
                                 _sliderField(
                                   context,
@@ -1801,7 +2011,9 @@ class _TavernScreenState extends State<TavernScreen>
                                   max: 2,
                                   divisions: 40,
                                   onChanged:
-                                      (value) => setModalState(() => presencePenalty = value),
+                                      (value) => setModalState(
+                                        () => presencePenalty = value,
+                                      ),
                                 ),
                                 _sliderField(
                                   context,
@@ -1811,7 +2023,8 @@ class _TavernScreenState extends State<TavernScreen>
                                   max: 1,
                                   divisions: 20,
                                   onChanged:
-                                      (value) => setModalState(() => topA = value),
+                                      (value) =>
+                                          setModalState(() => topA = value),
                                 ),
                                 _sliderField(
                                   context,
@@ -1821,7 +2034,8 @@ class _TavernScreenState extends State<TavernScreen>
                                   max: 1,
                                   divisions: 20,
                                   onChanged:
-                                      (value) => setModalState(() => minP = value),
+                                      (value) =>
+                                          setModalState(() => minP = value),
                                 ),
                                 _sliderField(
                                   context,
@@ -1853,7 +2067,8 @@ class _TavernScreenState extends State<TavernScreen>
                                   min: 0,
                                   max: 200,
                                   onChanged:
-                                      (value) => setModalState(() => topK = value),
+                                      (value) =>
+                                          setModalState(() => topK = value),
                                 ),
                                 _tokenSliderField(
                                   context,
@@ -1862,10 +2077,12 @@ class _TavernScreenState extends State<TavernScreen>
                                   min: 0,
                                   max: 1000000,
                                   step: 1000,
-                                  helperText: '控制单次回复最多可生成多少 token。0 表示交给服务端默认值。',
+                                  helperText:
+                                      '控制单次回复最多可生成多少 token。0 表示交给服务端默认值。',
                                   onChanged:
-                                      (value) =>
-                                          setModalState(() => maxTokens = value),
+                                      (value) => setModalState(
+                                        () => maxTokens = value,
+                                      ),
                                 ),
                                 const SizedBox(height: 12),
                                 _tokenSliderField(
@@ -1875,10 +2092,12 @@ class _TavernScreenState extends State<TavernScreen>
                                   min: 0,
                                   max: 1000000,
                                   step: 1000,
-                                  helperText: '控制上下文窗口上限。DeepSeek 文档当前标注 v4-flash / v4-pro 支持 1M context。',
+                                  helperText:
+                                      '控制上下文窗口上限。DeepSeek 文档当前标注 v4-flash / v4-pro 支持 1M context。',
                                   onChanged:
-                                      (value) =>
-                                          setModalState(() => contextLength = value),
+                                      (value) => setModalState(
+                                        () => contextLength = value,
+                                      ),
                                 ),
                               ],
                             ),
@@ -1930,8 +2149,10 @@ class _TavernScreenState extends State<TavernScreen>
                                               'storyStringDepth': storyDepth,
                                               'temperature': temperature,
                                               'topP': topP,
-                                              'frequencyPenalty': frequencyPenalty,
-                                              'presencePenalty': presencePenalty,
+                                              'frequencyPenalty':
+                                                  frequencyPenalty,
+                                              'presencePenalty':
+                                                  presencePenalty,
                                               'topA': topA,
                                               'topK': topK,
                                               'minP': minP,
@@ -2011,8 +2232,9 @@ class _TavernScreenState extends State<TavernScreen>
     }
   }
 
-
-  List<TavernPromptOrderItem> _buildPromptManagerItems(List<TavernPromptOrderItem> rawItems) {
+  List<TavernPromptOrderItem> _buildPromptManagerItems(
+    List<TavernPromptOrderItem> rawItems,
+  ) {
     final normalized = <TavernPromptOrderItem>[];
     final byIdentifier = <String, TavernPromptOrderItem>{};
     for (final item in rawItems) {
@@ -2024,7 +2246,13 @@ class _TavernScreenState extends State<TavernScreen>
       final option = _builtinPromptOrderOptions[i];
       final existing = byIdentifier[option.identifier];
       normalized.add(
-        (existing ?? TavernPromptOrderItem(identifier: option.identifier, enabled: true, builtIn: true, orderIndex: i * 10))
+        (existing ??
+                TavernPromptOrderItem(
+                  identifier: option.identifier,
+                  enabled: true,
+                  builtIn: true,
+                  orderIndex: i * 10,
+                ))
             .copyWith(
               identifier: option.identifier,
               name: option.label,
@@ -2035,8 +2263,9 @@ class _TavernScreenState extends State<TavernScreen>
             ),
       );
     }
-    final customItems = rawItems.where((item) => item.isCustom).toList()
-      ..sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
+    final customItems =
+        rawItems.where((item) => item.isCustom).toList()
+          ..sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
     normalized.addAll(customItems);
     normalized.sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
     for (var i = 0; i < normalized.length; i += 1) {
@@ -2046,7 +2275,8 @@ class _TavernScreenState extends State<TavernScreen>
   }
 
   String itemPositionFor(TavernPromptOrderItem item) {
-    if (item.position == 'at_depth' || item.identifier == 'authorNote') return 'at_depth';
+    if (item.position == 'at_depth' || item.identifier == 'authorNote')
+      return 'at_depth';
     switch (item.identifier) {
       case 'main':
         return 'after_system';
@@ -2078,94 +2308,110 @@ class _TavernScreenState extends State<TavernScreen>
   }) async {
     final nameController = TextEditingController(text: item?.name ?? '');
     final contentController = TextEditingController(text: item?.content ?? '');
-    String role = (item?.role ?? 'system').trim().isEmpty ? 'system' : (item?.role ?? 'system');
+    String role =
+        (item?.role ?? 'system').trim().isEmpty
+            ? 'system'
+            : (item?.role ?? 'system');
 
     final result = await showModalBottomSheet<TavernPromptOrderItem>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: EdgeInsets.only(
-            left: 16,
-            right: 16,
-            top: 8,
-            bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-          ),
-          child: StatefulBuilder(
-            builder: (context, setModalState) => Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(item == null ? '新增自定义提示词' : '编辑自定义提示词', style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: nameController,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: '名称',
-                    hintText: '例如：回复风格约束',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: _storyRoles.contains(role) ? role : 'system',
-                  decoration: const InputDecoration(
-                    labelText: 'Role',
-                    border: OutlineInputBorder(),
-                  ),
-                  items: _storyRoles.map((value) => DropdownMenuItem<String>(
-                    value: value,
-                    child: Text(value),
-                  )).toList(growable: false),
-                  onChanged: (value) => setModalState(() => role = value ?? 'system'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: contentController,
-                  minLines: 8,
-                  maxLines: 14,
-                  decoration: const InputDecoration(
-                    labelText: '内容',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('取消'),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton(
-                      onPressed: () {
-                        Navigator.of(context).pop(
-                          TavernPromptOrderItem(
-                            identifier: '',
-                            name: nameController.text.trim().isEmpty
-                                ? '自定义提示词'
-                                : nameController.text.trim(),
-                            role: role,
-                            content: contentController.text,
-                            enabled: item?.enabled ?? true,
-                            orderIndex: item?.orderIndex ?? 0,
-                            position: item?.position ?? 'after_chat_history',
-                            builtIn: false,
+      builder:
+          (context) => SafeArea(
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 8,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+              ),
+              child: StatefulBuilder(
+                builder:
+                    (context, setModalState) => Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          item == null ? '新增自定义提示词' : '编辑自定义提示词',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: nameController,
+                          textInputAction: TextInputAction.next,
+                          decoration: const InputDecoration(
+                            labelText: '名称',
+                            hintText: '例如：回复风格约束',
+                            border: OutlineInputBorder(),
                           ),
-                        );
-                      },
-                      child: const Text('保存'),
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          value: _storyRoles.contains(role) ? role : 'system',
+                          decoration: const InputDecoration(
+                            labelText: 'Role',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: _storyRoles
+                              .map(
+                                (value) => DropdownMenuItem<String>(
+                                  value: value,
+                                  child: Text(value),
+                                ),
+                              )
+                              .toList(growable: false),
+                          onChanged:
+                              (value) =>
+                                  setModalState(() => role = value ?? 'system'),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: contentController,
+                          minLines: 8,
+                          maxLines: 14,
+                          decoration: const InputDecoration(
+                            labelText: '内容',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(),
+                              child: const Text('取消'),
+                            ),
+                            const SizedBox(width: 8),
+                            FilledButton(
+                              onPressed: () {
+                                Navigator.of(context).pop(
+                                  TavernPromptOrderItem(
+                                    identifier: '',
+                                    name:
+                                        nameController.text.trim().isEmpty
+                                            ? '自定义提示词'
+                                            : nameController.text.trim(),
+                                    role: role,
+                                    content: contentController.text,
+                                    enabled: item?.enabled ?? true,
+                                    orderIndex: item?.orderIndex ?? 0,
+                                    position:
+                                        item?.position ?? 'after_chat_history',
+                                    builtIn: false,
+                                  ),
+                                );
+                              },
+                              child: const Text('保存'),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ],
+              ),
             ),
           ),
-        ),
-      ),
     );
 
     nameController.dispose();
@@ -2185,9 +2431,9 @@ class _TavernScreenState extends State<TavernScreen>
       );
     } catch (exc) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('更新 WorldBook 失败：$exc')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('更新 WorldBook 失败：$exc')));
     }
   }
 
@@ -2253,7 +2499,8 @@ class _TavernScreenState extends State<TavernScreen>
                             ],
                             selected: <String>{scope},
                             onSelectionChanged: (value) {
-                              final next = value.isEmpty ? 'local' : value.first;
+                              final next =
+                                  value.isEmpty ? 'local' : value.first;
                               setModalState(() => scope = next);
                             },
                           ),
@@ -2403,10 +2650,8 @@ class _TavernScreenState extends State<TavernScreen>
     bool preventRecursion = entry?.preventRecursion ?? false;
     bool caseSensitive = entry?.caseSensitive ?? false;
     bool matchWholeWords = entry?.matchWholeWords ?? false;
-    bool matchCharacterDescription =
-        entry?.matchCharacterDescription ?? false;
-    bool matchCharacterPersonality =
-        entry?.matchCharacterPersonality ?? false;
+    bool matchCharacterDescription = entry?.matchCharacterDescription ?? false;
+    bool matchCharacterPersonality = entry?.matchCharacterPersonality ?? false;
     bool matchScenario = entry?.matchScenario ?? false;
     bool useGroupScoring = entry?.useGroupScoring ?? false;
     bool groupOverride = entry?.groupOverride ?? false;
@@ -2424,7 +2669,8 @@ class _TavernScreenState extends State<TavernScreen>
     int cooldown = entry?.cooldown ?? 0;
     int delay = entry?.delay ?? 0;
     bool saving = false;
-    bool showAdvanced = existingEntry != null && _entryUsesAdvancedOptions(existingEntry);
+    bool showAdvanced =
+        existingEntry != null && _entryUsesAdvancedOptions(existingEntry);
 
     final saved = await showModalBottomSheet<bool>(
       context: context,
@@ -2464,7 +2710,8 @@ class _TavernScreenState extends State<TavernScreen>
                             subtitle: const Text('打开后，不等关键词命中也会持续注入。'),
                             value: constant,
                             onChanged:
-                                (value) => setModalState(() => constant = value),
+                                (value) =>
+                                    setModalState(() => constant = value),
                           ),
                           TextField(
                             controller: keysController,
@@ -2502,7 +2749,9 @@ class _TavernScreenState extends State<TavernScreen>
                                 .toList(growable: false),
                             onChanged:
                                 (value) => setModalState(
-                                  () => insertionPosition = value ?? 'before_chat_history',
+                                  () =>
+                                      insertionPosition =
+                                          value ?? 'before_chat_history',
                                 ),
                           ),
                           const SizedBox(height: 12),
@@ -2513,18 +2762,26 @@ class _TavernScreenState extends State<TavernScreen>
                             min: -20,
                             max: 50,
                             onChanged:
-                                (value) => setModalState(() => priority = value),
+                                (value) =>
+                                    setModalState(() => priority = value),
                           ),
                           const SizedBox(height: 16),
                           OutlinedButton.icon(
-                            onPressed: () => setModalState(() => showAdvanced = !showAdvanced),
-                            icon: Icon(showAdvanced ? Icons.expand_less : Icons.tune),
+                            onPressed:
+                                () => setModalState(
+                                  () => showAdvanced = !showAdvanced,
+                                ),
+                            icon: Icon(
+                              showAdvanced ? Icons.expand_less : Icons.tune,
+                            ),
                             label: Text(showAdvanced ? '收起高级设置' : '展开高级设置'),
                           ),
                           const SizedBox(height: 8),
                           Text(
                             '大多数情况下，下面这些兼容参数都用不上。只有你真的在做复杂触发逻辑时再碰它们。',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            style: Theme.of(
+                              context,
+                            ).textTheme.bodySmall?.copyWith(
                               color: const Color(0xFF667085),
                               height: 1.45,
                             ),
@@ -2536,29 +2793,38 @@ class _TavernScreenState extends State<TavernScreen>
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF8FAFC),
                                 borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                                border: Border.all(
+                                  color: const Color(0xFFE2E8F0),
+                                ),
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
                                     '高级兼容参数',
-                                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                      fontWeight: FontWeight.w700,
-                                    ),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleSmall
+                                        ?.copyWith(fontWeight: FontWeight.w700),
                                   ),
                                   const SizedBox(height: 12),
                                   SwitchListTile(
                                     contentPadding: EdgeInsets.zero,
                                     title: const Text('允许递归触发'),
                                     value: recursive,
-                                    onChanged: (value) => setModalState(() => recursive = value),
+                                    onChanged:
+                                        (value) => setModalState(
+                                          () => recursive = value,
+                                        ),
                                   ),
                                   SwitchListTile(
                                     contentPadding: EdgeInsets.zero,
                                     title: const Text('禁止重复连锁'),
                                     value: preventRecursion,
-                                    onChanged: (value) => setModalState(() => preventRecursion = value),
+                                    onChanged:
+                                        (value) => setModalState(
+                                          () => preventRecursion = value,
+                                        ),
                                   ),
                                   TextField(
                                     controller: secondaryController,
@@ -2577,68 +2843,116 @@ class _TavernScreenState extends State<TavernScreen>
                                       border: OutlineInputBorder(),
                                     ),
                                     items: const [
-                                      DropdownMenuItem(value: 'and_any', child: Text('AND ANY')),
-                                      DropdownMenuItem(value: 'and_all', child: Text('AND ALL')),
-                                      DropdownMenuItem(value: 'not_any', child: Text('NOT ANY')),
-                                      DropdownMenuItem(value: 'not_all', child: Text('NOT ALL')),
+                                      DropdownMenuItem(
+                                        value: 'and_any',
+                                        child: Text('AND ANY'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 'and_all',
+                                        child: Text('AND ALL'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 'not_any',
+                                        child: Text('NOT ANY'),
+                                      ),
+                                      DropdownMenuItem(
+                                        value: 'not_all',
+                                        child: Text('NOT ALL'),
+                                      ),
                                     ],
-                                    onChanged: (value) => setModalState(() => secondaryLogic = value ?? 'and_any'),
+                                    onChanged:
+                                        (value) => setModalState(
+                                          () =>
+                                              secondaryLogic =
+                                                  value ?? 'and_any',
+                                        ),
                                   ),
                                   const SizedBox(height: 12),
                                   SwitchListTile(
                                     contentPadding: EdgeInsets.zero,
                                     title: const Text('区分大小写'),
                                     value: caseSensitive,
-                                    onChanged: (value) => setModalState(() => caseSensitive = value),
+                                    onChanged:
+                                        (value) => setModalState(
+                                          () => caseSensitive = value,
+                                        ),
                                   ),
                                   SwitchListTile(
                                     contentPadding: EdgeInsets.zero,
                                     title: const Text('仅匹配完整单词'),
                                     value: matchWholeWords,
-                                    onChanged: (value) => setModalState(() => matchWholeWords = value),
+                                    onChanged:
+                                        (value) => setModalState(
+                                          () => matchWholeWords = value,
+                                        ),
                                   ),
                                   SwitchListTile(
                                     contentPadding: EdgeInsets.zero,
                                     title: const Text('扫描角色描述'),
                                     value: matchCharacterDescription,
-                                    onChanged: (value) => setModalState(() => matchCharacterDescription = value),
+                                    onChanged:
+                                        (value) => setModalState(
+                                          () =>
+                                              matchCharacterDescription = value,
+                                        ),
                                   ),
                                   SwitchListTile(
                                     contentPadding: EdgeInsets.zero,
                                     title: const Text('扫描角色性格'),
                                     value: matchCharacterPersonality,
-                                    onChanged: (value) => setModalState(() => matchCharacterPersonality = value),
+                                    onChanged:
+                                        (value) => setModalState(
+                                          () =>
+                                              matchCharacterPersonality = value,
+                                        ),
                                   ),
                                   SwitchListTile(
                                     contentPadding: EdgeInsets.zero,
                                     title: const Text('扫描场景设定'),
                                     value: matchScenario,
-                                    onChanged: (value) => setModalState(() => matchScenario = value),
+                                    onChanged:
+                                        (value) => setModalState(
+                                          () => matchScenario = value,
+                                        ),
                                   ),
                                   SwitchListTile(
                                     contentPadding: EdgeInsets.zero,
                                     title: const Text('启用组评分'),
                                     value: useGroupScoring,
-                                    onChanged: (value) => setModalState(() => useGroupScoring = value),
+                                    onChanged:
+                                        (value) => setModalState(
+                                          () => useGroupScoring = value,
+                                        ),
                                   ),
                                   SwitchListTile(
                                     contentPadding: EdgeInsets.zero,
                                     title: const Text('组覆盖'),
                                     value: groupOverride,
-                                    onChanged: (value) => setModalState(() => groupOverride = value),
+                                    onChanged:
+                                        (value) => setModalState(
+                                          () => groupOverride = value,
+                                        ),
                                   ),
                                   SwitchListTile(
                                     contentPadding: EdgeInsets.zero,
                                     title: const Text('忽略预算限制'),
                                     value: ignoreBudget,
-                                    onChanged: (value) => setModalState(() => ignoreBudget = value),
+                                    onChanged:
+                                        (value) => setModalState(
+                                          () => ignoreBudget = value,
+                                        ),
                                   ),
                                   SwitchListTile(
                                     contentPadding: EdgeInsets.zero,
                                     title: const Text('角色过滤排除模式'),
-                                    subtitle: const Text('关闭=仅这些角色/标签生效；开启=排除这些角色/标签'),
+                                    subtitle: const Text(
+                                      '关闭=仅这些角色/标签生效；开启=排除这些角色/标签',
+                                    ),
                                     value: characterFilterExclude,
-                                    onChanged: (value) => setModalState(() => characterFilterExclude = value),
+                                    onChanged:
+                                        (value) => setModalState(
+                                          () => characterFilterExclude = value,
+                                        ),
                                   ),
                                   const SizedBox(height: 12),
                                   _intStepper(
@@ -2647,7 +2961,10 @@ class _TavernScreenState extends State<TavernScreen>
                                     value: scanDepth,
                                     min: 0,
                                     max: 50,
-                                    onChanged: (value) => setModalState(() => scanDepth = value),
+                                    onChanged:
+                                        (value) => setModalState(
+                                          () => scanDepth = value,
+                                        ),
                                   ),
                                   const SizedBox(height: 12),
                                   _intStepper(
@@ -2656,7 +2973,10 @@ class _TavernScreenState extends State<TavernScreen>
                                     value: groupWeight,
                                     min: 1,
                                     max: 10000,
-                                    onChanged: (value) => setModalState(() => groupWeight = value),
+                                    onChanged:
+                                        (value) => setModalState(
+                                          () => groupWeight = value,
+                                        ),
                                   ),
                                   const SizedBox(height: 12),
                                   _intStepper(
@@ -2665,7 +2985,10 @@ class _TavernScreenState extends State<TavernScreen>
                                     value: delayUntilRecursion,
                                     min: 0,
                                     max: 20,
-                                    onChanged: (value) => setModalState(() => delayUntilRecursion = value),
+                                    onChanged:
+                                        (value) => setModalState(
+                                          () => delayUntilRecursion = value,
+                                        ),
                                   ),
                                   const SizedBox(height: 12),
                                   _intStepper(
@@ -2674,7 +2997,10 @@ class _TavernScreenState extends State<TavernScreen>
                                     value: probability,
                                     min: 0,
                                     max: 100,
-                                    onChanged: (value) => setModalState(() => probability = value),
+                                    onChanged:
+                                        (value) => setModalState(
+                                          () => probability = value,
+                                        ),
                                   ),
                                   const SizedBox(height: 12),
                                   _intStepper(
@@ -2683,7 +3009,9 @@ class _TavernScreenState extends State<TavernScreen>
                                     value: sticky,
                                     min: 0,
                                     max: 20,
-                                    onChanged: (value) => setModalState(() => sticky = value),
+                                    onChanged:
+                                        (value) =>
+                                            setModalState(() => sticky = value),
                                   ),
                                   const SizedBox(height: 12),
                                   _intStepper(
@@ -2692,7 +3020,10 @@ class _TavernScreenState extends State<TavernScreen>
                                     value: cooldown,
                                     min: 0,
                                     max: 20,
-                                    onChanged: (value) => setModalState(() => cooldown = value),
+                                    onChanged:
+                                        (value) => setModalState(
+                                          () => cooldown = value,
+                                        ),
                                   ),
                                   const SizedBox(height: 12),
                                   _intStepper(
@@ -2701,7 +3032,9 @@ class _TavernScreenState extends State<TavernScreen>
                                     value: delay,
                                     min: 0,
                                     max: 20,
-                                    onChanged: (value) => setModalState(() => delay = value),
+                                    onChanged:
+                                        (value) =>
+                                            setModalState(() => delay = value),
                                   ),
                                   const SizedBox(height: 12),
                                   TextField(
@@ -2781,19 +3114,16 @@ class _TavernScreenState extends State<TavernScreen>
                                               'constant': constant,
                                               'preventRecursion':
                                                   preventRecursion,
-                                              'secondaryLogic':
-                                                  secondaryLogic,
+                                              'secondaryLogic': secondaryLogic,
                                               'scanDepth': scanDepth,
-                                              'caseSensitive':
-                                                  caseSensitive,
+                                              'caseSensitive': caseSensitive,
                                               'matchWholeWords':
                                                   matchWholeWords,
                                               'matchCharacterDescription':
                                                   matchCharacterDescription,
                                               'matchCharacterPersonality':
                                                   matchCharacterPersonality,
-                                              'matchScenario':
-                                                  matchScenario,
+                                              'matchScenario': matchScenario,
                                               'useGroupScoring':
                                                   useGroupScoring,
                                               'groupWeight': groupWeight,
@@ -2805,14 +3135,24 @@ class _TavernScreenState extends State<TavernScreen>
                                               'characterFilterNames':
                                                   characterNamesController.text
                                                       .split('\n')
-                                                      .map((item) => item.trim())
-                                                      .where((item) => item.isNotEmpty)
+                                                      .map(
+                                                        (item) => item.trim(),
+                                                      )
+                                                      .where(
+                                                        (item) =>
+                                                            item.isNotEmpty,
+                                                      )
                                                       .toList(growable: false),
                                               'characterFilterTags':
                                                   characterTagsController.text
                                                       .split('\n')
-                                                      .map((item) => item.trim())
-                                                      .where((item) => item.isNotEmpty)
+                                                      .map(
+                                                        (item) => item.trim(),
+                                                      )
+                                                      .where(
+                                                        (item) =>
+                                                            item.isNotEmpty,
+                                                      )
                                                       .toList(growable: false),
                                               'characterFilterExclude':
                                                   characterFilterExclude,
@@ -2934,8 +3274,8 @@ class _TavernScreenState extends State<TavernScreen>
       ),
       child: Text(
         text,
-        style: const TextStyle(
-          fontSize: 11,
+        style: TextStyle(
+          fontSize: desktopAdjustedFontSize(11),
           fontWeight: FontWeight.w600,
           color: Color(0xFF475569),
         ),
@@ -3005,7 +3345,6 @@ class _TavernScreenState extends State<TavernScreen>
     );
   }
 
-
   Widget _buildWorldBookEntryPreview(
     BuildContext context,
     TavernWorldBook worldbook,
@@ -3042,13 +3381,17 @@ class _TavernScreenState extends State<TavernScreen>
               IconButton(
                 tooltip: '编辑条目',
                 visualDensity: VisualDensity.compact,
-                constraints: const BoxConstraints.tightFor(width: 30, height: 30),
-                padding: EdgeInsets.zero,
-                onPressed: () => _editWorldBookEntry(
-                  context,
-                  worldbook: worldbook,
-                  entry: entry,
+                constraints: const BoxConstraints.tightFor(
+                  width: 30,
+                  height: 30,
                 ),
+                padding: EdgeInsets.zero,
+                onPressed:
+                    () => _editWorldBookEntry(
+                      context,
+                      worldbook: worldbook,
+                      entry: entry,
+                    ),
                 icon: const Icon(Icons.edit_outlined, size: 17),
               ),
             ],
@@ -3141,8 +3484,8 @@ class _TavernScreenState extends State<TavernScreen>
       ),
       child: Text(
         text,
-        style: const TextStyle(
-          fontSize: 12,
+        style: TextStyle(
+          fontSize: desktopAdjustedFontSize(12),
           fontWeight: FontWeight.w600,
           color: Color(0xFF475467),
         ),
@@ -3194,12 +3537,13 @@ class _TavernScreenState extends State<TavernScreen>
 
   String _formatTokenKLabel(int value) {
     if (value <= 0) return '默认';
-    if (value >= 1000000) return '${(value / 1000000).toStringAsFixed(value % 1000000 == 0 ? 0 : 1)}M';
-    if (value >= 1000) return '${(value / 1000).toStringAsFixed(value % 1000 == 0 ? 0 : 1)}K';
+    if (value >= 1000000)
+      return '${(value / 1000000).toStringAsFixed(value % 1000000 == 0 ? 0 : 1)}M';
+    if (value >= 1000)
+      return '${(value / 1000).toStringAsFixed(value % 1000 == 0 ? 0 : 1)}K';
     return '$value';
   }
 }
-
 
 class _WorldBookInfoBanner extends StatelessWidget {
   const _WorldBookInfoBanner({
@@ -3236,10 +3580,7 @@ class _WorldBookInfoBanner extends StatelessWidget {
               ),
             ),
           ),
-          if (trailing != null) ...[
-            const SizedBox(width: 8),
-            trailing!,
-          ],
+          if (trailing != null) ...[const SizedBox(width: 8), trailing!],
         ],
       ),
     );
@@ -3287,7 +3628,9 @@ class _CharacterImportReportSheet extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       character.name,
-                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ],
                 ),
@@ -3303,11 +3646,30 @@ class _CharacterImportReportSheet extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _ImportStatChip(label: '来源', value: character.sourceType.toUpperCase()),
-                  _ImportStatChip(label: '字段', value: '${summary.filledFieldCount}/${summary.totalFieldCount}'),
-                  _ImportStatChip(label: '问候', value: '${character.alternateGreetings.length}'),
-                  _ImportStatChip(label: 'Lore', value: summary.lorebookEntryCount > 0 ? '${summary.lorebookEntryCount} 条' : '无'),
-                  _ImportStatChip(label: '资产', value: summary.assetSummaryLabel),
+                  _ImportStatChip(
+                    label: '来源',
+                    value: character.sourceType.toUpperCase(),
+                  ),
+                  _ImportStatChip(
+                    label: '字段',
+                    value:
+                        '${summary.filledFieldCount}/${summary.totalFieldCount}',
+                  ),
+                  _ImportStatChip(
+                    label: '问候',
+                    value: '${character.alternateGreetings.length}',
+                  ),
+                  _ImportStatChip(
+                    label: 'Lore',
+                    value:
+                        summary.lorebookEntryCount > 0
+                            ? '${summary.lorebookEntryCount} 条'
+                            : '无',
+                  ),
+                  _ImportStatChip(
+                    label: '资产',
+                    value: summary.assetSummaryLabel,
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -3318,10 +3680,12 @@ class _CharacterImportReportSheet extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: warnings
-                        .map((item) => Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: Text('• $item'),
-                            ))
+                        .map(
+                          (item) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Text('• $item'),
+                          ),
+                        )
                         .toList(growable: false),
                   ),
                 ),
@@ -3338,8 +3702,18 @@ class _CharacterImportReportSheet extends StatelessWidget {
                     _kv('System Prompt', character.systemPrompt),
                     _kv('Post-History', character.postHistoryInstructions),
                     _kv('Creator Notes', character.creatorNotes),
-                    _kv('Alternate Greetings', character.alternateGreetings.isEmpty ? '' : '${character.alternateGreetings.length} 条'),
-                    _kv('Embedded Lorebook', summary.lorebookEntryCount > 0 ? '${summary.lorebookEntryCount} 条，已随角色导入' : ''),
+                    _kv(
+                      'Alternate Greetings',
+                      character.alternateGreetings.isEmpty
+                          ? ''
+                          : '${character.alternateGreetings.length} 条',
+                    ),
+                    _kv(
+                      'Embedded Lorebook',
+                      summary.lorebookEntryCount > 0
+                          ? '${summary.lorebookEntryCount} 条，已随角色导入'
+                          : '',
+                    ),
                     _kv('CharX 资产', summary.assetDetailLabel),
                   ],
                 ),
@@ -3431,9 +3805,12 @@ class _CharacterDetailSheet extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       [
-                        if (character.creator.isNotEmpty) 'by ${character.creator}',
-                        if (character.characterVersion.isNotEmpty) 'v${character.characterVersion}',
-                        if (character.sourceType.isNotEmpty) character.sourceType.toUpperCase(),
+                        if (character.creator.isNotEmpty)
+                          'by ${character.creator}',
+                        if (character.characterVersion.isNotEmpty)
+                          'v${character.characterVersion}',
+                        if (character.sourceType.isNotEmpty)
+                          character.sourceType.toUpperCase(),
                       ].join(' · '),
                       style: theme.textTheme.bodySmall,
                     ),
@@ -3451,56 +3828,84 @@ class _CharacterDetailSheet extends StatelessWidget {
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
-                  children: character.tags.map((tag) => Chip(label: Text(tag))).toList(growable: false),
+                  children: character.tags
+                      .map((tag) => Chip(label: Text(tag)))
+                      .toList(growable: false),
                 ),
                 const SizedBox(height: 16),
               ],
-              _ImportSectionCard(title: '基础信息', icon: Icons.badge_outlined, child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _detailBlock('Description', character.description),
-                  _detailBlock('Personality', character.personality),
-                  _detailBlock('Scenario', character.scenario),
-                  _detailBlock('First Message', character.firstMessage),
-                  _detailBlock('Example Dialogues', character.exampleDialogues),
-                ],
-              )),
+              _ImportSectionCard(
+                title: '基础信息',
+                icon: Icons.badge_outlined,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _detailBlock('Description', character.description),
+                    _detailBlock('Personality', character.personality),
+                    _detailBlock('Scenario', character.scenario),
+                    _detailBlock('First Message', character.firstMessage),
+                    _detailBlock(
+                      'Example Dialogues',
+                      character.exampleDialogues,
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 12),
-              _ImportSectionCard(title: 'Prompt / Notes', icon: Icons.psychology_alt_outlined, child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _detailBlock('System Prompt', character.systemPrompt),
-                  _detailBlock('Post-History Instructions', character.postHistoryInstructions),
-                  _detailBlock('Creator Notes', character.creatorNotes),
-                ],
-              )),
+              _ImportSectionCard(
+                title: 'Prompt / Notes',
+                icon: Icons.psychology_alt_outlined,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _detailBlock('System Prompt', character.systemPrompt),
+                    _detailBlock(
+                      'Post-History Instructions',
+                      character.postHistoryInstructions,
+                    ),
+                    _detailBlock('Creator Notes', character.creatorNotes),
+                  ],
+                ),
+              ),
               const SizedBox(height: 12),
-              _ImportSectionCard(title: '问候与 Lore', icon: Icons.auto_stories_outlined, child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _detailBlock(
-                    'Alternate Greetings',
-                    character.alternateGreetings.isEmpty
-                        ? ''
-                        : character.alternateGreetings.asMap().entries.map((e) => '${e.key + 1}. ${e.value}').join('\n\n'),
-                  ),
-                  _detailBlock(
-                    'Embedded Lorebook',
-                    summary.lorebookEntryCount > 0
-                        ? '检测到 ${summary.lorebookEntryCount} 条 embedded lorebook entries，已作为角色附带知识导入。'
-                        : '',
-                  ),
-                ],
-              )),
+              _ImportSectionCard(
+                title: '问候与 Lore',
+                icon: Icons.auto_stories_outlined,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _detailBlock(
+                      'Alternate Greetings',
+                      character.alternateGreetings.isEmpty
+                          ? ''
+                          : character.alternateGreetings
+                              .asMap()
+                              .entries
+                              .map((e) => '${e.key + 1}. ${e.value}')
+                              .join('\n\n'),
+                    ),
+                    _detailBlock(
+                      'Embedded Lorebook',
+                      summary.lorebookEntryCount > 0
+                          ? '检测到 ${summary.lorebookEntryCount} 条 embedded lorebook entries，已作为角色附带知识导入。'
+                          : '',
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 12),
-              _ImportSectionCard(title: '资产摘要', icon: Icons.perm_media_outlined, child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _detailBlock('头像', character.avatarPath),
-                  _detailBlock('CharX 资源', summary.assetDetailLabel),
-                  _detailBlock('来源文件', character.sourceName),
-                ],
-              )),
+              _ImportSectionCard(
+                title: '资产摘要',
+                icon: Icons.perm_media_outlined,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _detailBlock('头像', character.avatarPath),
+                    _detailBlock('CharX 资源', summary.assetDetailLabel),
+                    _detailBlock('来源文件', character.sourceName),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -3610,10 +4015,14 @@ class _CharacterImportSummary {
       if (character.tags.isNotEmpty) 'tags',
       if (character.avatarPath.isNotEmpty) 'avatar',
     ];
-    final book = character.metadata['cardData'] is Map
-        ? (character.metadata['cardData'] as Map)['character_book']
-        : character.metadata['character_book'];
-    final entries = book is Map && book['entries'] is List ? (book['entries'] as List).length : 0;
+    final book =
+        character.metadata['cardData'] is Map
+            ? (character.metadata['cardData'] as Map)['character_book']
+            : character.metadata['character_book'];
+    final entries =
+        book is Map && book['entries'] is List
+            ? (book['entries'] as List).length
+            : 0;
     final charxAssets = character.metadata['charxAssets'];
     int sprites = 0;
     int backgrounds = 0;
@@ -3623,9 +4032,10 @@ class _CharacterImportSummary {
       backgrounds = (charxAssets['backgrounds'] as num?)?.toInt() ?? 0;
       misc = (charxAssets['misc'] as num?)?.toInt() ?? 0;
     }
-    final assetSummary = sprites + backgrounds + misc > 0
-        ? '${sprites + backgrounds + misc} 项'
-        : (character.avatarPath.isNotEmpty ? '仅头像' : '无');
+    final assetSummary =
+        sprites + backgrounds + misc > 0
+            ? '${sprites + backgrounds + misc} 项'
+            : (character.avatarPath.isNotEmpty ? '仅头像' : '无');
     final parts = <String>[];
     if (character.avatarPath.isNotEmpty) parts.add('头像已导入');
     if (sprites > 0) parts.add('$sprites 个 sprite');
@@ -3642,7 +4052,9 @@ class _CharacterImportSummary {
 }
 
 class _BuiltinPromptOrderOption {
-  const _BuiltinPromptOrderOption(this.identifier, this.label, {
+  const _BuiltinPromptOrderOption(
+    this.identifier,
+    this.label, {
     required this.icon,
     required this.colorValue,
   });
@@ -3664,11 +4076,16 @@ class _PromptManagerPage extends StatefulWidget {
   });
 
   final TavernPromptOrder? promptOrder;
-  final List<TavernPromptOrderItem> Function(List<TavernPromptOrderItem>) buildItems;
+  final List<TavernPromptOrderItem> Function(List<TavernPromptOrderItem>)
+  buildItems;
   final _BuiltinPromptOrderOption? Function(String identifier) builtinOptionFor;
   final String Function(TavernPromptOrderItem item) itemLabelBuilder;
   final String Function(TavernPromptOrderItem item) itemPositionFor;
-  final Future<TavernPromptOrderItem?> Function(BuildContext context, {TavernPromptOrderItem? item}) editCustomItem;
+  final Future<TavernPromptOrderItem?> Function(
+    BuildContext context, {
+    TavernPromptOrderItem? item,
+  })
+  editCustomItem;
 
   @override
   State<_PromptManagerPage> createState() => _PromptManagerPageState();
@@ -3683,7 +4100,9 @@ class _PromptManagerPageState extends State<_PromptManagerPage> {
   void initState() {
     super.initState();
     _items = <TavernPromptOrderItem>[
-      ...widget.buildItems(widget.promptOrder?.items ?? const <TavernPromptOrderItem>[]),
+      ...widget.buildItems(
+        widget.promptOrder?.items ?? const <TavernPromptOrderItem>[],
+      ),
     ];
   }
 
@@ -3718,13 +4137,15 @@ class _PromptManagerPageState extends State<_PromptManagerPage> {
       for (var i = 0; i < _items.length; i += 1) {
         final current = _items[i];
         normalized.add(
-          current.copyWith(
-            orderIndex: i * 10,
-            position: widget.itemPositionFor(current),
-            depth: current.identifier == 'authorNote' ? 4 : null,
-            clearDepth: current.identifier != 'authorNote',
-            builtIn: current.identifier.isNotEmpty,
-          ).toJson(),
+          current
+              .copyWith(
+                orderIndex: i * 10,
+                position: widget.itemPositionFor(current),
+                depth: current.identifier == 'authorNote' ? 4 : null,
+                clearDepth: current.identifier != 'authorNote',
+                builtIn: current.identifier.isNotEmpty,
+              )
+              .toJson(),
         );
       }
       final payload = {'name': '默认提示词管理', 'items': normalized};
@@ -3738,14 +4159,14 @@ class _PromptManagerPageState extends State<_PromptManagerPage> {
         );
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('提示词管理已更新')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('提示词管理已更新')));
     } catch (exc) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('保存提示词管理失败：$exc')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('保存提示词管理失败：$exc')));
       setState(() => _saving = false);
       return;
     }
@@ -3772,41 +4193,55 @@ class _PromptManagerPageState extends State<_PromptManagerPage> {
           child: ReorderableListView.builder(
             buildDefaultDragHandles: false,
             itemCount: _items.length,
-            onReorder: _saving
-                ? (_, __) {}
-                : (oldIndex, newIndex) {
-                    setState(() {
-                      _lastReorderAt = DateTime.now();
-                      if (newIndex > oldIndex) newIndex -= 1;
-                      final moved = _items.removeAt(oldIndex);
-                      _items.insert(newIndex, moved);
-                      for (var i = 0; i < _items.length; i += 1) {
-                        _items[i] = _items[i].copyWith(orderIndex: i * 10);
-                      }
-                    });
-                  },
+            onReorder:
+                _saving
+                    ? (_, __) {}
+                    : (oldIndex, newIndex) {
+                      setState(() {
+                        _lastReorderAt = DateTime.now();
+                        if (newIndex > oldIndex) newIndex -= 1;
+                        final moved = _items.removeAt(oldIndex);
+                        _items.insert(newIndex, moved);
+                        for (var i = 0; i < _items.length; i += 1) {
+                          _items[i] = _items[i].copyWith(orderIndex: i * 10);
+                        }
+                      });
+                    },
             itemBuilder: (context, index) {
               final item = _items[index];
               final option = widget.builtinOptionFor(item.identifier);
               final isCustom = item.isCustom;
-              final accent = isCustom
-                  ? const Color(0xFF64748B)
-                  : Color(option?.colorValue ?? 0xFF7C4DFF);
-              final tileColor = Color(option?.colorValue ?? 0xFF7C4DFF)
-                  .withValues(alpha: isCustom ? 0.08 : 0.12);
+              final accent =
+                  isCustom
+                      ? const Color(0xFF64748B)
+                      : Color(option?.colorValue ?? 0xFF7C4DFF);
+              final tileColor = Color(
+                option?.colorValue ?? 0xFF7C4DFF,
+              ).withValues(alpha: isCustom ? 0.08 : 0.12);
               return Card(
-                key: ValueKey('${item.identifier}:${item.blockId}:${item.name}:$index'),
+                key: ValueKey(
+                  '${item.identifier}:${item.blockId}:${item.name}:$index',
+                ),
                 margin: const EdgeInsets.only(bottom: 10),
                 color: tileColor,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
                 child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 6,
+                  ),
                   leading: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       ReorderableDragStartListener(
                         index: index,
-                        child: Icon(Icons.drag_indicator, size: 18, color: accent),
+                        child: Icon(
+                          Icons.drag_indicator,
+                          size: 18,
+                          color: accent,
+                        ),
                       ),
                       const SizedBox(width: 10),
                       Container(
@@ -3816,7 +4251,11 @@ class _PromptManagerPageState extends State<_PromptManagerPage> {
                           color: accent.withValues(alpha: 0.14),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Icon(option?.icon ?? Icons.notes_outlined, size: 18, color: accent),
+                        child: Icon(
+                          option?.icon ?? Icons.notes_outlined,
+                          size: 18,
+                          color: accent,
+                        ),
                       ),
                     ],
                   ),
@@ -3824,7 +4263,9 @@ class _PromptManagerPageState extends State<_PromptManagerPage> {
                     widget.itemLabelBuilder(item),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   subtitle: Padding(
                     padding: const EdgeInsets.only(top: 6),
@@ -3842,35 +4283,45 @@ class _PromptManagerPageState extends State<_PromptManagerPage> {
                     children: [
                       Switch(
                         value: item.enabled,
-                        onChanged: _saving
-                            ? null
-                            : (value) {
-                                setState(() {
-                                  _items[index] = item.copyWith(enabled: value);
-                                });
-                              },
+                        onChanged:
+                            _saving
+                                ? null
+                                : (value) {
+                                  setState(() {
+                                    _items[index] = item.copyWith(
+                                      enabled: value,
+                                    );
+                                  });
+                                },
                       ),
                       if (isCustom)
                         IconButton(
                           visualDensity: VisualDensity.compact,
                           tooltip: '编辑',
-                          onPressed: _saving || _shouldIgnoreTap() ? null : () => _editCustomItemAt(index),
+                          onPressed:
+                              _saving || _shouldIgnoreTap()
+                                  ? null
+                                  : () => _editCustomItemAt(index),
                           icon: const Icon(Icons.edit_outlined, size: 18),
                         ),
                       if (isCustom)
                         IconButton(
                           visualDensity: VisualDensity.compact,
                           tooltip: '删除',
-                          onPressed: _saving || _shouldIgnoreTap()
-                              ? null
-                              : () {
-                                  setState(() => _items.removeAt(index));
-                                },
+                          onPressed:
+                              _saving || _shouldIgnoreTap()
+                                  ? null
+                                  : () {
+                                    setState(() => _items.removeAt(index));
+                                  },
                           icon: const Icon(Icons.delete_outline, size: 18),
                         ),
                     ],
                   ),
-                  onTap: _saving || _shouldIgnoreTap() || !isCustom ? null : () => _editCustomItemAt(index),
+                  onTap:
+                      _saving || _shouldIgnoreTap() || !isCustom
+                          ? null
+                          : () => _editCustomItemAt(index),
                 ),
               );
             },
@@ -3883,13 +4334,14 @@ class _PromptManagerPageState extends State<_PromptManagerPage> {
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
           child: FilledButton(
             onPressed: _saving ? null : _save,
-            child: _saving
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('保存'),
+            child:
+                _saving
+                    ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                    : const Text('保存'),
           ),
         ),
       ),
@@ -3912,8 +4364,8 @@ class _PromptTag extends StatelessWidget {
       ),
       child: Text(
         text,
-        style: const TextStyle(
-          fontSize: 11,
+        style: TextStyle(
+          fontSize: desktopAdjustedFontSize(11),
           fontWeight: FontWeight.w600,
           color: Color(0xFF475569),
         ),
@@ -3951,8 +4403,7 @@ class _QuickReplySettingsPageState extends State<_QuickReplySettingsPage> {
         _drafts[i].labelController.text =
             loaded[i]['label'] ?? _drafts[i].labelController.text;
         _drafts[i].instructionController.text =
-            loaded[i]['instruction'] ??
-            _drafts[i].instructionController.text;
+            loaded[i]['instruction'] ?? _drafts[i].instructionController.text;
       }
     });
   }
@@ -3973,9 +4424,9 @@ class _QuickReplySettingsPageState extends State<_QuickReplySettingsPage> {
           (item['instruction'] ?? '').trim().isEmpty,
     );
     if (hasEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('按钮文案和隐藏引导词都不能为空')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('按钮文案和隐藏引导词都不能为空')));
       return;
     }
     setState(() => _isSaving = true);
@@ -4154,7 +4605,8 @@ class _JsonMapEditorPage extends StatefulWidget {
 
   final String title;
   final Map<String, dynamic> initialValue;
-  final Future<Map<String, dynamic>> Function(Map<String, dynamic> value) onSave;
+  final Future<Map<String, dynamic>> Function(Map<String, dynamic> value)
+  onSave;
 
   @override
   State<_JsonMapEditorPage> createState() => _JsonMapEditorPageState();
@@ -4219,9 +4671,9 @@ class _JsonMapEditorPageState extends State<_JsonMapEditorPage> {
       Navigator.of(context).pop();
     } catch (exc) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('保存失败：$exc')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('保存失败：$exc')));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -4238,7 +4690,7 @@ class _ChatsTab extends StatelessWidget {
   final String? serverBaseUrl;
   final Future<void> Function(TavernChat chat) onOpenChat;
   final Future<void> Function(TavernChat chat, TavernCharacter? character)
-      onConfirmDeleteChat;
+  onConfirmDeleteChat;
 
   @override
   Widget build(BuildContext context) {
@@ -4251,9 +4703,9 @@ class _ChatsTab extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               '进来先直接聊天。角色和配置都收进次级入口。',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: const Color(0xFF667085),
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: const Color(0xFF667085)),
             ),
             const SizedBox(height: 8),
             if (store.recentChats.isEmpty)
@@ -4266,13 +4718,18 @@ class _ChatsTab extends StatelessWidget {
               )
             else
               ...store.recentChats.take(20).map((chat) {
-                final character = store.characters.cast<TavernCharacter?>().firstWhere(
-                  (item) => item?.id == chat.characterId,
-                  orElse: () => null,
-                );
-                final subtitle = chat.title.trim().isNotEmpty
-                    ? chat.title
-                    : (character?.name.isNotEmpty == true ? character!.name : chat.id);
+                final character = store.characters
+                    .cast<TavernCharacter?>()
+                    .firstWhere(
+                      (item) => item?.id == chat.characterId,
+                      orElse: () => null,
+                    );
+                final subtitle =
+                    chat.title.trim().isNotEmpty
+                        ? chat.title
+                        : (character?.name.isNotEmpty == true
+                            ? character!.name
+                            : chat.id);
                 return Card(
                   child: ListTile(
                     leading: buildTavernAvatar(
@@ -4414,8 +4871,8 @@ class _CompactInfoPill extends StatelessWidget {
       ),
       child: Text(
         text,
-        style: const TextStyle(
-          fontSize: 11,
+        style: TextStyle(
+          fontSize: desktopAdjustedFontSize(11),
           fontWeight: FontWeight.w600,
           color: Color(0xFF475569),
         ),
@@ -4456,9 +4913,9 @@ class _ConfigEntryCard extends StatelessWidget {
         ),
         title: Text(
           title,
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.w700,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
         ),
         subtitle: Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
         trailing: Row(
@@ -4490,7 +4947,8 @@ class _SimpleJsonListManagerPage extends StatelessWidget {
   final List<Map<String, dynamic>> items;
   final String emptyText;
   final Future<dynamic> Function(Map<String, dynamic> payload) onCreate;
-  final Future<dynamic> Function(String id, Map<String, dynamic> payload) onUpdate;
+  final Future<dynamic> Function(String id, Map<String, dynamic> payload)
+  onUpdate;
   final Future<void> Function(String id) onDelete;
   final Map<String, dynamic> defaultCreatePayload;
 
@@ -4502,34 +4960,46 @@ class _SimpleJsonListManagerPage extends StatelessWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.add),
-            onPressed: () => _openEditor(context, initial: defaultCreatePayload),
+            onPressed:
+                () => _openEditor(context, initial: defaultCreatePayload),
           ),
         ],
       ),
-      body: items.isEmpty
-          ? Center(child: Text(emptyText))
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: items.length,
-              itemBuilder: (context, index) {
-                final item = items[index];
-                final id = (item['id'] ?? '').toString();
-                final title = (item['name'] ?? id).toString();
-                final subtitle = (item['description'] ?? '').toString();
-                return Card(
-                  child: ListTile(
-                    title: Text(title),
-                    subtitle: subtitle.isEmpty ? null : Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis),
-                    trailing: item['isDefault'] == true ? const Chip(label: Text('默认')) : null,
-                    onTap: () => _openEditor(context, id: id, initial: item),
-                    onLongPress: () async {
-                      await onDelete(id);
-                      if (context.mounted) Navigator.of(context).pop();
-                    },
-                  ),
-                );
-              },
-            ),
+      body:
+          items.isEmpty
+              ? Center(child: Text(emptyText))
+              : ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: items.length,
+                itemBuilder: (context, index) {
+                  final item = items[index];
+                  final id = (item['id'] ?? '').toString();
+                  final title = (item['name'] ?? id).toString();
+                  final subtitle = (item['description'] ?? '').toString();
+                  return Card(
+                    child: ListTile(
+                      title: Text(title),
+                      subtitle:
+                          subtitle.isEmpty
+                              ? null
+                              : Text(
+                                subtitle,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                      trailing:
+                          item['isDefault'] == true
+                              ? const Chip(label: Text('默认'))
+                              : null,
+                      onTap: () => _openEditor(context, id: id, initial: item),
+                      onLongPress: () async {
+                        await onDelete(id);
+                        if (context.mounted) Navigator.of(context).pop();
+                      },
+                    ),
+                  );
+                },
+              ),
     );
   }
 
@@ -4540,18 +5010,19 @@ class _SimpleJsonListManagerPage extends StatelessWidget {
   }) async {
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => _JsonMapEditorPage(
-          title: id.isEmpty ? '新增$title' : '编辑$title',
-          initialValue: initial,
-          onSave: (value) async {
-            if (id.isEmpty) {
-              await onCreate(value);
-            } else {
-              await onUpdate(id, value);
-            }
-            return value;
-          },
-        ),
+        builder:
+            (_) => _JsonMapEditorPage(
+              title: id.isEmpty ? '新增$title' : '编辑$title',
+              initialValue: initial,
+              onSave: (value) async {
+                if (id.isEmpty) {
+                  await onCreate(value);
+                } else {
+                  await onUpdate(id, value);
+                }
+                return value;
+              },
+            ),
       ),
     );
   }

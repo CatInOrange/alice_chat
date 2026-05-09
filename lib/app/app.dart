@@ -895,7 +895,7 @@ class _PrimaryNavRail extends StatelessWidget {
                       Text(
                         item.label,
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: desktopAdjustedFontSize(11),
                           fontWeight:
                               selected ? FontWeight.w700 : FontWeight.w600,
                           color:
@@ -942,7 +942,7 @@ class _PrimaryNavRail extends StatelessWidget {
                     Text(
                       'Live2D',
                       style: TextStyle(
-                        fontSize: 10,
+                        fontSize: desktopAdjustedFontSize(10),
                         fontWeight: FontWeight.w700,
                         color:
                             live2dVisible

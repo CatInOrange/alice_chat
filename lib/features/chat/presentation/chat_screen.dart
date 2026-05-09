@@ -1044,7 +1044,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: const Color(0xFF98A1B3),
-                    fontSize: 11,
+                    fontSize: desktopAdjustedFontSize(11),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -1530,8 +1530,8 @@ class _ChatScreenState extends State<ChatScreen> {
     required bool sentByMe,
   }) {
     final theme = Theme.of(context);
-    final name = (attachment['name'] ?? attachment['filename'] ?? '附件')
-        .toString();
+    final name =
+        (attachment['name'] ?? attachment['filename'] ?? '附件').toString();
     final size = attachment['size'];
     final url = (attachment['url'] ?? attachment['rawUrl'] ?? '').toString();
     final mimeType = (attachment['mimeType'] ?? '').toString();
@@ -1795,7 +1795,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF98A1B3),
                         fontWeight: FontWeight.w600,
-                        fontSize: 11,
+                        fontSize: desktopAdjustedFontSize(11),
                       ),
                     ),
                     if (_extractModelName(message.text) != null) ...[
@@ -1803,7 +1803,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         " · ",
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: const Color(0xFF98A1B3),
-                          fontSize: 11,
+                          fontSize: desktopAdjustedFontSize(11),
                         ),
                       ),
                       _buildModelNameText(message.text),
@@ -1812,14 +1812,14 @@ class _ChatScreenState extends State<ChatScreen> {
                       " | ",
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF98A1B3),
-                        fontSize: 11,
+                        fontSize: desktopAdjustedFontSize(11),
                       ),
                     ),
                     Text(
                       _formatMessageTime(message.createdAt ?? DateTime.now()),
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF98A1B3),
-                        fontSize: 11,
+                        fontSize: desktopAdjustedFontSize(11),
                       ),
                     ),
                   ],
@@ -1883,7 +1883,7 @@ class _ChatScreenState extends State<ChatScreen> {
       orderedListAlign: WrapAlignment.start,
       code: mono.copyWith(
         backgroundColor: const Color(0xFFF1EEFF),
-        fontSize: 13.5,
+        fontSize: desktopAdjustedFontSize(13.5),
       ),
       codeblockDecoration: BoxDecoration(
         color: const Color(0xFFF7F8FC),
@@ -2180,7 +2180,10 @@ class _ChatScreenState extends State<ChatScreen> {
     final displayModelName = _formatModelNameForDisplay(modelName);
     return Text(
       displayModelName,
-      style: const TextStyle(color: Color(0xFF98A1B3), fontSize: 11),
+      style: TextStyle(
+        color: const Color(0xFF98A1B3),
+        fontSize: desktopAdjustedFontSize(11),
+      ),
     );
   }
 
@@ -2499,9 +2502,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   String _oneLinePreview(String text, {int maxWidth = 33}) {
     final collapsed =
-        _stripInlineMarkdownForPreview(text)
-            .replaceAll(RegExp(r'\s+'), ' ')
-            .trim();
+        _stripInlineMarkdownForPreview(
+          text,
+        ).replaceAll(RegExp(r'\s+'), ' ').trim();
     if (collapsed.isEmpty) return '';
     int totalWidth = 0;
     int lastFitIndex = 0;
@@ -2576,8 +2579,14 @@ class _ChatScreenState extends State<ChatScreen> {
     );
     normalized = normalized.replaceAll(RegExp(r'`{1,3}'), '');
     normalized = normalized.replaceAll(RegExp(r'[*_~#>]'), '');
-    normalized = normalized.replaceAll(RegExp(r'^\s*[-+•]\s*', multiLine: true), '');
-    normalized = normalized.replaceAll(RegExp(r'^\s*\d+\.\s*', multiLine: true), '');
+    normalized = normalized.replaceAll(
+      RegExp(r'^\s*[-+•]\s*', multiLine: true),
+      '',
+    );
+    normalized = normalized.replaceAll(
+      RegExp(r'^\s*\d+\.\s*', multiLine: true),
+      '',
+    );
     normalized = normalized.replaceAll('|', ' ');
     return normalized;
   }
@@ -2708,7 +2717,9 @@ class _ChatScreenState extends State<ChatScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 alignment: Alignment.center,
-                                child: const Icon(Icons.insert_drive_file_outlined),
+                                child: const Icon(
+                                  Icons.insert_drive_file_outlined,
+                                ),
                               ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -2717,7 +2728,9 @@ class _ChatScreenState extends State<ChatScreen> {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Text(
-                                  _pendingAttachmentDraft!.isImage ? '准备发送图片' : '准备发送附件',
+                                  _pendingAttachmentDraft!.isImage
+                                      ? '准备发送图片'
+                                      : '准备发送附件',
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     fontWeight: FontWeight.w700,
                                   ),
@@ -2733,7 +2746,9 @@ class _ChatScreenState extends State<ChatScreen> {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  _formatFileSize(_pendingAttachmentDraft!.fileSize),
+                                  _formatFileSize(
+                                    _pendingAttachmentDraft!.fileSize,
+                                  ),
                                   style: theme.textTheme.bodySmall?.copyWith(
                                     color: const Color(0xFF98A1B3),
                                   ),

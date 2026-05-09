@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../../core/debug/debug_log_store.dart';
 import '../../../core/debug/debug_log_uploader.dart';
 import '../../../core/debug/native_debug_bridge.dart';
+import '../../../app/theme.dart';
 
 class DebugLogsPanel extends StatefulWidget {
   const DebugLogsPanel({super.key});
@@ -28,9 +29,9 @@ class _DebugLogsPanelState extends State<DebugLogsPanel> {
       final lines = await NativeDebugBridge.instance.fetchNativeLogs();
       await DebugLogStore.instance.importLines(lines, fallbackTag: 'native');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已同步 ${lines.length} 条原生日志')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('已同步 ${lines.length} 条原生日志')));
     } finally {
       if (mounted) setState(() => _loadingNative = false);
     }
@@ -40,18 +41,18 @@ class _DebugLogsPanelState extends State<DebugLogsPanel> {
     final text = DebugLogStore.instance.exportText();
     await Clipboard.setData(ClipboardData(text: text));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('日志已复制')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('日志已复制')));
   }
 
   Future<void> _clearLogs() async {
     await DebugLogStore.instance.clear();
     await NativeDebugBridge.instance.clearNativeLogs();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('日志已清空')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('日志已清空')));
   }
 
   Future<void> _uploadLogs() async {
@@ -61,13 +62,15 @@ class _DebugLogsPanelState extends State<DebugLogsPanel> {
       if (!mounted) return;
       final uploadId = (result['uploadId'] ?? '').toString();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(uploadId.isEmpty ? '日志已上传' : '日志已上传: $uploadId')),
+        SnackBar(
+          content: Text(uploadId.isEmpty ? '日志已上传' : '日志已上传: $uploadId'),
+        ),
       );
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('上传失败: $error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('上传失败: $error')));
     } finally {
       if (mounted) setState(() => _uploading = false);
     }
@@ -90,19 +93,25 @@ class _DebugLogsPanelState extends State<DebugLogsPanel> {
                     const Expanded(
                       child: Text(
                         '调试日志',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                     IconButton(
                       tooltip: '同步原生日志',
                       onPressed: _loadingNative ? null : _refreshNativeLogs,
-                      icon: _loadingNative
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.sync),
+                      icon:
+                          _loadingNative
+                              ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                              : const Icon(Icons.sync),
                     ),
                     IconButton(
                       tooltip: '复制日志',
@@ -112,13 +121,16 @@ class _DebugLogsPanelState extends State<DebugLogsPanel> {
                     IconButton(
                       tooltip: '上传日志',
                       onPressed: _uploading ? null : _uploadLogs,
-                      icon: _uploading
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.cloud_upload_outlined),
+                      icon:
+                          _uploading
+                              ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                              : const Icon(Icons.cloud_upload_outlined),
                     ),
                     IconButton(
                       tooltip: '清空日志',
@@ -136,31 +148,32 @@ class _DebugLogsPanelState extends State<DebugLogsPanel> {
                     color: Colors.black,
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: entries.isEmpty
-                      ? const Center(
-                          child: Text(
-                            '暂无日志',
-                            style: TextStyle(color: Colors.white70),
-                          ),
-                        )
-                      : ListView.builder(
-                          reverse: false,
-                          itemCount: entries.length,
-                          itemBuilder: (context, index) {
-                            final entry = entries[index];
-                            return Padding(
-                              padding: const EdgeInsets.only(bottom: 6),
-                              child: SelectableText(
-                                entry.formatLine(),
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontFamily: 'monospace',
+                  child:
+                      entries.isEmpty
+                          ? const Center(
+                            child: Text(
+                              '暂无日志',
+                              style: TextStyle(color: Colors.white70),
+                            ),
+                          )
+                          : ListView.builder(
+                            reverse: false,
+                            itemCount: entries.length,
+                            itemBuilder: (context, index) {
+                              final entry = entries[index];
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: SelectableText(
+                                  entry.formatLine(),
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: desktopAdjustedFontSize(12),
+                                    fontFamily: 'monospace',
+                                  ),
                                 ),
-                              ),
-                            );
-                          },
-                        ),
+                              );
+                            },
+                          ),
                 ),
               ],
             ),

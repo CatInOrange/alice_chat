@@ -17,6 +17,7 @@ import '../../music/application/music_platform_store.dart';
 import '../../notifications/application/notification_service.dart';
 import '../../tavern/presentation/tavern_screen.dart';
 import 'debug_logs_panel.dart';
+import '../../../app/theme.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -69,18 +70,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final baseUrl = _urlController.text.trim();
     final password = _passwordController.text;
     if (baseUrl.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请先填写后端地址')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先填写后端地址')));
       return;
     }
 
     setState(() => _isSaving = true);
     try {
-      await OpenClawSettingsStore.save(
-        baseUrl: baseUrl,
-        appPassword: password,
-      );
+      await OpenClawSettingsStore.save(baseUrl: baseUrl, appPassword: password);
       await OpenClawSettingsStore.saveBackgroundServiceEnabled(
         _backgroundServiceEnabled,
       );
@@ -96,9 +94,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         'settings saved baseUrl=${baseUrl.isEmpty ? '(empty)' : baseUrl} backgroundService=$_backgroundServiceEnabled',
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('设置已保存，通知注册也会同步刷新')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('设置已保存，通知注册也会同步刷新')));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -137,9 +135,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }) async {
     final confirmed = await _confirmAdminAction(
       title: actionLabel,
-      message: isBackend
-          ? '这会同时重启 AliceChat chat backend 和 Live2D backend。若其中任一当前没在运行，会直接尝试拉起。执行中连接可能短暂中断。'
-          : '这会重启 OpenClaw Gateway。执行中桥接与消息链路可能短暂中断。',
+      message:
+          isBackend
+              ? '这会同时重启 AliceChat chat backend 和 Live2D backend。若其中任一当前没在运行，会直接尝试拉起。执行中连接可能短暂中断。'
+              : '这会重启 OpenClaw Gateway。执行中桥接与消息链路可能短暂中断。',
     );
     if (!confirmed || !mounted) return;
 
@@ -173,7 +172,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           final client = OpenClawHttpClient(store.currentConfig);
           final taskResult = await client.getAdminTask(taskId);
           latestTask =
-              (taskResult['task'] as Map?)?.cast<String, dynamic>() ?? latestTask;
+              (taskResult['task'] as Map?)?.cast<String, dynamic>() ??
+              latestTask;
         } catch (_) {
           if (!isBackend) rethrow;
           continue;
@@ -183,7 +183,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (mounted) {
           setState(() {
             _adminActionMessage =
-                message.isNotEmpty ? '$actionLabel：$message' : '$actionLabel 执行中…';
+                message.isNotEmpty
+                    ? '$actionLabel：$message'
+                    : '$actionLabel 执行中…';
           });
         }
         if (state == 'succeeded') {
@@ -195,7 +197,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           }
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(message.isNotEmpty ? message : '$actionLabel 完成')),
+            SnackBar(
+              content: Text(message.isNotEmpty ? message : '$actionLabel 完成'),
+            ),
           );
           return;
         }
@@ -206,9 +210,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       throw Exception('$actionLabel 超时，请稍后查看服务状态');
     } catch (exc) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$actionLabel 失败：$exc')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$actionLabel 失败：$exc')));
     } finally {
       if (mounted) {
         setState(() {
@@ -378,19 +382,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: const Text('关闭'),
                 ),
                 OutlinedButton.icon(
-                  onPressed: (qrState?.canRenderQr ?? false)
-                      ? () => _saveQrImage(
+                  onPressed:
+                      (qrState?.canRenderQr ?? false)
+                          ? () => _saveQrImage(
                             platform.provider.displayName,
                             qrState!.qrData!,
                           )
-                      : null,
+                          : null,
                   icon: const Icon(Icons.download_rounded),
                   label: const Text('下载二维码'),
                 ),
                 FilledButton.icon(
-                  onPressed: qrState?.phase == MusicPlatformQrLoginPhase.preparing
-                      ? null
-                      : () => store.refreshQrLogin(providerId),
+                  onPressed:
+                      qrState?.phase == MusicPlatformQrLoginPhase.preparing
+                          ? null
+                          : () => store.refreshQrLogin(providerId),
                   icon: const Icon(Icons.refresh_rounded),
                   label: const Text('重新生成'),
                 ),
@@ -409,16 +415,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final cliState = store.cliStateFor(platform.provider.providerId);
     final url = (cliState?.loginUrl ?? '').trim();
     if (url.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('还没有拿到 CLI 登录链接')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('还没有拿到 CLI 登录链接')));
       return;
     }
     final uri = Uri.tryParse(url);
     if (uri == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('CLI 登录链接无效：$url')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('CLI 登录链接无效：$url')));
       return;
     }
     final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -426,7 +432,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          launched ? '已打开网易云官方授权网页，请完成登录后回来点“检查 CLI 状态”' : '无法自动打开网页，请手动访问：$url',
+          launched
+              ? '已打开网易云官方授权网页，请完成登录后回来点“检查 CLI 状态”'
+              : '无法自动打开网页，请手动访问：$url',
         ),
       ),
     );
@@ -464,14 +472,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final file = File(p.join(exportDir.path, filename));
       await file.writeAsBytes(imageData.buffer.asUint8List(), flush: true);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('二维码已保存到 ${file.path}')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('二维码已保存到 ${file.path}')));
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('保存二维码失败：$error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('保存二维码失败：$error')));
     }
   }
 
@@ -496,12 +504,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             accentColor: const Color(0xFF4F46E5),
             title: '连接设置',
             subtitle: _connectionSummary(),
-            onTap: () => _openDetailPage(
-              title: '连接设置',
-              icon: Icons.link_rounded,
-              accentColor: const Color(0xFF4F46E5),
-              builder: (context) => _buildConnectionSettingsContent(context),
-            ),
+            onTap:
+                () => _openDetailPage(
+                  title: '连接设置',
+                  icon: Icons.link_rounded,
+                  accentColor: const Color(0xFF4F46E5),
+                  builder:
+                      (context) => _buildConnectionSettingsContent(context),
+                ),
           ),
           const SizedBox(height: 12),
           _SettingsEntryCard(
@@ -510,12 +520,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: '音乐平台',
             subtitle: _musicSummary(musicPlatforms),
             badge: musicPlatforms.isLoading ? '刷新中' : null,
-            onTap: () => _openDetailPage(
-              title: '音乐平台',
-              icon: Icons.library_music_rounded,
-              accentColor: const Color(0xFF0F766E),
-              builder: (context) => _buildMusicPlatformsContent(context),
-            ),
+            onTap:
+                () => _openDetailPage(
+                  title: '音乐平台',
+                  icon: Icons.library_music_rounded,
+                  accentColor: const Color(0xFF0F766E),
+                  builder: (context) => _buildMusicPlatformsContent(context),
+                ),
           ),
           const SizedBox(height: 12),
           _SettingsEntryCard(
@@ -524,24 +535,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: '服务管理',
             subtitle: _serviceSummary(),
             badge: (_adminActionMessage ?? '').trim().isNotEmpty ? '进行中' : null,
-            onTap: () => _openDetailPage(
-              title: '服务管理',
-              icon: Icons.admin_panel_settings_rounded,
-              accentColor: const Color(0xFFD97706),
-              builder: (context) => _buildServiceManagementContent(context),
-            ),
+            onTap:
+                () => _openDetailPage(
+                  title: '服务管理',
+                  icon: Icons.admin_panel_settings_rounded,
+                  accentColor: const Color(0xFFD97706),
+                  builder: (context) => _buildServiceManagementContent(context),
+                ),
           ),
           const SizedBox(height: 12),
           _SettingsEntryCard(
             icon: Icons.auto_awesome_rounded,
             accentColor: const Color(0xFF2563EB),
             title: '酒馆配置',
-            subtitle: '把 Presets、Prompt Order、Prompt Blocks、WorldBooks 收到全局设置页里。',
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const TavernScreen(configOnly: true),
-              ),
-            ),
+            subtitle:
+                '把 Presets、Prompt Order、Prompt Blocks、WorldBooks 收到全局设置页里。',
+            onTap:
+                () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const TavernScreen(configOnly: true),
+                  ),
+                ),
           ),
           const SizedBox(height: 12),
           _SettingsEntryCard(
@@ -549,12 +563,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             accentColor: const Color(0xFF7C3AED),
             title: '调试与日志',
             subtitle: '查看客户端调试日志，方便排查聊天链路和连接问题。',
-            onTap: () => _openDetailPage(
-              title: '调试与日志',
-              icon: Icons.bug_report_rounded,
-              accentColor: const Color(0xFF7C3AED),
-              builder: (context) => const DebugLogsPanel(),
-            ),
+            onTap:
+                () => _openDetailPage(
+                  title: '调试与日志',
+                  icon: Icons.bug_report_rounded,
+                  accentColor: const Color(0xFF7C3AED),
+                  builder: (context) => const DebugLogsPanel(),
+                ),
           ),
         ],
       ),
@@ -577,10 +592,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final total = store.platformStates.length;
     if (total == 0) return '暂未发现可用音乐平台';
     final active = store.platformStates.where((item) => item.hasCookie).length;
-    final cliReady = store.platformStates.where((item) {
-      final cli = store.cliStateFor(item.provider.providerId);
-      return cli?.loginValid == true;
-    }).length;
+    final cliReady =
+        store.platformStates.where((item) {
+          final cli = store.cliStateFor(item.provider.providerId);
+          return cli?.loginValid == true;
+        }).length;
     return '$total 个平台 · $active 个已接入 Cookie · $cliReady 个 CLI 可用';
   }
 
@@ -601,12 +617,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (context) => _SettingsDetailScaffold(
-          title: title,
-          icon: icon,
-          accentColor: accentColor,
-          child: builder(context),
-        ),
+        builder:
+            (context) => _SettingsDetailScaffold(
+              title: title,
+              icon: icon,
+              accentColor: accentColor,
+              child: builder(context),
+            ),
       ),
     );
     if (!mounted) return;
@@ -645,7 +662,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   helperText: '该密码会随请求发送到 AliceChat 后端，用于访问校验。',
                   suffixIcon: IconButton(
                     icon: Icon(
-                      _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                      _obscurePassword
+                          ? Icons.visibility_off
+                          : Icons.visibility,
                     ),
                     onPressed: () {
                       setState(() {
@@ -680,13 +699,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           width: double.infinity,
           child: FilledButton.icon(
             onPressed: _isSaving ? null : _saveSettings,
-            icon: _isSaving
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.save_rounded),
+            icon:
+                _isSaving
+                    ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                    : const Icon(Icons.save_rounded),
             label: Text(_isSaving ? '保存中…' : '保存连接设置'),
           ),
         ),
@@ -704,11 +724,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           subtitle: '网易云相关登录集中在这里管理。Cookie、二维码登录、CLI 登录是三条独立链路，别混用。',
           icon: Icons.library_music_rounded,
           trailing: IconButton(
-            onPressed: musicPlatforms.isLoading
-                ? null
-                : () => context
-                    .read<MusicPlatformStore>()
-                    .ensureReady(forceRefresh: true),
+            onPressed:
+                musicPlatforms.isLoading
+                    ? null
+                    : () => context.read<MusicPlatformStore>().ensureReady(
+                      forceRefresh: true,
+                    ),
             icon: const Icon(Icons.refresh),
             tooltip: '刷新平台状态',
           ),
@@ -734,34 +755,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         platform.provider.providerId,
                       ),
                       onImportCookie: () => _showCookieImportSheet(platform),
-                      onQrLogin: platform.provider.supportedAuthMethods
-                              .contains('qrCode')
-                          ? () => _showQrLoginDialog(platform)
-                          : null,
+                      onQrLogin:
+                          platform.provider.supportedAuthMethods.contains(
+                                'qrCode',
+                              )
+                              ? () => _showQrLoginDialog(platform)
+                              : null,
                       cliState: musicPlatforms.cliStateFor(
                         platform.provider.providerId,
                       ),
-                      onCliLogin: platform.provider.supportedAuthMethods
-                              .contains('cliLogin')
-                          ? () => _startCliLogin(platform)
-                          : null,
-                      onRefreshCliLogin: platform.provider.supportedAuthMethods
-                              .contains('cliLogin')
-                          ? () => context
-                              .read<MusicPlatformStore>()
-                              .refreshCliLoginStatus(
-                                platform.provider.providerId,
+                      onCliLogin:
+                          platform.provider.supportedAuthMethods.contains(
+                                'cliLogin',
                               )
-                          : null,
-                      onClearCookie: platform.hasCookie
-                          ? () async {
-                              await context
+                              ? () => _startCliLogin(platform)
+                              : null,
+                      onRefreshCliLogin:
+                          platform.provider.supportedAuthMethods.contains(
+                                'cliLogin',
+                              )
+                              ? () => context
                                   .read<MusicPlatformStore>()
-                                  .clearProviderCookie(
+                                  .refreshCliLoginStatus(
                                     platform.provider.providerId,
-                                  );
-                            }
-                          : null,
+                                  )
+                              : null,
+                      onClearCookie:
+                          platform.hasCookie
+                              ? () async {
+                                await context
+                                    .read<MusicPlatformStore>()
+                                    .clearProviderCookie(
+                                      platform.provider.providerId,
+                                    );
+                              }
+                              : null,
                     ),
                   ),
                 ),
@@ -786,22 +814,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: (_isRestartingBackend || _isRestartingGateway)
-                      ? null
-                      : () => _runAdminAction(
+                  onPressed:
+                      (_isRestartingBackend || _isRestartingGateway)
+                          ? null
+                          : () => _runAdminAction(
                             actionLabel: '重启 Backend',
-                            submit: () => OpenClawHttpClient(
-                              context.read<ChatSessionStore>().currentConfig,
-                            ).restartBackend(),
+                            submit:
+                                () =>
+                                    OpenClawHttpClient(
+                                      context
+                                          .read<ChatSessionStore>()
+                                          .currentConfig,
+                                    ).restartBackend(),
                             isBackend: true,
                           ),
-                  icon: _isRestartingBackend
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.restart_alt),
+                  icon:
+                      _isRestartingBackend
+                          ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                          : const Icon(Icons.restart_alt),
                   label: Text(
                     _isRestartingBackend ? '后端重启中…' : '重启后端（Chat + Live2D）',
                   ),
@@ -811,23 +845,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: (_isRestartingBackend || _isRestartingGateway)
-                      ? null
-                      : () => _runAdminAction(
+                  onPressed:
+                      (_isRestartingBackend || _isRestartingGateway)
+                          ? null
+                          : () => _runAdminAction(
                             actionLabel: '重启 Gateway',
-                            submit: () => OpenClawHttpClient(
-                              context.read<ChatSessionStore>().currentConfig,
-                            ).restartGateway(),
+                            submit:
+                                () =>
+                                    OpenClawHttpClient(
+                                      context
+                                          .read<ChatSessionStore>()
+                                          .currentConfig,
+                                    ).restartGateway(),
                             isBackend: false,
                           ),
-                  icon: _isRestartingGateway
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.settings_ethernet),
-                  label: Text(_isRestartingGateway ? 'Gateway 重启中…' : '重启 Gateway'),
+                  icon:
+                      _isRestartingGateway
+                          ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                          : const Icon(Icons.settings_ethernet),
+                  label: Text(
+                    _isRestartingGateway ? 'Gateway 重启中…' : '重启 Gateway',
+                  ),
                 ),
               ),
               if ((_adminActionMessage ?? '').trim().isNotEmpty) ...[
@@ -902,9 +944,9 @@ class _SettingsHeroCard extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 6),
                 Text(
@@ -1000,7 +1042,7 @@ class _SettingsEntryCard extends StatelessWidget {
                               badge!,
                               style: TextStyle(
                                 color: accentColor,
-                                fontSize: 12,
+                                fontSize: desktopAdjustedFontSize(12),
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
@@ -1241,9 +1283,12 @@ class _MusicProviderCard extends StatelessWidget {
             runSpacing: 8,
             children: [
               _CapabilityChip(label: 'auth:${provider.authMode}'),
-              if (provider.supportsSearch) const _CapabilityChip(label: 'search'),
-              if (provider.supportsResolve) const _CapabilityChip(label: 'resolve'),
-              if (provider.supportsLyrics) const _CapabilityChip(label: 'lyrics'),
+              if (provider.supportsSearch)
+                const _CapabilityChip(label: 'search'),
+              if (provider.supportsResolve)
+                const _CapabilityChip(label: 'resolve'),
+              if (provider.supportsLyrics)
+                const _CapabilityChip(label: 'lyrics'),
               ...provider.supportedAuthMethods.map(
                 (item) => _CapabilityChip(label: item),
               ),
@@ -1283,11 +1328,16 @@ class _MusicProviderCard extends StatelessWidget {
                       icon: const Icon(Icons.cookie_outlined),
                       label: FittedBox(
                         fit: BoxFit.scaleDown,
-                        child: Text(platform.hasCookie ? '更新 Cookie' : '导入 Cookie'),
+                        child: Text(
+                          platform.hasCookie ? '更新 Cookie' : '导入 Cookie',
+                        ),
                       ),
                     ),
                   ),
-                  SizedBox(width: useVerticalLayout ? 0 : 12, height: useVerticalLayout ? 10 : 0),
+                  SizedBox(
+                    width: useVerticalLayout ? 0 : 12,
+                    height: useVerticalLayout ? 10 : 0,
+                  ),
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: onQrLogin,
@@ -1317,7 +1367,10 @@ class _MusicProviderCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  SizedBox(width: useVerticalLayout ? 0 : 12, height: useVerticalLayout ? 10 : 0),
+                  SizedBox(
+                    width: useVerticalLayout ? 0 : 12,
+                    height: useVerticalLayout ? 10 : 0,
+                  ),
                   Expanded(
                     child: TextButton.icon(
                       onPressed: onRefreshCliLogin,
@@ -1392,11 +1445,12 @@ class _InlineCliStateBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = state.loginValid
-        ? const Color(0xFF2E7D32)
-        : state.statusLabel.contains('失败')
-        ? const Color(0xFFC62828)
-        : const Color(0xFFB26A00);
+    final color =
+        state.loginValid
+            ? const Color(0xFF2E7D32)
+            : state.statusLabel.contains('失败')
+            ? const Color(0xFFC62828)
+            : const Color(0xFFB26A00);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -1428,7 +1482,10 @@ class _InlineCliStateBanner extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(state.detail, style: Theme.of(context).textTheme.bodySmall),
+                Text(
+                  state.detail,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
                 if (state.hasLoginUrl) ...[
                   const SizedBox(height: 6),
                   SelectableText(
@@ -1463,8 +1520,8 @@ class _InlineQrStateBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = switch (state.phase) {
       MusicPlatformQrLoginPhase.authorized => const Color(0xFF2E7D32),
-      MusicPlatformQrLoginPhase.expired || MusicPlatformQrLoginPhase.failed =>
-        const Color(0xFFC62828),
+      MusicPlatformQrLoginPhase.expired ||
+      MusicPlatformQrLoginPhase.failed => const Color(0xFFC62828),
       MusicPlatformQrLoginPhase.waitingConfirm => const Color(0xFFB26A00),
       MusicPlatformQrLoginPhase.idle ||
       MusicPlatformQrLoginPhase.preparing ||
