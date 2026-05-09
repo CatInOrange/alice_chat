@@ -143,8 +143,18 @@ class _TavernScreenState extends State<TavernScreen>
   @override
   bool get wantKeepAlive => true;
 
+  double _desktopChatListWidth(double width) {
+    final ideal = width * 0.32;
+    if (ideal < 320) return 320;
+    if (ideal > 420) return 420;
+    return ideal;
+  }
+
   bool _useDesktopChatLayoutForWidth(double width) {
-    return !widget.configOnly && width >= 1380;
+    if (widget.configOnly) return false;
+    const detailMinWidth = 520.0;
+    const gapWidth = 20.0;
+    return width >= _desktopChatListWidth(width) + gapWidth + detailMinWidth;
   }
 
   void _selectDesktopChat(TavernChat chat, TavernCharacter character) {
@@ -159,6 +169,16 @@ class _TavernScreenState extends State<TavernScreen>
       _selectedDesktopChat = null;
       _selectedDesktopCharacter = null;
     });
+  }
+
+  double _lastLayoutWidth = 0;
+
+  bool get _useDesktopLayoutNow {
+    final width =
+        _lastLayoutWidth > 0
+            ? _lastLayoutWidth
+            : MediaQuery.of(context).size.width;
+    return _useDesktopChatLayoutForWidth(width);
   }
 
   void _syncDesktopSelection(TavernStore store) {
@@ -236,6 +256,7 @@ class _TavernScreenState extends State<TavernScreen>
           ),
           body: LayoutBuilder(
             builder: (context, constraints) {
+              _lastLayoutWidth = constraints.maxWidth;
               final useDesktopLayout = _useDesktopChatLayoutForWidth(
                 constraints.maxWidth,
               );
@@ -268,7 +289,11 @@ class _TavernScreenState extends State<TavernScreen>
                 );
               }
               if (useDesktopLayout) {
-                return _buildDesktopChatsLayout(context, store);
+                return _buildDesktopChatsLayout(
+                  context,
+                  store,
+                  constraints.maxWidth,
+                );
               }
               return RefreshIndicator(
                 onRefresh: store.loadLandingData,
@@ -288,15 +313,20 @@ class _TavernScreenState extends State<TavernScreen>
     );
   }
 
-  Widget _buildDesktopChatsLayout(BuildContext context, TavernStore store) {
+  Widget _buildDesktopChatsLayout(
+    BuildContext context,
+    TavernStore store,
+    double availableWidth,
+  ) {
     final selectedChat = _selectedDesktopChat;
     final selectedCharacter = _selectedDesktopCharacter;
+    final listWidth = _desktopChatListWidth(availableWidth);
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Row(
         children: [
           SizedBox(
-            width: 420,
+            width: listWidth,
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.surface,
@@ -1577,7 +1607,7 @@ class _TavernScreenState extends State<TavernScreen>
         personaId: personaId,
       );
       if (!mounted) return;
-      if (_useDesktopChatLayoutForWidth(MediaQuery.of(context).size.width)) {
+      if (_useDesktopLayoutNow) {
         _selectDesktopChat(chat, character);
         await context.read<TavernStore>().loadRecentChats();
         return;
@@ -1659,7 +1689,7 @@ class _TavernScreenState extends State<TavernScreen>
       final character =
           cached?.character ?? await store.getCharacter(chat.characterId);
       if (!mounted) return;
-      if (_useDesktopChatLayoutForWidth(MediaQuery.of(context).size.width)) {
+      if (_useDesktopLayoutNow) {
         _selectDesktopChat(chat, character);
         await store.loadRecentChats();
         return;
