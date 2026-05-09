@@ -143,8 +143,8 @@ class _TavernScreenState extends State<TavernScreen>
   @override
   bool get wantKeepAlive => true;
 
-  bool _useDesktopChatLayout(BuildContext context) {
-    return !widget.configOnly && MediaQuery.of(context).size.width >= 1180;
+  bool _useDesktopChatLayoutForWidth(double width) {
+    return !widget.configOnly && width >= 1380;
   }
 
   void _selectDesktopChat(TavernChat chat, TavernCharacter character) {
@@ -158,6 +158,42 @@ class _TavernScreenState extends State<TavernScreen>
     setState(() {
       _selectedDesktopChat = null;
       _selectedDesktopCharacter = null;
+    });
+  }
+
+  void _syncDesktopSelection(TavernStore store) {
+    if (widget.configOnly || store.recentChats.isEmpty) {
+      if (_selectedDesktopChat != null || _selectedDesktopCharacter != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _clearDesktopChatSelection();
+        });
+      }
+      return;
+    }
+
+    final selectedChat = _selectedDesktopChat;
+    final current =
+        selectedChat == null
+            ? null
+            : store.recentChats
+                .where((chat) => chat.id == selectedChat.id)
+                .firstOrNull;
+    final nextChat = current ?? store.recentChats.first;
+    final nextCharacter = store.characters.cast<TavernCharacter?>().firstWhere(
+      (item) => item?.id == nextChat.characterId,
+      orElse: () => null,
+    );
+    if (nextCharacter == null) {
+      return;
+    }
+    if (_selectedDesktopChat?.id == nextChat.id &&
+        _selectedDesktopCharacter?.id == nextCharacter.id) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _selectDesktopChat(nextChat, nextCharacter);
     });
   }
 
@@ -198,44 +234,55 @@ class _TavernScreenState extends State<TavernScreen>
                       ),
                     ],
           ),
-          body:
-              widget.configOnly
-                  ? RefreshIndicator(
-                    onRefresh: store.loadConfigHubData,
-                    child: _ConfigHubTab(
-                      serverBaseUrl: _serverBaseUrl,
-                      configHubPrimed: _configHubPrimed,
-                      onPrime: () {
-                        _configHubPrimed = true;
-                        context.read<TavernStore>().loadConfigHubData();
-                      },
-                      onShowPresetsManager:
-                          () => _showPresetsManager(context, store),
-                      onShowPromptManager:
-                          () => _showPromptManager(context, store),
-                      onShowWorldBooksManager:
-                          () => _showWorldBooksManager(context, store),
-                      onShowPersonasManager:
-                          () => _showPersonasManager(context, store),
-                      onShowGlobalVariablesManager:
-                          () => _showGlobalVariablesManager(context, store),
-                      onShowQuickReplySettings:
-                          () => _showQuickReplySettings(context),
-                    ),
-                  )
-                  : _useDesktopChatLayout(context)
-                  ? _buildDesktopChatsLayout(context, store)
-                  : RefreshIndicator(
-                    onRefresh: store.loadLandingData,
-                    child: _ChatsTab(
-                      serverBaseUrl: _serverBaseUrl,
-                      selectedChatId: _selectedDesktopChat?.id,
-                      onOpenChat: _openExistingChat,
-                      onConfirmDeleteChat:
-                          (chat, character) =>
-                              _confirmDeleteChat(context, chat, character),
-                    ),
+          body: LayoutBuilder(
+            builder: (context, constraints) {
+              final useDesktopLayout = _useDesktopChatLayoutForWidth(
+                constraints.maxWidth,
+              );
+              if (useDesktopLayout) {
+                _syncDesktopSelection(store);
+              }
+              if (widget.configOnly) {
+                return RefreshIndicator(
+                  onRefresh: store.loadConfigHubData,
+                  child: _ConfigHubTab(
+                    serverBaseUrl: _serverBaseUrl,
+                    configHubPrimed: _configHubPrimed,
+                    onPrime: () {
+                      _configHubPrimed = true;
+                      context.read<TavernStore>().loadConfigHubData();
+                    },
+                    onShowPresetsManager:
+                        () => _showPresetsManager(context, store),
+                    onShowPromptManager:
+                        () => _showPromptManager(context, store),
+                    onShowWorldBooksManager:
+                        () => _showWorldBooksManager(context, store),
+                    onShowPersonasManager:
+                        () => _showPersonasManager(context, store),
+                    onShowGlobalVariablesManager:
+                        () => _showGlobalVariablesManager(context, store),
+                    onShowQuickReplySettings:
+                        () => _showQuickReplySettings(context),
                   ),
+                );
+              }
+              if (useDesktopLayout) {
+                return _buildDesktopChatsLayout(context, store);
+              }
+              return RefreshIndicator(
+                onRefresh: store.loadLandingData,
+                child: _ChatsTab(
+                  serverBaseUrl: _serverBaseUrl,
+                  selectedChatId: _selectedDesktopChat?.id,
+                  onOpenChat: _openExistingChat,
+                  onConfirmDeleteChat:
+                      (chat, character) =>
+                          _confirmDeleteChat(context, chat, character),
+                ),
+              );
+            },
+          ),
         );
       },
     );
@@ -248,8 +295,8 @@ class _TavernScreenState extends State<TavernScreen>
       padding: const EdgeInsets.all(16),
       child: Row(
         children: [
-          Expanded(
-            flex: 5,
+          SizedBox(
+            width: 420,
             child: DecoratedBox(
               decoration: BoxDecoration(
                 color: Theme.of(context).colorScheme.surface,
@@ -268,9 +315,8 @@ class _TavernScreenState extends State<TavernScreen>
               ),
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 20),
           Expanded(
-            flex: 7,
             child:
                 selectedChat != null && selectedCharacter != null
                     ? ClipRRect(
@@ -1531,7 +1577,7 @@ class _TavernScreenState extends State<TavernScreen>
         personaId: personaId,
       );
       if (!mounted) return;
-      if (_useDesktopChatLayout(context)) {
+      if (_useDesktopChatLayoutForWidth(MediaQuery.of(context).size.width)) {
         _selectDesktopChat(chat, character);
         await context.read<TavernStore>().loadRecentChats();
         return;
@@ -1598,7 +1644,7 @@ class _TavernScreenState extends State<TavernScreen>
       final character =
           cached?.character ?? await store.getCharacter(chat.characterId);
       if (!mounted) return;
-      if (_useDesktopChatLayout(context)) {
+      if (_useDesktopChatLayoutForWidth(MediaQuery.of(context).size.width)) {
         _selectDesktopChat(chat, character);
         await store.loadRecentChats();
         return;
