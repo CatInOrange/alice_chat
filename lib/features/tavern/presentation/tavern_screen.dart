@@ -303,7 +303,10 @@ class _TavernScreenState extends State<TavernScreen>
               ),
             ],
           ),
-          body: _buildWorldBooksTab(context, store),
+          body: Consumer<TavernStore>(
+            builder: (context, liveStore, _) =>
+                _buildWorldBooksTab(context, liveStore),
+          ),
         ),
       ),
     );
@@ -2073,18 +2076,9 @@ class _TavernScreenState extends State<TavernScreen>
     BuildContext context, {
     TavernPromptOrderItem? item,
   }) async {
+    final nameController = TextEditingController(text: item?.name ?? '');
     final contentController = TextEditingController(text: item?.content ?? '');
     String role = (item?.role ?? 'system').trim().isEmpty ? 'system' : (item?.role ?? 'system');
-
-    String deriveName(String content) {
-      final lines = content
-          .split('\n')
-          .map((line) => line.trim())
-          .where((line) => line.isNotEmpty);
-      if (lines.isEmpty) return '自定义提示词';
-      final first = lines.first;
-      return first.length <= 18 ? first : '${first.substring(0, 18)}…';
-    }
 
     final result = await showModalBottomSheet<TavernPromptOrderItem>(
       context: context,
@@ -2104,6 +2098,16 @@ class _TavernScreenState extends State<TavernScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(item == null ? '新增自定义提示词' : '编辑自定义提示词', style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: nameController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: '名称',
+                    hintText: '例如：回复风格约束',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   value: _storyRoles.contains(role) ? role : 'system',
@@ -2141,7 +2145,9 @@ class _TavernScreenState extends State<TavernScreen>
                         Navigator.of(context).pop(
                           TavernPromptOrderItem(
                             identifier: '',
-                            name: deriveName(contentController.text),
+                            name: nameController.text.trim().isEmpty
+                                ? '自定义提示词'
+                                : nameController.text.trim(),
                             role: role,
                             content: contentController.text,
                             enabled: item?.enabled ?? true,
@@ -2162,6 +2168,7 @@ class _TavernScreenState extends State<TavernScreen>
       ),
     );
 
+    nameController.dispose();
     contentController.dispose();
     return result;
   }
