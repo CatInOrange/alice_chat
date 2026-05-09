@@ -551,7 +551,7 @@ class _MainScaffoldState extends State<_MainScaffold>
         setState(() => _currentIndex = 2);
       },
     );
-    final showSidebar = _currentIndex != 2;
+    final showSidebar = _currentIndex != 2 && _currentIndex != 3;
     final centerPane = _buildCenterPane(activeState);
 
     return Scaffold(
@@ -698,6 +698,15 @@ class _MainScaffoldState extends State<_MainScaffold>
   Widget _buildCenterPane(ChatViewState? activeState) {
     if (_currentIndex == 2) {
       return const MusicScreen();
+    }
+    if (_currentIndex == 3) {
+      return _WorkbenchPlaceholderCard(
+        removePadding: true,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(26),
+          child: const TavernScreen(),
+        ),
+      );
     }
     if (_currentIndex == 0 && _activeChatSession != null) {
       return _WorkbenchPlaceholderCard(
