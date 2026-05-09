@@ -308,7 +308,7 @@ class _TavernScreenState extends State<TavernScreen>
               child: _ChatsTab(
                 serverBaseUrl: _serverBaseUrl,
                 selectedChatId: selectedChat?.id,
-                onOpenChat: _openExistingChat,
+                onOpenChat: _openDesktopChatFromList,
                 onConfirmDeleteChat:
                     (chat, character) =>
                         _confirmDeleteChat(context, chat, character),
@@ -1634,6 +1634,21 @@ class _TavernScreenState extends State<TavernScreen>
             ),
           ),
     );
+  }
+
+  Future<void> _openDesktopChatFromList(TavernChat chat) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final store = context.read<TavernStore>();
+      final cached = store.peekChatSnapshot(chat.id);
+      final character =
+          cached?.character ?? await store.getCharacter(chat.characterId);
+      if (!mounted) return;
+      _selectDesktopChat(chat, character);
+    } catch (exc) {
+      if (!mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text('打开会话失败：$exc')));
+    }
   }
 
   Future<void> _openExistingChat(TavernChat chat) async {
