@@ -57,13 +57,15 @@ class _TavernScreenState extends State<TavernScreen>
   final ImagePicker _picker = ImagePicker();
   bool _isImporting = false;
   String? _serverBaseUrl;
+  bool _configHubPrimed = false;
+  final Set<String> _expandedWorldBookIds = <String>{};
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      context.read<TavernStore>().loadCharacters();
+      context.read<TavernStore>().loadLandingData();
       final settings = await OpenClawSettingsStore.load();
       if (!mounted) return;
       setState(() {
@@ -81,103 +83,70 @@ class _TavernScreenState extends State<TavernScreen>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final store = context.watch<TavernStore>();
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final message = store.lastImportMessage;
-      final importResult = store.lastImportResult;
-      if (!mounted) return;
-      if (message != null && message.isNotEmpty) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(message)));
-      }
-      if (importResult != null) {
-        _showImportReport(importResult);
-      }
-      if ((message != null && message.isNotEmpty) || importResult != null) {
-        context.read<TavernStore>().clearImportMessage();
-      }
-    });
+    return Consumer<TavernStore>(
+      builder: (context, store, _) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final message = store.lastImportMessage;
+          final importResult = store.lastImportResult;
+          if (!mounted) return;
+          if (message != null && message.isNotEmpty) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(message)));
+          }
+          if (importResult != null) {
+            _showImportReport(importResult);
+          }
+          if ((message != null && message.isNotEmpty) || importResult != null) {
+            context.read<TavernStore>().clearImportMessage();
+          }
+        });
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.configOnly ? '酒馆配置' : '酒馆'),
-        actions: widget.configOnly
-            ? null
-            : [
-                IconButton(
-                  tooltip: '角色页',
-                  onPressed: () => _showCharactersSheet(context, store),
-                  icon: const Icon(Icons.account_box_outlined),
-                ),
-              ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: store.loadCharacters,
-        child: widget.configOnly
-            ? _buildConfigHubTab(context, store)
-            : _buildChatsTab(context, store),
-      ),
-    );
-  }
-
-  Widget _buildChatsTab(BuildContext context, TavernStore store) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Text('最近会话', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 6),
-        Text(
-          '进来先直接聊天。角色和配置都收进次级入口。',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: const Color(0xFF667085),
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(widget.configOnly ? '酒馆配置' : '酒馆'),
+            actions: widget.configOnly
+                ? null
+                : [
+                    IconButton(
+                      tooltip: '角色页',
+                      onPressed: () => _showCharactersSheet(context),
+                      icon: const Icon(Icons.account_box_outlined),
+                    ),
+                  ],
           ),
-        ),
-        const SizedBox(height: 8),
-        if (store.recentChats.isEmpty)
-          const Card(
-            child: ListTile(
-              leading: Icon(Icons.chat_bubble_outline),
-              title: Text('还没有 Tavern 会话'),
-              subtitle: Text('去角色页选择角色后就能开始聊天。'),
-            ),
-          )
-        else
-          ...store.recentChats.take(20).map(
-            (chat) {
-              final character = store.characters.cast<TavernCharacter?>().firstWhere(
-                (item) => item?.id == chat.characterId,
-                orElse: () => null,
-              );
-              final subtitle = chat.title.trim().isNotEmpty
-                  ? chat.title
-                  : (character?.name.isNotEmpty == true ? character!.name : chat.id);
-              return Card(
-                child: ListTile(
-                  leading: buildTavernAvatar(
-                    avatarPath: character?.avatarPath ?? '',
+          body: RefreshIndicator(
+            onRefresh: widget.configOnly ? store.loadConfigHubData : store.loadLandingData,
+            child: widget.configOnly
+                ? _ConfigHubTab(
                     serverBaseUrl: _serverBaseUrl,
-                    useDefaultAssetFallback: true,
+                    configHubPrimed: _configHubPrimed,
+                    onPrime: () {
+                      _configHubPrimed = true;
+                      context.read<TavernStore>().loadConfigHubData();
+                    },
+                    onShowPresetsManager: () => _showPresetsManager(context, store),
+                    onShowPromptManager: () => _showPromptManager(context, store),
+                    onShowWorldBooksManager: () => _showWorldBooksManager(context, store),
+                    onShowPersonasManager: () => _showPersonasManager(context, store),
+                    onShowGlobalVariablesManager: () => _showGlobalVariablesManager(context, store),
+                    onShowQuickReplySettings: () => _showQuickReplySettings(context),
+                  )
+                : _ChatsTab(
+                    serverBaseUrl: _serverBaseUrl,
+                    onOpenChat: _openExistingChat,
+                    onConfirmDeleteChat: (chat, character) =>
+                        _confirmDeleteChat(context, chat, character),
                   ),
-                  title: Text(character?.name ?? '未知角色'),
-                  subtitle: Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _openExistingChat(chat),
-                  onLongPress: () => _confirmDeleteChat(context, chat, character),
-                ),
-              );
-            },
           ),
-      ],
+        );
+      },
     );
   }
 
-  Future<void> _showCharactersSheet(BuildContext context, TavernStore store) async {
+
+  Future<void> _showCharactersSheet(BuildContext context) async {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -185,179 +154,103 @@ class _TavernScreenState extends State<TavernScreen>
       builder: (context) => SafeArea(
         child: FractionallySizedBox(
           heightFactor: 0.92,
-          child: StatefulBuilder(
-            builder: (context, setModalState) => Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('角色页', style: Theme.of(context).textTheme.titleLarge),
-                            const SizedBox(height: 4),
-                            Text(
-                              '角色不在酒馆首页常驻，按一下再展开。',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('角色页', style: Theme.of(context).textTheme.titleLarge),
+                          const SizedBox(height: 4),
+                          Text(
+                            '角色不在酒馆首页常驻，按一下再展开。',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
                       ),
-                      FilledButton.icon(
-                        onPressed: _isImporting
-                            ? null
-                            : () async {
-                                Navigator.of(context).pop();
-                                await _importCharacter();
-                              },
-                        icon: const Icon(Icons.file_upload_outlined),
-                        label: const Text('导入'),
-                      ),
-                    ],
-                  ),
+                    ),
+                    FilledButton.icon(
+                      onPressed: _isImporting
+                          ? null
+                          : () async {
+                              Navigator.of(context).pop();
+                              await _importCharacter();
+                            },
+                      icon: const Icon(Icons.file_upload_outlined),
+                      label: const Text('导入'),
+                    ),
+                  ],
                 ),
-                Expanded(
-                  child: Builder(
-                    builder: (context) {
-                      if (store.isLoading) {
-                        return const Center(child: CircularProgressIndicator());
-                      }
-                      if ((store.error ?? '').isNotEmpty) {
-                        return ListView(
-                          padding: const EdgeInsets.all(16),
-                          children: [
-                            Card(
-                              child: ListTile(
-                                leading: const Icon(Icons.error_outline),
-                                title: const Text('加载角色失败'),
-                                subtitle: Text(store.error!),
-                              ),
-                            ),
-                          ],
-                        );
-                      }
-                      if (store.characters.isEmpty) {
-                        return ListView(
-                          padding: const EdgeInsets.all(16),
-                          children: const [
-                            Card(
-                              child: ListTile(
-                                title: Text('还没有角色'),
-                                subtitle: Text('支持导入 JSON / PNG / CharX 角色卡。'),
-                              ),
-                            ),
-                          ],
-                        );
-                      }
+              ),
+              Expanded(
+                child: Consumer<TavernStore>(
+                  builder: (context, store, _) {
+                    if (store.isLoading) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if ((store.error ?? '').isNotEmpty) {
                       return ListView(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-                        children: store.characters
-                            .map(
-                              (character) => Card(
-                                child: ListTile(
-                                  leading: buildTavernAvatar(
-                                    avatarPath: character.avatarPath,
-                                    serverBaseUrl: _serverBaseUrl,
-                                    useDefaultAssetFallback: true,
-                                  ),
-                                  title: Text(character.name),
-                                  subtitle: Text(
-                                    character.description.isNotEmpty ? character.description : character.scenario,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                  trailing: const Icon(Icons.chevron_right),
-                                  onTap: () async {
-                                    await _showCharacterDetail(character);
-                                    if (context.mounted) setModalState(() {});
-                                  },
-                                  onLongPress: () async {
-                                    await _confirmDeleteCharacter(this.context, character);
-                                    if (context.mounted) setModalState(() {});
-                                  },
-                                ),
-                              ),
-                            )
-                            .toList(growable: false),
+                        padding: const EdgeInsets.all(16),
+                        children: [
+                          Card(
+                            child: ListTile(
+                              leading: const Icon(Icons.error_outline),
+                              title: const Text('加载角色失败'),
+                              subtitle: Text(store.error!),
+                            ),
+                          ),
+                        ],
                       );
-                    },
-                  ),
+                    }
+                    if (store.characters.isEmpty) {
+                      return ListView(
+                        padding: const EdgeInsets.all(16),
+                        children: const [
+                          Card(
+                            child: ListTile(
+                              title: Text('还没有角色'),
+                              subtitle: Text('支持导入 JSON / PNG / CharX 角色卡。'),
+                            ),
+                          ),
+                        ],
+                      );
+                    }
+                    return ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+                      children: store.characters
+                          .map(
+                            (character) => Card(
+                              child: ListTile(
+                                leading: buildTavernAvatar(
+                                  avatarPath: character.avatarPath,
+                                  serverBaseUrl: _serverBaseUrl,
+                                  useDefaultAssetFallback: true,
+                                ),
+                                title: Text(character.name),
+                                subtitle: Text(
+                                  character.description.isNotEmpty ? character.description : character.scenario,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                trailing: const Icon(Icons.chevron_right),
+                                onTap: () => _showCharacterDetail(character),
+                                onLongPress: () => _confirmDeleteCharacter(this.context, character),
+                              ),
+                            ),
+                          )
+                          .toList(growable: false),
+                    );
+                  },
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildConfigHubTab(BuildContext context, TavernStore store) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Text('配置中心', style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 6),
-        Text(
-          '把不常改的 Tavern 能力都收进这里，聊天页保持干净。',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-        const SizedBox(height: 16),
-        _settingsEntryCard(
-          context,
-          icon: Icons.auto_awesome_outlined,
-          title: 'Presets',
-          subtitle: '模型参数与采样配置',
-          trailingText: '${store.presets.length}',
-          onTap: () => _showPresetsManager(context, store),
-        ),
-        const SizedBox(height: 12),
-        _settingsEntryCard(
-          context,
-          icon: Icons.reorder_outlined,
-          title: '提示词管理',
-          subtitle: '像 Native 一样管理内建段落与自定义提示词',
-          trailingText: '${store.promptOrders.length}',
-          onTap: () => _showPromptManager(context, store),
-        ),
-        const SizedBox(height: 12),
-        _settingsEntryCard(
-          context,
-          icon: Icons.public_outlined,
-          title: 'WorldBooks',
-          subtitle: '管理世界书范围（全局/非全局）与条目触发规则',
-          trailingText: '${store.worldBooks.length}',
-          onTap: () => _showWorldBooksManager(context, store),
-        ),
-        const SizedBox(height: 12),
-        _settingsEntryCard(
-          context,
-          icon: Icons.person_outline,
-          title: 'Personas',
-          subtitle: '管理用户人设，决定 {{user}} / {{persona}} 的来源',
-          trailingText: '${store.personas.length}',
-          onTap: () => _showPersonasManager(context, store),
-        ),
-        const SizedBox(height: 12),
-        _settingsEntryCard(
-          context,
-          icon: Icons.data_object_outlined,
-          title: 'Variables',
-          subtitle: '查看和编辑全局变量（global vars）',
-          trailingText: '${store.globalVariables.length}',
-          onTap: () => _showGlobalVariablesManager(context, store),
-        ),
-        const SizedBox(height: 12),
-        _settingsEntryCard(
-          context,
-          icon: Icons.flash_on_outlined,
-          title: '快速回复',
-          subtitle: '配置继续 / 转折 / 描写的按钮文案与隐藏引导词',
-          trailingText: '3',
-          onTap: () => _showQuickReplySettings(context),
-        ),
-      ],
     );
   }
 
@@ -371,7 +264,7 @@ class _TavernScreenState extends State<TavernScreen>
             actions: [
               IconButton(
                 tooltip: '刷新',
-                onPressed: () => this.context.read<TavernStore>().loadHome(),
+                onPressed: () => this.context.read<TavernStore>().loadPresets(),
                 icon: const Icon(Icons.refresh),
               ),
               IconButton(
@@ -386,7 +279,7 @@ class _TavernScreenState extends State<TavernScreen>
       ),
     );
     if (!mounted) return;
-    await this.context.read<TavernStore>().loadHome();
+    await this.context.read<TavernStore>().loadPresets();
   }
 
   Future<void> _showWorldBooksManager(BuildContext context, TavernStore store) async {
@@ -415,7 +308,7 @@ class _TavernScreenState extends State<TavernScreen>
       ),
     );
     if (!mounted) return;
-    await this.context.read<TavernStore>().loadHome();
+    await this.context.read<TavernStore>().loadWorldBooks();
   }
 
   Future<void> _showPromptManager(BuildContext context, TavernStore store) async {
@@ -434,7 +327,7 @@ class _TavernScreenState extends State<TavernScreen>
       ),
     );
     if (!mounted) return;
-    await this.context.read<TavernStore>().loadHome();
+    await this.context.read<TavernStore>().loadConfigOptions();
   }
 
   Future<void> _showPersonasManager(BuildContext context, TavernStore store) async {
@@ -458,7 +351,7 @@ class _TavernScreenState extends State<TavernScreen>
       ),
     );
     if (!mounted) return;
-    await this.context.read<TavernStore>().loadHome();
+    await this.context.read<TavernStore>().loadConfigOptions();
   }
 
   Future<void> _showGlobalVariablesManager(BuildContext context, TavernStore store) async {
@@ -474,7 +367,7 @@ class _TavernScreenState extends State<TavernScreen>
       ),
     );
     if (!mounted) return;
-    await this.context.read<TavernStore>().loadHome();
+    await this.context.read<TavernStore>().loadConfigOptions();
   }
 
   Future<void> _showQuickReplySettings(BuildContext context) async {
@@ -482,42 +375,6 @@ class _TavernScreenState extends State<TavernScreen>
     await navigator.push(
       MaterialPageRoute(
         builder: (_) => const _QuickReplySettingsPage(),
-      ),
-    );
-  }
-
-  Widget _settingsEntryCard(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required String trailingText,
-    required VoidCallback onTap,
-  }) {
-    return Card(
-      margin: EdgeInsets.zero,
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        leading: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: const Color(0xFFF6F3FF),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(icon, color: const Color(0xFF7C4DFF)),
-        ),
-        title: Text(title, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
-        subtitle: Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _compactInfoPill(trailingText),
-            const SizedBox(width: 4),
-            const Icon(Icons.chevron_right),
-          ],
-        ),
-        onTap: onTap,
       ),
     );
   }
@@ -573,30 +430,48 @@ class _TavernScreenState extends State<TavernScreen>
           ...store.worldBooks.map((book) {
             final entries = store.worldBookEntriesOf(book.id);
             final isLoading = store.isLoadingWorldBookEntries(book.id);
+            final isUpdating = store.isUpdatingWorldBook(book.id);
             final error = store.worldBookEntriesErrorOf(book.id) ?? '';
-            final hasLoaded = entries.isNotEmpty || error.isNotEmpty;
+            final hasLoaded = store.hasLoadedWorldBookEntries(book.id);
             return Card(
-              margin: const EdgeInsets.only(bottom: 12),
+              margin: const EdgeInsets.only(bottom: 10),
               elevation: 0,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18),
+                borderRadius: BorderRadius.circular(16),
                 side: const BorderSide(color: Color(0xFFE8EAF2)),
               ),
               child: GestureDetector(
                 onLongPress: () => _confirmDeleteWorldBook(context, book),
                 behavior: HitTestBehavior.opaque,
                 child: ExpansionTile(
-                  initiallyExpanded: false,
-                  tilePadding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
-                  childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                  key: PageStorageKey<String>('worldbook-${book.id}'),
+                  initiallyExpanded: _expandedWorldBookIds.contains(book.id),
+                  tilePadding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
+                  childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+                  minTileHeight: 0,
+                  dense: true,
                   onExpansionChanged: (expanded) {
-                    if (expanded && entries.isEmpty && !isLoading) {
+                    setState(() {
+                      if (expanded) {
+                        _expandedWorldBookIds.add(book.id);
+                      } else {
+                        _expandedWorldBookIds.remove(book.id);
+                      }
+                    });
+                    if (expanded && !hasLoaded && !isLoading) {
                       context.read<TavernStore>().loadWorldBookEntries(book.id);
                     }
                   },
-                  leading: Switch.adaptive(
-                    value: book.enabled,
-                    onChanged: (value) => _toggleWorldBook(context, book, value),
+                  leading: IgnorePointer(
+                    ignoring: isUpdating,
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 180),
+                      opacity: isUpdating ? 0.55 : 1,
+                      child: Switch.adaptive(
+                        value: book.enabled,
+                        onChanged: (value) => _toggleWorldBook(context, book, value),
+                      ),
+                    ),
                   ),
                   title: Text(
                     book.name,
@@ -604,37 +479,35 @@ class _TavernScreenState extends State<TavernScreen>
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.w800,
+                      height: 1.15,
                     ),
                   ),
                   subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 6),
+                    padding: const EdgeInsets.only(top: 4),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (book.description.trim().isNotEmpty)
-                          Text(
-                            book.description.trim(),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: const Color(0xFF667085),
-                            ),
-                          )
-                        else
-                          Text(
-                            book.isGlobal ? '所有会话可见' : '仅绑定角色可见',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: const Color(0xFF667085),
-                            ),
+                        Text(
+                          book.description.trim().isNotEmpty
+                              ? book.description.trim()
+                              : (book.isGlobal ? '所有会话可见' : '仅绑定角色可见'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFF667085),
+                            height: 1.2,
                           ),
-                        const SizedBox(height: 8),
+                        ),
+                        const SizedBox(height: 4),
                         Wrap(
                           spacing: 6,
-                          runSpacing: 6,
+                          runSpacing: 4,
                           children: [
                             _softMetaChip(book.isGlobal ? '全局' : '角色绑定'),
                             _softMetaChip(book.enabled ? '启用' : '停用'),
-                            if (entries.isNotEmpty)
+                            if (isUpdating)
+                              _softMetaChip('保存中')
+                            else if (entries.isNotEmpty)
                               _softMetaChip('${entries.length} 条')
                             else if (isLoading)
                               _softMetaChip('加载中')
@@ -649,26 +522,34 @@ class _TavernScreenState extends State<TavernScreen>
                       ],
                     ),
                   ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: '新增条目',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () => _editWorldBookEntry(context, worldbook: book),
-                        icon: const Icon(Icons.note_add_outlined),
+                  trailing: PopupMenuButton<String>(
+                    tooltip: 'WorldBook 操作',
+                    padding: EdgeInsets.zero,
+                    onSelected: (value) {
+                      switch (value) {
+                        case 'entry':
+                          _editWorldBookEntry(context, worldbook: book);
+                          break;
+                        case 'edit':
+                          _editWorldBook(context, worldbook: book);
+                          break;
+                        case 'delete':
+                          _confirmDeleteWorldBook(context, book);
+                          break;
+                      }
+                    },
+                    itemBuilder: (context) => const [
+                      PopupMenuItem<String>(
+                        value: 'entry',
+                        child: Text('新增条目'),
                       ),
-                      IconButton(
-                        tooltip: '编辑 WorldBook',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () => _editWorldBook(context, worldbook: book),
-                        icon: const Icon(Icons.edit_outlined),
+                      PopupMenuItem<String>(
+                        value: 'edit',
+                        child: Text('编辑 WorldBook'),
                       ),
-                      IconButton(
-                        tooltip: '删除 WorldBook',
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () => _confirmDeleteWorldBook(context, book),
-                        icon: const Icon(Icons.delete_outline),
+                      PopupMenuItem<String>(
+                        value: 'delete',
+                        child: Text('删除 WorldBook'),
                       ),
                     ],
                   ),
@@ -688,10 +569,15 @@ class _TavernScreenState extends State<TavernScreen>
                           label: const Text('重试'),
                         ),
                       )
-                    else if (entries.isEmpty)
+                    else if (hasLoaded && entries.isEmpty)
                       const _WorldBookInfoBanner(
                         icon: Icons.notes_outlined,
                         text: '还没有条目。先加关键词，再写注入内容。',
+                      )
+                    else if (!hasLoaded)
+                      const _WorldBookInfoBanner(
+                        icon: Icons.menu_book_outlined,
+                        text: '展开后加载条目内容。',
                       )
                     else
                       ...entries.map((entry) => _buildWorldBookEntryPreview(context, book, entry)),
@@ -1307,6 +1193,8 @@ class _TavernScreenState extends State<TavernScreen>
   }
 
   Future<void> _showCharacterDetail(TavernCharacter character) async {
+    final latestCharacter = await context.read<TavernStore>().getCharacter(character.id);
+    if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1315,11 +1203,11 @@ class _TavernScreenState extends State<TavernScreen>
         child: FractionallySizedBox(
           heightFactor: 0.9,
           child: _CharacterDetailSheet(
-            character: character,
+            character: latestCharacter,
             serverBaseUrl: _serverBaseUrl,
             onStartChat: () async {
               Navigator.of(context).pop();
-              await _startChatWithCharacter(character);
+              await _startChatWithCharacter(latestCharacter);
             },
           ),
         ),
@@ -1344,7 +1232,7 @@ class _TavernScreenState extends State<TavernScreen>
         ),
       );
       if (!mounted) return;
-      await context.read<TavernStore>().loadHome();
+      await context.read<TavernStore>().loadRecentChats();
     } catch (exc) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(content: Text('创建会话失败：$exc')));
@@ -1402,7 +1290,7 @@ class _TavernScreenState extends State<TavernScreen>
         ),
       );
       if (!mounted) return;
-      await store.loadHome();
+      await store.loadRecentChats();
     } catch (exc) {
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(content: Text('打开会话失败：$exc')));
@@ -2116,7 +2004,7 @@ class _TavernScreenState extends State<TavernScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(isCreate ? 'Preset 已创建' : 'Preset 已更新')),
       );
-      await context.read<TavernStore>().loadHome();
+      await context.read<TavernStore>().loadPresets();
     }
   }
 
@@ -2476,7 +2364,7 @@ class _TavernScreenState extends State<TavernScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(isCreate ? 'WorldBook 已创建' : 'WorldBook 已更新')),
       );
-      await context.read<TavernStore>().loadHome();
+      await context.read<TavernStore>().loadWorldBooks();
     }
   }
 
@@ -2994,7 +2882,7 @@ class _TavernScreenState extends State<TavernScreen>
       );
       await refreshedStore.loadWorldBookEntries(worldbook.id);
       if (!context.mounted) return;
-      await refreshedStore.loadHome();
+      await refreshedStore.loadWorldBooks();
     }
   }
 
@@ -4330,6 +4218,253 @@ class _JsonMapEditorPageState extends State<_JsonMapEditorPage> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+}
+
+class _ChatsTab extends StatelessWidget {
+  const _ChatsTab({
+    required this.serverBaseUrl,
+    required this.onOpenChat,
+    required this.onConfirmDeleteChat,
+  });
+
+  final String? serverBaseUrl;
+  final Future<void> Function(TavernChat chat) onOpenChat;
+  final Future<void> Function(TavernChat chat, TavernCharacter? character)
+      onConfirmDeleteChat;
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<TavernStore>(
+      builder: (context, store, _) {
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Text('最近会话', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 6),
+            Text(
+              '进来先直接聊天。角色和配置都收进次级入口。',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: const Color(0xFF667085),
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (store.recentChats.isEmpty)
+              const Card(
+                child: ListTile(
+                  leading: Icon(Icons.chat_bubble_outline),
+                  title: Text('还没有 Tavern 会话'),
+                  subtitle: Text('去角色页选择角色后就能开始聊天。'),
+                ),
+              )
+            else
+              ...store.recentChats.take(20).map((chat) {
+                final character = store.characters.cast<TavernCharacter?>().firstWhere(
+                  (item) => item?.id == chat.characterId,
+                  orElse: () => null,
+                );
+                final subtitle = chat.title.trim().isNotEmpty
+                    ? chat.title
+                    : (character?.name.isNotEmpty == true ? character!.name : chat.id);
+                return Card(
+                  child: ListTile(
+                    leading: buildTavernAvatar(
+                      avatarPath: character?.avatarPath ?? '',
+                      serverBaseUrl: serverBaseUrl,
+                      useDefaultAssetFallback: true,
+                    ),
+                    title: Text(character?.name ?? '未知角色'),
+                    subtitle: Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => onOpenChat(chat),
+                    onLongPress: () => onConfirmDeleteChat(chat, character),
+                  ),
+                );
+              }),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ConfigHubTab extends StatelessWidget {
+  const _ConfigHubTab({
+    required this.serverBaseUrl,
+    required this.configHubPrimed,
+    required this.onPrime,
+    required this.onShowPresetsManager,
+    required this.onShowPromptManager,
+    required this.onShowWorldBooksManager,
+    required this.onShowPersonasManager,
+    required this.onShowGlobalVariablesManager,
+    required this.onShowQuickReplySettings,
+  });
+
+  final String? serverBaseUrl;
+  final bool configHubPrimed;
+  final VoidCallback onPrime;
+  final VoidCallback onShowPresetsManager;
+  final VoidCallback onShowPromptManager;
+  final VoidCallback onShowWorldBooksManager;
+  final VoidCallback onShowPersonasManager;
+  final VoidCallback onShowGlobalVariablesManager;
+  final VoidCallback onShowQuickReplySettings;
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<TavernStore>(
+      builder: (context, store, _) {
+        if (!configHubPrimed &&
+            store.presets.isEmpty &&
+            store.worldBooks.isEmpty &&
+            store.promptOrders.isEmpty &&
+            !store.isLoading) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            onPrime();
+          });
+        }
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Text('配置中心', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 6),
+            Text(
+              '把不常改的 Tavern 能力都收进这里，聊天页保持干净。',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 16),
+            _ConfigEntryCard(
+              icon: Icons.auto_awesome_outlined,
+              title: 'Presets',
+              subtitle: '模型参数与采样配置',
+              trailingText: '${store.presets.length}',
+              onTap: onShowPresetsManager,
+            ),
+            const SizedBox(height: 12),
+            _ConfigEntryCard(
+              icon: Icons.reorder_outlined,
+              title: '提示词管理',
+              subtitle: '像 Native 一样管理内建段落与自定义提示词',
+              trailingText: '${store.promptOrders.length}',
+              onTap: onShowPromptManager,
+            ),
+            const SizedBox(height: 12),
+            _ConfigEntryCard(
+              icon: Icons.public_outlined,
+              title: 'WorldBooks',
+              subtitle: '管理世界书范围（全局/非全局）与条目触发规则',
+              trailingText: '${store.worldBooks.length}',
+              onTap: onShowWorldBooksManager,
+            ),
+            const SizedBox(height: 12),
+            _ConfigEntryCard(
+              icon: Icons.person_outline,
+              title: 'Personas',
+              subtitle: '管理用户人设，决定 {{user}} / {{persona}} 的来源',
+              trailingText: '${store.personas.length}',
+              onTap: onShowPersonasManager,
+            ),
+            const SizedBox(height: 12),
+            _ConfigEntryCard(
+              icon: Icons.data_object_outlined,
+              title: 'Variables',
+              subtitle: '查看和编辑全局变量（global vars）',
+              trailingText: '${store.globalVariables.length}',
+              onTap: onShowGlobalVariablesManager,
+            ),
+            const SizedBox(height: 12),
+            _ConfigEntryCard(
+              icon: Icons.flash_on_outlined,
+              title: '快速回复',
+              subtitle: '配置继续 / 转折 / 描写的按钮文案与隐藏引导词',
+              trailingText: '3',
+              onTap: onShowQuickReplySettings,
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _CompactInfoPill extends StatelessWidget {
+  const _CompactInfoPill({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: Color(0xFF475569),
+        ),
+      ),
+    );
+  }
+}
+
+class _ConfigEntryCard extends StatelessWidget {
+  const _ConfigEntryCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.trailingText,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String trailingText;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: const Color(0xFFF6F3FF),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, color: const Color(0xFF7C4DFF)),
+        ),
+        title: Text(
+          title,
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        subtitle: Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _CompactInfoPill(text: trailingText),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right),
+          ],
+        ),
+        onTap: onTap,
+      ),
+    );
   }
 }
 

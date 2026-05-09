@@ -31,6 +31,8 @@ class TavernStore extends ChangeNotifier {
   final Map<String, List<TavernWorldBookEntry>> _worldBookEntries =
       <String, List<TavernWorldBookEntry>>{};
   final Set<String> _loadingWorldBookEntries = <String>{};
+  final Set<String> _loadedWorldBookEntries = <String>{};
+  final Set<String> _updatingWorldBooks = <String>{};
   final Map<String, String> _worldBookEntriesErrors = <String, String>{};
   String? _lastImportMessage;
   TavernCharacterImportResult? _lastImportResult;
@@ -55,6 +57,10 @@ class TavernStore extends ChangeNotifier {
       _worldBookEntries[worldbookId] ?? const <TavernWorldBookEntry>[];
   bool isLoadingWorldBookEntries(String worldbookId) =>
       _loadingWorldBookEntries.contains(worldbookId);
+  bool hasLoadedWorldBookEntries(String worldbookId) =>
+      _loadedWorldBookEntries.contains(worldbookId);
+  bool isUpdatingWorldBook(String worldbookId) =>
+      _updatingWorldBooks.contains(worldbookId);
   String? worldBookEntriesErrorOf(String worldbookId) =>
       _worldBookEntriesErrors[worldbookId];
 
@@ -68,47 +74,13 @@ class TavernStore extends ChangeNotifier {
         _repository.listChats(),
         _repository.listWorldBooks(),
         _repository.listPresets(),
-        _repository.listPromptBlocks(),
-        _repository.listPromptOrders(),
         _repository.getConfigOptions(),
       ]);
       _characters = results[0] as List<TavernCharacter>;
       _recentChats = results[1] as List<TavernChat>;
       _worldBooks = results[2] as List<TavernWorldBook>;
       _presets = results[3] as List<TavernPreset>;
-      _promptBlocks = results[4] as List<TavernPromptBlock>;
-      _promptOrders = results[5] as List<TavernPromptOrder>;
-      final config = Map<String, dynamic>.from(results[6] as Map);
-      _providers = (((config['providers'] as List?) ?? const <dynamic>[])
-              .whereType<Map>())
-          .map(
-            (item) =>
-                TavernProviderOption.fromJson(Map<String, dynamic>.from(item)),
-          )
-          .toList(growable: false);
-      _promptOrders = (((config['promptOrders'] as List?) ?? const <dynamic>[])
-              .whereType<Map>())
-          .map(
-            (item) =>
-                TavernPromptOrder.fromJson(Map<String, dynamic>.from(item)),
-          )
-          .toList(growable: false);
-      _promptBlocks = (((config['promptBlocks'] as List?) ?? const <dynamic>[])
-              .whereType<Map>())
-          .map(
-            (item) =>
-                TavernPromptBlock.fromJson(Map<String, dynamic>.from(item)),
-          )
-          .toList(growable: false);
-      _personas = (((config['personas'] as List?) ?? const <dynamic>[])
-              .whereType<Map>())
-          .map(
-            (item) => TavernPersona.fromJson(Map<String, dynamic>.from(item)),
-          )
-          .toList(growable: false);
-      _globalVariables = Map<String, dynamic>.from(
-        (config['globalVariables'] as Map?) ?? const <String, dynamic>{},
-      );
+      _applyConfigOptions(Map<String, dynamic>.from(results[4] as Map));
     } catch (exc) {
       _error = exc.toString();
     } finally {
@@ -117,7 +89,113 @@ class TavernStore extends ChangeNotifier {
     }
   }
 
-  Future<void> loadCharacters() => loadHome();
+  Future<void> loadLandingData() async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final results = await Future.wait([
+        _repository.listCharacters(),
+        _repository.listChats(),
+      ]);
+      _characters = results[0] as List<TavernCharacter>;
+      _recentChats = results[1] as List<TavernChat>;
+    } catch (exc) {
+      _error = exc.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadConfigHubData() async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final results = await Future.wait([
+        _repository.listWorldBooks(),
+        _repository.listPresets(),
+        _repository.getConfigOptions(),
+      ]);
+      _worldBooks = results[0] as List<TavernWorldBook>;
+      _presets = results[1] as List<TavernPreset>;
+      _applyConfigOptions(Map<String, dynamic>.from(results[2] as Map));
+    } catch (exc) {
+      _error = exc.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadCharacters() => loadLandingData();
+
+  Future<List<TavernCharacter>> loadCharacterList({bool notify = true}) async {
+    final characters = await _repository.listCharacters();
+    _characters = characters;
+    if (notify) notifyListeners();
+    return characters;
+  }
+
+  Future<List<TavernChat>> loadRecentChats({bool notify = true}) async {
+    final chats = await _repository.listChats();
+    _recentChats = chats;
+    if (notify) notifyListeners();
+    return chats;
+  }
+
+  Future<List<TavernWorldBook>> loadWorldBooks({bool notify = true}) async {
+    final worldBooks = await _repository.listWorldBooks();
+    _worldBooks = worldBooks;
+    if (notify) notifyListeners();
+    return worldBooks;
+  }
+
+  Future<List<TavernPreset>> loadPresets({bool notify = true}) async {
+    final presets = await _repository.listPresets();
+    _presets = presets;
+    if (notify) notifyListeners();
+    return presets;
+  }
+
+  Future<Map<String, dynamic>> loadConfigOptions({bool notify = true}) async {
+    final config = Map<String, dynamic>.from(await _repository.getConfigOptions());
+    _applyConfigOptions(config);
+    if (notify) notifyListeners();
+    return config;
+  }
+
+  void _applyConfigOptions(Map<String, dynamic> config) {
+    _providers = (((config['providers'] as List?) ?? const <dynamic>[])
+            .whereType<Map>())
+        .map(
+          (item) =>
+              TavernProviderOption.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList(growable: false);
+    _promptOrders = (((config['promptOrders'] as List?) ?? const <dynamic>[])
+            .whereType<Map>())
+        .map(
+          (item) => TavernPromptOrder.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList(growable: false);
+    _promptBlocks = (((config['promptBlocks'] as List?) ?? const <dynamic>[])
+            .whereType<Map>())
+        .map(
+          (item) => TavernPromptBlock.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList(growable: false);
+    _personas = (((config['personas'] as List?) ?? const <dynamic>[])
+            .whereType<Map>())
+        .map(
+          (item) => TavernPersona.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList(growable: false);
+    _globalVariables = Map<String, dynamic>.from(
+      (config['globalVariables'] as Map?) ?? const <String, dynamic>{},
+    );
+  }
 
   Future<TavernCharacterImportResult> importCharacterFile({
     required String filename,
@@ -416,22 +494,33 @@ class TavernStore extends ChangeNotifier {
     required String worldbookId,
     required Map<String, dynamic> payload,
   }) async {
-    final updated = await _repository.updateWorldBook(
-      worldbookId: worldbookId,
-      payload: payload,
-    );
-    _worldBooks = [
-      updated,
-      ..._worldBooks.where((item) => item.id != updated.id),
-    ];
+    _updatingWorldBooks.add(worldbookId);
     notifyListeners();
-    return updated;
+    try {
+      final updated = await _repository.updateWorldBook(
+        worldbookId: worldbookId,
+        payload: payload,
+      );
+      _worldBooks = [
+        updated,
+        ..._worldBooks.where((item) => item.id != updated.id),
+      ];
+      notifyListeners();
+      return updated;
+    } finally {
+      _updatingWorldBooks.remove(worldbookId);
+      notifyListeners();
+    }
   }
 
   Future<void> deleteWorldBook(String worldbookId) async {
     await _repository.deleteWorldBook(worldbookId);
     _worldBooks = _worldBooks.where((item) => item.id != worldbookId).toList(growable: false);
     _worldBookEntries.remove(worldbookId);
+    _loadedWorldBookEntries.remove(worldbookId);
+    _loadingWorldBookEntries.remove(worldbookId);
+    _worldBookEntriesErrors.remove(worldbookId);
+    _updatingWorldBooks.remove(worldbookId);
     notifyListeners();
   }
 
@@ -444,6 +533,7 @@ class TavernStore extends ChangeNotifier {
     try {
       final entries = await _repository.listWorldBookEntries(worldbookId);
       _worldBookEntries[worldbookId] = entries;
+      _loadedWorldBookEntries.add(worldbookId);
       return entries;
     } catch (exc) {
       _worldBookEntriesErrors[worldbookId] = exc.toString();

@@ -671,7 +671,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
             _scrollToBottom(animated: false, force: true);
           }
         });
-        unawaited(_refreshFromServer());
+        unawaited(_refreshFromServer(includeCharacter: false));
         return;
       }
 
@@ -708,19 +708,32 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     }
   }
 
-  Future<void> _refreshFromServer() async {
+  Future<void> _refreshFromServer({bool includeCharacter = false}) async {
     final store = context.read<TavernStore>();
     try {
       final shouldKeepAtBottom = _stickToBottom || !_didInitialScroll;
-      final results = await Future.wait([
-        store.getCharacter(_chat.characterId),
+      final futures = <Future<dynamic>>[
         store.getChat(_chat.id),
         store.listChatMessages(_chat.id),
-      ]);
+      ];
+      if (includeCharacter) {
+        futures.insert(0, store.getCharacter(_chat.characterId));
+      }
+      final results = await Future.wait(futures);
       if (!mounted) return;
-      final character = results[0] as TavernCharacter;
-      final chat = results[1] as TavernChat;
-      final messages = results[2] as List<TavernMessage>;
+
+      TavernCharacter character = _character;
+      late final TavernChat chat;
+      late final List<TavernMessage> messages;
+      if (includeCharacter) {
+        character = results[0] as TavernCharacter;
+        chat = results[1] as TavernChat;
+        messages = results[2] as List<TavernMessage>;
+      } else {
+        chat = results[0] as TavernChat;
+        messages = results[1] as List<TavernMessage>;
+      }
+
       setState(() {
         _character = character;
         _chat = chat;
@@ -1804,7 +1817,7 @@ $trimmed
       ),
     );
     if (!mounted) return;
-    await context.read<TavernStore>().loadHome();
+    await context.read<TavernStore>().loadRecentChats();
   }
 
   Future<void> _startFreshChatFromProfile(TavernCharacter character) async {
@@ -1884,7 +1897,7 @@ $trimmed
         ),
       );
       if (!mounted) return;
-      await _refreshFromServer();
+      await _refreshChatMetaOnly();
     } catch (exc) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2082,7 +2095,7 @@ $trimmed
         _streamingAssistantMessageId = null;
       });
       unawaited(_persistSnapshot());
-      unawaited(_refreshFromServer());
+      unawaited(_refreshFromServer(includeCharacter: false));
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('流式连接中断，正在同步结果…')));
