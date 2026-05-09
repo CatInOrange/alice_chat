@@ -2,6 +2,24 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+String? buildTavernImageUrl({
+  required String path,
+  String? serverBaseUrl,
+}) {
+  final trimmed = path.trim();
+  if (trimmed.isEmpty) return null;
+  if (trimmed.startsWith('/uploads/')) {
+    final base = serverBaseUrl?.trim() ?? '';
+    if (base.isEmpty) return null;
+    return '${base.replaceFirst(RegExp(r'/+$'), '')}$trimmed';
+  }
+  final file = File(trimmed);
+  if (file.existsSync()) {
+    return file.uri.toString();
+  }
+  return null;
+}
+
 const String tavernDefaultAvatarAssetPath =
     'assets/avatars/tavern_default.png';
 

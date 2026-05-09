@@ -302,6 +302,26 @@ def create_tavern_router(context: AppContext) -> APIRouter:
     async def list_chat_messages(chat_id: str):
         return {'ok': True, 'messages': service.list_chat_messages(chat_id)}
 
+    @router.get('/api/tavern/chats/{chat_id}/image')
+    async def get_chat_scene_image(chat_id: str):
+        try:
+            result = service.get_scene_image(chat_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {'ok': True, **result}
+
+    @router.post('/api/tavern/chats/{chat_id}/image/generate')
+    async def generate_chat_scene_image(chat_id: str):
+        try:
+            result = service.generate_scene_image(chat_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f'tavern image generation failed: {exc}') from exc
+        return {'ok': True, **result}
+
     @router.get('/api/tavern/chats/{chat_id}/variables')
     async def get_chat_variables(chat_id: str):
         chat = service.get_chat(chat_id)

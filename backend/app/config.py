@@ -216,6 +216,18 @@ def get_tavern_provider(provider_id: str | None = None) -> dict:
     return provider_map[resolved]
 
 
+def get_tavern_image_config() -> dict:
+    return dict((get_tavern_config().get('imageGeneration') or {}))
+
+
+def get_tavern_image_provider() -> dict:
+    config = get_tavern_image_config()
+    provider = config.get('provider')
+    if not isinstance(provider, dict) or not provider:
+        raise FileNotFoundError('tavern imageGeneration.provider is not configured')
+    return dict(provider)
+
+
 def get_tts_config() -> dict:
     return (get_chat_config().get('tts') or {})
 

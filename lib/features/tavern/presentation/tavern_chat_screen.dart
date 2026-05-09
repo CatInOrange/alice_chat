@@ -114,9 +114,12 @@ class _TavernRegexScript {
     if (markdownOnly && !isMarkdown) return false;
     if (promptOnly) return false;
     if (depth != null) {
-      if (minDepth != null && minDepth! >= -1 && depth < minDepth!)
+      if (minDepth != null && minDepth! >= -1 && depth < minDepth!) {
         return false;
-      if (maxDepth != null && maxDepth! >= 0 && depth > maxDepth!) return false;
+      }
+      if (maxDepth != null && maxDepth! >= 0 && depth > maxDepth!) {
+        return false;
+      }
     }
     return true;
   }
@@ -672,6 +675,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       OpenClawSettingsStore.defaultTavernQuickReplies();
   bool _isLoadingDebug = false;
   bool _isLoadingContextState = false;
+  bool _isGeneratingSceneImage = false;
   bool _didInitialScroll = false;
   bool _stickToBottom = true;
   String? _error;
@@ -899,6 +903,18 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         tooltip: '角色页',
         onPressed: _openCharacterProfilePage,
         icon: const Icon(Icons.account_box_outlined),
+      ),
+      IconButton(
+        tooltip: '场景图',
+        onPressed: _showSceneImageSheet,
+        icon:
+            _isGeneratingSceneImage
+                ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+                : const Icon(Icons.image_outlined),
       ),
       IconButton(
         tooltip: '剧情摘要',
@@ -2251,6 +2267,181 @@ $trimmed
       });
       await _persistSnapshot();
     } catch (_) {}
+  }
+
+  Map<String, dynamic> _sceneImageMeta() {
+    final raw = _chat.metadata['sceneImage'];
+    if (raw is! Map) return const <String, dynamic>{};
+    return Map<String, dynamic>.from(raw);
+  }
+
+  Future<void> _generateSceneImage({bool reopenSheet = false}) async {
+    if (_isGeneratingSceneImage) return;
+    setState(() => _isGeneratingSceneImage = true);
+    try {
+      final updated = await context.read<TavernStore>().generateSceneImage(
+        _chat.id,
+      );
+      if (!mounted) return;
+      setState(() {
+        _chat = updated;
+      });
+      await _persistSnapshot();
+      if (!mounted) return;
+      if (reopenSheet) {
+        await _showSceneImageSheet();
+      }
+    } catch (exc) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('生成场景图失败：$exc')));
+    } finally {
+      if (mounted) {
+        setState(() => _isGeneratingSceneImage = false);
+      }
+    }
+  }
+
+  Future<void> _showSceneImageSheet() async {
+    await _refreshChatMetaOnly();
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        final meta = _sceneImageMeta();
+        final status = (meta['status'] ?? '').toString();
+        final prompt = (meta['prompt'] ?? '').toString().trim();
+        final error = (meta['error'] ?? '').toString().trim();
+        final imageUrl = buildTavernImageUrl(
+          path: (meta['imageUrl'] ?? '').toString(),
+          serverBaseUrl: _serverBaseUrl,
+        );
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '场景图',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: '刷新',
+                        onPressed: () async {
+                          Navigator.of(context).pop();
+                          await _refreshChatMetaOnly();
+                          if (!mounted) return;
+                          await _showSceneImageSheet();
+                        },
+                        icon: const Icon(Icons.refresh),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      width: double.infinity,
+                      constraints: const BoxConstraints(minHeight: 260),
+                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      child: imageUrl != null
+                          ? Image.network(
+                              imageUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => _buildSceneImageEmptyState(
+                                label: '图片加载失败',
+                                icon: Icons.broken_image_outlined,
+                              ),
+                            )
+                          : _buildSceneImageEmptyState(
+                              label: status == 'generating'
+                                  ? '正在生成场景图…'
+                                  : status == 'error'
+                                      ? '最近一次生成失败'
+                                      : '还没有生成场景图',
+                              icon: status == 'generating'
+                                  ? Icons.hourglass_top_outlined
+                                  : Icons.image_outlined,
+                              loading: status == 'generating' || _isGeneratingSceneImage,
+                            ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  if (error.isNotEmpty) ...[
+                    Text(
+                      '错误：$error',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (prompt.isNotEmpty) ...[
+                    Text(
+                      '生成提示词',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    SelectableText(prompt),
+                    const SizedBox(height: 16),
+                  ],
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _isGeneratingSceneImage
+                          ? null
+                          : () async {
+                              Navigator.of(context).pop();
+                              await _generateSceneImage(reopenSheet: true);
+                            },
+                      icon: const Icon(Icons.auto_awesome_outlined),
+                      label: Text(imageUrl == null ? '生成图片' : '重新生成'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSceneImageEmptyState({
+    required String label,
+    required IconData icon,
+    bool loading = false,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (loading)
+              const SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(strokeWidth: 2.4),
+              )
+            else
+              Icon(icon, size: 36),
+            const SizedBox(height: 12),
+            Text(label, textAlign: TextAlign.center),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _refreshContextState() async {

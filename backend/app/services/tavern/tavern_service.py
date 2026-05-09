@@ -11,13 +11,15 @@ from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
 
-from ...config import get_tavern_config
+from ...config import get_tavern_config, get_tavern_image_provider, get_tavern_provider
 from ...store.tavern import TavernStore
 from .chat_summarization_service import TavernChatSummarizationService
 from .prompt_builder import PromptBuilder, PromptDebugResult
 from .persona_service import TavernPersonaService
 from .variable_service import TavernVariableService
 from .macro_runtime import MacroEngine, build_macro_runtime_context, normalize_legacy_angle_bracket_placeholders
+from .model_client import TavernModelClient
+from .image_generation import TavernImageGenerator, TavernImagePromptRefiner
 
 
 @dataclass(slots=True)
@@ -243,6 +245,101 @@ class TavernService:
 
     def list_chat_messages(self, chat_id: str) -> list[dict[str, Any]]:
         return self.store.list_chat_messages(chat_id)
+
+    def get_scene_image(self, chat_id: str) -> dict[str, Any]:
+        chat = self.store.get_chat(chat_id)
+        if chat is None:
+            raise ValueError('chat not found')
+        metadata = dict(chat.get('metadata') or {}) if isinstance(chat.get('metadata'), dict) else {}
+        scene = metadata.get('sceneImage') if isinstance(metadata.get('sceneImage'), dict) else {}
+        return {
+            'chatId': chat_id,
+            'sceneImage': dict(scene or {}),
+        }
+
+    def generate_scene_image(self, chat_id: str) -> dict[str, Any]:
+        chat = self.store.get_chat(chat_id)
+        if chat is None:
+            raise ValueError('chat not found')
+        character = self.store.get_character(chat['characterId'])
+        if character is None:
+            raise ValueError('character not found')
+        messages = self.store.list_chat_messages(chat_id)
+        source_message = next(
+            (
+                message
+                for message in reversed(messages)
+                if str(message.get('role') or '').strip() == 'assistant'
+                and str(message.get('content') or '').strip()
+            ),
+            None,
+        )
+        if source_message is None:
+            raise ValueError('no assistant message available for image generation')
+
+        metadata = dict(chat.get('metadata') or {}) if isinstance(chat.get('metadata'), dict) else {}
+        metadata['sceneImage'] = {
+            **(metadata.get('sceneImage') if isinstance(metadata.get('sceneImage'), dict) else {}),
+            'status': 'generating',
+            'sourceMessageId': str(source_message.get('id') or '').strip(),
+            'updatedAt': self._iso_now(),
+        }
+        updated_chat = self.store.update_chat(chat_id, {'metadata': metadata}) or chat
+
+        try:
+            provider_id = str(updated_chat.get('presetId') or '').strip()
+            prepared = self.prepare_generation(chat_id, text='[scene image generation]', preset_id=provider_id)
+            text_provider = get_tavern_provider(prepared['providerId'])
+            refiner = TavernImagePromptRefiner(
+                text_provider_config=self.merge_generation_provider(text_provider, prepared['preset']),
+                model_client_cls=TavernModelClient,
+            )
+            prompt = refiner.refine(
+                character_name=str(character.get('name') or '').strip() or '角色',
+                assistant_text=str(source_message.get('content') or ''),
+            )
+            image_provider = get_tavern_image_provider()
+            if not self.uploads_dir:
+                raise ValueError('uploads_dir is not configured')
+            reference_image = self._resolve_scene_reference_image(character)
+            generator = TavernImageGenerator(
+                provider_config=image_provider,
+                uploads_dir=self.uploads_dir,
+            )
+            result = generator.generate(
+                prompt=prompt,
+                reference_image_path=reference_image,
+                chat_id=chat_id,
+            )
+            metadata = dict((self.store.get_chat(chat_id) or updated_chat).get('metadata') or {})
+            metadata['sceneImage'] = {
+                'status': 'ready',
+                'sourceMessageId': str(source_message.get('id') or '').strip(),
+                'prompt': prompt,
+                'imageUrl': result.image_url,
+                'provider': result.provider_meta,
+                'updatedAt': self._iso_now(),
+            }
+            saved = self.store.update_chat(chat_id, {'metadata': metadata}) or updated_chat
+            return {
+                'chatId': chat_id,
+                'sceneImage': dict(metadata['sceneImage']),
+                'chat': saved,
+            }
+        except Exception as exc:
+            metadata = dict((self.store.get_chat(chat_id) or updated_chat).get('metadata') or {})
+            metadata['sceneImage'] = {
+                'status': 'error',
+                'sourceMessageId': str(source_message.get('id') or '').strip(),
+                'error': str(exc),
+                'updatedAt': self._iso_now(),
+            }
+            saved = self.store.update_chat(chat_id, {'metadata': metadata}) or updated_chat
+            return {
+                'chatId': chat_id,
+                'sceneImage': dict(metadata['sceneImage']),
+                'chat': saved,
+            }
 
     def send_message(self, chat_id: str, *, text: str, preset_id: str = '') -> TavernSendResult:
         prepared = self.prepare_generation(chat_id, text=text, preset_id=preset_id)
@@ -626,6 +723,32 @@ class TavernService:
                     collected.append(annotated)
                     seen_ids.add(entry_id)
         return collected
+
+    def _iso_now(self) -> str:
+        from datetime import datetime, timezone
+
+        return datetime.now(timezone.utc).isoformat()
+
+    def _resolve_scene_reference_image(self, character: dict[str, Any]) -> Path:
+        stored_avatar = str(((character.get('metadata') or {}).get('storedAvatarPath') or '')).strip()
+        avatar_path = str(character.get('avatarPath') or '').strip()
+        candidates = [stored_avatar, avatar_path]
+        for value in candidates:
+            if not value:
+                continue
+            if value.startswith('/uploads/') and self.uploads_dir:
+                relative = value.removeprefix('/uploads/')
+                path = (self.uploads_dir / relative).resolve()
+                if path.exists() and path.is_file():
+                    return path
+            else:
+                path = Path(value).expanduser()
+                if path.exists() and path.is_file():
+                    return path
+        fallback = Path(__file__).resolve().parents[4] / 'assets' / 'avatars' / 'tavern_default.png'
+        if fallback.exists() and fallback.is_file():
+            return fallback
+        raise FileNotFoundError('default tavern reference image not found')
 
     def _build_character_import_warnings(self, character: dict[str, Any]) -> list[str]:
         warnings: list[str] = []

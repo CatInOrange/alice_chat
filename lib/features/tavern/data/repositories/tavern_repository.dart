@@ -141,6 +141,21 @@ class TavernRepository {
         .toList(growable: false);
   }
 
+  Future<Map<String, dynamic>> getSceneImage(String chatId) async {
+    final response = await _getJson('/api/tavern/chats/$chatId/image');
+    return Map<String, dynamic>.from(response);
+  }
+
+  Future<TavernChat> generateSceneImage(String chatId) async {
+    final response = await _postJson(
+      '/api/tavern/chats/$chatId/image/generate',
+      const {},
+    );
+    return TavernChat.fromJson(
+      Map<String, dynamic>.from(response['chat'] as Map),
+    );
+  }
+
   Future<Map<String, dynamic>> sendMessage({
     required String chatId,
     required String text,

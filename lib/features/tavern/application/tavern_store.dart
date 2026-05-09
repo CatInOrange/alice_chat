@@ -305,6 +305,31 @@ class TavernStore extends ChangeNotifier {
     return _repository.getChat(chatId);
   }
 
+  Future<Map<String, dynamic>> getSceneImage(String chatId) {
+    return _repository.getSceneImage(chatId);
+  }
+
+  Future<TavernChat> generateSceneImage(String chatId) async {
+    final updated = await _repository.generateSceneImage(chatId);
+    _recentChats = [
+      updated,
+      ..._recentChats.where((item) => item.id != updated.id),
+    ];
+    final snapshot = _chatSnapshots[chatId];
+    if (snapshot != null && snapshot.character != null) {
+      unawaited(
+        saveChatSnapshot(
+          chat: updated,
+          character: snapshot.character!,
+          messages: snapshot.messages,
+          promptDebug: snapshot.promptDebug,
+        ),
+      );
+    }
+    notifyListeners();
+    return updated;
+  }
+
   Future<TavernChat> updateChat({
     required String chatId,
     required Map<String, dynamic> payload,
