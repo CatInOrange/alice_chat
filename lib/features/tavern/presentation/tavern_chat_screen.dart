@@ -771,11 +771,6 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
             icon: const Icon(Icons.account_box_outlined),
           ),
           IconButton(
-            tooltip: '会话变量',
-            onPressed: _showChatVariablesEditor,
-            icon: const Icon(Icons.data_object_outlined),
-          ),
-          IconButton(
             tooltip: '剧情摘要',
             onPressed: _showSummariesSheet,
             icon: const Icon(Icons.auto_stories_outlined),
@@ -1879,33 +1874,6 @@ $trimmed
     );
   }
 
-  Future<void> _showChatVariablesEditor() async {
-    final store = context.read<TavernStore>();
-    try {
-      final values = await store.loadChatVariables(_chat.id);
-      if (!mounted) return;
-      await Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => _TavernJsonMapEditorPage(
-            title: '会话变量',
-            initialValue: values,
-            onSave: (value) => store.updateChatVariables(
-              chatId: _chat.id,
-              values: value,
-            ),
-          ),
-        ),
-      );
-      if (!mounted) return;
-      await _refreshChatMetaOnly();
-    } catch (exc) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('加载会话变量失败：$exc')),
-      );
-    }
-  }
-
   Future<void> _handleSend() async {
     return _sendText(_inputController.text.trim());
   }
@@ -2729,214 +2697,65 @@ $trimmed
   }
 
   Future<void> _showSummariesSheet() async {
-    if (_isLoadingDebug) return;
-    setState(() => _isLoadingDebug = true);
-    try {
-      final debug = await context.read<TavernStore>().getPromptDebug(_chat.id);
-      final summaries = _summaryItems().reversed.toList(growable: false);
-      if (!mounted) return;
-      await showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        builder: (context) => SafeArea(
-          child: DraggableScrollableSheet(
-            expand: false,
-            initialChildSize: 0.76,
-            maxChildSize: 0.94,
-            minChildSize: 0.38,
-            builder: (context, controller) => DefaultTabController(
-              length: 2,
-              child: Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '剧情摘要',
-                                style: Theme.of(context).textTheme.titleLarge,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                summaries.isEmpty
-                                    ? '当前还没有可用摘要'
-                                    : '共 ${summaries.length} 条，新的在前',
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ],
+    final summaries = _summaryItems().reversed.toList(growable: false);
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.76,
+          maxChildSize: 0.94,
+          minChildSize: 0.38,
+          builder: (context, controller) => Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '剧情摘要',
+                            style: Theme.of(context).textTheme.titleLarge,
                           ),
-                        ),
-                        IconButton(
-                          tooltip: '刷新',
-                          onPressed: () async {
-                            Navigator.of(context).pop();
-                            await _refreshChatMetaOnly();
-                            if (!mounted) return;
-                            await _showSummariesSheet();
-                          },
-                          icon: const Icon(Icons.refresh),
-                        ),
-                      ],
+                          const SizedBox(height: 4),
+                          Text(
+                            summaries.isEmpty
+                                ? '当前还没有可用摘要'
+                                : '共 ${summaries.length} 条，新的在前',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const TabBar(
-                    tabs: [
-                      Tab(text: '闭环状态'),
-                      Tab(text: '摘要内容'),
-                    ],
-                  ),
-                  const Divider(height: 1),
-                  Expanded(
-                    child: TabBarView(
-                      children: [
-                        _buildSummaryClosureTab(debug: debug, summaries: summaries, controller: controller),
-                        _buildSummaryContentTab(summaries: summaries, controller: controller),
-                      ],
+                    IconButton(
+                      tooltip: '刷新',
+                      onPressed: () async {
+                        Navigator.of(context).pop();
+                        await _refreshChatMetaOnly();
+                        if (!mounted) return;
+                        await _showSummariesSheet();
+                      },
+                      icon: const Icon(Icons.refresh),
                     ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    } catch (exc) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('加载剧情摘要失败：$exc')));
-    } finally {
-      if (mounted) {
-        setState(() => _isLoadingDebug = false);
-      }
-    }
-  }
-
-  Widget _buildSummaryClosureTab({
-    required TavernPromptDebug debug,
-    required List<Map<String, dynamic>> summaries,
-    required ScrollController controller,
-  }) {
-    final metadata = _chat.metadata;
-    final summarySettings =
-        metadata['summarySettings'] is Map
-            ? Map<String, dynamic>.from(metadata['summarySettings'] as Map)
-            : const <String, dynamic>{};
-    final injectLatestOnly = summarySettings['injectLatestOnly'] != false;
-    final useRecentAfterLatest =
-        summarySettings['useRecentMessagesAfterLatest'] != false;
-    final summaryBlocks = debug.blocks
-        .where((block) => (block['kind'] ?? '').toString() == 'summary')
-        .toList(growable: false);
-    final latestSummaryBlock = summaryBlocks.cast<Map<String, dynamic>?>().firstWhere(
-          (block) =>
-              ((block?['meta'] as Map?)?['summaryTier'] ?? '').toString() ==
-              'latest',
-          orElse: () => summaryBlocks.isNotEmpty ? summaryBlocks.last : null,
-        );
-    final latestSummaryMeta = latestSummaryBlock?['meta'] is Map
-        ? Map<String, dynamic>.from(latestSummaryBlock!['meta'] as Map)
-        : const <String, dynamic>{};
-    final latestSummary = summaries.isNotEmpty ? summaries.first : null;
-    final latestSummaryId =
-        (latestSummaryMeta['summaryId'] ?? latestSummary?['id'] ?? '-').toString();
-    final latestSummaryEndMessageId =
-        (latestSummary?['endMessageId'] ?? '-').toString();
-    final latestSummaryEndMessageIndex = latestSummary?['endMessageIndex'];
-    final recentStartIndex = latestSummaryEndMessageIndex is num
-        ? latestSummaryEndMessageIndex.toInt() + 1
-        : null;
-    final contextUsage = debug.contextUsage;
-    final trimPlan = contextUsage['meta'] is Map
-        ? (((contextUsage['meta'] as Map)['trimPlan'] as Map?) ?? const <String, dynamic>{})
-        : const <String, dynamic>{};
-    final suggestedCuts = ((trimPlan['suggestedCuts'] as List?) ?? const <dynamic>[])
-        .whereType<Map>()
-        .map((item) => Map<String, dynamic>.from(item))
-        .toList(growable: false);
-
-    return ListView(
-      controller: controller,
-      padding: const EdgeInsets.all(16),
-      children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _summaryMetaChip('注入模式', injectLatestOnly ? '仅最新摘要' : '多摘要'),
-            _summaryMetaChip('历史模式', useRecentAfterLatest ? '摘要后新消息' : '全历史'),
-            _summaryMetaChip('已注入摘要块', '${summaryBlocks.length}'),
-            _summaryMetaChip('Prompt 消息', '${debug.summary['messageCount'] ?? debug.messages.length}'),
-          ],
-        ),
-        const SizedBox(height: 16),
-        _sectionCard(
-          title: '当前生效摘要',
-          subtitle: latestSummary == null
-              ? '当前还没有生成摘要，系统仍主要依赖完整历史。'
-              : '当前应以这条摘要作为长程记忆入口。',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _infoRow('摘要 ID', latestSummaryId),
-              _infoRow('截止消息 ID', latestSummaryEndMessageId),
-              _infoRow(
-                '截止消息序号',
-                latestSummaryEndMessageIndex?.toString() ?? '-',
-              ),
-              _infoRow(
-                'Recent 起点',
-                recentStartIndex?.toString() ?? '未截断',
-              ),
-              if (latestSummary != null) ...[
-                const SizedBox(height: 10),
-                Text(
-                  (latestSummary['content'] ?? '').toString().trim(),
-                  maxLines: 5,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.45),
+                  ],
                 ),
-              ],
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: _buildSummaryContentTab(
+                  summaries: summaries,
+                  controller: controller,
+                ),
+              ),
             ],
           ),
         ),
-        const SizedBox(height: 12),
-        _sectionCard(
-          title: '上下文预算',
-          subtitle: '看这轮 prompt 有没有接近上限，以及系统建议裁哪里。',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _infoRow('总 Token', '${contextUsage['totalTokens'] ?? '-'}'),
-              _infoRow('最大上下文', '${contextUsage['maxContext'] ?? '-'}'),
-              _infoRow(
-                '超限 Token',
-                '${trimPlan['overLimitTokens'] ?? debug.summary['overLimitTokens'] ?? 0}',
-              ),
-              _infoRow(
-                '建议裁剪数',
-                '${suggestedCuts.length}',
-              ),
-              if (suggestedCuts.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                ...suggestedCuts.map(
-                  (cut) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(
-                      '• ${(cut['component'] ?? cut['label'] ?? cut['mode'] ?? 'cut').toString()} · ${(cut['suggestedTrimTokens'] ?? 0)} tok${cut['lastResort'] == true ? ' · last-resort' : ''}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ],
+      ),
     );
   }
 
@@ -2956,46 +2775,105 @@ $trimmed
         ),
       );
     }
+    final theme = Theme.of(context);
     return ListView.separated(
       controller: controller,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       itemBuilder: (context, index) {
         final item = summaries[index];
         final createdAt = _tryParseDateTime(item['createdAt']);
         final endIndex = item['endMessageIndex'];
+        final content = (item['content'] ?? '').toString().trim();
         return Container(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surfaceContainerLow,
-            borderRadius: BorderRadius.circular(14),
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(18),
             border: Border.all(
-              color: Theme.of(context).dividerColor.withValues(alpha: 0.35),
+              color: theme.dividerColor.withValues(alpha: 0.28),
             ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.03),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '摘要 ${summaries.length - index}',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          createdAt != null
+                              ? _formatSummaryTime(createdAt)
+                              : '时间未知',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFF667085),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if ((item['source'] ?? '').toString().trim().isNotEmpty)
+                    _summaryMetaChip('来源', (item['source'] ?? 'auto').toString()),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Divider(
+                height: 1,
+                color: theme.dividerColor.withValues(alpha: 0.22),
+              ),
+              const SizedBox(height: 14),
+              _buildMarkdownText(content),
+              const SizedBox(height: 14),
+              Divider(
+                height: 1,
+                color: theme.dividerColor.withValues(alpha: 0.18),
+              ),
+              const SizedBox(height: 12),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
                   _summaryMetaChip('ID', (item['id'] ?? '-').toString()),
                   if (endIndex != null) _summaryMetaChip('截至消息', '$endIndex'),
-                  if (createdAt != null)
-                    _summaryMetaChip('时间', _formatSummaryTime(createdAt)),
-                  _summaryMetaChip('来源', (item['source'] ?? 'auto').toString()),
                 ],
-              ),
-              const SizedBox(height: 10),
-              SelectableText(
-                (item['content'] ?? '').toString().trim(),
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.45),
               ),
             ],
           ),
         );
       },
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      separatorBuilder: (_, __) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            Expanded(child: Divider(color: theme.dividerColor.withValues(alpha: 0.12))),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Icon(
+                Icons.auto_stories_outlined,
+                size: 16,
+                color: theme.hintColor.withValues(alpha: 0.6),
+              ),
+            ),
+            Expanded(child: Divider(color: theme.dividerColor.withValues(alpha: 0.12))),
+          ],
+        ),
+      ),
       itemCount: summaries.length,
     );
   }
@@ -3178,7 +3056,7 @@ $trimmed
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.auto_stories_outlined),
               title: const Text('剧情摘要'),
-              subtitle: Text(_summaryItems().isEmpty ? '当前还没有摘要' : '查看已生成摘要与闭环状态'),
+              subtitle: Text(_summaryItems().isEmpty ? '当前还没有摘要' : '只查看已生成摘要内容'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () {
                 Navigator.of(context).pop();
@@ -3188,12 +3066,12 @@ $trimmed
             ListTile(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.bug_report_outlined),
-              title: const Text('高级 / Prompt 调试'),
-              subtitle: const Text('Prompt Debug、WorldBook runtime、原始明细'),
+              title: const Text('Prompt Debug'),
+              subtitle: const Text('WorldBook runtime、原始明细'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () {
                 Navigator.of(context).pop();
-                _showAdvancedToolsSheet();
+                _showPromptDebug();
               },
             ),
           ],
@@ -3288,39 +3166,6 @@ $trimmed
               onTap: () {
                 Navigator.of(context).pop();
                 _editAuthorNote();
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _showAdvancedToolsSheet() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-          children: [
-            Text('高级 / 调试', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 6),
-            Text(
-              '这些都不该打断聊天，只在你需要时再进。',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 12),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.bug_report_outlined),
-              title: const Text('Prompt Debug'),
-              subtitle: const Text('完整 prompt / worldbook / runtime 明细'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                Navigator.of(context).pop();
-                _showPromptDebug();
               },
             ),
           ],
