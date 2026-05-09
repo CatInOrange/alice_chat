@@ -19,10 +19,14 @@ class TavernChatScreen extends StatefulWidget {
     super.key,
     required this.chat,
     required this.character,
+    this.embedded = false,
+    this.onClose,
   });
 
   final TavernChat chat;
   final TavernCharacter character;
+  final bool embedded;
+  final VoidCallback? onClose;
 
   @override
   State<TavernChatScreen> createState() => _TavernChatScreenState();
@@ -814,120 +818,155 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   @override
   Widget build(BuildContext context) {
     final bg = _backgroundImageUrl();
-    return Scaffold(
-      appBar: AppBar(
-        actions: [
-          IconButton(
-            tooltip: '角色页',
-            onPressed: _openCharacterProfilePage,
-            icon: const Icon(Icons.account_box_outlined),
-          ),
-          IconButton(
-            tooltip: '剧情摘要',
-            onPressed: _showSummariesSheet,
-            icon: const Icon(Icons.auto_stories_outlined),
-          ),
-          IconButton(
-            tooltip: '会话设置',
-            onPressed: _showChatOptions,
-            icon:
-                _isLoadingDebug
-                    ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                    : const Icon(Icons.tune),
-          ),
-        ],
-        title: Row(
+    final content = Container(
+      decoration:
+          bg == null
+              ? null
+              : BoxDecoration(
+                image: DecorationImage(
+                  image: NetworkImage(bg),
+                  fit: BoxFit.cover,
+                  opacity: 0.18,
+                ),
+              ),
+      child: Container(
+        color: Theme.of(context).scaffoldBackgroundColor.withValues(alpha: 0.9),
+        child: Column(
           children: [
-            buildTavernAvatar(
-              avatarPath: _character.avatarPath,
-              serverBaseUrl: _serverBaseUrl,
-              radius: 18,
-              useDefaultAssetFallback: true,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_character.name),
-                  if (_character.scenario.isNotEmpty)
-                    Text(
-                      _character.scenario,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
+            if (widget.embedded) _buildEmbeddedHeader(context),
+            Expanded(child: _buildBody(context)),
+            _buildContextStatusBar(),
+            _buildQuickReplyBar(),
+            if (_isRefreshing) const LinearProgressIndicator(minHeight: 2),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _inputController,
+                        minLines: 1,
+                        maxLines: 6,
+                        textInputAction: TextInputAction.send,
+                        onSubmitted: (_) => _handleSend(),
+                        decoration: const InputDecoration(
+                          hintText: '和角色说点什么…',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
                     ),
-                ],
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: _isSending ? null : _handleSend,
+                      child:
+                          _isSending
+                              ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                              : const Text('发送'),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
         ),
       ),
-      body: Container(
-        decoration:
-            bg == null
-                ? null
-                : BoxDecoration(
-                  image: DecorationImage(
-                    image: NetworkImage(bg),
-                    fit: BoxFit.cover,
-                    opacity: 0.18,
-                  ),
-                ),
-        child: Container(
-          color: Theme.of(
-            context,
-          ).scaffoldBackgroundColor.withValues(alpha: 0.9),
+    );
+
+    if (widget.embedded) {
+      return content;
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: _buildHeaderTitle(context),
+        actions: _buildHeaderActions(),
+      ),
+      body: content,
+    );
+  }
+
+  List<Widget> _buildHeaderActions() {
+    return [
+      IconButton(
+        tooltip: '角色页',
+        onPressed: _openCharacterProfilePage,
+        icon: const Icon(Icons.account_box_outlined),
+      ),
+      IconButton(
+        tooltip: '剧情摘要',
+        onPressed: _showSummariesSheet,
+        icon: const Icon(Icons.auto_stories_outlined),
+      ),
+      IconButton(
+        tooltip: '会话设置',
+        onPressed: _showChatOptions,
+        icon:
+            _isLoadingDebug
+                ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+                : const Icon(Icons.tune),
+      ),
+      if (widget.embedded && widget.onClose != null)
+        IconButton(
+          tooltip: '关闭聊天面板',
+          onPressed: widget.onClose,
+          icon: const Icon(Icons.close),
+        ),
+    ];
+  }
+
+  Widget _buildHeaderTitle(BuildContext context) {
+    return Row(
+      children: [
+        buildTavernAvatar(
+          avatarPath: _character.avatarPath,
+          serverBaseUrl: _serverBaseUrl,
+          radius: 18,
+          useDefaultAssetFallback: true,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(child: _buildBody(context)),
-              _buildContextStatusBar(),
-              _buildQuickReplyBar(),
-              if (_isRefreshing) const LinearProgressIndicator(minHeight: 2),
-              SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _inputController,
-                          minLines: 1,
-                          maxLines: 6,
-                          textInputAction: TextInputAction.send,
-                          onSubmitted: (_) => _handleSend(),
-                          decoration: const InputDecoration(
-                            hintText: '和角色说点什么…',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton(
-                        onPressed: _isSending ? null : _handleSend,
-                        child:
-                            _isSending
-                                ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                                : const Text('发送'),
-                      ),
-                    ],
-                  ),
+              Text(_character.name),
+              if (_character.scenario.isNotEmpty)
+                Text(
+                  _character.scenario,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
-              ),
             ],
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmbeddedHeader(BuildContext context) {
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      elevation: 1,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+        child: Row(
+          children: [
+            Expanded(child: _buildHeaderTitle(context)),
+            ..._buildHeaderActions(),
+          ],
         ),
       ),
     );
@@ -1165,15 +1204,24 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
         p: Theme.of(context).textTheme.bodyMedium?.copyWith(
           color: textColor,
+          fontSize: desktopContentFontSize(
+            Theme.of(context).textTheme.bodyMedium?.fontSize ?? 14,
+          ),
           height: 1.35,
           fontWeight: FontWeight.w500,
         ),
         strong: Theme.of(context).textTheme.bodyMedium?.copyWith(
           color: textColor,
+          fontSize: desktopContentFontSize(
+            Theme.of(context).textTheme.bodyMedium?.fontSize ?? 14,
+          ),
           fontWeight: FontWeight.w700,
         ),
         em: Theme.of(context).textTheme.bodyMedium?.copyWith(
           color: textColor,
+          fontSize: desktopContentFontSize(
+            Theme.of(context).textTheme.bodyMedium?.fontSize ?? 14,
+          ),
           fontStyle: FontStyle.italic,
         ),
         code: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -1256,6 +1304,9 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
               text: open,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: bracketColor,
+                fontSize: desktopContentFontSize(
+                  Theme.of(context).textTheme.bodyMedium?.fontSize ?? 14,
+                ),
                 fontStyle: FontStyle.italic,
                 fontWeight: FontWeight.w600,
                 height: 1.45,
@@ -1265,6 +1316,9 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
               text: inner,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: contentColor,
+                fontSize: desktopContentFontSize(
+                  Theme.of(context).textTheme.bodyMedium?.fontSize ?? 14,
+                ),
                 fontStyle: FontStyle.italic,
                 fontWeight: FontWeight.w500,
                 height: 1.45,
@@ -1274,6 +1328,9 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
               text: close,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: bracketColor,
+                fontSize: desktopContentFontSize(
+                  Theme.of(context).textTheme.bodyMedium?.fontSize ?? 14,
+                ),
                 fontStyle: FontStyle.italic,
                 fontWeight: FontWeight.w600,
                 height: 1.45,
@@ -1289,11 +1346,15 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     final baseStyle =
         Theme.of(context).textTheme.bodyMedium?.copyWith(
           color: const Color(0xFF1F2430),
+          fontSize: desktopContentFontSize(
+            Theme.of(context).textTheme.bodyMedium?.fontSize ?? 14,
+          ),
           height: 1.4,
           fontWeight: FontWeight.w500,
         ) ??
-        const TextStyle(
-          color: Color(0xFF1F2430),
+        TextStyle(
+          color: const Color(0xFF1F2430),
+          fontSize: desktopContentFontSize(14),
           height: 1.4,
           fontWeight: FontWeight.w500,
         );

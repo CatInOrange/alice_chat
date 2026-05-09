@@ -119,6 +119,8 @@ class _TavernScreenState extends State<TavernScreen>
   bool _isImporting = false;
   String? _serverBaseUrl;
   bool _configHubPrimed = false;
+  TavernChat? _selectedDesktopChat;
+  TavernCharacter? _selectedDesktopCharacter;
   final Set<String> _expandedWorldBookIds = <String>{};
 
   @override
@@ -140,6 +142,24 @@ class _TavernScreenState extends State<TavernScreen>
 
   @override
   bool get wantKeepAlive => true;
+
+  bool _useDesktopChatLayout(BuildContext context) {
+    return !widget.configOnly && MediaQuery.of(context).size.width >= 1180;
+  }
+
+  void _selectDesktopChat(TavernChat chat, TavernCharacter character) {
+    setState(() {
+      _selectedDesktopChat = chat;
+      _selectedDesktopCharacter = character;
+    });
+  }
+
+  void _clearDesktopChatSelection() {
+    setState(() {
+      _selectedDesktopChat = null;
+      _selectedDesktopCharacter = null;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -178,14 +198,11 @@ class _TavernScreenState extends State<TavernScreen>
                       ),
                     ],
           ),
-          body: RefreshIndicator(
-            onRefresh:
-                widget.configOnly
-                    ? store.loadConfigHubData
-                    : store.loadLandingData,
-            child:
-                widget.configOnly
-                    ? _ConfigHubTab(
+          body:
+              widget.configOnly
+                  ? RefreshIndicator(
+                    onRefresh: store.loadConfigHubData,
+                    child: _ConfigHubTab(
                       serverBaseUrl: _serverBaseUrl,
                       configHubPrimed: _configHubPrimed,
                       onPrime: () {
@@ -204,17 +221,124 @@ class _TavernScreenState extends State<TavernScreen>
                           () => _showGlobalVariablesManager(context, store),
                       onShowQuickReplySettings:
                           () => _showQuickReplySettings(context),
-                    )
-                    : _ChatsTab(
+                    ),
+                  )
+                  : _useDesktopChatLayout(context)
+                  ? _buildDesktopChatsLayout(context, store)
+                  : RefreshIndicator(
+                    onRefresh: store.loadLandingData,
+                    child: _ChatsTab(
                       serverBaseUrl: _serverBaseUrl,
+                      selectedChatId: _selectedDesktopChat?.id,
                       onOpenChat: _openExistingChat,
                       onConfirmDeleteChat:
                           (chat, character) =>
                               _confirmDeleteChat(context, chat, character),
                     ),
-          ),
+                  ),
         );
       },
+    );
+  }
+
+  Widget _buildDesktopChatsLayout(BuildContext context, TavernStore store) {
+    final selectedChat = _selectedDesktopChat;
+    final selectedCharacter = _selectedDesktopCharacter;
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 5,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: Theme.of(context).dividerColor.withValues(alpha: 0.12),
+                ),
+              ),
+              child: _ChatsTab(
+                serverBaseUrl: _serverBaseUrl,
+                selectedChatId: selectedChat?.id,
+                onOpenChat: _openExistingChat,
+                onConfirmDeleteChat:
+                    (chat, character) =>
+                        _confirmDeleteChat(context, chat, character),
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            flex: 7,
+            child:
+                selectedChat != null && selectedCharacter != null
+                    ? ClipRRect(
+                      borderRadius: BorderRadius.circular(24),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: Theme.of(
+                              context,
+                            ).dividerColor.withValues(alpha: 0.12),
+                          ),
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        child: TavernChatScreen(
+                          key: ValueKey('desktop-chat-${selectedChat.id}'),
+                          chat: selectedChat,
+                          character: selectedCharacter,
+                          embedded: true,
+                          onClose: _clearDesktopChatSelection,
+                        ),
+                      ),
+                    )
+                    : _buildDesktopEmptyChatState(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDesktopEmptyChatState(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: Theme.of(context).dividerColor.withValues(alpha: 0.12),
+        ),
+      ),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.forum_outlined,
+                size: 48,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                '选择一个酒馆会话',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '桌面端现在会直接在右侧打开聊天，不再整页跳转。',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: const Color(0xFF667085),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -1407,6 +1531,11 @@ class _TavernScreenState extends State<TavernScreen>
         personaId: personaId,
       );
       if (!mounted) return;
+      if (_useDesktopChatLayout(context)) {
+        _selectDesktopChat(chat, character);
+        await context.read<TavernStore>().loadRecentChats();
+        return;
+      }
       await Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => TavernChatScreen(chat: chat, character: character),
@@ -1469,6 +1598,11 @@ class _TavernScreenState extends State<TavernScreen>
       final character =
           cached?.character ?? await store.getCharacter(chat.characterId);
       if (!mounted) return;
+      if (_useDesktopChatLayout(context)) {
+        _selectDesktopChat(chat, character);
+        await store.loadRecentChats();
+        return;
+      }
       await Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => TavernChatScreen(chat: chat, character: character),
@@ -4685,9 +4819,11 @@ class _ChatsTab extends StatelessWidget {
     required this.serverBaseUrl,
     required this.onOpenChat,
     required this.onConfirmDeleteChat,
+    this.selectedChatId,
   });
 
   final String? serverBaseUrl;
+  final String? selectedChatId;
   final Future<void> Function(TavernChat chat) onOpenChat;
   final Future<void> Function(TavernChat chat, TavernCharacter? character)
   onConfirmDeleteChat;
@@ -4732,6 +4868,8 @@ class _ChatsTab extends StatelessWidget {
                             : chat.id);
                 return Card(
                   child: ListTile(
+                    selected: selectedChatId == chat.id,
+                    selectedTileColor: const Color(0xFFF3EEFF),
                     leading: buildTavernAvatar(
                       avatarPath: character?.avatarPath ?? '',
                       serverBaseUrl: serverBaseUrl,

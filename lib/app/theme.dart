@@ -23,6 +23,13 @@ double desktopAdjustedFontSize(double size) {
   return size;
 }
 
+double desktopContentFontSize(double size) {
+  if (Platform.isWindows && size <= 16) {
+    return size + 1;
+  }
+  return size;
+}
+
 ThemeData buildAliceChatTheme() {
   const seed = Color(0xFF7C4DFF);
   final colorScheme = ColorScheme.fromSeed(
@@ -78,7 +85,7 @@ ThemeData buildAliceChatTheme() {
     textTheme: TextTheme(
       bodyLarge: TextStyle(
         color: Color(0xFF1F2430),
-        fontSize: 15,
+        fontSize: desktopContentFontSize(15),
         height: 1.45,
       ),
       bodyMedium: TextStyle(
