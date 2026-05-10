@@ -95,8 +95,10 @@ class TavernImageGenerator:
         body: dict[str, Any] = {
             'model': model,
             'prompt': prompt,
-            'size': str(self.provider_config.get('size') or '1024x1024'),
         }
+        size = str(self.provider_config.get('size') or '').strip()
+        if size and str(self.provider_config.get('provider') or '').strip().lower() not in {'xai', 'grok'}:
+            body['size'] = size
         quality = str(self.provider_config.get('quality') or '').strip()
         if quality:
             body['quality'] = quality
@@ -109,6 +111,8 @@ class TavernImageGenerator:
         count = int(self.provider_config.get('count') or 1)
         if count > 1:
             body['n'] = count
+        if str(self.provider_config.get('provider') or '').strip().lower() in {'xai', 'grok'}:
+            body['response_format'] = 'b64_json'
 
         request = Request(
             endpoint,
