@@ -515,6 +515,9 @@ class TavernService:
             merged['repetitionPenalty'] = preset.get('repetitionPenalty', merged.get('repetitionPenalty', 1.0))
             merged['maxTokens'] = preset.get('maxTokens', merged.get('maxTokens', 0))
             merged['stopSequences'] = list(preset.get('stopSequences') or merged.get('stopSequences') or [])
+            merged['thinkingEnabled'] = preset.get('thinkingEnabled', merged.get('thinkingEnabled', False))
+            merged['thinkingBudget'] = preset.get('thinkingBudget', merged.get('thinkingBudget', 0))
+            merged['reasoningEffort'] = str(preset.get('reasoningEffort', merged.get('reasoningEffort', '')) or '').strip()
         return merged
 
     def maybe_generate_summary(

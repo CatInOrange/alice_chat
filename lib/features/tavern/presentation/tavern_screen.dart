@@ -1901,6 +1901,9 @@ class _TavernScreenState extends State<TavernScreen>
         'repetitionPenalty': preset.repetitionPenalty,
         'maxTokens': preset.maxTokens,
         'contextLength': preset.contextLength,
+        'thinkingEnabled': preset.thinkingEnabled,
+        'thinkingBudget': preset.thinkingBudget,
+        'reasoningEffort': preset.reasoningEffort,
         'stopSequences': preset.stopSequences,
         'storyString': preset.storyString,
         'chatStart': preset.chatStart,
@@ -1957,6 +1960,12 @@ class _TavernScreenState extends State<TavernScreen>
     int maxTokens = preset?.maxTokens ?? 8192;
     int contextLength = preset?.contextLength ?? 200000;
     int storyDepth = preset?.storyStringDepth ?? 1;
+    bool thinkingEnabled = preset?.thinkingEnabled ?? false;
+    int thinkingBudget = preset?.thinkingBudget ?? 0;
+    String reasoningEffort =
+        (preset?.reasoningEffort ?? '').isNotEmpty
+            ? preset!.reasoningEffort
+            : 'medium';
     bool saving = false;
 
     final saved = await showModalBottomSheet<bool>(
@@ -2190,6 +2199,84 @@ class _TavernScreenState extends State<TavernScreen>
                           const SizedBox(height: 12),
                           _presetSectionCard(
                             context,
+                            title: 'Thinking / Reasoning',
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SwitchListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  title: const Text('启用 Thinking'),
+                                  subtitle: const Text(
+                                    '先支持 DeepSeek。开启后会向上游发送 thinking 参数。',
+                                  ),
+                                  value: thinkingEnabled,
+                                  onChanged:
+                                      (value) => setModalState(
+                                        () => thinkingEnabled = value,
+                                      ),
+                                ),
+                                const SizedBox(height: 8),
+                                DropdownButtonFormField<String>(
+                                  value:
+                                      const [
+                                            'low',
+                                            'medium',
+                                            'high',
+                                          ].contains(reasoningEffort)
+                                          ? reasoningEffort
+                                          : 'medium',
+                                  decoration: const InputDecoration(
+                                    labelText: 'Reasoning Effort',
+                                    border: OutlineInputBorder(),
+                                  ),
+                                  items: const [
+                                    DropdownMenuItem(
+                                      value: 'low',
+                                      child: Text('low'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'medium',
+                                      child: Text('medium'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'high',
+                                      child: Text('high'),
+                                    ),
+                                  ],
+                                  onChanged:
+                                      thinkingEnabled
+                                          ? (value) => setModalState(
+                                            () =>
+                                                reasoningEffort =
+                                                    value ?? 'medium',
+                                          )
+                                          : null,
+                                ),
+                                const SizedBox(height: 12),
+                                _tokenSliderField(
+                                  context,
+                                  label: 'Thinking Budget',
+                                  value: thinkingBudget,
+                                  min: 0,
+                                  max: 32768,
+                                  step: 256,
+                                  helperText:
+                                      '0 表示不额外指定，交给上游默认值。当前优先对 DeepSeek 生效。',
+                                  onChanged:
+                                      thinkingEnabled
+                                          ? (value) {
+                                            setModalState(
+                                              () => thinkingBudget = value,
+                                            );
+                                          }
+                                          : (_) {},
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          _presetSectionCard(
+                            context,
                             title: '采样参数',
                             child: Column(
                               children: [
@@ -2386,6 +2473,11 @@ class _TavernScreenState extends State<TavernScreen>
                                                   repetitionPenalty,
                                               'maxTokens': maxTokens,
                                               'contextLength': contextLength,
+                                              'thinkingEnabled':
+                                                  thinkingEnabled,
+                                              'thinkingBudget': thinkingBudget,
+                                              'reasoningEffort':
+                                                  reasoningEffort,
                                               'stopSequences': stopController
                                                   .text
                                                   .split('\n')
@@ -2500,8 +2592,9 @@ class _TavernScreenState extends State<TavernScreen>
   }
 
   String itemPositionFor(TavernPromptOrderItem item) {
-    if (item.position == 'at_depth' || item.identifier == 'authorNote')
+    if (item.position == 'at_depth' || item.identifier == 'authorNote') {
       return 'at_depth';
+    }
     switch (item.identifier) {
       case 'main':
         return 'after_system';
@@ -3761,11 +3854,15 @@ class _TavernScreenState extends State<TavernScreen>
   }
 
   String _formatTokenKLabel(int value) {
-    if (value <= 0) return '默认';
-    if (value >= 1000000)
+    if (value <= 0) {
+      return '默认';
+    }
+    if (value >= 1000000) {
       return '${(value / 1000000).toStringAsFixed(value % 1000000 == 0 ? 0 : 1)}M';
-    if (value >= 1000)
+    }
+    if (value >= 1000) {
       return '${(value / 1000).toStringAsFixed(value % 1000 == 0 ? 0 : 1)}K';
+    }
     return '$value';
   }
 }

@@ -86,6 +86,8 @@ class TavernModelClient:
         if max_tokens not in (None, '', 0, '0'):
             payload['max_tokens'] = int(max_tokens)
 
+        self._apply_reasoning_options(payload)
+
         def add_optional(name: str, value: Any) -> None:
             if value in (None, ''):
                 return
@@ -102,6 +104,27 @@ class TavernModelClient:
         if stop:
             payload['stop'] = stop
         return payload
+
+    def _apply_reasoning_options(self, payload: dict[str, Any]) -> None:
+        thinking_enabled = self.provider_config.get('thinkingEnabled') is True
+        reasoning_effort = str(self.provider_config.get('reasoningEffort') or '').strip()
+        thinking_budget = self.provider_config.get('thinkingBudget')
+        model_name = str(self.provider_config.get('model') or '').strip().lower()
+        base_url = str(self.provider_config.get('baseUrl') or '').strip().lower()
+        is_deepseek = 'deepseek' in base_url or model_name.startswith('deepseek')
+        if not is_deepseek:
+            return
+        if thinking_enabled:
+            payload['thinking'] = {'type': 'enabled'}
+            if reasoning_effort in {'low', 'medium', 'high'}:
+                payload['reasoning_effort'] = reasoning_effort
+            if thinking_budget not in (None, '', 0, '0'):
+                try:
+                    payload['thinking_budget'] = int(thinking_budget)
+                except Exception:
+                    pass
+        elif model_name.endswith('reasoner'):
+            payload['thinking'] = {'type': 'disabled'}
 
     def _build_anthropic_payload(self, *, messages: list[dict[str, Any]], stream: bool) -> dict[str, Any]:
         system_parts: list[str] = []

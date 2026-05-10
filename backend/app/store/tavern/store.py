@@ -260,6 +260,9 @@ class TavernStore:
             self._ensure_column(conn, 'tavern_presets', 'frequency_penalty', "REAL NOT NULL DEFAULT 0.0")
             self._ensure_column(conn, 'tavern_presets', 'presence_penalty', "REAL NOT NULL DEFAULT 0.0")
             self._ensure_column(conn, 'tavern_presets', 'top_a', "REAL NOT NULL DEFAULT 0.0")
+            self._ensure_column(conn, 'tavern_presets', 'thinking_enabled', "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, 'tavern_presets', 'thinking_budget', "INTEGER NOT NULL DEFAULT 0")
+            self._ensure_column(conn, 'tavern_presets', 'reasoning_effort', "TEXT NOT NULL DEFAULT ''")
             conn.commit()
         self._ensure_seed_data()
 
@@ -295,8 +298,8 @@ class TavernStore:
             conn.execute(
                 """
                 INSERT INTO tavern_presets(
-                  id,name,provider,model,temperature,top_p,frequency_penalty,presence_penalty,top_k,top_a,min_p,typical_p,repetition_penalty,max_tokens,stop_sequences_json,prompt_order_id,story_string,chat_start,example_separator,story_string_position,story_string_depth,story_string_role,created_at,updated_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  id,name,provider,model,temperature,top_p,frequency_penalty,presence_penalty,top_k,top_a,min_p,typical_p,repetition_penalty,max_tokens,stop_sequences_json,prompt_order_id,story_string,chat_start,example_separator,story_string_position,story_string_depth,story_string_role,thinking_enabled,thinking_budget,reasoning_effort,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     'tav_preset_default', '默认 Tavern Preset', '', '', 1.0, 1.0, 0.0, 0.0, 0, 0.0, 0.0, 1.0, 1.0, 0,
@@ -307,6 +310,9 @@ class TavernStore:
                     'in_prompt',
                     1,
                     'system',
+                    0,
+                    0,
+                    '',
                     now,
                     now,
                 ),
@@ -837,6 +843,9 @@ class TavernStore:
             'storyStringPosition': str(payload.get('storyStringPosition') or 'in_prompt').strip() or 'in_prompt',
             'storyStringDepth': int(payload.get('storyStringDepth') or 1),
             'storyStringRole': str(payload.get('storyStringRole') or 'system').strip() or 'system',
+            'thinkingEnabled': payload.get('thinkingEnabled') is True,
+            'thinkingBudget': int(payload.get('thinkingBudget') or 0),
+            'reasoningEffort': str(payload.get('reasoningEffort') or '').strip(),
             'createdAt': now,
             'updatedAt': now,
         }
@@ -844,15 +853,16 @@ class TavernStore:
             conn.execute(
                 """
                 INSERT INTO tavern_presets(
-                  id,name,provider,model,temperature,top_p,frequency_penalty,presence_penalty,top_k,top_a,min_p,typical_p,repetition_penalty,max_tokens,context_length,stop_sequences_json,prompt_order_id,story_string,chat_start,example_separator,story_string_position,story_string_depth,story_string_role,created_at,updated_at
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  id,name,provider,model,temperature,top_p,frequency_penalty,presence_penalty,top_k,top_a,min_p,typical_p,repetition_penalty,max_tokens,context_length,stop_sequences_json,prompt_order_id,story_string,chat_start,example_separator,story_string_position,story_string_depth,story_string_role,thinking_enabled,thinking_budget,reasoning_effort,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     record['id'], record['name'], record['provider'], record['model'], record['temperature'],
                     record['topP'], record['frequencyPenalty'], record['presencePenalty'], record['topK'], record['topA'], record['minP'], record['typicalP'], record['repetitionPenalty'],
                     record['maxTokens'], record['contextLength'], json.dumps(record['stopSequences'], ensure_ascii=False),
                     record['promptOrderId'], record['storyString'], record['chatStart'], record['exampleSeparator'],
-                    record['storyStringPosition'], record['storyStringDepth'], record['storyStringRole'], now, now,
+                    record['storyStringPosition'], record['storyStringDepth'], record['storyStringRole'],
+                    1 if record['thinkingEnabled'] else 0, record['thinkingBudget'], record['reasoningEffort'], now, now,
                 ),
             )
             conn.commit()
@@ -875,7 +885,7 @@ class TavernStore:
             conn.execute(
                 """
                 UPDATE tavern_presets
-                SET name=?, provider=?, model=?, temperature=?, top_p=?, frequency_penalty=?, presence_penalty=?, top_k=?, top_a=?, min_p=?, typical_p=?, repetition_penalty=?, max_tokens=?, context_length=?, stop_sequences_json=?, prompt_order_id=?, story_string=?, chat_start=?, example_separator=?, story_string_position=?, story_string_depth=?, story_string_role=?, updated_at=?
+                SET name=?, provider=?, model=?, temperature=?, top_p=?, frequency_penalty=?, presence_penalty=?, top_k=?, top_a=?, min_p=?, typical_p=?, repetition_penalty=?, max_tokens=?, context_length=?, stop_sequences_json=?, prompt_order_id=?, story_string=?, chat_start=?, example_separator=?, story_string_position=?, story_string_depth=?, story_string_role=?, thinking_enabled=?, thinking_budget=?, reasoning_effort=?, updated_at=?
                 WHERE id=?
                 """,
                 (
@@ -901,6 +911,9 @@ class TavernStore:
                     str(payload.get('storyStringPosition', current['story_string_position']) or 'in_prompt').strip() or 'in_prompt',
                     int(payload.get('storyStringDepth', current['story_string_depth']) or 1),
                     str(payload.get('storyStringRole', current['story_string_role']) or 'system').strip() or 'system',
+                    1 if payload.get('thinkingEnabled', bool(current['thinking_enabled'])) else 0,
+                    int(payload.get('thinkingBudget', current['thinking_budget']) or 0),
+                    str(payload.get('reasoningEffort', current['reasoning_effort']) or '').strip(),
                     updated_at,
                     preset_id,
                 ),
@@ -1300,6 +1313,9 @@ class TavernStore:
             'storyStringPosition': row['story_string_position'],
             'storyStringDepth': row['story_string_depth'],
             'storyStringRole': row['story_string_role'],
+            'thinkingEnabled': bool(row['thinking_enabled']),
+            'thinkingBudget': row['thinking_budget'],
+            'reasoningEffort': row['reasoning_effort'],
             'createdAt': row['created_at'],
             'updatedAt': row['updated_at'],
         }

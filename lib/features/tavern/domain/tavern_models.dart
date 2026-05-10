@@ -251,6 +251,9 @@ class TavernPreset {
     this.minP = 0,
     this.typicalP = 1,
     this.repetitionPenalty = 1,
+    this.thinkingEnabled = false,
+    this.thinkingBudget = 0,
+    this.reasoningEffort = '',
     this.createdAt,
     this.updatedAt,
   });
@@ -278,6 +281,9 @@ class TavernPreset {
   final double minP;
   final double typicalP;
   final double repetitionPenalty;
+  final bool thinkingEnabled;
+  final int thinkingBudget;
+  final String reasoningEffort;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -309,6 +315,9 @@ class TavernPreset {
       minP: (json['minP'] as num?)?.toDouble() ?? 0,
       typicalP: (json['typicalP'] as num?)?.toDouble() ?? 1,
       repetitionPenalty: (json['repetitionPenalty'] as num?)?.toDouble() ?? 1,
+      thinkingEnabled: json['thinkingEnabled'] == true,
+      thinkingBudget: (json['thinkingBudget'] as num?)?.toInt() ?? 0,
+      reasoningEffort: (json['reasoningEffort'] ?? '').toString(),
       createdAt: _parseDate(json['createdAt']),
       updatedAt: _parseDate(json['updatedAt']),
     );
@@ -337,6 +346,9 @@ class TavernPreset {
     double? repetitionPenalty,
     int? maxTokens,
     List<String>? stopSequences,
+    bool? thinkingEnabled,
+    int? thinkingBudget,
+    String? reasoningEffort,
   }) {
     return TavernPreset(
       id: id,
@@ -362,9 +374,45 @@ class TavernPreset {
       minP: minP ?? this.minP,
       typicalP: typicalP ?? this.typicalP,
       repetitionPenalty: repetitionPenalty ?? this.repetitionPenalty,
+      thinkingEnabled: thinkingEnabled ?? this.thinkingEnabled,
+      thinkingBudget: thinkingBudget ?? this.thinkingBudget,
+      reasoningEffort: reasoningEffort ?? this.reasoningEffort,
       createdAt: createdAt,
       updatedAt: updatedAt,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'provider': provider,
+      'model': model,
+      'promptOrderId': promptOrderId,
+      'storyString': storyString,
+      'chatStart': chatStart,
+      'exampleSeparator': exampleSeparator,
+      'storyStringPosition': storyStringPosition,
+      'storyStringDepth': storyStringDepth,
+      'storyStringRole': storyStringRole,
+      'temperature': temperature,
+      'topP': topP,
+      'frequencyPenalty': frequencyPenalty,
+      'presencePenalty': presencePenalty,
+      'maxTokens': maxTokens,
+      'contextLength': contextLength,
+      'stopSequences': stopSequences,
+      'topK': topK,
+      'topA': topA,
+      'minP': minP,
+      'typicalP': typicalP,
+      'repetitionPenalty': repetitionPenalty,
+      'thinkingEnabled': thinkingEnabled,
+      'thinkingBudget': thinkingBudget,
+      'reasoningEffort': reasoningEffort,
+      if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),
+      if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
+    };
   }
 }
 
@@ -829,10 +877,12 @@ class TavernWorldBookEntry {
       delayUntilRecursion: (json['delayUntilRecursion'] as num?)?.toInt() ?? 0,
       probability: (json['probability'] as num?)?.toInt() ?? 100,
       ignoreBudget: json['ignoreBudget'] == true,
-      characterFilterNames: ((json['characterFilterNames'] as List?) ?? const <dynamic>[])
+      characterFilterNames: ((json['characterFilterNames'] as List?) ??
+              const <dynamic>[])
           .map((item) => item.toString())
           .toList(growable: false),
-      characterFilterTags: ((json['characterFilterTags'] as List?) ?? const <dynamic>[])
+      characterFilterTags: ((json['characterFilterTags'] as List?) ??
+              const <dynamic>[])
           .map((item) => item.toString())
           .toList(growable: false),
       characterFilterExclude: json['characterFilterExclude'] == true,
