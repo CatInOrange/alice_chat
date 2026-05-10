@@ -692,6 +692,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   String? _serverBaseUrl;
   String? _selectedPresetId;
   String? _streamingAssistantMessageId;
+  TavernMessage? _streamingAssistantMessage;
   List<TavernMessage> _messages = const <TavernMessage>[];
   late TavernCharacter _character;
   late TavernChat _chat;
@@ -737,6 +738,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           _chat = cached.chat ?? _chat;
           _character = cached.character ?? _character;
           _messages = cached.messages;
+          _streamingAssistantMessage = null;
+          _streamingAssistantMessageId = null;
           _selectedPresetId = _chat.presetId.isNotEmpty ? _chat.presetId : null;
           _isLoading = false;
           _isRefreshing = true;
@@ -760,6 +763,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         );
         _quickReplyConfigs = quickReplies;
         _messages = messages;
+        _streamingAssistantMessage = null;
+        _streamingAssistantMessageId = null;
         _selectedPresetId = _chat.presetId.isNotEmpty ? _chat.presetId : null;
         _isLoading = false;
       });
@@ -815,6 +820,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         _character = character;
         _chat = chat;
         _messages = messages;
+        _streamingAssistantMessage = null;
+        _streamingAssistantMessageId = null;
         _selectedPresetId = _chat.presetId.isNotEmpty ? _chat.presetId : null;
         _isRefreshing = false;
       });
@@ -971,7 +978,10 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     if ((_error ?? '').isNotEmpty) {
       return Center(child: Text('加载失败：$_error'));
     }
-    if (_messages.isEmpty) {
+    final hasStreamingAssistant = _streamingAssistantMessage != null;
+    final visibleMessageCount =
+        _messages.length + (hasStreamingAssistant ? 1 : 0);
+    if (visibleMessageCount == 0) {
       final greeting =
           _character.firstMessage.isNotEmpty
               ? _character.firstMessage
@@ -987,10 +997,15 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       controller: _scrollController,
       reverse: true,
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
-      itemCount: _messages.length,
+      itemCount: visibleMessageCount,
       itemBuilder: (context, index) {
-        final actualIndex = _messages.length - 1 - index;
-        final message = _messages[actualIndex];
+        final message =
+            hasStreamingAssistant && index == 0
+                ? _streamingAssistantMessage!
+                : _messages[_messages.length -
+                    1 -
+                    index -
+                    (hasStreamingAssistant ? 1 : 0)];
         final isUser = message.role == 'user';
         final bubbleMaxWidth = MediaQuery.of(context).size.width * 0.72;
         final bubble = ConstrainedBox(
@@ -2134,6 +2149,7 @@ $trimmed
         _messages = [..._messages, optimisticUserMessage];
       }
       _streamingAssistantMessageId = null;
+      _streamingAssistantMessage = null;
     });
     unawaited(_persistSnapshot());
     _scrollToBottom();
@@ -2160,9 +2176,16 @@ $trimmed
                 persistedUserMessage = parsed;
                 if (showUserMessage) {
                   setState(() {
-                    _messages = _messages
-                      .where((item) => item.id != optimisticUserMessage.id)
-                      .toList(growable: true)..add(parsed);
+                    final nextMessages = _messages.toList(growable: true);
+                    final optimisticIndex = nextMessages.indexWhere(
+                      (item) => item.id == optimisticUserMessage.id,
+                    );
+                    if (optimisticIndex >= 0) {
+                      nextMessages[optimisticIndex] = parsed;
+                    } else {
+                      nextMessages.add(parsed);
+                    }
+                    _messages = nextMessages;
                   });
                   unawaited(_persistSnapshot());
                   _scrollToBottom();
@@ -2180,31 +2203,21 @@ $trimmed
                       ? messageId
                       : (_streamingAssistantMessageId ??
                           'stream_assistant_${DateTime.now().microsecondsSinceEpoch}');
-              final existingIndex = _messages.indexWhere(
-                (item) => item.id == assistantId,
-              );
-              final nextContent =
-                  existingIndex >= 0
-                      ? '${_messages[existingIndex].content}$delta'
-                      : delta;
+              final previousContent =
+                  _streamingAssistantMessage?.id == assistantId
+                      ? _streamingAssistantMessage!.content
+                      : '';
               final nextMessage = TavernMessage(
                 id: assistantId,
                 chatId: _chat.id,
                 role: 'assistant',
-                content: nextContent,
+                content: '$previousContent$delta',
                 createdAt: DateTime.now(),
               );
               setState(() {
                 _streamingAssistantMessageId = assistantId;
-                if (existingIndex >= 0) {
-                  final nextMessages = [..._messages];
-                  nextMessages[existingIndex] = nextMessage;
-                  _messages = nextMessages;
-                } else {
-                  _messages = [..._messages, nextMessage];
-                }
+                _streamingAssistantMessage = nextMessage;
               });
-              unawaited(_persistSnapshot());
               _scrollToBottom();
               break;
             case 'final':
@@ -2213,13 +2226,8 @@ $trimmed
                 final finalizedAssistantMessage = TavernMessage.fromJson(
                   Map<String, dynamic>.from(rawAssistant),
                 );
-                final existingIndex = _messages.indexWhere(
-                  (item) =>
-                      item.id == finalizedAssistantMessage.id ||
-                      item.id == _streamingAssistantMessageId,
-                );
                 setState(() {
-                  final nextMessages = [..._messages];
+                  final nextMessages = _messages.toList(growable: true);
                   if (showUserMessage && persistedUserMessage != null) {
                     final userIndex = nextMessages.indexWhere(
                       (item) =>
@@ -2230,12 +2238,14 @@ $trimmed
                       nextMessages[userIndex] = persistedUserMessage!;
                     }
                   }
-                  if (existingIndex >= 0) {
-                    nextMessages[existingIndex] = finalizedAssistantMessage;
-                  } else {
-                    nextMessages.add(finalizedAssistantMessage);
-                  }
+                  nextMessages.removeWhere(
+                    (item) =>
+                        item.id == finalizedAssistantMessage.id ||
+                        item.id == _streamingAssistantMessageId,
+                  );
+                  nextMessages.add(finalizedAssistantMessage);
                   _messages = nextMessages;
+                  _streamingAssistantMessage = null;
                   _streamingAssistantMessageId = null;
                 });
                 final rawPromptDebug = data['promptDebug'];
@@ -2263,9 +2273,7 @@ $trimmed
       settleSendState(isSending: false);
       if (!mounted) return;
       setState(() {
-        _messages = _messages
-            .where((item) => item.id != _streamingAssistantMessageId)
-            .toList(growable: false);
+        _streamingAssistantMessage = null;
         _streamingAssistantMessageId = null;
       });
       unawaited(_persistSnapshot());
