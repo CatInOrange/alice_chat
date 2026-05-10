@@ -14,7 +14,6 @@ LOCAL_CONFIG_PATH = ROOT / 'config.local.json'
 DOTENV_PATH = ROOT / '.env'
 DOTENV_LOCAL_PATH = ROOT / '.env.local'
 PATCHED_MODEL_JSON = 'patched.model3.json'
-OPENCLAW_CONFIG_PATH = Path('/root/.openclaw/openclaw.json')
 
 
 def _read_json(path: Path) -> dict:
@@ -173,13 +172,6 @@ def get_config_paths() -> tuple[Path, Path | None]:
     return _resolve_config_paths()
 
 
-@lru_cache(maxsize=1)
-def load_openclaw_config() -> dict:
-    if not OPENCLAW_CONFIG_PATH.exists():
-        return {}
-    return _read_json(OPENCLAW_CONFIG_PATH)
-
-
 def get_server_config() -> dict:
     return (load_config().get('server') or {})
 
@@ -231,35 +223,9 @@ def get_tavern_image_config() -> dict:
 def get_tavern_image_provider() -> dict:
     config = get_tavern_image_config()
     provider = config.get('provider')
-    if isinstance(provider, dict) and provider:
-        return dict(provider)
-
-    openclaw = load_openclaw_config()
-    models = (openclaw.get('models') or {}) if isinstance(openclaw, dict) else {}
-    providers = (models.get('providers') or {}) if isinstance(models, dict) else {}
-    xai = dict((providers.get('xai') or {})) if isinstance(providers.get('xai'), dict) else {}
-    if not xai:
-        raise FileNotFoundError('xai provider not found in openclaw.json')
-
-    defaults = ((openclaw.get('agents') or {}).get('defaults') or {}) if isinstance(openclaw.get('agents'), dict) else {}
-    image_model = ((defaults.get('imageGenerationModel') or {}).get('primary') or '').strip() if isinstance(defaults, dict) else ''
-    model_name = image_model.split('/', 1)[1] if image_model.startswith('xai/') else image_model
-    if not model_name:
-        model_name = 'grok-imagine-image'
-
-    api_key = str(xai.get('apiKey') or '').strip()
-    if not api_key:
-        raise FileNotFoundError('xai apiKey not found in /root/.openclaw/openclaw.json')
-
-    return {
-        'type': 'openai-images',
-        'baseUrl': str(xai.get('baseUrl') or 'https://api.x.ai/v1').strip(),
-        'apiKey': api_key,
-        'model': model_name,
-        'timeoutSeconds': int(xai.get('timeoutSeconds') or 180),
-        'size': '1024x1024',
-        'provider': 'xai',
-    }
+    if not isinstance(provider, dict) or not provider:
+        raise FileNotFoundError('tavern imageGeneration.provider is not configured')
+    return dict(provider)
 
 
 def get_tts_config() -> dict:
