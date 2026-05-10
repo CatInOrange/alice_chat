@@ -755,6 +755,9 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       }
 
       final messages = await store.listChatMessages(_chat.id);
+      if (store.presets.isEmpty) {
+        await store.loadPresets(notify: false);
+      }
       if (!mounted) return;
       _assistantRenderSegmentCache.clear();
       setState(() {
@@ -798,6 +801,9 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         store.getChat(_chat.id),
         store.listChatMessages(_chat.id),
       ];
+      if (store.presets.isEmpty) {
+        futures.add(store.loadPresets(notify: false));
+      }
       if (includeCharacter) {
         futures.insert(0, store.getCharacter(_chat.characterId));
       }
@@ -1121,17 +1127,27 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     final preset = _resolveSelectedPreset();
     if (preset?.showThinking != true) return const SizedBox.shrink();
     final expanded = _expandedThoughtMessageIds.contains(message.id);
+    final textStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
+      color: const Color(0xFF7A7F8C),
+      fontSize: desktopContentFontSize(
+        (Theme.of(context).textTheme.bodySmall?.fontSize ?? 12) - 0.2,
+      ),
+      height: 1.45,
+      fontStyle: FontStyle.italic,
+    );
     return Container(
+      margin: const EdgeInsets.only(bottom: 2),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F1FF),
+        color: const Color(0xFFF8F7FB),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFD9CCFF)),
+        border: Border.all(color: const Color(0xFFE9E7F2)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           InkWell(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(10),
             onTap: () {
               setState(() {
                 if (expanded) {
@@ -1141,40 +1157,47 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                 }
               });
             },
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.psychology_alt_outlined,
-                    size: 16,
-                    color: Color(0xFF7C4DFF),
-                  ),
-                  const SizedBox(width: 6),
-                  const Expanded(
-                    child: Text(
-                      'Thinking',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF6B46C1),
-                      ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.psychology_alt_outlined,
+                  size: 14,
+                  color: Color(0xFF9AA0AE),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Thinking',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: const Color(0xFF8C92A0),
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.2,
                     ),
                   ),
-                  Icon(
-                    expanded ? Icons.expand_less : Icons.expand_more,
-                    size: 18,
-                    color: const Color(0xFF7C4DFF),
-                  ),
-                ],
-              ),
+                ),
+                Icon(
+                  expanded ? Icons.expand_less : Icons.expand_more,
+                  size: 16,
+                  color: const Color(0xFFA0A6B4),
+                ),
+              ],
             ),
           ),
-          if (expanded)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-              child: _buildMessageContent(thought, isUser: false),
+          if (expanded) ...[
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.fromLTRB(2, 0, 0, 0),
+              decoration: const BoxDecoration(
+                border: Border(
+                  left: BorderSide(color: Color(0xFFD8DDE8), width: 2),
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: SelectableText(thought, style: textStyle),
+              ),
             ),
+          ],
         ],
       ),
     );
@@ -1182,13 +1205,18 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
 
   TavernPreset? _resolveSelectedPreset() {
     final store = context.read<TavernStore>();
-    final presetId = (_selectedPresetId ?? _chat.presetId).trim();
-    if (presetId.isNotEmpty) {
-      for (final preset in store.presets) {
-        if (preset.id == presetId) return preset;
+    final effectivePresetId = (_selectedPresetId ?? _chat.presetId).trim();
+    TavernPreset? preset;
+    if (effectivePresetId.isNotEmpty) {
+      for (final item in store.presets) {
+        if (item.id == effectivePresetId) {
+          preset = item;
+          break;
+        }
       }
     }
-    return store.presets.isNotEmpty ? store.presets.first : null;
+    preset ??= store.presets.isNotEmpty ? store.presets.first : null;
+    return preset;
   }
 
   Widget _buildEphemeralGreetingBubble(String greeting) {
