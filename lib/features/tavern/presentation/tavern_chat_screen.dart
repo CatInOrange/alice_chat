@@ -2315,9 +2315,20 @@ $trimmed
     return Map<String, dynamic>.from(raw);
   }
 
-  Future<void> _generateSceneImage({bool reopenSheet = false}) async {
+  Future<void> _generateSceneImage() async {
     if (_isGeneratingSceneImage) return;
-    setState(() => _isGeneratingSceneImage = true);
+    setState(() {
+      _isGeneratingSceneImage = true;
+      final metadata = Map<String, dynamic>.from(_chat.metadata);
+      final sceneImage = Map<String, dynamic>.from(
+        (metadata['sceneImage'] as Map?)?.cast<String, dynamic>() ??
+            const <String, dynamic>{},
+      );
+      sceneImage['status'] = 'generating';
+      sceneImage.remove('error');
+      metadata['sceneImage'] = sceneImage;
+      _chat = TavernChat.fromJson({..._chat.toJson(), 'metadata': metadata});
+    });
     try {
       final updated = await context.read<TavernStore>().generateSceneImage(
         _chat.id,
@@ -2327,15 +2338,12 @@ $trimmed
         _chat = updated;
       });
       await _persistSnapshot();
-      if (!mounted) return;
-      if (reopenSheet) {
-        await _showSceneImageSheet();
-      }
     } catch (exc) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('生成场景图失败：$exc')));
+      await _refreshChatMetaOnly();
     } finally {
       if (mounted) {
         setState(() => _isGeneratingSceneImage = false);
@@ -2344,125 +2352,210 @@ $trimmed
   }
 
   Future<void> _showSceneImageSheet() async {
-    await _refreshChatMetaOnly();
     if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (context) {
-        final meta = _sceneImageMeta();
-        final status = (meta['status'] ?? '').toString();
-        final prompt =
-            (meta['displayPrompt'] ?? meta['prompt'] ?? '').toString().trim();
-        final error = (meta['error'] ?? '').toString().trim();
-        final imageUrl = buildTavernImageUrl(
-          path: (meta['imageUrl'] ?? '').toString(),
-          serverBaseUrl: _serverBaseUrl,
-        );
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            Future<void> refreshSheet() async {
+              setSheetState(() {});
+              await _refreshChatMetaOnly();
+              if (!mounted) return;
+              setSheetState(() {});
+            }
+
+            Future<void> generateInsideSheet() async {
+              setSheetState(() {});
+              await _generateSceneImage();
+              if (!mounted) return;
+              setSheetState(() {});
+            }
+
+            final meta = _sceneImageMeta();
+            final status = (meta['status'] ?? '').toString();
+            final prompt =
+                (meta['displayPrompt'] ?? meta['prompt'] ?? '')
+                    .toString()
+                    .trim();
+            final error = (meta['error'] ?? '').toString().trim();
+            final imageUrl = buildTavernImageUrl(
+              path: (meta['imageUrl'] ?? '').toString(),
+              serverBaseUrl: _serverBaseUrl,
+            );
+            final loading = status == 'generating' || _isGeneratingSceneImage;
+            return SafeArea(
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  16,
+                  16,
+                  24 + MediaQuery.of(sheetContext).viewInsets.bottom,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Expanded(
-                        child: Text(
-                          '场景图',
-                          style: Theme.of(context).textTheme.titleLarge,
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '场景图',
+                              style:
+                                  Theme.of(sheetContext).textTheme.titleLarge,
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: '刷新',
+                            onPressed: loading ? null : refreshSheet,
+                            icon: const Icon(Icons.refresh),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          width: double.infinity,
+                          constraints: const BoxConstraints(minHeight: 260),
+                          color:
+                              Theme.of(
+                                sheetContext,
+                              ).colorScheme.surfaceContainerHighest,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              if (imageUrl != null)
+                                Image.network(
+                                  imageUrl,
+                                  fit: BoxFit.cover,
+                                  width: double.infinity,
+                                  errorBuilder:
+                                      (_, __, ___) =>
+                                          _buildSceneImageEmptyState(
+                                            label: '图片加载失败',
+                                            icon: Icons.broken_image_outlined,
+                                          ),
+                                )
+                              else
+                                _buildSceneImageEmptyState(
+                                  label:
+                                      loading
+                                          ? '正在生成场景图…'
+                                          : status == 'error'
+                                          ? '最近一次生成失败'
+                                          : '还没有生成场景图',
+                                  icon:
+                                      loading
+                                          ? Icons.hourglass_top_outlined
+                                          : status == 'error'
+                                          ? Icons.error_outline
+                                          : Icons.image_outlined,
+                                  loading: loading,
+                                ),
+                              if (loading && imageUrl != null)
+                                Container(
+                                  width: double.infinity,
+                                  height: double.infinity,
+                                  color: Colors.black.withValues(alpha: 0.18),
+                                  alignment: Alignment.center,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 10,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.58,
+                                      ),
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: const [
+                                        SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2.2,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                        SizedBox(width: 10),
+                                        Text(
+                                          '正在生成新图片…',
+                                          style: TextStyle(color: Colors.white),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
                       ),
-                      IconButton(
-                        tooltip: '刷新',
-                        onPressed: () async {
-                          Navigator.of(context).pop();
-                          await _refreshChatMetaOnly();
-                          if (!mounted) return;
-                          await _showSceneImageSheet();
-                        },
-                        icon: const Icon(Icons.refresh),
+                      const SizedBox(height: 16),
+                      if (error.isNotEmpty && !loading) ...[
+                        Text(
+                          '错误：$error',
+                          style: Theme.of(
+                            sheetContext,
+                          ).textTheme.bodyMedium?.copyWith(
+                            color: Theme.of(sheetContext).colorScheme.error,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      if (prompt.isNotEmpty) ...[
+                        Text(
+                          '场景文本',
+                          style: Theme.of(sheetContext).textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 8),
+                        SelectableText(prompt),
+                        const SizedBox(height: 16),
+                      ],
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: loading ? null : refreshSheet,
+                              icon: const Icon(Icons.refresh),
+                              label: const Text('刷新状态'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: loading ? null : generateInsideSheet,
+                              icon:
+                                  loading
+                                      ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2.2,
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                      : const Icon(Icons.auto_awesome_outlined),
+                              label: Text(imageUrl == null ? '生成图片' : '重新生成'),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(20),
-                    child: Container(
-                      width: double.infinity,
-                      constraints: const BoxConstraints(minHeight: 260),
-                      color:
-                          Theme.of(context).colorScheme.surfaceContainerHighest,
-                      child:
-                          imageUrl != null
-                              ? Image.network(
-                                imageUrl,
-                                fit: BoxFit.cover,
-                                errorBuilder:
-                                    (_, __, ___) => _buildSceneImageEmptyState(
-                                      label: '图片加载失败',
-                                      icon: Icons.broken_image_outlined,
-                                    ),
-                              )
-                              : _buildSceneImageEmptyState(
-                                label:
-                                    status == 'generating'
-                                        ? '正在生成场景图…'
-                                        : status == 'error'
-                                        ? '最近一次生成失败'
-                                        : '还没有生成场景图',
-                                icon:
-                                    status == 'generating'
-                                        ? Icons.hourglass_top_outlined
-                                        : Icons.image_outlined,
-                                loading:
-                                    status == 'generating' ||
-                                    _isGeneratingSceneImage,
-                              ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  if (error.isNotEmpty) ...[
-                    Text(
-                      '错误：$error',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  if (prompt.isNotEmpty) ...[
-                    Text(
-                      '生成提示词',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                    const SizedBox(height: 8),
-                    SelectableText(prompt),
-                    const SizedBox(height: 16),
-                  ],
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      onPressed:
-                          _isGeneratingSceneImage
-                              ? null
-                              : () async {
-                                Navigator.of(context).pop();
-                                await _generateSceneImage(reopenSheet: true);
-                              },
-                      icon: const Icon(Icons.auto_awesome_outlined),
-                      label: Text(imageUrl == null ? '生成图片' : '重新生成'),
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );
+    unawaited(_refreshChatMetaOnly());
   }
 
   Widget _buildSceneImageEmptyState({
