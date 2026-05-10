@@ -32,22 +32,28 @@ class TavernChatScreen extends StatefulWidget {
   State<TavernChatScreen> createState() => _TavernChatScreenState();
 }
 
-class _NarrationSegment {
-  const _NarrationSegment(this.text)
-    : isNarration = false,
-      openBracket = '',
-      closeBracket = '';
+enum _StyledTextSegmentKind { plain, narration, dialogue }
 
-  const _NarrationSegment.narration({
+class _StyledTextSegment {
+  const _StyledTextSegment(this.text)
+    : kind = _StyledTextSegmentKind.plain,
+      openMarker = '',
+      closeMarker = '';
+
+  const _StyledTextSegment.styled({
+    required this.kind,
     required this.text,
-    required this.openBracket,
-    required this.closeBracket,
-  }) : isNarration = true;
+    required this.openMarker,
+    required this.closeMarker,
+  });
 
+  final _StyledTextSegmentKind kind;
   final String text;
-  final bool isNarration;
-  final String openBracket;
-  final String closeBracket;
+  final String openMarker;
+  final String closeMarker;
+
+  bool get isNarration => kind == _StyledTextSegmentKind.narration;
+  bool get isDialogue => kind == _StyledTextSegmentKind.dialogue;
 }
 
 class _TavernRegexScript {
@@ -128,7 +134,7 @@ class _TavernRegexScript {
 enum _AssistantRenderSegmentKind {
   markdown,
   narration,
-  inlineNarration,
+  inlineStyled,
   complexHtml,
 }
 
@@ -1283,8 +1289,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         return _buildInlineHtmlContent(segment.content);
       case _AssistantRenderSegmentKind.narration:
         return _buildNarrationText(segment.content);
-      case _AssistantRenderSegmentKind.inlineNarration:
-        return _buildInlineNarrationRichText(segment.content);
+      case _AssistantRenderSegmentKind.inlineStyled:
+        return _buildInlineStyledRichText(segment.content);
       case _AssistantRenderSegmentKind.markdown:
         return _buildMarkdownText(
           segment.content,
@@ -1353,7 +1359,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     );
   }
 
-  Widget _buildInlineNarrationRichText(String text) {
+  Widget _buildInlineStyledRichText(String text) {
     final baseStyle =
         Theme.of(context).textTheme.bodyMedium?.copyWith(
           color: const Color(0xFF1F2430),
@@ -1369,20 +1375,53 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           height: 1.4,
           fontWeight: FontWeight.w500,
         );
-    const bracketColor = Color(0xFFB8A7E8);
-    const contentColor = Color(0xFF7B6D9D);
+    const narrationBracketColor = Color(0xFFB8A7E8);
+    const narrationContentColor = Color(0xFF7B6D9D);
+    const dialogueQuoteColor = Color(0xFFE0A0B8);
+    const dialogueContentColor = Color(0xFF8D4F68);
     final spans = <InlineSpan>[];
-    for (final segment in _parseNarrationSegments(text)) {
-      if (!segment.isNarration) {
+    for (final segment in _parseStyledTextSegments(text)) {
+      if (segment.kind == _StyledTextSegmentKind.plain) {
         spans.add(TextSpan(text: segment.text, style: baseStyle));
+        continue;
+      }
+      if (segment.isNarration) {
+        spans.add(
+          TextSpan(
+            text: segment.openMarker,
+            style: baseStyle.copyWith(
+              color: narrationBracketColor,
+              fontStyle: FontStyle.italic,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        );
+        spans.add(
+          TextSpan(
+            text: segment.text,
+            style: baseStyle.copyWith(
+              color: narrationContentColor,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        );
+        spans.add(
+          TextSpan(
+            text: segment.closeMarker,
+            style: baseStyle.copyWith(
+              color: narrationBracketColor,
+              fontStyle: FontStyle.italic,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        );
         continue;
       }
       spans.add(
         TextSpan(
-          text: segment.openBracket,
+          text: segment.openMarker,
           style: baseStyle.copyWith(
-            color: bracketColor,
-            fontStyle: FontStyle.italic,
+            color: dialogueQuoteColor,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -1391,17 +1430,16 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         TextSpan(
           text: segment.text,
           style: baseStyle.copyWith(
-            color: contentColor,
-            fontStyle: FontStyle.italic,
+            color: dialogueContentColor,
+            fontWeight: FontWeight.w600,
           ),
         ),
       );
       spans.add(
         TextSpan(
-          text: segment.closeBracket,
+          text: segment.closeMarker,
           style: baseStyle.copyWith(
-            color: bracketColor,
-            fontStyle: FontStyle.italic,
+            color: dialogueQuoteColor,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -1416,8 +1454,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         (trimmed.startsWith('（') && trimmed.endsWith('）'));
   }
 
-  bool _containsNarrationSegment(String text) {
-    return RegExp(r'(\([^\n()]+\)|（[^\n（）]+）)').hasMatch(text);
+  bool _containsStyledSegment(String text) {
+    return RegExp(r'(\([^\n()]+\)|（[^\n（）]+）|“[^”\n]+”)').hasMatch(text);
   }
 
   bool _containsPotentialMarkdown(String text) {
@@ -1452,10 +1490,10 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         continue;
       }
       if (!_containsPotentialMarkdown(content) &&
-          _containsNarrationSegment(content)) {
+          _containsStyledSegment(content)) {
         segments.add(
           _AssistantRenderSegment(
-            kind: _AssistantRenderSegmentKind.inlineNarration,
+            kind: _AssistantRenderSegmentKind.inlineStyled,
             content: content,
           ),
         );
@@ -1894,30 +1932,37 @@ $trimmed
     return text.trim();
   }
 
-  List<_NarrationSegment> _parseNarrationSegments(String text) {
-    final pattern = RegExp(r'(\([^\n()]+\)|（[^\n（）]+）)');
-    final segments = <_NarrationSegment>[];
+  List<_StyledTextSegment> _parseStyledTextSegments(String text) {
+    final pattern = RegExp(r'(\([^\n()]+\)|（[^\n（）]+）|“[^”\n]+”)');
+    final segments = <_StyledTextSegment>[];
     var cursor = 0;
     for (final match in pattern.allMatches(text)) {
       if (match.start > cursor) {
-        segments.add(_NarrationSegment(text.substring(cursor, match.start)));
+        segments.add(_StyledTextSegment(text.substring(cursor, match.start)));
       }
       final raw = match.group(0) ?? '';
       if (raw.length >= 2) {
+        final open = raw.substring(0, 1);
+        final close = raw.substring(raw.length - 1);
+        final kind =
+            (open == '“' && close == '”')
+                ? _StyledTextSegmentKind.dialogue
+                : _StyledTextSegmentKind.narration;
         segments.add(
-          _NarrationSegment.narration(
+          _StyledTextSegment.styled(
+            kind: kind,
             text: raw.substring(1, raw.length - 1),
-            openBracket: raw.substring(0, 1),
-            closeBracket: raw.substring(raw.length - 1),
+            openMarker: open,
+            closeMarker: close,
           ),
         );
       } else {
-        segments.add(_NarrationSegment(raw));
+        segments.add(_StyledTextSegment(raw));
       }
       cursor = match.end;
     }
     if (cursor < text.length) {
-      segments.add(_NarrationSegment(text.substring(cursor)));
+      segments.add(_StyledTextSegment(text.substring(cursor)));
     }
     return segments;
   }

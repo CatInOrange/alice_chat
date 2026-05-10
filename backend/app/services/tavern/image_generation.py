@@ -12,6 +12,19 @@ from urllib.request import Request, urlopen
 ReferenceImageSource = Path | str | None
 
 
+def build_scene_image_generation_prompt(refined_prompt: str) -> str:
+    prompt = refined_prompt.strip()
+    if not prompt:
+        raise ValueError('refined image prompt is empty')
+    return (
+        '请严格根据参考图确定女主角的脸、五官、发型、发色、年龄感与整体气质，不要擅自改变人脸辨识特征。'
+        '如果文字描述与参考图外貌冲突，一律以参考图为准。'
+        '画面中只允许出现女主角一人，不直接描写或生成其他人物。'
+        '在此基础上，生成以下场景：'
+        f'{prompt}'
+    )
+
+
 @dataclass(slots=True)
 class TavernImageGenerationResult:
     prompt: str
@@ -37,8 +50,6 @@ class TavernImagePromptRefiner:
                         '你是图像提示词整理器。'
                         '请把给定的剧情回复提炼成一段适合中文图像模型的单段场景描述。'
                         '要求：只描写女主角一人，把她当作唯一主体；'
-                        '女主角的脸、五官、发型、发色、年龄感、气质必须严格遵循参考图，不要擅自改变人脸辨识特征；'
-                        '如果剧情文字与参考图外貌信息冲突，以参考图外貌为准；'
                         '若原文出现男性或其他人物，只保留他们对气氛造成的痕迹或间接影响，不直接描写第二个人的外貌、身体、脸、动作或镜头；'
                         '保留当前场景、女主角的动作、表情、服饰、环境、氛围与镜头感；'
                         '描述要具体、清楚、可视化，优先写明构图、镜头距离、姿态、表情、光线、服饰细节与环境细节；'

@@ -19,7 +19,11 @@ from .persona_service import TavernPersonaService
 from .variable_service import TavernVariableService
 from .macro_runtime import MacroEngine, build_macro_runtime_context, normalize_legacy_angle_bracket_placeholders
 from .model_client import TavernModelClient
-from .image_generation import TavernImageGenerator, TavernImagePromptRefiner
+from .image_generation import (
+    TavernImageGenerator,
+    TavernImagePromptRefiner,
+    build_scene_image_generation_prompt,
+)
 
 
 @dataclass(slots=True)
@@ -298,6 +302,7 @@ class TavernService:
                 character_name=str(character.get('name') or '').strip() or '角色',
                 assistant_text=str(source_message.get('content') or ''),
             )
+            final_generation_prompt = build_scene_image_generation_prompt(prompt)
             image_provider = get_tavern_image_provider()
             if not self.uploads_dir:
                 raise ValueError('uploads_dir is not configured')
@@ -307,7 +312,7 @@ class TavernService:
                 uploads_dir=self.uploads_dir,
             )
             result = generator.generate(
-                prompt=prompt,
+                prompt=final_generation_prompt,
                 reference_image=reference_image,
                 chat_id=chat_id,
             )
@@ -317,7 +322,8 @@ class TavernService:
                 'sourceMessageId': str(source_message.get('id') or '').strip(),
                 'prompt': str(source_message.get('content') or '').strip(),
                 'displayPrompt': str(source_message.get('content') or '').strip(),
-                'generationPrompt': prompt,
+                'generationPrompt': final_generation_prompt,
+                'refinedPrompt': prompt,
                 'imageUrl': result.image_url,
                 'provider': result.provider_meta,
                 'updatedAt': self._iso_now(),
