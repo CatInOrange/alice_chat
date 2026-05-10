@@ -9,6 +9,9 @@ from typing import Any
 from urllib.request import Request, urlopen
 
 
+ReferenceImageSource = Path | str | None
+
+
 @dataclass(slots=True)
 class TavernImageGenerationResult:
     prompt: str
@@ -33,7 +36,12 @@ class TavernImagePromptRefiner:
                     'content': (
                         '你是图像提示词整理器。'
                         '请把给定的剧情回复提炼成一段适合中文图像模型的单段场景描述。'
-                        '要求：保留当前场景、人物动作、表情、服饰、环境、氛围与镜头感；'
+                        '要求：只描写女主角一人，把她当作唯一主体；'
+                        '女主角的脸、五官、发型、发色、年龄感、气质必须严格遵循参考图，不要擅自改变人脸辨识特征；'
+                        '如果剧情文字与参考图外貌信息冲突，以参考图外貌为准；'
+                        '若原文出现男性或其他人物，只保留他们对气氛造成的痕迹或间接影响，不直接描写第二个人的外貌、身体、脸、动作或镜头；'
+                        '保留当前场景、女主角的动作、表情、服饰、环境、氛围与镜头感；'
+                        '描述要具体、清楚、可视化，优先写明构图、镜头距离、姿态、表情、光线、服饰细节与环境细节；'
                         '避免对话体、避免解释、避免分点；'
                         '默认写实唯美风格；'
                         '输出纯提示词正文，不要前后缀。'
@@ -60,7 +68,7 @@ class TavernImageGenerator:
         self,
         *,
         prompt: str,
-        reference_image_path: Path,
+        reference_image: ReferenceImageSource,
         chat_id: str,
     ) -> TavernImageGenerationResult:
         provider_type = str(self.provider_config.get('type') or 'openai-images').strip() or 'openai-images'
@@ -68,7 +76,7 @@ class TavernImageGenerator:
             raise ValueError(f'unsupported tavern image provider type: {provider_type}')
         return self._generate_openai_images(
             prompt=prompt,
-            reference_image_path=reference_image_path,
+            reference_image=reference_image,
             chat_id=chat_id,
         )
 
@@ -76,7 +84,7 @@ class TavernImageGenerator:
         self,
         *,
         prompt: str,
-        reference_image_path: Path,
+        reference_image: ReferenceImageSource,
         chat_id: str,
     ) -> TavernImageGenerationResult:
         endpoint = str(self.provider_config.get('endpoint') or '').strip()
@@ -105,7 +113,7 @@ class TavernImageGenerator:
         background = str(self.provider_config.get('background') or '').strip()
         if background:
             body['background'] = background
-        image_payload = self._encode_reference_image(reference_image_path)
+        image_payload = self._encode_reference_image(reference_image)
         if image_payload is not None:
             body['image'] = image_payload
         count = int(self.provider_config.get('count') or 1)
@@ -145,16 +153,48 @@ class TavernImageGenerator:
             },
         )
 
-    def _encode_reference_image(self, path: Path) -> str | None:
-        if not path.exists() or not path.is_file():
+    def _encode_reference_image(self, source: ReferenceImageSource) -> str | None:
+        if source is None:
+            return None
+        raw_bytes: bytes | None = None
+        suffix = '.png'
+        if isinstance(source, Path):
+            if not source.exists() or not source.is_file():
+                return None
+            raw_bytes = source.read_bytes()
+            suffix = source.suffix.lower()
+        else:
+            value = str(source).strip()
+            if not value:
+                return None
+            if value.startswith('http://') or value.startswith('https://'):
+                req = Request(value, headers={'User-Agent': 'AliceChat Tavern Image/1.0'})
+                with urlopen(req, timeout=60) as resp:
+                    raw_bytes = resp.read()
+                    content_type = resp.headers.get('Content-Type') or ''
+                lowered = content_type.lower()
+                if 'jpeg' in lowered or 'jpg' in lowered:
+                    suffix = '.jpg'
+                elif 'webp' in lowered:
+                    suffix = '.webp'
+                elif 'png' in lowered:
+                    suffix = '.png'
+            elif value.startswith('data:image/'):
+                return value
+            else:
+                path = Path(value)
+                if not path.exists() or not path.is_file():
+                    return None
+                raw_bytes = path.read_bytes()
+                suffix = path.suffix.lower()
+        if not raw_bytes:
             return None
         mime = 'image/png'
-        suffix = path.suffix.lower()
         if suffix in {'.jpg', '.jpeg'}:
             mime = 'image/jpeg'
         elif suffix == '.webp':
             mime = 'image/webp'
-        encoded = base64.b64encode(path.read_bytes()).decode('ascii')
+        encoded = base64.b64encode(raw_bytes).decode('ascii')
         return f'data:{mime};base64,{encoded}'
 
     def _extract_image_bytes(self, payload: dict[str, Any]) -> bytes | None:

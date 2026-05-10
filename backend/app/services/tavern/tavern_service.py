@@ -308,14 +308,16 @@ class TavernService:
             )
             result = generator.generate(
                 prompt=prompt,
-                reference_image_path=reference_image,
+                reference_image=reference_image,
                 chat_id=chat_id,
             )
             metadata = dict((self.store.get_chat(chat_id) or updated_chat).get('metadata') or {})
             metadata['sceneImage'] = {
                 'status': 'ready',
                 'sourceMessageId': str(source_message.get('id') or '').strip(),
-                'prompt': prompt,
+                'prompt': str(source_message.get('content') or '').strip(),
+                'displayPrompt': str(source_message.get('content') or '').strip(),
+                'generationPrompt': prompt,
                 'imageUrl': result.image_url,
                 'provider': result.provider_meta,
                 'updatedAt': self._iso_now(),
@@ -729,8 +731,12 @@ class TavernService:
 
         return datetime.now(timezone.utc).isoformat()
 
-    def _resolve_scene_reference_image(self, character: dict[str, Any]) -> Path:
+    def _resolve_scene_reference_image(self, character: dict[str, Any]) -> Path | str:
         _ = character
+        image_provider = get_tavern_image_provider()
+        reference_url = str(image_provider.get('referenceImageUrl') or image_provider.get('reference_url') or '').strip()
+        if reference_url:
+            return reference_url
         fallback = Path(__file__).resolve().parents[4] / 'assets' / 'avatars' / 'tavern_default.png'
         if fallback.exists() and fallback.is_file():
             return fallback

@@ -900,11 +900,6 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   List<Widget> _buildHeaderActions() {
     return [
       IconButton(
-        tooltip: '角色页',
-        onPressed: _openCharacterProfilePage,
-        icon: const Icon(Icons.account_box_outlined),
-      ),
-      IconButton(
         tooltip: '场景图',
         onPressed: _showSceneImageSheet,
         icon:
@@ -2312,7 +2307,8 @@ $trimmed
       builder: (context) {
         final meta = _sceneImageMeta();
         final status = (meta['status'] ?? '').toString();
-        final prompt = (meta['prompt'] ?? '').toString().trim();
+        final prompt =
+            (meta['displayPrompt'] ?? meta['prompt'] ?? '').toString().trim();
         final error = (meta['error'] ?? '').toString().trim();
         final imageUrl = buildTavernImageUrl(
           path: (meta['imageUrl'] ?? '').toString(),
@@ -2352,27 +2348,34 @@ $trimmed
                     child: Container(
                       width: double.infinity,
                       constraints: const BoxConstraints(minHeight: 260),
-                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                      child: imageUrl != null
-                          ? Image.network(
-                              imageUrl,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => _buildSceneImageEmptyState(
-                                label: '图片加载失败',
-                                icon: Icons.broken_image_outlined,
+                      color:
+                          Theme.of(context).colorScheme.surfaceContainerHighest,
+                      child:
+                          imageUrl != null
+                              ? Image.network(
+                                imageUrl,
+                                fit: BoxFit.cover,
+                                errorBuilder:
+                                    (_, __, ___) => _buildSceneImageEmptyState(
+                                      label: '图片加载失败',
+                                      icon: Icons.broken_image_outlined,
+                                    ),
+                              )
+                              : _buildSceneImageEmptyState(
+                                label:
+                                    status == 'generating'
+                                        ? '正在生成场景图…'
+                                        : status == 'error'
+                                        ? '最近一次生成失败'
+                                        : '还没有生成场景图',
+                                icon:
+                                    status == 'generating'
+                                        ? Icons.hourglass_top_outlined
+                                        : Icons.image_outlined,
+                                loading:
+                                    status == 'generating' ||
+                                    _isGeneratingSceneImage,
                               ),
-                            )
-                          : _buildSceneImageEmptyState(
-                              label: status == 'generating'
-                                  ? '正在生成场景图…'
-                                  : status == 'error'
-                                      ? '最近一次生成失败'
-                                      : '还没有生成场景图',
-                              icon: status == 'generating'
-                                  ? Icons.hourglass_top_outlined
-                                  : Icons.image_outlined,
-                              loading: status == 'generating' || _isGeneratingSceneImage,
-                            ),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -2397,12 +2400,13 @@ $trimmed
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
-                      onPressed: _isGeneratingSceneImage
-                          ? null
-                          : () async {
-                              Navigator.of(context).pop();
-                              await _generateSceneImage(reopenSheet: true);
-                            },
+                      onPressed:
+                          _isGeneratingSceneImage
+                              ? null
+                              : () async {
+                                Navigator.of(context).pop();
+                                await _generateSceneImage(reopenSheet: true);
+                              },
                       icon: const Icon(Icons.auto_awesome_outlined),
                       label: Text(imageUrl == null ? '生成图片' : '重新生成'),
                     ),
@@ -3506,6 +3510,17 @@ $trimmed
                   onTap: () {
                     Navigator.of(context).pop();
                     _openCharacterProfilePage();
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.image_outlined),
+                  title: const Text('场景图'),
+                  subtitle: const Text('查看当前场景图，没生成也可以从这里进入'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _showSceneImageSheet();
                   },
                 ),
                 ListTile(
