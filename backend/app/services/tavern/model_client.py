@@ -13,6 +13,7 @@ StreamEmitter = Callable[[dict[str, Any]], None]
 class TavernModelResponse:
     text: str
     raw: dict[str, Any]
+    thought: str = ''
 
 
 class TavernModelClient:
@@ -37,6 +38,7 @@ class TavernModelClient:
         payload = self._build_payload(messages=messages, stream=True)
         req = Request(endpoint, data=json.dumps(payload).encode('utf-8'), headers=self._headers(), method='POST')
         chunks: list[str] = []
+        thought_chunks: list[str] = []
         with urlopen(req, timeout=self._timeout_seconds()) as resp:
             for raw_line in resp:
                 line = raw_line.decode('utf-8', errors='ignore').strip()
@@ -49,12 +51,17 @@ class TavernModelClient:
                     frame = json.loads(data)
                 except Exception:
                     continue
+                thought_delta = self._extract_thought_delta(frame)
+                if thought_delta:
+                    thought_chunks.append(thought_delta)
+                    emit({'thought_delta': thought_delta, 'raw': frame})
                 delta = self._extract_delta(frame)
                 if delta:
                     chunks.append(delta)
                     emit({'delta': delta, 'raw': frame})
         text = ''.join(chunks).strip()
-        return TavernModelResponse(text=text, raw={'streamed': True, 'text': text})
+        thought = ''.join(thought_chunks).strip()
+        return TavernModelResponse(text=text, raw={'streamed': True, 'text': text, 'thought': thought}, thought=thought)
 
     def _api_kind(self) -> str:
         return str(self.provider_config.get('api') or 'openai-chat-completions').strip() or 'openai-chat-completions'
@@ -230,4 +237,30 @@ class TavernModelClient:
                 if isinstance(item, dict) and item.get('type') == 'text' and isinstance(item.get('text'), str):
                     parts.append(item['text'])
             return ''.join(parts)
+        return ''
+
+    def _extract_thought_delta(self, raw: dict[str, Any]) -> str:
+        if self._api_kind() == 'anthropic-messages':
+            delta = raw.get('delta') or {}
+            thinking = delta.get('thinking')
+            return thinking if isinstance(thinking, str) else ''
+        choices = raw.get('choices') or []
+        if not choices:
+            return ''
+        delta = (choices[0] or {}).get('delta') or {}
+        for key in ('reasoning_content', 'reasoning', 'thinking'):
+            value = delta.get(key)
+            if isinstance(value, str) and value:
+                return value
+            if isinstance(value, list):
+                parts: list[str] = []
+                for item in value:
+                    if isinstance(item, dict):
+                        text = item.get('text') or item.get('content')
+                        if isinstance(text, str):
+                            parts.append(text)
+                    elif isinstance(item, str):
+                        parts.append(item)
+                if parts:
+                    return ''.join(parts)
         return ''

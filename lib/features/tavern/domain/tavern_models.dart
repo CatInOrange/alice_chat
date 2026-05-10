@@ -252,6 +252,7 @@ class TavernPreset {
     this.typicalP = 1,
     this.repetitionPenalty = 1,
     this.thinkingEnabled = false,
+    this.showThinking = false,
     this.thinkingBudget = 0,
     this.reasoningEffort = '',
     this.createdAt,
@@ -282,6 +283,7 @@ class TavernPreset {
   final double typicalP;
   final double repetitionPenalty;
   final bool thinkingEnabled;
+  final bool showThinking;
   final int thinkingBudget;
   final String reasoningEffort;
   final DateTime? createdAt;
@@ -316,6 +318,7 @@ class TavernPreset {
       typicalP: (json['typicalP'] as num?)?.toDouble() ?? 1,
       repetitionPenalty: (json['repetitionPenalty'] as num?)?.toDouble() ?? 1,
       thinkingEnabled: json['thinkingEnabled'] == true,
+      showThinking: json['showThinking'] == true,
       thinkingBudget: (json['thinkingBudget'] as num?)?.toInt() ?? 0,
       reasoningEffort: (json['reasoningEffort'] ?? '').toString(),
       createdAt: _parseDate(json['createdAt']),
@@ -347,6 +350,7 @@ class TavernPreset {
     int? maxTokens,
     List<String>? stopSequences,
     bool? thinkingEnabled,
+    bool? showThinking,
     int? thinkingBudget,
     String? reasoningEffort,
   }) {
@@ -375,6 +379,7 @@ class TavernPreset {
       typicalP: typicalP ?? this.typicalP,
       repetitionPenalty: repetitionPenalty ?? this.repetitionPenalty,
       thinkingEnabled: thinkingEnabled ?? this.thinkingEnabled,
+      showThinking: showThinking ?? this.showThinking,
       thinkingBudget: thinkingBudget ?? this.thinkingBudget,
       reasoningEffort: reasoningEffort ?? this.reasoningEffort,
       createdAt: createdAt,
@@ -408,6 +413,7 @@ class TavernPreset {
       'typicalP': typicalP,
       'repetitionPenalty': repetitionPenalty,
       'thinkingEnabled': thinkingEnabled,
+      'showThinking': showThinking,
       'thinkingBudget': thinkingBudget,
       'reasoningEffort': reasoningEffort,
       if (createdAt != null) 'createdAt': createdAt!.toIso8601String(),

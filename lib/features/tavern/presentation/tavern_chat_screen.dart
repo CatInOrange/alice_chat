@@ -693,6 +693,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   String? _selectedPresetId;
   String? _streamingAssistantMessageId;
   TavernMessage? _streamingAssistantMessage;
+  final Set<String> _expandedThoughtMessageIds = <String>{};
   List<TavernMessage> _messages = const <TavernMessage>[];
   late TavernCharacter _character;
   late TavernChat _chat;
@@ -1046,6 +1047,10 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                     ),
                   ),
                   const SizedBox(height: 6),
+                  if (!isUser && message.thought.trim().isNotEmpty) ...[
+                    _buildThoughtBlock(message),
+                    const SizedBox(height: 8),
+                  ],
                   _buildMessageContent(message.content, isUser: isUser),
                   if (message.createdAt != null ||
                       (message.metadata['requestId'] ?? '')
@@ -1108,6 +1113,82 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         );
       },
     );
+  }
+
+  Widget _buildThoughtBlock(TavernMessage message) {
+    final thought = message.thought.trim();
+    if (thought.isEmpty) return const SizedBox.shrink();
+    final preset = _resolveSelectedPreset();
+    if (preset?.showThinking != true) return const SizedBox.shrink();
+    final expanded = _expandedThoughtMessageIds.contains(message.id);
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F1FF),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFD9CCFF)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () {
+              setState(() {
+                if (expanded) {
+                  _expandedThoughtMessageIds.remove(message.id);
+                } else {
+                  _expandedThoughtMessageIds.add(message.id);
+                }
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.psychology_alt_outlined,
+                    size: 16,
+                    color: Color(0xFF7C4DFF),
+                  ),
+                  const SizedBox(width: 6),
+                  const Expanded(
+                    child: Text(
+                      'Thinking',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF6B46C1),
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    expanded ? Icons.expand_less : Icons.expand_more,
+                    size: 18,
+                    color: const Color(0xFF7C4DFF),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (expanded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+              child: _buildMessageContent(thought, isUser: false),
+            ),
+        ],
+      ),
+    );
+  }
+
+  TavernPreset? _resolveSelectedPreset() {
+    final store = context.read<TavernStore>();
+    final presetId = (_selectedPresetId ?? _chat.presetId).trim();
+    if (presetId.isNotEmpty) {
+      for (final preset in store.presets) {
+        if (preset.id == presetId) return preset;
+      }
+    }
+    return store.presets.isNotEmpty ? store.presets.first : null;
   }
 
   Widget _buildEphemeralGreetingBubble(String greeting) {
@@ -2195,8 +2276,10 @@ $trimmed
               }
               break;
             case 'delta':
-              final delta = (data['delta'] ?? '').toString();
-              if (delta.isEmpty) return;
+            case 'thought_delta':
+              final chunk =
+                  (data['delta'] ?? data['thought_delta'] ?? '').toString();
+              if (chunk.isEmpty) return;
               final messageId = (data['messageId'] ?? '').toString().trim();
               final assistantId =
                   messageId.isNotEmpty
@@ -2207,16 +2290,31 @@ $trimmed
                   _streamingAssistantMessage?.id == assistantId
                       ? _streamingAssistantMessage!.content
                       : '';
+              final previousThought =
+                  _streamingAssistantMessage?.id == assistantId
+                      ? _streamingAssistantMessage!.thought
+                      : '';
               final nextMessage = TavernMessage(
                 id: assistantId,
                 chatId: _chat.id,
                 role: 'assistant',
-                content: '$previousContent$delta',
+                content:
+                    event == 'delta'
+                        ? '$previousContent$chunk'
+                        : previousContent,
+                thought:
+                    event == 'thought_delta'
+                        ? '$previousThought$chunk'
+                        : previousThought,
                 createdAt: DateTime.now(),
               );
               setState(() {
                 _streamingAssistantMessageId = assistantId;
                 _streamingAssistantMessage = nextMessage;
+                if (event == 'thought_delta' &&
+                    nextMessage.thought.isNotEmpty) {
+                  _expandedThoughtMessageIds.add(assistantId);
+                }
               });
               _scrollToBottom();
               break;
@@ -2227,6 +2325,9 @@ $trimmed
                   Map<String, dynamic>.from(rawAssistant),
                 );
                 setState(() {
+                  _expandedThoughtMessageIds.remove(
+                    finalizedAssistantMessage.id,
+                  );
                   final nextMessages = _messages.toList(growable: true);
                   if (showUserMessage && persistedUserMessage != null) {
                     final userIndex = nextMessages.indexWhere(

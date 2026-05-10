@@ -1961,6 +1961,7 @@ class _TavernScreenState extends State<TavernScreen>
     int contextLength = preset?.contextLength ?? 200000;
     int storyDepth = preset?.storyStringDepth ?? 1;
     bool thinkingEnabled = preset?.thinkingEnabled ?? false;
+    bool showThinking = preset?.showThinking ?? false;
     int thinkingBudget = preset?.thinkingBudget ?? 0;
     String reasoningEffort =
         (preset?.reasoningEffort ?? '').isNotEmpty
@@ -2213,6 +2214,18 @@ class _TavernScreenState extends State<TavernScreen>
                                   onChanged:
                                       (value) => setModalState(
                                         () => thinkingEnabled = value,
+                                      ),
+                                ),
+                                SwitchListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  title: const Text('显示 Thinking'),
+                                  subtitle: const Text(
+                                    '仅在当前流式回复期间临时显示，不写入历史消息。',
+                                  ),
+                                  value: showThinking,
+                                  onChanged:
+                                      (value) => setModalState(
+                                        () => showThinking = value,
                                       ),
                                 ),
                                 const SizedBox(height: 8),
@@ -2475,6 +2488,7 @@ class _TavernScreenState extends State<TavernScreen>
                                               'contextLength': contextLength,
                                               'thinkingEnabled':
                                                   thinkingEnabled,
+                                              'showThinking': showThinking,
                                               'thinkingBudget': thinkingBudget,
                                               'reasoningEffort':
                                                   reasoningEffort,

@@ -160,7 +160,9 @@ class TavernStore extends ChangeNotifier {
   }
 
   Future<Map<String, dynamic>> loadConfigOptions({bool notify = true}) async {
-    final config = Map<String, dynamic>.from(await _repository.getConfigOptions());
+    final config = Map<String, dynamic>.from(
+      await _repository.getConfigOptions(),
+    );
     _applyConfigOptions(config);
     if (notify) notifyListeners();
     return config;
@@ -173,6 +175,10 @@ class TavernStore extends ChangeNotifier {
           (item) =>
               TavernProviderOption.fromJson(Map<String, dynamic>.from(item)),
         )
+        .toList(growable: false);
+    _presets = (((config['presets'] as List?) ?? const <dynamic>[])
+            .whereType<Map>())
+        .map((item) => TavernPreset.fromJson(Map<String, dynamic>.from(item)))
         .toList(growable: false);
     _promptOrders = (((config['promptOrders'] as List?) ?? const <dynamic>[])
             .whereType<Map>())
@@ -188,9 +194,7 @@ class TavernStore extends ChangeNotifier {
         .toList(growable: false);
     _personas = (((config['personas'] as List?) ?? const <dynamic>[])
             .whereType<Map>())
-        .map(
-          (item) => TavernPersona.fromJson(Map<String, dynamic>.from(item)),
-        )
+        .map((item) => TavernPersona.fromJson(Map<String, dynamic>.from(item)))
         .toList(growable: false);
     _globalVariables = Map<String, dynamic>.from(
       (config['globalVariables'] as Map?) ?? const <String, dynamic>{},
@@ -209,9 +213,7 @@ class TavernStore extends ChangeNotifier {
     try {
       late final TavernCharacterImportResult result;
       if (lower.endsWith('.json')) {
-        final payload = _repository.parseCharacterJsonText(
-          utf8.decode(bytes),
-        );
+        final payload = _repository.parseCharacterJsonText(utf8.decode(bytes));
         result = await _repository.importCharacterJson(
           filename: filename,
           payload: payload,
@@ -294,7 +296,9 @@ class TavernStore extends ChangeNotifier {
 
   Future<void> deleteCharacter(String characterId) async {
     await _repository.deleteCharacter(characterId);
-    _characters = _characters.where((item) => item.id != characterId).toList(growable: false);
+    _characters = _characters
+        .where((item) => item.id != characterId)
+        .toList(growable: false);
     _recentChats = _recentChats
         .where((item) => item.characterId != characterId)
         .toList(growable: false);
@@ -362,7 +366,9 @@ class TavernStore extends ChangeNotifier {
 
   Future<void> deleteChat(String chatId) async {
     await _repository.deleteChat(chatId);
-    _recentChats = _recentChats.where((item) => item.id != chatId).toList(growable: false);
+    _recentChats = _recentChats
+        .where((item) => item.id != chatId)
+        .toList(growable: false);
     _chatSnapshots.remove(chatId);
     unawaited(_cacheStore.deleteChatSnapshot(chatId));
     notifyListeners();
@@ -460,7 +466,9 @@ class TavernStore extends ChangeNotifier {
 
   Future<void> deletePromptBlock(String blockId) async {
     await _repository.deletePromptBlock(blockId);
-    _promptBlocks = _promptBlocks.where((item) => item.id != blockId).toList(growable: false);
+    _promptBlocks = _promptBlocks
+        .where((item) => item.id != blockId)
+        .toList(growable: false);
     _promptOrders = _promptOrders
         .map(
           (order) => TavernPromptOrder(
@@ -540,7 +548,9 @@ class TavernStore extends ChangeNotifier {
 
   Future<void> deleteWorldBook(String worldbookId) async {
     await _repository.deleteWorldBook(worldbookId);
-    _worldBooks = _worldBooks.where((item) => item.id != worldbookId).toList(growable: false);
+    _worldBooks = _worldBooks
+        .where((item) => item.id != worldbookId)
+        .toList(growable: false);
     _worldBookEntries.remove(worldbookId);
     _loadedWorldBookEntries.remove(worldbookId);
     _loadingWorldBookEntries.remove(worldbookId);
@@ -639,22 +649,27 @@ class TavernStore extends ChangeNotifier {
 
   Future<void> deletePersona(String personaId) async {
     await _repository.deletePersona(personaId);
-    _personas = _personas.where((item) => item.id != personaId).toList(growable: false);
+    _personas = _personas
+        .where((item) => item.id != personaId)
+        .toList(growable: false);
     _recentChats = _recentChats
-        .map((chat) => chat.personaId == personaId
-            ? TavernChat(
-                id: chat.id,
-                characterId: chat.characterId,
-                title: chat.title,
-                presetId: chat.presetId,
-                authorNoteEnabled: chat.authorNoteEnabled,
-                authorNote: chat.authorNote,
-                authorNoteDepth: chat.authorNoteDepth,
-                metadata: chat.metadata,
-                createdAt: chat.createdAt,
-                updatedAt: chat.updatedAt,
-              )
-            : chat)
+        .map(
+          (chat) =>
+              chat.personaId == personaId
+                  ? TavernChat(
+                    id: chat.id,
+                    characterId: chat.characterId,
+                    title: chat.title,
+                    presetId: chat.presetId,
+                    authorNoteEnabled: chat.authorNoteEnabled,
+                    authorNote: chat.authorNote,
+                    authorNoteDepth: chat.authorNoteDepth,
+                    metadata: chat.metadata,
+                    createdAt: chat.createdAt,
+                    updatedAt: chat.updatedAt,
+                  )
+                  : chat,
+        )
         .toList(growable: false);
     notifyListeners();
   }
@@ -703,10 +718,7 @@ class TavernStore extends ChangeNotifier {
         authorNoteEnabled: cachedChat.authorNoteEnabled,
         authorNote: cachedChat.authorNote,
         authorNoteDepth: cachedChat.authorNoteDepth,
-        metadata: {
-          ...cachedChat.metadata,
-          'variables': updated,
-        },
+        metadata: {...cachedChat.metadata, 'variables': updated},
         createdAt: cachedChat.createdAt,
         updatedAt: cachedChat.updatedAt,
       );

@@ -419,14 +419,16 @@ def create_tavern_router(context: AppContext) -> APIRouter:
                 start_payload['messageId'] = state['userMessage']['id']
                 start_payload['userMessage'] = state['userMessage']
             yield format_sse(start_payload, event_name='start', include_id=False)
-            queue: asyncio.Queue[str] = asyncio.Queue()
+            queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
             loop = asyncio.get_running_loop()
 
             def emit_delta(frame: dict[str, object]) -> None:
                 delta = str(frame.get('delta') or '')
-                if not delta:
-                    return
-                loop.call_soon_threadsafe(queue.put_nowait, delta)
+                if delta:
+                    loop.call_soon_threadsafe(queue.put_nowait, ('delta', delta))
+                thought_delta = str(frame.get('thought_delta') or '')
+                if thought_delta:
+                    loop.call_soon_threadsafe(queue.put_nowait, ('thought_delta', thought_delta))
 
             final_task = None
             last_keepalive = time.monotonic()
@@ -436,8 +438,8 @@ def create_tavern_router(context: AppContext) -> APIRouter:
                 )
                 while True:
                     try:
-                        delta = await asyncio.wait_for(queue.get(), timeout=1.0)
-                        yield format_sse({'requestId': request_id, 'messageId': assistant_message_id, 'delta': delta}, event_name='delta', include_id=False)
+                        event_name, chunk = await asyncio.wait_for(queue.get(), timeout=1.0)
+                        yield format_sse({'requestId': request_id, 'messageId': assistant_message_id, event_name: chunk}, event_name=event_name, include_id=False)
                         last_keepalive = time.monotonic()
                     except asyncio.TimeoutError:
                         if final_task.done() and queue.empty():
