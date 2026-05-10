@@ -136,6 +136,7 @@ class TavernImageGenerator:
             image_url=f'/uploads/{rel.as_posix()}',
             provider_meta={
                 'providerType': 'openai-images',
+                'provider': str(self.provider_config.get('provider') or '').strip() or 'unknown',
                 'model': model,
             },
         )

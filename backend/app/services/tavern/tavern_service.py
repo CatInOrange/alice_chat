@@ -730,21 +730,7 @@ class TavernService:
         return datetime.now(timezone.utc).isoformat()
 
     def _resolve_scene_reference_image(self, character: dict[str, Any]) -> Path:
-        stored_avatar = str(((character.get('metadata') or {}).get('storedAvatarPath') or '')).strip()
-        avatar_path = str(character.get('avatarPath') or '').strip()
-        candidates = [stored_avatar, avatar_path]
-        for value in candidates:
-            if not value:
-                continue
-            if value.startswith('/uploads/') and self.uploads_dir:
-                relative = value.removeprefix('/uploads/')
-                path = (self.uploads_dir / relative).resolve()
-                if path.exists() and path.is_file():
-                    return path
-            else:
-                path = Path(value).expanduser()
-                if path.exists() and path.is_file():
-                    return path
+        _ = character
         fallback = Path(__file__).resolve().parents[4] / 'assets' / 'avatars' / 'tavern_default.png'
         if fallback.exists() and fallback.is_file():
             return fallback
