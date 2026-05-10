@@ -673,9 +673,13 @@ class _TavernCharacterProfilePage extends StatelessWidget {
 class _TavernChatScreenState extends State<TavernChatScreen> {
   final TextEditingController _inputController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final ValueNotifier<bool> _isSendingNotifier = ValueNotifier(false);
+  final ValueNotifier<TavernPromptDebug?> _latestPromptDebugNotifier =
+      ValueNotifier<TavernPromptDebug?>(null);
+  final Map<String, List<_AssistantRenderSegment>>
+  _assistantRenderSegmentCache = <String, List<_AssistantRenderSegment>>{};
   bool _isLoading = true;
   bool _isRefreshing = false;
-  bool _isSending = false;
   int _sendEpoch = 0;
   List<Map<String, String>> _quickReplyConfigs =
       OpenClawSettingsStore.defaultTavernQuickReplies();
@@ -688,10 +692,12 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   String? _serverBaseUrl;
   String? _selectedPresetId;
   String? _streamingAssistantMessageId;
-  TavernPromptDebug? _latestPromptDebug;
   List<TavernMessage> _messages = const <TavernMessage>[];
   late TavernCharacter _character;
   late TavernChat _chat;
+
+  bool get _isSending => _isSendingNotifier.value;
+  TavernPromptDebug? get _latestPromptDebug => _latestPromptDebugNotifier.value;
 
   @override
   void initState() {
@@ -707,6 +713,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     _scrollController.removeListener(_handleScrollChanged);
     _inputController.dispose();
     _scrollController.dispose();
+    _isSendingNotifier.dispose();
+    _latestPromptDebugNotifier.dispose();
     super.dispose();
   }
 
@@ -718,6 +726,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       if (!mounted) return;
       final quickReplies = await OpenClawSettingsStore.loadTavernQuickReplies();
       if (cached != null) {
+        _assistantRenderSegmentCache.clear();
+        _latestPromptDebugNotifier.value = cached.promptDebug;
         setState(() {
           _serverBaseUrl = settings.baseUrl.trim().replaceFirst(
             RegExp(r'/+$'),
@@ -727,7 +737,6 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           _chat = cached.chat ?? _chat;
           _character = cached.character ?? _character;
           _messages = cached.messages;
-          _latestPromptDebug = cached.promptDebug;
           _selectedPresetId = _chat.presetId.isNotEmpty ? _chat.presetId : null;
           _isLoading = false;
           _isRefreshing = true;
@@ -743,6 +752,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
 
       final messages = await store.listChatMessages(_chat.id);
       if (!mounted) return;
+      _assistantRenderSegmentCache.clear();
       setState(() {
         _serverBaseUrl = settings.baseUrl.trim().replaceFirst(
           RegExp(r'/+$'),
@@ -800,6 +810,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         messages = results[1] as List<TavernMessage>;
       }
 
+      _assistantRenderSegmentCache.clear();
       setState(() {
         _character = character;
         _chat = chat;
@@ -848,43 +859,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
             _buildContextStatusBar(),
             _buildQuickReplyBar(),
             if (_isRefreshing) const LinearProgressIndicator(minHeight: 2),
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _inputController,
-                        minLines: 1,
-                        maxLines: 6,
-                        textInputAction: TextInputAction.send,
-                        onSubmitted: (_) => _handleSend(),
-                        decoration: const InputDecoration(
-                          hintText: '和角色说点什么…',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    FilledButton(
-                      onPressed: _isSending ? null : _handleSend,
-                      child:
-                          _isSending
-                              ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                              : const Text('发送'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            _buildComposer(),
           ],
         ),
       ),
@@ -1267,7 +1242,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       return _buildMarkdownText(normalized, textColor: Colors.white);
     }
 
-    final segments = _buildAssistantRenderSegments(normalized);
+    final segments = _assistantSegmentsFor(normalized);
     if (segments.isEmpty) return const SizedBox.shrink();
     if (segments.length == 1) {
       return _buildAssistantSegment(segments.first);
@@ -1297,6 +1272,24 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           textColor: const Color(0xFF1F2430),
         );
     }
+  }
+
+  List<_AssistantRenderSegment> _assistantSegmentsFor(String normalized) {
+    final key = '${_character.id}\u0000$normalized';
+    final cached = _assistantRenderSegmentCache[key];
+    if (cached != null) {
+      return cached;
+    }
+    final computed = List<_AssistantRenderSegment>.unmodifiable(
+      _buildAssistantRenderSegments(normalized),
+    );
+    if (_assistantRenderSegmentCache.length >= 200) {
+      _assistantRenderSegmentCache.remove(
+        _assistantRenderSegmentCache.keys.first,
+      );
+    }
+    _assistantRenderSegmentCache[key] = computed;
+    return computed;
   }
 
   Widget _buildNarrationText(String text) {
@@ -2132,13 +2125,11 @@ $trimmed
 
     void settleSendState({required bool isSending}) {
       if (!mounted || sendEpoch != _sendEpoch) return;
-      setState(() {
-        _isSending = isSending;
-      });
+      _isSendingNotifier.value = isSending;
     }
 
+    _isSendingNotifier.value = true;
     setState(() {
-      _isSending = true;
       if (showUserMessage) {
         _messages = [..._messages, optimisticUserMessage];
       }
@@ -2254,11 +2245,9 @@ $trimmed
                           Map<String, dynamic>.from(rawPromptDebug),
                         )
                         : null;
-                setState(() {
-                  if (promptDebug != null) {
-                    _latestPromptDebug = promptDebug;
-                  }
-                });
+                if (promptDebug != null) {
+                  _latestPromptDebugNotifier.value = promptDebug;
+                }
                 settleSendState(isSending: false);
                 unawaited(_persistSnapshot());
                 unawaited(_refreshChatMetaOnly());
@@ -2592,9 +2581,7 @@ $trimmed
     try {
       final debug = await context.read<TavernStore>().getPromptDebug(_chat.id);
       if (!mounted) return;
-      setState(() {
-        _latestPromptDebug = debug;
-      });
+      _latestPromptDebugNotifier.value = debug;
     } catch (_) {
       // keep stale state quietly
     } finally {
@@ -2831,127 +2818,180 @@ $trimmed
 
   Widget _buildQuickReplyBar() {
     final items = _quickReplies();
-    return SizedBox(
-      height: 40,
-      child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-        scrollDirection: Axis.horizontal,
-        itemBuilder: (context, index) {
-          if (index == items.length) {
-            return _buildContextStatusTag();
-          }
-          final item = items[index];
-          return ActionChip(
-            visualDensity: VisualDensity.compact,
-            label: Text(item['label'] ?? ''),
-            onPressed: _isSending ? null : () => _sendSilentQuickReply(item),
-          );
-        },
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemCount: items.length + 1,
-      ),
+    return ValueListenableBuilder<bool>(
+      valueListenable: _isSendingNotifier,
+      builder:
+          (context, isSending, _) => SizedBox(
+            height: 40,
+            child: ListView.separated(
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+              scrollDirection: Axis.horizontal,
+              itemBuilder: (context, index) {
+                if (index == items.length) {
+                  return _buildContextStatusTag();
+                }
+                final item = items[index];
+                return ActionChip(
+                  visualDensity: VisualDensity.compact,
+                  label: Text(item['label'] ?? ''),
+                  onPressed:
+                      isSending ? null : () => _sendSilentQuickReply(item),
+                );
+              },
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemCount: items.length + 1,
+            ),
+          ),
     );
   }
 
   Widget _buildContextStatusTag() {
-    final debug = _latestPromptDebug;
-    if (debug == null) {
-      return ActionChip(
-        visualDensity: VisualDensity.compact,
-        avatar: const SizedBox(
-          width: 14,
-          height: 14,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        ),
-        label: const Text('Context'),
-        onPressed: null,
-      );
-    }
-    final usage = debug.contextUsage;
-    final totalTokens = (usage['totalTokens'] as num?)?.toInt() ?? 0;
-    final maxContext = (usage['maxContext'] as num?)?.toInt() ?? 0;
-    final trimPlan =
-        usage['meta'] is Map
-            ? (((usage['meta'] as Map)['trimPlan'] as Map?) ??
-                const <String, dynamic>{})
-            : const <String, dynamic>{};
-    final overLimit = (trimPlan['overLimitTokens'] as num?)?.toInt() ?? 0;
-    final percent = _contextUsagePercent(totalTokens, maxContext);
-    final progress = _contextUsageProgress(totalTokens, maxContext);
-    final color =
-        overLimit > 0
-            ? Colors.red
-            : percent >= 85
-            ? Colors.orange
-            : percent >= 65
-            ? Colors.amber
-            : Colors.green;
+    return ValueListenableBuilder<TavernPromptDebug?>(
+      valueListenable: _latestPromptDebugNotifier,
+      builder: (context, debug, _) {
+        if (debug == null) {
+          return ActionChip(
+            visualDensity: VisualDensity.compact,
+            avatar: const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            label: const Text('Context'),
+            onPressed: null,
+          );
+        }
+        final usage = debug.contextUsage;
+        final totalTokens = (usage['totalTokens'] as num?)?.toInt() ?? 0;
+        final maxContext = (usage['maxContext'] as num?)?.toInt() ?? 0;
+        final trimPlan =
+            usage['meta'] is Map
+                ? (((usage['meta'] as Map)['trimPlan'] as Map?) ??
+                    const <String, dynamic>{})
+                : const <String, dynamic>{};
+        final overLimit = (trimPlan['overLimitTokens'] as num?)?.toInt() ?? 0;
+        final percent = _contextUsagePercent(totalTokens, maxContext);
+        final progress = _contextUsageProgress(totalTokens, maxContext);
+        final color =
+            overLimit > 0
+                ? Colors.red
+                : percent >= 85
+                ? Colors.orange
+                : percent >= 65
+                ? Colors.amber
+                : Colors.green;
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: _showContextUsageSheet,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.12),
+        return InkWell(
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withValues(alpha: 0.28)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 16,
-              height: 16,
-              child: Stack(
-                children: [
-                  CircularProgressIndicator(
-                    value: 1,
-                    strokeWidth: 2,
-                    backgroundColor:
-                        Theme.of(context).colorScheme.surfaceContainerHighest,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      Theme.of(context).colorScheme.surfaceContainerHighest,
-                    ),
+          onTap: _showContextUsageSheet,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: color.withValues(alpha: 0.28)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: Stack(
+                    children: [
+                      CircularProgressIndicator(
+                        value: 1,
+                        strokeWidth: 2,
+                        backgroundColor:
+                            Theme.of(
+                              context,
+                            ).colorScheme.surfaceContainerHighest,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Theme.of(context).colorScheme.surfaceContainerHighest,
+                        ),
+                      ),
+                      CircularProgressIndicator(
+                        value: progress,
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(color),
+                      ),
+                    ],
                   ),
-                  CircularProgressIndicator(
-                    value: progress,
-                    strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(color),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '${_formatCompactTokenCount(totalTokens)} / ${_formatCompactTokenCount(maxContext)}',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w700,
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '(${percent.toStringAsFixed(0)}%)',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: color.withValues(alpha: 0.8),
+                    fontSize: desktopAdjustedFontSize(10),
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Icon(
+                  Icons.info_outline,
+                  size: 12,
+                  color: color.withValues(alpha: 0.65),
+                ),
+              ],
             ),
-            const SizedBox(width: 6),
-            Text(
-              '${_formatCompactTokenCount(totalTokens)} / ${_formatCompactTokenCount(maxContext)}',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: color,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(width: 4),
-            Text(
-              '(${percent.toStringAsFixed(0)}%)',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: color.withValues(alpha: 0.8),
-                fontSize: desktopAdjustedFontSize(10),
-              ),
-            ),
-            const SizedBox(width: 2),
-            Icon(
-              Icons.info_outline,
-              size: 12,
-              color: color.withValues(alpha: 0.65),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
   Widget _buildContextStatusBar() {
     return const SizedBox.shrink();
+  }
+
+  Widget _buildComposer() {
+    return ValueListenableBuilder<bool>(
+      valueListenable: _isSendingNotifier,
+      builder:
+          (context, isSending, _) => SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _inputController,
+                      minLines: 1,
+                      maxLines: 6,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _handleSend(),
+                      decoration: const InputDecoration(
+                        hintText: '和角色说点什么…',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: isSending ? null : _handleSend,
+                    child:
+                        isSending
+                            ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                            : const Text('发送'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+    );
   }
 
   Future<void> _showContextUsageSheet() async {
