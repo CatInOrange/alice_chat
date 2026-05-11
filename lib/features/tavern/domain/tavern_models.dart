@@ -627,6 +627,9 @@ class TavernPromptDebug {
     this.summary = const <String, dynamic>{},
   });
 
+  bool get isPreviewOnly => summary['previewOnly'] == true;
+  String get sourceLabel => (summary['source'] ?? '').toString();
+
   final List<Map<String, dynamic>> messages;
   final List<Map<String, dynamic>> blocks;
   final String presetId;

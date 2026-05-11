@@ -19,6 +19,7 @@ const List<String> _worldbookPositions = <String>[
   'after_character',
   'before_example_messages',
   'before_chat_history',
+  'after_chat_history',
   'before_last_user',
   'at_depth',
 ];
@@ -3798,6 +3799,8 @@ class _TavernScreenState extends State<TavernScreen>
         return '示例对话前';
       case 'before_chat_history':
         return '聊天历史前';
+      case 'after_chat_history':
+        return '聊天历史后';
       case 'before_last_user':
         return '最后一条用户消息前';
       case 'at_depth':

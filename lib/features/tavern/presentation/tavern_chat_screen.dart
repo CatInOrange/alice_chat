@@ -4418,7 +4418,7 @@ $trimmed
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                '这里会按当前配置实时重算。想看真正要喂给模型的内容，先看「Final Prompt」。',
+                                '默认优先显示最近一次真实请求实际使用的 Prompt；只有没有真实记录时，才回退到当前配置预览。',
                                 style: Theme.of(context).textTheme.bodySmall,
                               ),
                               const SizedBox(height: 8),
@@ -4433,6 +4433,12 @@ $trimmed
                                   _debugChip(
                                     'World Info 拒绝',
                                     '${debug.summary['rejectedWorldbookCount'] ?? debug.rejectedWorldbookEntries.length}',
+                                  ),
+                                  _debugChip(
+                                    '数据来源',
+                                    debug.sourceLabel == 'last_real_request'
+                                        ? '真实请求'
+                                        : '预览重算',
                                   ),
                                 ],
                               ),
@@ -4551,27 +4557,17 @@ $trimmed
       padding: const EdgeInsets.all(16),
       children: debug.messages
           .map(
-            (message) => Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${message['role'] ?? 'unknown'} · ${(message['meta'] is Map) ? ((message['meta'] as Map)['kind'] ?? '-') : '-'}',
-                      style: Theme.of(context).textTheme.labelMedium,
-                    ),
-                    if (message['meta'] != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        message['meta'].toString(),
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                    const SizedBox(height: 8),
-                    SelectableText((message['content'] ?? '').toString()),
-                  ],
-                ),
+            (message) => _buildDebugContentCard(
+              title:
+                  '${message['role'] ?? 'unknown'} · ${(message['meta'] is Map) ? ((message['meta'] as Map)['kind'] ?? '-') : '-'}',
+              subtitle: message['meta']?.toString(),
+              content: (message['content'] ?? '').toString(),
+              initiallyExpanded: !_shouldCollapseDebugContent(
+                kind:
+                    (message['meta'] is Map)
+                        ? ((message['meta'] as Map)['kind'] ?? '').toString()
+                        : '',
+                content: (message['content'] ?? '').toString(),
               ),
             ),
           )
@@ -4584,29 +4580,63 @@ $trimmed
       padding: const EdgeInsets.all(16),
       children: debug.blocks
           .map(
-            (block) => Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${block['name'] ?? '-'} · ${block['position'] ?? '-'} · ${block['role'] ?? '-'}',
-                      style: Theme.of(context).textTheme.labelMedium,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'kind=${block['kind'] ?? '-'} depth=${block['depth'] ?? '-'} source=${block['source'] ?? '-'}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    const SizedBox(height: 8),
-                    SelectableText((block['content'] ?? '').toString()),
-                  ],
-                ),
+            (block) => _buildDebugContentCard(
+              title:
+                  '${block['name'] ?? '-'} · ${block['position'] ?? '-'} · ${block['role'] ?? '-'}',
+              subtitle:
+                  'kind=${block['kind'] ?? '-'} depth=${block['depth'] ?? '-'} source=${block['source'] ?? '-'}',
+              content: (block['content'] ?? '').toString(),
+              initiallyExpanded: !_shouldCollapseDebugContent(
+                kind: (block['kind'] ?? '').toString(),
+                content: (block['content'] ?? '').toString(),
               ),
             ),
           )
           .toList(growable: false),
+    );
+  }
+
+  bool _shouldCollapseDebugContent({
+    required String kind,
+    required String content,
+  }) {
+    final normalizedKind = kind.trim().toLowerCase();
+    if (normalizedKind.contains('chat_history') ||
+        normalizedKind.contains('history')) {
+      return true;
+    }
+    return content.length > 800 || '\n'.allMatches(content).length > 12;
+  }
+
+  Widget _buildDebugContentCard({
+    required String title,
+    String? subtitle,
+    required String content,
+    bool initiallyExpanded = true,
+  }) {
+    return Card(
+      child: ExpansionTile(
+        initiallyExpanded: initiallyExpanded,
+        tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        title: Text(title, style: Theme.of(context).textTheme.labelMedium),
+        subtitle:
+            subtitle == null || subtitle.isEmpty
+                ? null
+                : Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    subtitle,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+        children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: SelectableText(content),
+          ),
+        ],
+      ),
     );
   }
 

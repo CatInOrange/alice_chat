@@ -379,7 +379,17 @@ class TavernService:
         character = self.store.get_character(chat['characterId'])
         if character is None:
             raise ValueError('character not found')
+
         history = self.store.list_chat_messages(chat_id)
+        latest_real_debug = self._latest_real_prompt_debug(history)
+        if latest_real_debug is not None:
+            latest_real_debug['summary'] = {
+                **(latest_real_debug.get('summary') if isinstance(latest_real_debug.get('summary'), dict) else {}),
+                'source': 'last_real_request',
+                'previewOnly': False,
+            }
+            return latest_real_debug
+
         worldbook_entries = self._collect_effective_worldbook_entries(character['id'])
         preset, prompt_order = self._resolve_preset_and_prompt_order(chat=chat)
         character_lore_bindings = self.store.list_character_lore_bindings(character['id'])
@@ -427,6 +437,8 @@ class TavernService:
                 'maxContext': (debug.context_usage.get('maxContext') if isinstance(debug.context_usage, dict) else None),
                 'overLimitTokens': (((debug.context_usage.get('meta') or {}).get('trimPlan') or {}).get('overLimitTokens') if isinstance(debug.context_usage, dict) else None),
                 'suggestedCutCount': (len((((debug.context_usage.get('meta') or {}).get('trimPlan') or {}).get('suggestedCuts') or [])) if isinstance(debug.context_usage, dict) else 0),
+                'source': 'preview_rebuild',
+                'previewOnly': True,
             },
         }
 
@@ -690,8 +702,27 @@ class TavernService:
         prompt_order = None
         prompt_orders = self.store.list_prompt_orders()
         if prompt_orders:
-            prompt_order = prompt_orders[0]
+            prompt_order_id = str((preset or {}).get('promptOrderId') or chat.get('promptOrderId') or '').strip()
+            if prompt_order_id:
+                prompt_order = next((item for item in prompt_orders if str(item.get('id') or '').strip() == prompt_order_id), None)
+            if prompt_order is None:
+                prompt_order = prompt_orders[0]
         return preset, prompt_order
+
+    def _latest_real_prompt_debug(self, history: list[dict[str, Any]]) -> dict[str, Any] | None:
+        for message in reversed(history):
+            if str(message.get('role') or '').strip() != 'assistant':
+                continue
+            metadata = message.get('metadata') if isinstance(message.get('metadata'), dict) else {}
+            prompt_debug = metadata.get('promptDebug') if isinstance(metadata.get('promptDebug'), dict) else None
+            if not prompt_debug:
+                continue
+            messages = prompt_debug.get('messages') if isinstance(prompt_debug.get('messages'), list) else None
+            blocks = prompt_debug.get('blocks') if isinstance(prompt_debug.get('blocks'), list) else None
+            if messages is None or blocks is None:
+                continue
+            return dict(prompt_debug)
+        return None
 
     def _collect_effective_worldbook_entries(self, character_id: str) -> list[dict[str, Any]]:
         worldbooks = [
