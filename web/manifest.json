@@ -1,6 +1,6 @@
 {
-    "name": "alice_chat",
-    "short_name": "alice_chat",
+    "name": "AliceChat",
+    "short_name": "AliceChat",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
