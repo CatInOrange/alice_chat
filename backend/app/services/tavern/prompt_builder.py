@@ -431,18 +431,103 @@ class PromptBuilder:
         if semantic['post_history_instructions'].get('content') and 'post_history_instructions' not in used_keys:
             ordered_blocks.append(semantic['post_history_instructions'])
 
-        ordered_blocks.extend(self._build_worldbook_blocks(world_before_system, position='before_system', name_prefix='worldbook:before_system'))
-        ordered_blocks.extend(self._build_worldbook_blocks(world_after_system, position='after_system', name_prefix='worldbook:after_system'))
-        ordered_blocks.extend(self._build_worldbook_blocks(world_before_character, position='before_character', name_prefix='worldbook:before_character'))
-        ordered_blocks.extend(self._build_worldbook_blocks(world_before_history, position='before_chat_history', name_prefix='worldbook:before_history'))
-        ordered_blocks.extend(self._build_worldbook_blocks(world_after_character, position='after_character', name_prefix='worldbook:after_character'))
-        ordered_blocks.extend(self._build_worldbook_blocks(world_before_examples, position='before_example_messages', name_prefix='worldbook:before_examples'))
-        ordered_blocks.extend(self._build_worldbook_blocks(world_after_examples, position='after_example_messages', name_prefix='worldbook:after_examples'))
-        ordered_blocks.extend(self._build_worldbook_blocks(world_after_history, position='after_chat_history', name_prefix='worldbook:after_history'))
-        ordered_blocks.extend(self._build_worldbook_blocks(world_before_last_user, position='before_last_user', name_prefix='worldbook:last_user'))
+        ordered_blocks = self._insert_blocks_relative(
+            ordered_blocks,
+            self._build_worldbook_blocks(world_before_system, position='before_system', name_prefix='worldbook:before_system'),
+            before_name='system_prompt',
+        )
+        ordered_blocks = self._insert_blocks_relative(
+            ordered_blocks,
+            self._build_worldbook_blocks(world_after_system, position='after_system', name_prefix='worldbook:after_system'),
+            after_name='system_prompt',
+        )
+        ordered_blocks = self._insert_blocks_relative(
+            ordered_blocks,
+            self._build_worldbook_blocks(world_before_character, position='before_character', name_prefix='worldbook:before_character'),
+            before_names=['character_description', 'character_personality'],
+        )
+        ordered_blocks = self._insert_blocks_relative(
+            ordered_blocks,
+            self._build_worldbook_blocks(world_after_character, position='after_character', name_prefix='worldbook:after_character'),
+            after_names=['character_scenario', 'character_personality', 'character_description'],
+        )
+        ordered_blocks = self._insert_blocks_relative(
+            ordered_blocks,
+            self._build_worldbook_blocks(world_before_examples, position='before_example_messages', name_prefix='worldbook:before_examples'),
+            before_name='example_messages',
+        )
+        ordered_blocks = self._insert_blocks_relative(
+            ordered_blocks,
+            self._build_worldbook_blocks(world_after_examples, position='after_example_messages', name_prefix='worldbook:after_examples'),
+            after_name='example_messages',
+        )
+        ordered_blocks = self._insert_blocks_relative(
+            ordered_blocks,
+            self._build_worldbook_blocks(world_before_history, position='before_chat_history', name_prefix='worldbook:before_history'),
+            before_name='chat_history',
+        )
+        ordered_blocks = self._insert_blocks_relative(
+            ordered_blocks,
+            self._build_worldbook_blocks(world_after_history, position='after_chat_history', name_prefix='worldbook:after_history'),
+            after_name='chat_history',
+        )
+        ordered_blocks = self._insert_blocks_relative(
+            ordered_blocks,
+            self._build_worldbook_blocks(world_before_last_user, position='before_last_user', name_prefix='worldbook:last_user'),
+            before_names=['author_note'],
+            before_position='before_last_user',
+        )
         ordered_blocks.extend(self._build_worldbook_blocks(world_depth, position='at_depth', name_prefix='worldbook:depth'))
 
         return ordered_blocks
+
+    def _insert_blocks_relative(
+        self,
+        ordered_blocks: list[dict[str, Any]],
+        blocks_to_insert: list[dict[str, Any]],
+        *,
+        before_name: str | None = None,
+        after_name: str | None = None,
+        before_names: list[str] | None = None,
+        after_names: list[str] | None = None,
+        before_position: str | None = None,
+    ) -> list[dict[str, Any]]:
+        if not blocks_to_insert:
+            return ordered_blocks
+
+        targets_before = [*(before_names or []), *([before_name] if before_name else [])]
+        targets_after = [*(after_names or []), *([after_name] if after_name else [])]
+
+        insert_index: int | None = None
+        if targets_before:
+            for index, block in enumerate(ordered_blocks):
+                if str(block.get('name') or '') in targets_before:
+                    insert_index = index
+                    break
+        elif targets_after:
+            for index, block in enumerate(ordered_blocks):
+                if str(block.get('name') or '') in targets_after:
+                    insert_index = index + 1
+        elif before_position:
+            for index, block in enumerate(ordered_blocks):
+                if self._normalize_position(str(block.get('position') or '')) == before_position:
+                    insert_index = index
+                    break
+
+        if insert_index is None:
+            if before_position:
+                for index, block in enumerate(ordered_blocks):
+                    if self._normalize_position(str(block.get('position') or '')) == before_position:
+                        insert_index = index
+                        break
+            if insert_index is None:
+                insert_index = len(ordered_blocks)
+
+        return [
+            *ordered_blocks[:insert_index],
+            *blocks_to_insert,
+            *ordered_blocks[insert_index:],
+        ]
 
     def _extract_context_summaries(
         self,

@@ -145,6 +145,20 @@ class _AssistantRenderSegment {
   final String content;
 }
 
+class _DebugDisplayItem {
+  const _DebugDisplayItem({
+    required this.title,
+    required this.subtitle,
+    required this.content,
+    required this.kind,
+  });
+
+  final String title;
+  final String? subtitle;
+  final String content;
+  final String kind;
+}
+
 class _InlineHtmlMessageView extends StatefulWidget {
   const _InlineHtmlMessageView({
     required this.html,
@@ -4553,21 +4567,18 @@ $trimmed
   }
 
   Widget _buildDebugMessagesTab(TavernPromptDebug debug) {
+    final groupedMessages = _groupDebugMessagesForDisplay(debug.messages);
     return ListView(
       padding: const EdgeInsets.all(16),
-      children: debug.messages
+      children: groupedMessages
           .map(
             (message) => _buildDebugContentCard(
-              title:
-                  '${message['role'] ?? 'unknown'} · ${(message['meta'] is Map) ? ((message['meta'] as Map)['kind'] ?? '-') : '-'}',
-              subtitle: message['meta']?.toString(),
-              content: (message['content'] ?? '').toString(),
+              title: message.title,
+              subtitle: message.subtitle,
+              content: message.content,
               initiallyExpanded: !_shouldCollapseDebugContent(
-                kind:
-                    (message['meta'] is Map)
-                        ? ((message['meta'] as Map)['kind'] ?? '').toString()
-                        : '',
-                content: (message['content'] ?? '').toString(),
+                kind: message.kind,
+                content: message.content,
               ),
             ),
           )
@@ -4596,13 +4607,65 @@ $trimmed
     );
   }
 
+  List<_DebugDisplayItem> _groupDebugMessagesForDisplay(
+    List<Map<String, dynamic>> messages,
+  ) {
+    final items = <_DebugDisplayItem>[];
+    final historyBuffer = <String>[];
+    String? historySubtitle;
+
+    void flushHistory() {
+      if (historyBuffer.isEmpty) return;
+      items.add(
+        _DebugDisplayItem(
+          title: 'history · chat_history',
+          subtitle: historySubtitle,
+          content: historyBuffer.join('\n\n'),
+          kind: 'chat_history',
+        ),
+      );
+      historyBuffer.clear();
+      historySubtitle = null;
+    }
+
+    for (final message in messages) {
+      final meta =
+          message['meta'] is Map ? Map<String, dynamic>.from(message['meta'] as Map) : const <String, dynamic>{};
+      final kind = (meta['kind'] ?? '').toString();
+      final role = (message['role'] ?? 'unknown').toString();
+      final content = (message['content'] ?? '').toString();
+      final isHistoryMessage = meta.isEmpty && (role == 'user' || role == 'assistant' || role == 'system');
+      final isChatHistoryBlock = kind == 'chat_history';
+
+      if (isChatHistoryBlock || isHistoryMessage) {
+        historySubtitle ??= isChatHistoryBlock ? meta.toString() : 'grouped rendered history';
+        historyBuffer.add('[$role]\n$content');
+        continue;
+      }
+
+      flushHistory();
+      items.add(
+        _DebugDisplayItem(
+          title: '$role · ${kind.isEmpty ? '-' : kind}',
+          subtitle: message['meta']?.toString(),
+          content: content,
+          kind: kind,
+        ),
+      );
+    }
+
+    flushHistory();
+    return items;
+  }
+
   bool _shouldCollapseDebugContent({
     required String kind,
     required String content,
   }) {
     final normalizedKind = kind.trim().toLowerCase();
     if (normalizedKind.contains('chat_history') ||
-        normalizedKind.contains('history')) {
+        normalizedKind == 'history' ||
+        normalizedKind.endsWith('_history')) {
       return true;
     }
     return content.length > 800 || '\n'.allMatches(content).length > 12;
