@@ -248,6 +248,9 @@ class MusicService:
     def load_netease_fm(self, *, limit: int = 3) -> list:
         return self.netease_openapi.get_fm_tracks(limit=limit)
 
+    def load_netease_daily(self) -> list:
+        return self.netease_openapi.get_daily_tracks()
+
     def list_providers(self) -> list[MusicProviderDto]:
         return [
             MusicProviderDto(

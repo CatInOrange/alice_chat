@@ -347,6 +347,24 @@ class MusicRepositoryImpl implements MusicRepository {
   }
 
   @override
+  Future<List<MusicTrack>> loadNeteaseDaily() async {
+    final response = await _client.getNeteaseDaily();
+    final rawTracks = (response['tracks'] as List<dynamic>? ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => MusicTrack.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+    await _debugLog('repository.loadNeteaseDaily.done', {
+      'trackCount': rawTracks.length,
+      'firstTrackTitle': rawTracks.isEmpty ? '' : rawTracks.first.title,
+    });
+    return rawTracks;
+  }
+
+  @override
   Future<void> setTrackLiked(MusicTrack track, bool liked) async {
     final current = await loadLikedTracks();
     final filtered = current
@@ -506,6 +524,9 @@ class MusicRepositoryImpl implements MusicRepository {
     }
     if (playlist.id == 'netease-fm') {
       return loadNeteaseFmTracks();
+    }
+    if (playlist.id == 'netease-daily') {
+      return loadNeteaseDaily();
     }
     if (playlist.id.startsWith('ai-playlist:')) {
       if (playlist.id == 'ai-playlist:latest') {

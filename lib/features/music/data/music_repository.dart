@@ -41,6 +41,8 @@ abstract class MusicRepository {
 
   Future<List<MusicTrack>> loadNeteaseFmTracks({int limit = 20});
 
+  Future<List<MusicTrack>> loadNeteaseDaily();
+
   Future<void> setTrackLiked(MusicTrack track, bool liked);
 
   Future<List<MusicTrack>> loadPlaylistTracks(MusicPlaylist playlist);

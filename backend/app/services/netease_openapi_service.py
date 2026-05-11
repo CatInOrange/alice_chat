@@ -154,12 +154,12 @@ class NeteaseOpenApiService:
         return data
 
     def get_fm_tracks(self, *, limit: int = 3) -> list[MusicTrackDto]:
-        self._ensure_ready()
-        payload = self._run_json(
-            'recommend',
-            'fm',
-            '--limit',
-            str(max(1, min(limit, 20))),
+        payload = self._run_cookie_json_request(
+            'https://music.163.com/api/radio/get',
+            data={
+                'limit': str(max(1, min(limit, 20))),
+            },
+            error_prefix='加载网易云私人 FM 失败',
         )
         data = payload.get('data')
         if not isinstance(data, list):
@@ -168,6 +168,20 @@ class NeteaseOpenApiService:
         tracks = [item for item in tracks if item is not None]
         if not tracks:
             raise NeteaseOpenApiError('网易云私人 FM 暂时没有返回可播放歌曲')
+        return tracks
+
+    def get_daily_tracks(self) -> list[MusicTrackDto]:
+        payload = self._run_cookie_json_request(
+            'https://music.163.com/api/discovery/recommend/songs',
+            error_prefix='加载网易云每日推荐失败',
+        )
+        data = payload.get('recommend')
+        if not isinstance(data, list):
+            raise NeteaseOpenApiError('网易云每日推荐返回为空')
+        tracks = [self._track_from_daily_item(item) for item in data if isinstance(item, dict)]
+        tracks = [item for item in tracks if item is not None]
+        if not tracks:
+            raise NeteaseOpenApiError('网易云每日推荐暂时没有返回可播放歌曲')
         return tracks
 
     def _resolve_song_encrypted_id(self, song: dict[str, Any], playlist_encrypted_id: str) -> str:
@@ -305,6 +319,18 @@ class NeteaseOpenApiService:
             }
         )
 
+    def _track_from_daily_item(self, item: dict[str, Any]) -> MusicTrackDto | None:
+        track = self._track_from_openapi_item(item)
+        if track is None:
+            return None
+        album_name = track.album or '网易云音乐'
+        return track.model_copy(
+            update={
+                'description': f'每日推荐 · {album_name}',
+                'artworkTone': 'ocean',
+            }
+        )
+
     def _run_intelligence_via_cli(
         self,
         *,
@@ -340,7 +366,6 @@ class NeteaseOpenApiService:
             raise NeteaseOpenApiError('缺少可用的网易云原始歌单ID')
         if not normalized_song_id:
             raise NeteaseOpenApiError('缺少可用的网易云原始歌曲ID')
-        cookie_header = self._load_cookie_header()
         query = {
             'pid': normalized_playlist_id,
             'id': normalized_song_id,
@@ -348,32 +373,54 @@ class NeteaseOpenApiService:
         if normalized_start_track_id:
             query['sid'] = normalized_start_track_id
         url = f"https://music.163.com/api/playmode/intelligence/list?{urlencode(query)}"
-        request = Request(
+        payload = self._run_cookie_json_request(
             url,
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Linux; Android 14; AliceChat) AppleWebKit/537.36',
-                'Accept': 'application/json, text/plain, */*',
-                'Referer': 'https://music.163.com/',
-                'Origin': 'https://music.163.com',
-                'Cookie': cookie_header,
-            },
+            error_prefix='加载网易云心动模式失败',
         )
+        if not isinstance(payload, dict):
+            raise NeteaseOpenApiError('网易云心动模式返回为空')
+        return payload
+
+    def _run_cookie_json_request(
+        self,
+        url: str,
+        *,
+        data: dict[str, str] | None = None,
+        error_prefix: str,
+    ) -> dict[str, Any]:
+        cookie_header = self._load_cookie_header()
+        body: bytes | None = None
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 14; AliceChat) AppleWebKit/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Referer': 'https://music.163.com/',
+            'Origin': 'https://music.163.com',
+            'Cookie': cookie_header,
+        }
+        if data:
+            body = urlencode(data).encode('utf-8')
+            headers['Content-Type'] = 'application/x-www-form-urlencoded'
+        request = Request(url, data=body, headers=headers)
         try:
             with urlopen(request, timeout=20) as resp:
                 text = resp.read().decode('utf-8', 'ignore')
         except HTTPError as exc:
             detail = exc.read().decode('utf-8', 'ignore') if hasattr(exc, 'read') else str(exc)
-            raise NeteaseOpenApiError(f'加载网易云心动模式失败: {detail or exc}') from exc
+            raise NeteaseOpenApiError(f'{error_prefix}: {detail or exc}') from exc
         except URLError as exc:
-            raise NeteaseOpenApiError(f'加载网易云心动模式失败: {exc}') from exc
+            raise NeteaseOpenApiError(f'{error_prefix}: {exc}') from exc
         except Exception as exc:
-            raise NeteaseOpenApiError(f'加载网易云心动模式失败: {exc}') from exc
+            raise NeteaseOpenApiError(f'{error_prefix}: {exc}') from exc
         try:
             payload = json.loads(text)
         except json.JSONDecodeError as exc:
-            raise NeteaseOpenApiError(f'网易云心动模式响应解析失败: {exc}') from exc
+            raise NeteaseOpenApiError(f'{error_prefix}，响应解析失败: {exc}') from exc
         if not isinstance(payload, dict):
-            raise NeteaseOpenApiError('网易云心动模式返回为空')
+            raise NeteaseOpenApiError(f'{error_prefix}，返回为空')
+        code = payload.get('code')
+        if code not in (None, 200):
+            message = self._first_non_empty(payload.get('message'), payload.get('msg')) or error_prefix
+            raise NeteaseOpenApiError(message)
         return payload
 
     def _load_cookie_header(self) -> str:

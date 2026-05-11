@@ -356,7 +356,7 @@ class _MusicScreenState extends State<MusicScreen>
     MusicStore store,
     MusicPlaylist playlist,
   ) async {
-    if (playlist.id == 'netease-fm') {
+    if (playlist.id == 'netease-fm' || playlist.id == 'netease-daily') {
       return;
     }
     await showModalBottomSheet<void>(
@@ -481,8 +481,17 @@ class _MusicScreenState extends State<MusicScreen>
           trackCount: 0,
           artworkTone: MusicArtworkTone.sunset,
         );
+        const dailyPlaylist = MusicPlaylist(
+          id: 'netease-daily',
+          title: '每日推荐',
+          subtitle: '每天为你精心挑选',
+          tag: 'DAILY',
+          trackCount: 0,
+          artworkTone: MusicArtworkTone.ocean,
+        );
         final displayedCustomPlaylists = <MusicPlaylist>[
           fmPlaylist,
+          dailyPlaylist,
           ...store.customPlaylistCards,
         ];
         final latestAiPlaylistActionPending =
@@ -629,14 +638,14 @@ class _MusicScreenState extends State<MusicScreen>
                           playlists: displayedCustomPlaylists,
                           currentPlaylistId: store.currentPlaylistId,
                           onPlaylistTap: (playlist) {
-                            if (playlist.id == 'netease-fm') {
+                            if (playlist.id == 'netease-fm' || playlist.id == 'netease-daily') {
                               _playPlaylist(store, playlist);
                               return;
                             }
                             _openPlaylistDetail(store, playlist);
                           },
                           onPlaylistLongPress: (playlist) {
-                            if (playlist.id == 'netease-fm') {
+                            if (playlist.id == 'netease-fm' || playlist.id == 'netease-daily') {
                               return;
                             }
                             _showCustomPlaylistActions(
@@ -801,14 +810,14 @@ class _MusicScreenState extends State<MusicScreen>
                                   openPlayer: false,
                                 ),
                             onOpenPlaylist: (playlist) {
-                              if (playlist.id == 'netease-fm') {
+                              if (playlist.id == 'netease-fm' || playlist.id == 'netease-daily') {
                                 _playPlaylist(store, playlist);
                                 return;
                               }
                               _openPlaylistDetail(store, playlist);
                             },
                             onPlaylistLongPress: (playlist) {
-                              if (playlist.id == 'netease-fm') return;
+                              if (playlist.id == 'netease-fm' || playlist.id == 'netease-daily') return;
                               _showCustomPlaylistActions(
                                 context,
                                 store,
@@ -1810,7 +1819,7 @@ class _PlaylistGridCard extends StatelessWidget {
                   gradient: LinearGradient(colors: palette.gradient),
                   borderRadius: BorderRadius.circular(16),
                   boxShadow:
-                      playlist.id == 'netease-fm'
+                      playlist.id == 'netease-fm' || playlist.id == 'netease-daily'
                           ? [
                             BoxShadow(
                               color: palette.glowColor.withValues(alpha: 0.28),
@@ -1821,7 +1830,7 @@ class _PlaylistGridCard extends StatelessWidget {
                           : null,
                 ),
                 child: Icon(
-                  playlist.id == 'netease-fm'
+                  playlist.id == 'netease-fm' || playlist.id == 'netease-daily'
                       ? Icons.radio_rounded
                       : palette.icon,
                   color: Colors.white,
@@ -1839,7 +1848,7 @@ class _PlaylistGridCard extends StatelessWidget {
               Text(
                 isActive
                     ? '当前播放中'
-                    : (playlist.id == 'netease-fm' ? '专属推荐' : playlist.tag),
+                    : (playlist.id == 'netease-fm' || playlist.id == 'netease-daily' ? '专属推荐' : playlist.tag),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: palette.gradient.first,
                   fontWeight: FontWeight.w700,
@@ -1859,7 +1868,7 @@ class _PlaylistGridCard extends StatelessWidget {
               Row(
                 children: [
                   Text(
-                    playlist.id == 'netease-fm'
+                    playlist.id == 'netease-fm' || playlist.id == 'netease-daily'
                         ? '连续播放'
                         : '${playlist.trackCount} 首',
                     style: theme.textTheme.bodySmall,
@@ -3635,7 +3644,7 @@ class _DesktopSidebarPlaylistTile extends StatelessWidget {
                         child: Icon(
                           playlist.isAiGenerated
                               ? Icons.auto_awesome_rounded
-                              : playlist.id == 'netease-fm'
+                              : playlist.id == 'netease-fm' || playlist.id == 'netease-daily'
                               ? Icons.radio_rounded
                               : palette.icon,
                           color: Colors.white,
@@ -3658,7 +3667,7 @@ class _DesktopSidebarPlaylistTile extends StatelessWidget {
                             ),
                             const SizedBox(height: 1),
                             Text(
-                              playlist.id == 'netease-fm'
+                              playlist.id == 'netease-fm' || playlist.id == 'netease-daily'
                                   ? '连续播放'
                                   : '${playlist.trackCount} 首',
                               maxLines: 1,

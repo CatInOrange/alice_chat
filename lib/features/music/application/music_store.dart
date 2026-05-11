@@ -963,6 +963,28 @@ class MusicStore extends ChangeNotifier {
         }
       }
     }
+    if (playlist.id == 'netease-daily') {
+      try {
+        final tracks = await _repository.loadNeteaseDaily();
+        _cacheTracksForPlaylist(playlist.id, tracks);
+        _markSnapshotDirty();
+        return _withFavoriteFlags(tracks);
+      } catch (error) {
+        _debugState(
+          'playlist.daily.error',
+          extra: {
+            'playlistId': playlist.id,
+            'error': error.toString(),
+          },
+          force: true,
+          level: 'ERROR',
+        );
+        if (immediateTracks.isNotEmpty) {
+          return immediateTracks;
+        }
+        rethrow;
+      }
+    }
     if (immediateTracks.isNotEmpty) {
       unawaited(_refreshPlaylistTracksInBackground(playlist));
       return immediateTracks;
