@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -29,6 +30,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final _urlController = TextEditingController();
   final _passwordController = TextEditingController();
+  final ValueNotifier<int> _detailRefreshTick = ValueNotifier<int>(0);
   bool _obscurePassword = true;
   bool _backgroundServiceEnabled = true;
   bool _isSaving = false;
@@ -36,6 +38,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isRestartingGateway = false;
   String? _adminActionMessage;
   bool _didLoad = false;
+
+  void _notifyDetailPages() {
+    _detailRefreshTick.value += 1;
+  }
 
   @override
   void didChangeDependencies() {
@@ -57,12 +63,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _backgroundServiceEnabled =
         await OpenClawSettingsStore.loadBackgroundServiceEnabled();
     setState(() {});
+    _notifyDetailPages();
   }
 
   @override
   void dispose() {
     _urlController.dispose();
     _passwordController.dispose();
+    _detailRefreshTick.dispose();
     super.dispose();
   }
 
@@ -98,7 +106,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         context,
       ).showSnackBar(const SnackBar(content: Text('设置已保存，通知注册也会同步刷新')));
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      if (mounted) {
+        setState(() => _isSaving = false);
+        _notifyDetailPages();
+      }
     }
   }
 
@@ -150,6 +161,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
       _adminActionMessage = '$actionLabel 已提交，正在等待结果…';
     });
+    _notifyDetailPages();
 
     final store = context.read<ChatSessionStore>();
     final musicPlatformStore = context.read<MusicPlatformStore>();
@@ -187,6 +199,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ? '$actionLabel：$message'
                     : '$actionLabel 执行中…';
           });
+          _notifyDetailPages();
         }
         if (state == 'succeeded') {
           if (isBackend) {
@@ -222,6 +235,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _isRestartingGateway = false;
           }
         });
+        _notifyDetailPages();
       }
     }
   }
@@ -622,7 +636,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: title,
               icon: icon,
               accentColor: accentColor,
-              child: builder(context),
+              refreshListenable: _detailRefreshTick,
+              childBuilder: builder,
             ),
       ),
     );
@@ -670,6 +685,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       setState(() {
                         _obscurePassword = !_obscurePassword;
                       });
+                      _notifyDetailPages();
                     },
                   ),
                 ),
@@ -691,6 +707,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               setState(() {
                 _backgroundServiceEnabled = value;
               });
+              _notifyDetailPages();
             },
           ),
         ),
@@ -1077,30 +1094,37 @@ class _SettingsDetailScaffold extends StatelessWidget {
     required this.title,
     required this.icon,
     required this.accentColor,
-    required this.child,
+    required this.refreshListenable,
+    required this.childBuilder,
   });
 
   final String title;
   final IconData icon;
   final Color accentColor;
-  final Widget child;
+  final ValueListenable<int> refreshListenable;
+  final WidgetBuilder childBuilder;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(title)),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-        children: [
-          _SettingsHeroCard(
-            title: title,
-            subtitle: '这一页只保留和“$title”相关的内容，减少来回滚动和误触。',
-            icon: icon,
-            accentColor: accentColor,
-          ),
-          const SizedBox(height: 16),
-          child,
-        ],
+      body: ValueListenableBuilder<int>(
+        valueListenable: refreshListenable,
+        builder: (context, _, __) {
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: [
+              _SettingsHeroCard(
+                title: title,
+                subtitle: '这一页只保留和“$title”相关的内容，减少来回滚动和误触。',
+                icon: icon,
+                accentColor: accentColor,
+              ),
+              const SizedBox(height: 16),
+              childBuilder(context),
+            ],
+          );
+        },
       ),
     );
   }

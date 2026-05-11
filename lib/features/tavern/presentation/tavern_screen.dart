@@ -568,7 +568,11 @@ class _TavernScreenState extends State<TavernScreen>
                   ),
                 ],
               ),
-              body: _buildPresetsTab(context, store),
+              body: Consumer<TavernStore>(
+                builder:
+                    (context, liveStore, _) =>
+                        _buildPresetsTab(context, liveStore),
+              ),
             ),
       ),
     );
@@ -624,13 +628,10 @@ class _TavernScreenState extends State<TavernScreen>
       MaterialPageRoute(
         builder:
             (_) => _PromptManagerPage(
-              promptOrder:
-                  store.promptOrders.isNotEmpty
-                      ? store.promptOrders.first
-                      : null,
               buildItems: _buildPromptManagerItems,
               builtinOptionFor: _builtinOptionFor,
-              itemLabelBuilder: (item) => _promptOrderItemLabel(store, item),
+              itemLabelBuilder: (liveStore, item) =>
+                  _promptOrderItemLabel(liveStore, item),
               itemPositionFor: itemPositionFor,
               editCustomItem:
                   (pageContext, {item}) =>
@@ -653,7 +654,7 @@ class _TavernScreenState extends State<TavernScreen>
         builder:
             (_) => _SimpleJsonListManagerPage(
               title: 'Personas',
-              items: store.personas
+              itemsBuilder: (liveStore) => liveStore.personas
                   .map((item) => item.toJson())
                   .toList(growable: false),
               emptyText: '还没有 persona，可新增默认人设。',
@@ -4406,7 +4407,6 @@ class _BuiltinPromptOrderOption {
 
 class _PromptManagerPage extends StatefulWidget {
   const _PromptManagerPage({
-    required this.promptOrder,
     required this.buildItems,
     required this.builtinOptionFor,
     required this.itemLabelBuilder,
@@ -4414,11 +4414,11 @@ class _PromptManagerPage extends StatefulWidget {
     required this.editCustomItem,
   });
 
-  final TavernPromptOrder? promptOrder;
   final List<TavernPromptOrderItem> Function(List<TavernPromptOrderItem>)
   buildItems;
   final _BuiltinPromptOrderOption? Function(String identifier) builtinOptionFor;
-  final String Function(TavernPromptOrderItem item) itemLabelBuilder;
+  final String Function(TavernStore store, TavernPromptOrderItem item)
+  itemLabelBuilder;
   final String Function(TavernPromptOrderItem item) itemPositionFor;
   final Future<TavernPromptOrderItem?> Function(
     BuildContext context, {
@@ -4433,14 +4433,17 @@ class _PromptManagerPage extends StatefulWidget {
 class _PromptManagerPageState extends State<_PromptManagerPage> {
   late List<TavernPromptOrderItem> _items;
   bool _saving = false;
+  bool _initialized = false;
   DateTime? _lastReorderAt;
 
-  @override
-  void initState() {
-    super.initState();
+  void _ensureInitialized(TavernStore store) {
+    if (_initialized) return;
+    _initialized = true;
     _items = <TavernPromptOrderItem>[
       ...widget.buildItems(
-        widget.promptOrder?.items ?? const <TavernPromptOrderItem>[],
+        store.promptOrders.isNotEmpty
+            ? store.promptOrders.first.items
+            : const <TavernPromptOrderItem>[],
       ),
     ];
   }
@@ -4488,7 +4491,8 @@ class _PromptManagerPageState extends State<_PromptManagerPage> {
         );
       }
       final payload = {'name': '默认提示词管理', 'items': normalized};
-      final targetPromptOrderId = widget.promptOrder?.id ?? '';
+      final targetPromptOrderId =
+          store.promptOrders.isNotEmpty ? store.promptOrders.first.id : '';
       if (targetPromptOrderId.isEmpty) {
         await store.createPromptOrder(payload);
       } else {
@@ -4515,23 +4519,26 @@ class _PromptManagerPageState extends State<_PromptManagerPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('提示词管理'),
-        actions: [
-          IconButton(
-            tooltip: '新增自定义项',
-            onPressed: _saving ? null : _addCustomItem,
-            icon: const Icon(Icons.add),
+    return Consumer<TavernStore>(
+      builder: (context, store, _) {
+        _ensureInitialized(store);
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('提示词管理'),
+            actions: [
+              IconButton(
+                tooltip: '新增自定义项',
+                onPressed: _saving ? null : _addCustomItem,
+                icon: const Icon(Icons.add),
+              ),
+            ],
           ),
-        ],
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-          child: ReorderableListView.builder(
-            buildDefaultDragHandles: false,
-            itemCount: _items.length,
+          body: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+              child: ReorderableListView.builder(
+                buildDefaultDragHandles: false,
+                itemCount: _items.length,
             onReorder:
                 _saving
                     ? (_, __) {}
@@ -4599,7 +4606,7 @@ class _PromptManagerPageState extends State<_PromptManagerPage> {
                     ],
                   ),
                   title: Text(
-                    widget.itemLabelBuilder(item),
+                    widget.itemLabelBuilder(store, item),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
@@ -4664,26 +4671,28 @@ class _PromptManagerPageState extends State<_PromptManagerPage> {
                 ),
               );
             },
+              ),
+            ),
           ),
-        ),
-      ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-          child: FilledButton(
-            onPressed: _saving ? null : _save,
-            child:
-                _saving
-                    ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                    : const Text('保存'),
+          bottomNavigationBar: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: FilledButton(
+                onPressed: _saving ? null : _save,
+                child:
+                    _saving
+                        ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                        : const Text('保存'),
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -5278,7 +5287,7 @@ class _ConfigEntryCard extends StatelessWidget {
 class _SimpleJsonListManagerPage extends StatelessWidget {
   const _SimpleJsonListManagerPage({
     required this.title,
-    required this.items,
+    required this.itemsBuilder,
     required this.emptyText,
     required this.onCreate,
     required this.onUpdate,
@@ -5287,7 +5296,7 @@ class _SimpleJsonListManagerPage extends StatelessWidget {
   });
 
   final String title;
-  final List<Map<String, dynamic>> items;
+  final List<Map<String, dynamic>> Function(TavernStore store) itemsBuilder;
   final String emptyText;
   final Future<dynamic> Function(Map<String, dynamic> payload) onCreate;
   final Future<dynamic> Function(String id, Map<String, dynamic> payload)
@@ -5297,52 +5306,57 @@ class _SimpleJsonListManagerPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(title),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add),
-            onPressed:
-                () => _openEditor(context, initial: defaultCreatePayload),
+    return Consumer<TavernStore>(
+      builder: (context, store, _) {
+        final items = itemsBuilder(store);
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(title),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.add),
+                onPressed:
+                    () => _openEditor(context, initial: defaultCreatePayload),
+              ),
+            ],
           ),
-        ],
-      ),
-      body:
-          items.isEmpty
-              ? Center(child: Text(emptyText))
-              : ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: items.length,
-                itemBuilder: (context, index) {
-                  final item = items[index];
+          body:
+              items.isEmpty
+                  ? Center(child: Text(emptyText))
+                  : ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: items.length,
+                    itemBuilder: (context, index) {
+                      final item = items[index];
                   final id = (item['id'] ?? '').toString();
                   final title = (item['name'] ?? id).toString();
                   final subtitle = (item['description'] ?? '').toString();
-                  return Card(
-                    child: ListTile(
-                      title: Text(title),
-                      subtitle:
-                          subtitle.isEmpty
-                              ? null
-                              : Text(
-                                subtitle,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                      trailing:
-                          item['isDefault'] == true
-                              ? const Chip(label: Text('默认'))
-                              : null,
-                      onTap: () => _openEditor(context, id: id, initial: item),
-                      onLongPress: () async {
-                        await onDelete(id);
-                        if (context.mounted) Navigator.of(context).pop();
-                      },
-                    ),
-                  );
-                },
-              ),
+                      return Card(
+                        child: ListTile(
+                          title: Text(title),
+                          subtitle:
+                              subtitle.isEmpty
+                                  ? null
+                                  : Text(
+                                    subtitle,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                          trailing:
+                              item['isDefault'] == true
+                                  ? const Chip(label: Text('默认'))
+                                  : null,
+                          onTap:
+                              () => _openEditor(context, id: id, initial: item),
+                          onLongPress: () async {
+                            await onDelete(id);
+                          },
+                        ),
+                      );
+                    },
+                  ),
+        );
+      },
     );
   }
 

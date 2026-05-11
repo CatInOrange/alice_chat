@@ -159,6 +159,34 @@ class _DebugDisplayItem {
   final String kind;
 }
 
+class _PromptDebugBlockGroups {
+  const _PromptDebugBlockGroups({
+    required this.movableSections,
+    required this.worldInfoInjections,
+    required this.specialInjections,
+    required this.otherBlocks,
+  });
+
+  final List<Map<String, dynamic>> movableSections;
+  final List<Map<String, dynamic>> worldInfoInjections;
+  final List<Map<String, dynamic>> specialInjections;
+  final List<Map<String, dynamic>> otherBlocks;
+}
+
+class _PromptDebugMessageGroups {
+  const _PromptDebugMessageGroups({
+    required this.promptLayers,
+    required this.history,
+    required this.currentInput,
+    required this.otherMessages,
+  });
+
+  final List<_DebugDisplayItem> promptLayers;
+  final List<_DebugDisplayItem> history;
+  final List<_DebugDisplayItem> currentInput;
+  final List<_DebugDisplayItem> otherMessages;
+}
+
 class _InlineHtmlMessageView extends StatefulWidget {
   const _InlineHtmlMessageView({
     required this.html,
@@ -4534,16 +4562,23 @@ $trimmed
           Text('Depth Inserts', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 6),
           ...debug.depthInserts.map(
-            (item) => Card(
-              child: ListTile(
-                title: Text(
-                  (item['name'] ?? item['kind'] ?? 'depth').toString(),
+            (item) {
+              final block =
+                  item['block'] is Map
+                      ? Map<String, dynamic>.from(item['block'] as Map)
+                      : const <String, dynamic>{};
+              return Card(
+                child: ListTile(
+                  title: Text(
+                    (block['name'] ?? block['kind'] ?? item['kind'] ?? 'depth')
+                        .toString(),
+                  ),
+                  subtitle: Text(
+                    'depth=${item['depth'] ?? block['depth'] ?? '-'} · position=${block['position'] ?? item['position'] ?? '-'}',
+                  ),
                 ),
-                subtitle: Text(
-                  'depth=${item['depth'] ?? '-'} · position=${item['position'] ?? '-'}',
-                ),
-              ),
-            ),
+              );
+            },
           ),
           const SizedBox(height: 16),
         ],
@@ -4568,9 +4603,57 @@ $trimmed
 
   Widget _buildDebugMessagesTab(TavernPromptDebug debug) {
     final groupedMessages = _groupDebugMessagesForDisplay(debug.messages);
+    final categories = _groupPromptDebugMessages(groupedMessages);
     return ListView(
       padding: const EdgeInsets.all(16),
-      children: groupedMessages
+      children: [
+        _sectionCard(
+          title: 'Prompt Layers',
+          subtitle: 'system / example / world info / author note 等插入层。',
+          child: _buildDebugMessageList(
+            categories.promptLayers,
+            emptyText: '无额外 prompt layers',
+          ),
+        ),
+        const SizedBox(height: 16),
+        _sectionCard(
+          title: 'Chat History',
+          subtitle: '历史消息区，可能夹带 at-depth 注入切分后的多个 history 段。',
+          child: _buildDebugMessageList(
+            categories.history,
+            emptyText: '无历史消息',
+          ),
+        ),
+        const SizedBox(height: 16),
+        _sectionCard(
+          title: 'Current Input',
+          subtitle: '当前轮请求输入，位于历史与注入层之后。',
+          child: _buildDebugMessageList(
+            categories.currentInput,
+            emptyText: '无当前输入',
+          ),
+        ),
+        if (categories.otherMessages.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          _sectionCard(
+            title: 'Other Messages',
+            subtitle: '暂未归类的 message 片段。',
+            child: _buildDebugMessageList(categories.otherMessages, emptyText: '无'),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildDebugMessageList(
+    List<_DebugDisplayItem> messages, {
+    required String emptyText,
+  }) {
+    if (messages.isEmpty) {
+      return Text(emptyText);
+    }
+    return Column(
+      children: messages
           .map(
             (message) => _buildDebugContentCard(
               title: message.title,
@@ -4587,9 +4670,57 @@ $trimmed
   }
 
   Widget _buildDebugBlocksTab(TavernPromptDebug debug) {
+    final groups = _groupPromptDebugBlocks(debug.blocks);
     return ListView(
       padding: const EdgeInsets.all(16),
-      children: debug.blocks
+      children: [
+        _sectionCard(
+          title: 'Movable Sections',
+          subtitle: '这里是 Prompt Order 真正参与排序的普通 section。',
+          child: _buildDebugBlockList(
+            groups.movableSections,
+            emptyText: '无普通 section blocks',
+          ),
+        ),
+        const SizedBox(height: 16),
+        _sectionCard(
+          title: 'World Info Injections',
+          subtitle: '这里是命中的世界书条目按 insertion position 注入后的独立 blocks。',
+          child: _buildDebugBlockList(
+            groups.worldInfoInjections,
+            emptyText: '无世界书注入 blocks',
+          ),
+        ),
+        const SizedBox(height: 16),
+        _sectionCard(
+          title: 'Special Injections',
+          subtitle: '这里是 author note / depth 等不走普通 Prompt Order 拖拽语义的特殊注入。',
+          child: _buildDebugBlockList(
+            groups.specialInjections,
+            emptyText: '无特殊注入 blocks',
+          ),
+        ),
+        if (groups.otherBlocks.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          _sectionCard(
+            title: 'Other Blocks',
+            subtitle: '保底分组，用来承接暂未归类的 blocks。',
+            child: _buildDebugBlockList(groups.otherBlocks, emptyText: '无'),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildDebugBlockList(
+    List<Map<String, dynamic>> blocks, {
+    required String emptyText,
+  }) {
+    if (blocks.isEmpty) {
+      return Text(emptyText);
+    }
+    return Column(
+      children: blocks
           .map(
             (block) => _buildDebugContentCard(
               title:
@@ -4604,6 +4735,84 @@ $trimmed
             ),
           )
           .toList(growable: false),
+    );
+  }
+
+  _PromptDebugBlockGroups _groupPromptDebugBlocks(
+    List<Map<String, dynamic>> blocks,
+  ) {
+    final movableSections = <Map<String, dynamic>>[];
+    final worldInfoInjections = <Map<String, dynamic>>[];
+    final specialInjections = <Map<String, dynamic>>[];
+    final otherBlocks = <Map<String, dynamic>>[];
+
+    for (final block in blocks) {
+      final source = (block['source'] ?? '').toString();
+      final kind = (block['kind'] ?? '').toString();
+      final name = (block['name'] ?? '').toString();
+      final position = (block['position'] ?? '').toString();
+
+      if (source == 'worldbook' && name.startsWith('worldbook:')) {
+        worldInfoInjections.add(block);
+        continue;
+      }
+      if (kind == 'author_note' || position == 'at_depth') {
+        specialInjections.add(block);
+        continue;
+      }
+      if (source == 'worldbook' &&
+          (name == 'world_info_before' || name == 'world_info_after')) {
+        movableSections.add(block);
+        continue;
+      }
+      if (source == 'builtin' ||
+          source == 'character' ||
+          source == 'persona' ||
+          source == 'summary' ||
+          source == 'runtime') {
+        movableSections.add(block);
+        continue;
+      }
+      otherBlocks.add(block);
+    }
+
+    return _PromptDebugBlockGroups(
+      movableSections: movableSections,
+      worldInfoInjections: worldInfoInjections,
+      specialInjections: specialInjections,
+      otherBlocks: otherBlocks,
+    );
+  }
+
+  _PromptDebugMessageGroups _groupPromptDebugMessages(
+    List<_DebugDisplayItem> messages,
+  ) {
+    final promptLayers = <_DebugDisplayItem>[];
+    final history = <_DebugDisplayItem>[];
+    final currentInput = <_DebugDisplayItem>[];
+    final otherMessages = <_DebugDisplayItem>[];
+
+    for (final message in messages) {
+      if (message.kind == 'chat_history') {
+        history.add(message);
+        continue;
+      }
+      if (message.kind == 'current_user_input') {
+        currentInput.add(message);
+        continue;
+      }
+      if (message.kind.isNotEmpty) {
+        promptLayers.add(message);
+        continue;
+      }
+      otherMessages.add(message);
+    }
+
+    return _PromptDebugMessageGroups(
+      promptLayers: promptLayers,
+      history: history,
+      currentInput: currentInput,
+      otherMessages: otherMessages,
     );
   }
 
@@ -4628,13 +4837,21 @@ $trimmed
       historySubtitle = null;
     }
 
-    for (final message in messages) {
+    for (var i = 0; i < messages.length; i++) {
+      final message = messages[i];
       final meta =
-          message['meta'] is Map ? Map<String, dynamic>.from(message['meta'] as Map) : const <String, dynamic>{};
+          message['meta'] is Map
+              ? Map<String, dynamic>.from(message['meta'] as Map)
+              : const <String, dynamic>{};
       final kind = (meta['kind'] ?? '').toString();
       final role = (message['role'] ?? 'unknown').toString();
       final content = (message['content'] ?? '').toString();
-      final isHistoryMessage = meta.isEmpty && (role == 'user' || role == 'assistant' || role == 'system');
+      final isLastMessage = i == messages.length - 1;
+      final isFinalCurrentUser = isLastMessage && meta.isEmpty && role == 'user';
+      final isHistoryMessage =
+          !isFinalCurrentUser &&
+          meta.isEmpty &&
+          (role == 'user' || role == 'assistant' || role == 'system');
       final isChatHistoryBlock = kind == 'chat_history';
 
       if (isChatHistoryBlock || isHistoryMessage) {
@@ -4646,10 +4863,16 @@ $trimmed
       flushHistory();
       items.add(
         _DebugDisplayItem(
-          title: '$role · ${kind.isEmpty ? '-' : kind}',
-          subtitle: message['meta']?.toString(),
+          title:
+              isFinalCurrentUser
+                  ? 'current user · request input'
+                  : '$role · ${kind.isEmpty ? '-' : kind}',
+          subtitle:
+              isFinalCurrentUser
+                  ? 'latest user input appended after history/injections'
+                  : message['meta']?.toString(),
           content: content,
-          kind: kind,
+          kind: isFinalCurrentUser ? 'current_user_input' : kind,
         ),
       );
     }
@@ -4704,11 +4927,7 @@ $trimmed
   }
 
   Widget _buildDebugWorldInfoTab(TavernPromptDebug debug) {
-    final metadata = _chat.metadata;
-    final runtime =
-        metadata['worldbookRuntime'] is Map
-            ? Map<String, dynamic>.from(metadata['worldbookRuntime'] as Map)
-            : const <String, dynamic>{};
+    final runtime = debug.worldbookRuntime;
     final entriesMap =
         runtime['entries'] is Map
             ? Map<String, dynamic>.from(runtime['entries'] as Map)
@@ -4801,20 +5020,44 @@ $trimmed
                                 .toString()
                                 .isNotEmpty)
                           _summaryMetaChip(
-                            '命中原因',
+                            '命中来源',
                             ((entry['_matchMeta'] as Map)['kind'] ?? '-')
                                 .toString(),
                           ),
                         if (entry['_matchMeta'] is Map &&
-                            ((entry['_matchMeta'] as Map)['state'] is Map))
+                            ((entry['_matchMeta'] as Map)['corpus'] ?? '')
+                                .toString()
+                                .isNotEmpty)
+                          _summaryMetaChip(
+                            '扫描范围',
+                            ((entry['_matchMeta'] as Map)['corpus'] ?? '-')
+                                .toString(),
+                          ),
+                        if (entry['_matchMeta'] is Map &&
+                            ((entry['_matchMeta'] as Map)['score'] != null))
+                          _summaryMetaChip(
+                            'Score',
+                            '${(entry['_matchMeta'] as Map)['score']}',
+                          ),
+                        if (entry['_matchMeta'] is Map &&
+                            ((entry['_matchMeta'] as Map)['runtimeState'] is Map))
                           _summaryMetaChip('Runtime', '已参与'),
                       ],
                     ),
-                    if (entry['_matchMeta'] is Map &&
-                        ((entry['_matchMeta'] as Map)['state'] is Map)) ...[
+                    if (entry['_matchMeta'] is Map) ...[
                       const SizedBox(height: 6),
                       Text(
-                        'state=${((entry['_matchMeta'] as Map)['state'] as Map).toString()}',
+                        _buildMatchedWorldInfoExplanation(
+                          Map<String, dynamic>.from(entry['_matchMeta'] as Map),
+                        ),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                    if (entry['_matchMeta'] is Map &&
+                        ((entry['_matchMeta'] as Map)['runtimeState'] is Map)) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'state=${((entry['_matchMeta'] as Map)['runtimeState'] as Map).toString()}',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ],
@@ -4842,15 +5085,21 @@ $trimmed
                       '${((entry['entry'] as Map?)?['id'] ?? '-')} · ${_worldInfoRejectReasonLabel((entry['reason'] ?? '-').toString())}',
                     ),
                     const SizedBox(height: 6),
-                    if ((entry['state'] is Map))
+                    Text(
+                      _buildRejectedWorldInfoExplanation(entry),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    if ((entry['state'] is Map)) ...[
+                      const SizedBox(height: 4),
                       Text(
                         'state=${(entry['state'] as Map).toString()}',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
+                    ],
                     if (entry['details'] != null) ...[
                       const SizedBox(height: 4),
                       Text(
-                        entry['details'].toString(),
+                        'details=${entry['details']}',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ],
@@ -4871,8 +5120,106 @@ $trimmed
         return '已延迟排队';
       case 'prevent_recursion_blocked':
         return '递归被阻止';
+      case 'disabled':
+        return '已禁用';
+      case 'empty_content':
+        return '内容为空';
+      case 'character_filter_not_matched':
+        return '角色过滤未命中';
+      case 'character_filter_excluded':
+        return '被角色过滤排除';
+      case 'no_primary_keys':
+        return '缺少主关键词';
+      case 'primary_keys_not_matched':
+        return '主关键词未命中';
+      case 'secondary_keys_not_matched':
+        return '次关键词未命中';
+      case 'delayed_until_recursion':
+        return '递归前暂缓';
+      case 'delayed_until_recursion_level':
+        return '等待递归层级';
+      case 'group_already_selected':
+        return '同组已选中其他条目';
+      case 'group_override_loser':
+        return '组内比较落败';
+      case 'group_not_selected':
+        return '组内未被选中';
+      case 'probability_failed':
+        return '概率判定未通过';
+      case 'budget_exceeded':
+        return '超出预算';
+      case 'recursive_match_not_resolved':
+        return '递归匹配未收敛';
+      case 'trimmed_by_total_context_budget':
+        return '被总上下文预算裁掉';
       default:
         return reason;
+    }
+  }
+
+  String _buildMatchedWorldInfoExplanation(Map<String, dynamic> matchMeta) {
+    final kind = (matchMeta['kind'] ?? '-').toString();
+    final corpus = (matchMeta['corpus'] ?? '-').toString();
+    final score = matchMeta['score'];
+    final pass = matchMeta['pass'];
+    final primary =
+        matchMeta['primary'] is Map
+            ? Map<String, dynamic>.from(matchMeta['primary'] as Map)
+            : const <String, dynamic>{};
+    final secondary =
+        matchMeta['secondary'] is Map
+            ? Map<String, dynamic>.from(matchMeta['secondary'] as Map)
+            : const <String, dynamic>{};
+    final hasRuntime = matchMeta['runtimeState'] is Map;
+    final primaryHits = ((primary['hits'] as List?) ?? const []).length;
+    final secondaryHits = ((secondary['hits'] as List?) ?? const []).length;
+    return '命中原因：$kind；扫描范围：$corpus；递归轮次：${pass ?? '-'}；主关键词命中：$primaryHits；次关键词命中：$secondaryHits；匹配分：${score ?? '-'}${hasRuntime ? '；带有运行时状态参与' : ''}';
+  }
+
+  String _buildRejectedWorldInfoExplanation(Map<String, dynamic> entry) {
+    final reasonCode = (entry['reason'] ?? '-').toString();
+    final reason = _worldInfoRejectReasonLabel(reasonCode);
+    final details =
+        entry['details'] is Map
+            ? Map<String, dynamic>.from(entry['details'] as Map)
+            : null;
+    final state = entry['state'];
+    final buffer = StringBuffer('拒绝原因：$reason');
+    final detailsText = _formatRejectedWorldInfoDetails(reasonCode, details);
+    if (detailsText.isNotEmpty) {
+      buffer.write('；$detailsText');
+    }
+    if (state is Map && state.isNotEmpty) {
+      buffer.write('；运行时状态存在');
+    }
+    return buffer.toString();
+  }
+
+  String _formatRejectedWorldInfoDetails(
+    String reasonCode,
+    Map<String, dynamic>? details,
+  ) {
+    if (details == null || details.isEmpty) return '';
+    switch (reasonCode) {
+      case 'probability_failed':
+        return '掷骰=${details['roll'] ?? '-'}，概率阈值=${details['probability'] ?? '-'}';
+      case 'budget_exceeded':
+      case 'trimmed_by_total_context_budget':
+        return '已用 tokens=${details['usedTokens'] ?? '-'}，条目 tokens=${details['entryTokens'] ?? details['suggestedTrimTokens'] ?? '-'}，预算=${details['worldbookTokenBudget'] ?? details['maxContext'] ?? '-'}';
+      case 'primary_keys_not_matched':
+      case 'secondary_keys_not_matched':
+        return '匹配模式=${details['mode'] ?? '-'}，命中=${((details['hits'] as List?) ?? const []).length} / 测试=${((details['tested'] as List?) ?? const []).length}';
+      case 'delayed_until_recursion':
+        return '目标递归层级=${details['level'] ?? '-'}';
+      case 'delayed_until_recursion_level':
+        return '目标递归层级=${details['level'] ?? '-'}，当前层级=${details['currentLevel'] ?? '-'}';
+      case 'delay_scheduled':
+        return '命中后需延迟 ${details['delay'] ?? '-'} 轮激活';
+      case 'character_filter_not_matched':
+      case 'character_filter_excluded':
+        return '角色=${details['characterName'] ?? '-'}，nameHit=${details['nameHit'] ?? false}，tagHit=${details['tagHit'] ?? false}';
+      default:
+        return details.toString();
     }
   }
 

@@ -382,7 +382,9 @@ class TavernService:
 
         history = self.store.list_chat_messages(chat_id)
         latest_real_debug = self._latest_real_prompt_debug(history)
+        current_worldbook_runtime = dict(chat.get('metadata', {}).get('worldbookRuntime') or {}) if isinstance(chat.get('metadata'), dict) else {}
         if latest_real_debug is not None:
+            latest_real_debug['worldbookRuntime'] = current_worldbook_runtime
             latest_real_debug['summary'] = {
                 **(latest_real_debug.get('summary') if isinstance(latest_real_debug.get('summary'), dict) else {}),
                 'source': 'last_real_request',
@@ -428,6 +430,7 @@ class TavernService:
             'resolvedPersona': persona,
             'depthInserts': debug.depth_inserts,
             'contextUsage': debug.context_usage,
+            'worldbookRuntime': current_worldbook_runtime,
             'summary': {
                 'matchedWorldbookCount': len(debug.matched_worldbook_entries),
                 'rejectedWorldbookCount': len(debug.rejected_worldbook_entries),

@@ -30,8 +30,9 @@ class PromptBuilder:
     """Tavern prompt assembly pipeline.
 
     Current target is closer to SillyTavern semantics than a generic block list:
-    - prompt order decides semantic section order
-    - world info is split into wiBefore / wiAfter / atDepth style injections
+    - prompt order decides movable semantic sections
+    - world info entries remain special injections grouped by insertion buckets
+    - author note remains a dedicated at-depth injection, not a normal movable section
     - story_string / example_separator / chat_start matter
     - debug output should reveal the exact assembled structure
     """
@@ -58,7 +59,6 @@ class PromptBuilder:
         'worldInfoAfter': 'world_info_after',
         'summaries': 'summaries',
         'chatHistory': 'chat_history',
-        'authorNote': 'author_note',
         'postHistoryInstructions': 'post_history_instructions',
         'jailbreak': 'post_history_instructions',
     }
@@ -355,14 +355,6 @@ class PromptBuilder:
                 content=str(character.get('postHistoryInstructions') or '').strip(),
                 source='builtin',
             ),
-            'nsfw': self._block(
-                name='nsfw',
-                kind='custom',
-                position='after_chat_history',
-                role='system',
-                content='',
-                source='builtin',
-            ),
         }
 
         order_items = [
@@ -378,11 +370,10 @@ class PromptBuilder:
                 {'identifier': 'scenario', 'enabled': True, 'order_index': 40},
                 {'identifier': 'worldInfoBefore', 'enabled': True, 'order_index': 50},
                 {'identifier': 'dialogueExamples', 'enabled': True, 'order_index': 60},
-                {'identifier': 'authorNote', 'enabled': True, 'order_index': 70},
-                {'identifier': 'summaries', 'enabled': True, 'order_index': 80},
-                {'identifier': 'chatHistory', 'enabled': True, 'order_index': 90},
-                {'identifier': 'worldInfoAfter', 'enabled': True, 'order_index': 100},
-                {'identifier': 'postHistoryInstructions', 'enabled': True, 'order_index': 110},
+                {'identifier': 'summaries', 'enabled': True, 'order_index': 70},
+                {'identifier': 'chatHistory', 'enabled': True, 'order_index': 80},
+                {'identifier': 'worldInfoAfter', 'enabled': True, 'order_index': 90},
+                {'identifier': 'postHistoryInstructions', 'enabled': True, 'order_index': 100},
             ]
 
         prompt_blocks_by_id = {
@@ -425,11 +416,12 @@ class PromptBuilder:
             ordered_blocks.append(self._clone_block_with_item(semantic[semantic_key], item))
             used_keys.add(semantic_key)
 
-        if semantic['author_note'].get('content') and 'author_note' not in used_keys:
+        if semantic['author_note'].get('content'):
             ordered_blocks.append(semantic['author_note'])
 
         if semantic['post_history_instructions'].get('content') and 'post_history_instructions' not in used_keys:
             ordered_blocks.append(semantic['post_history_instructions'])
+
 
         ordered_blocks = self._insert_blocks_relative(
             ordered_blocks,
@@ -783,7 +775,7 @@ class PromptBuilder:
     def _drop_optional_prompt_sections(self, ordered_blocks: list[dict[str, Any]], tokens_to_trim: int) -> list[dict[str, Any]]:
         if tokens_to_trim <= 0:
             return ordered_blocks
-        optional_names = ['example_messages', 'post_history_instructions', 'nsfw']
+        optional_names = ['example_messages', 'post_history_instructions']
         remaining = list(ordered_blocks)
         trimmed = 0
         for name in optional_names:

@@ -624,6 +624,7 @@ class TavernPromptDebug {
     this.macroEffects = const <Map<String, dynamic>>[],
     this.unknownMacros = const <String>[],
     this.resolvedPersona = const <String, dynamic>{},
+    this.worldbookRuntime = const <String, dynamic>{},
     this.summary = const <String, dynamic>{},
   });
 
@@ -645,6 +646,7 @@ class TavernPromptDebug {
   final List<Map<String, dynamic>> macroEffects;
   final List<String> unknownMacros;
   final Map<String, dynamic> resolvedPersona;
+  final Map<String, dynamic> worldbookRuntime;
   final Map<String, dynamic> summary;
 
   factory TavernPromptDebug.fromJson(Map<String, dynamic> json) {
@@ -678,6 +680,9 @@ class TavernPromptDebug {
       resolvedPersona: Map<String, dynamic>.from(
         (json['resolvedPersona'] as Map?) ?? const <String, dynamic>{},
       ),
+      worldbookRuntime: Map<String, dynamic>.from(
+        (json['worldbookRuntime'] as Map?) ?? const <String, dynamic>{},
+      ),
       summary: Map<String, dynamic>.from(
         (json['summary'] as Map?) ?? const <String, dynamic>{},
       ),
@@ -701,6 +706,7 @@ class TavernPromptDebug {
       'macroEffects': macroEffects,
       'unknownMacros': unknownMacros,
       'resolvedPersona': resolvedPersona,
+      'worldbookRuntime': worldbookRuntime,
       'summary': summary,
     };
   }

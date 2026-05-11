@@ -408,6 +408,7 @@ class AliceChatForegroundService : Service() {
             "alice:main", "alice" -> "alice"
             "yulinglong:main", "yulinglong" -> "玲珑"
             "lisuxin:main", "lisuxin" -> "素心"
+            "guqingge:main", "guqingge" -> "清歌"
             else -> "AliceChat"
         }
     }
@@ -424,7 +425,14 @@ class AliceChatForegroundService : Service() {
             "lisuxin:main", "lisuxin" -> R.drawable.lisuxin_avatar
             else -> 0
         }
-        return if (resId != 0) BitmapFactory.decodeResource(resources, resId) else null
+        if (resId != 0) {
+            return BitmapFactory.decodeResource(resources, resId)
+        }
+        return when (sessionId) {
+            "guqingge:main", "guqingge" ->
+                loadAvatarBitmapFromMetadata("assets/avatars/qingge.jpg")
+            else -> null
+        }
     }
 
     private fun loadAvatarBitmapFromMetadata(avatarAssetPath: String): Bitmap? {

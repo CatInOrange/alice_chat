@@ -923,7 +923,7 @@ class MusicStore extends ChangeNotifier {
     final immediateTracks = peekPlaylistTracks(playlist);
     if (playlist.id == 'netease-fm') {
       try {
-        final tracks = await _loadNeteaseFmBatch(limit: 10);
+        final tracks = await _loadNeteaseFmBatch(limit: 3);
         _cacheTracksForPlaylist(playlist.id, tracks);
         _markSnapshotDirty();
         return _withFavoriteFlags(tracks);
@@ -933,14 +933,14 @@ class MusicStore extends ChangeNotifier {
           extra: {
             'playlistId': playlist.id,
             'attempt': 1,
-            'limit': 10,
+            'limit': 3,
             'error': firstError.toString(),
           },
           force: true,
           level: 'ERROR',
         );
         try {
-          final tracks = await _loadNeteaseFmBatch(limit: 5);
+          final tracks = await _loadNeteaseFmBatch(limit: 3);
           _cacheTracksForPlaylist(playlist.id, tracks);
           _markSnapshotDirty();
           return _withFavoriteFlags(tracks);
@@ -950,7 +950,7 @@ class MusicStore extends ChangeNotifier {
             extra: {
               'playlistId': playlist.id,
               'attempt': 2,
-              'limit': 5,
+              'limit': 3,
               'error': secondError.toString(),
             },
             force: true,
@@ -3078,7 +3078,7 @@ class MusicStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<List<MusicTrack>> _loadNeteaseFmBatch({int limit = 10}) async {
+  Future<List<MusicTrack>> _loadNeteaseFmBatch({int limit = 3}) async {
     final existingKeys = <String>{};
     void collect(Iterable<MusicTrack> tracks) {
       for (final track in tracks) {
@@ -3099,7 +3099,7 @@ class MusicStore extends ChangeNotifier {
     final merged = <MusicTrack>[];
     final seen = <String>{...existingKeys};
     for (var attempt = 0; attempt < 3 && merged.length < limit; attempt++) {
-      final fetched = await _repository.loadNeteaseFmTracks(limit: limit);
+      final fetched = await _repository.loadNeteaseFmTracks(limit: min(limit, 3));
       var addedThisRound = 0;
       for (final track in fetched) {
         final key = _trackIdentityKey(track).trim();
@@ -3128,7 +3128,7 @@ class MusicStore extends ChangeNotifier {
     }
     _isLoadingFmBatch = true;
     try {
-      final incoming = await _loadNeteaseFmBatch(limit: 10);
+      final incoming = await _loadNeteaseFmBatch(limit: 3);
       if (incoming.isEmpty) {
         return;
       }

@@ -110,6 +110,7 @@ class TavernStreamingService:
                     'macroEffects': prepared['promptDebug'].macro_effects,
                     'unknownMacros': prepared['promptDebug'].unknown_macros,
                     'resolvedPersona': prepared.get('persona') or {},
+                    'worldbookRuntime': dict((prepared.get('chat') or {}).get('metadata', {}).get('worldbookRuntime') or {}) if isinstance((prepared.get('chat') or {}).get('metadata'), dict) else {},
                     'summary': {
                         'matchedWorldbookCount': len(
                             prepared['promptDebug'].matched_worldbook_entries,
@@ -234,6 +235,7 @@ class TavernStreamingService:
                 'macroEffects': prepared['promptDebug'].macro_effects,
                 'unknownMacros': prepared['promptDebug'].unknown_macros,
                 'resolvedPersona': prepared.get('persona') or {},
+                'worldbookRuntime': dict((prepared.get('chat') or {}).get('metadata', {}).get('worldbookRuntime') or {}) if isinstance((prepared.get('chat') or {}).get('metadata'), dict) else {},
                 'summary': {
                     'matchedWorldbookCount': len(
                         prepared['promptDebug'].matched_worldbook_entries,

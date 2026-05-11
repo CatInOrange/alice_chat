@@ -285,12 +285,16 @@ class TavernStore:
             order_id = 'tav_po_default'
             items = [
                 {'identifier': 'main', 'enabled': True, 'order_index': 0, 'position': 'after_system'},
-                {'identifier': 'charDescription', 'enabled': True, 'order_index': 10, 'position': 'before_character'},
-                {'identifier': 'charPersonality', 'enabled': True, 'order_index': 20, 'position': 'before_character'},
-                {'identifier': 'scenario', 'enabled': True, 'order_index': 30, 'position': 'after_character'},
-                {'identifier': 'dialogueExamples', 'enabled': True, 'order_index': 40, 'position': 'before_example_messages'},
+                {'identifier': 'personaDescription', 'enabled': True, 'order_index': 10, 'position': 'after_system'},
+                {'identifier': 'charDescription', 'enabled': True, 'order_index': 20, 'position': 'before_character'},
+                {'identifier': 'charPersonality', 'enabled': True, 'order_index': 30, 'position': 'before_character'},
+                {'identifier': 'scenario', 'enabled': True, 'order_index': 40, 'position': 'after_character'},
                 {'identifier': 'worldInfoBefore', 'enabled': True, 'order_index': 50, 'position': 'before_chat_history'},
-                {'identifier': 'chatHistory', 'enabled': True, 'order_index': 60, 'position': 'before_last_user'},
+                {'identifier': 'dialogueExamples', 'enabled': True, 'order_index': 60, 'position': 'before_example_messages'},
+                {'identifier': 'summaries', 'enabled': True, 'order_index': 70, 'position': 'before_chat_history'},
+                {'identifier': 'chatHistory', 'enabled': True, 'order_index': 80, 'position': 'before_last_user'},
+                {'identifier': 'worldInfoAfter', 'enabled': True, 'order_index': 90, 'position': 'after_character'},
+                {'identifier': 'postHistoryInstructions', 'enabled': True, 'order_index': 100, 'position': 'after_chat_history'},
             ]
             conn.execute(
                 "INSERT INTO tavern_prompt_orders(id,name,items_json,created_at,updated_at) VALUES(?,?,?,?,?)",
