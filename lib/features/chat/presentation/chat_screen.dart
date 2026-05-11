@@ -127,11 +127,13 @@ class _SlashSuggestionItem {
     required this.insertText,
     required this.label,
     this.subtitle,
+    this.isCategory = false,
   });
 
   final String insertText;
   final String label;
   final String? subtitle;
+  final bool isCategory;
 }
 
 class _SlashModelOption {
@@ -278,6 +280,11 @@ const _allowedSlashModels = <_SlashModelOption>[
   ),
   // openai-codex
   _SlashModelOption(
+    commandValue: 'openai-codex/gpt-5.5',
+    label: 'GPT-5.5',
+    subtitle: 'openai codex',
+  ),
+  _SlashModelOption(
     commandValue: 'openai-codex/gpt-5.4',
     label: 'GPT-5.4',
     subtitle: 'openai codex',
@@ -285,6 +292,11 @@ const _allowedSlashModels = <_SlashModelOption>[
   _SlashModelOption(
     commandValue: 'openai-codex/gpt-5.4-mini',
     label: 'GPT-5.4 Mini',
+    subtitle: 'openai codex',
+  ),
+  _SlashModelOption(
+    commandValue: 'openai-codex/gpt-5.2',
+    label: 'GPT-5.2',
     subtitle: 'openai codex',
   ),
 ];
@@ -1244,17 +1256,49 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     if (text.startsWith('/model ')) {
-      final query = text.substring('/model '.length).trim().toLowerCase();
+      final query = text.substring('/model '.length).trim();
+
+      // 如果 query 为空或以 < 开头，显示按 provider 分组的列表
+      if (query.isEmpty || query.startsWith('<')) {
+        // 按 provider 分组
+        final groupedModels = <String, List<_SlashModelOption>>{};
+        for (final model in _allowedSlashModels) {
+          final provider = model.commandValue.split('/')[0];
+          groupedModels.putIfAbsent(provider, () => []).add(model);
+        }
+
+        final items = <_SlashSuggestionItem>[];
+        for (final entry in groupedModels.entries) {
+          // 添加 provider 分组标题
+          items.add(_SlashSuggestionItem(
+            insertText: '',
+            label: '📁 ${entry.key}',
+            subtitle: '${entry.value.length} 个模型',
+            isCategory: true,
+          ));
+          // 添加该 provider 下的所有模型
+          for (final model in entry.value) {
+            items.add(_SlashSuggestionItem(
+              insertText: '/model <${model.commandValue}>',
+              label: '  ${model.label}',
+              subtitle: model.subtitle ?? '',
+            ));
+          }
+        }
+        return items;
+      }
+
+      // 普通搜索逻辑
+      final lowerQuery = query.toLowerCase();
       return _allowedSlashModels
           .where((model) {
-            return query.isEmpty ||
-                model.commandValue.toLowerCase().contains(query) ||
-                model.label.toLowerCase().contains(query) ||
-                (model.subtitle?.toLowerCase().contains(query) ?? false);
+            return model.commandValue.toLowerCase().contains(lowerQuery) ||
+                model.label.toLowerCase().contains(lowerQuery) ||
+                (model.subtitle?.toLowerCase().contains(lowerQuery) ?? false);
           })
           .map(
             (model) => _SlashSuggestionItem(
-              insertText: '/model ${model.commandValue}',
+              insertText: '/model <${model.commandValue}>',
               label: model.label,
               subtitle: model.subtitle,
             ),
