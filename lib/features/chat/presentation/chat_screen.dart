@@ -301,6 +301,15 @@ const _allowedSlashModels = <_SlashModelOption>[
   ),
 ];
 
+// Provider 列表（用于第一层联想）
+const _slashModelProviders = [
+  'minimax',
+  'google',
+  'deepseek',
+  'xai',
+  'openai-codex',
+];
+
 class _ChatScreenState extends State<ChatScreen> {
   final _currentUserId = 'user';
   final _composerController = TextEditingController();
@@ -1258,51 +1267,66 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.startsWith('/model ')) {
       final query = text.substring('/model '.length).trim();
 
-      // 如果 query 为空或以 < 开头，显示按 provider 分组的列表
-      if (query.isEmpty || query.startsWith('<')) {
-        // 按 provider 分组
-        final groupedModels = <String, List<_SlashModelOption>>{};
-        for (final model in _allowedSlashModels) {
-          final provider = model.commandValue.split('/')[0];
-          groupedModels.putIfAbsent(provider, () => []).add(model);
-        }
-
-        final items = <_SlashSuggestionItem>[];
-        for (final entry in groupedModels.entries) {
-          // 添加 provider 分组标题
-          items.add(_SlashSuggestionItem(
-            insertText: '',
-            label: '📁 ${entry.key}',
-            subtitle: '${entry.value.length} 个模型',
-            isCategory: true,
-          ));
-          // 添加该 provider 下的所有模型
-          for (final model in entry.value) {
-            items.add(_SlashSuggestionItem(
-              insertText: '/model <${model.commandValue}>',
-              label: '  ${model.label}',
-              subtitle: model.subtitle ?? '',
-            ));
-          }
-        }
-        return items;
+      // 情况1: /model <  → 显示所有 providers
+      if (query == '<') {
+        return _slashModelProviders
+            .map((provider) => _SlashSuggestionItem(
+                  insertText: '/model <$provider/',
+                  label: '/model <$provider/>',
+                  subtitle: '选择一个 provider',
+                ))
+            .toList();
       }
 
-      // 普通搜索逻辑
+      // 情况2: /model <minimax/ → 显示 minimax 下的所有模型
+      if (query.startsWith('<') && query.endsWith('/')) {
+        final provider = query.substring(1, query.length - 1);
+        if (_slashModelProviders.contains(provider)) {
+          return _allowedSlashModels
+              .where((m) => m.commandValue.startsWith('$provider/'))
+              .map((model) => _SlashSuggestionItem(
+                    insertText: '/model <${model.commandValue}>',
+                    label: model.label,
+                    subtitle: model.subtitle,
+                  ))
+              .toList();
+        }
+      }
+
+      // 情况3: /model <minimax/m2 → 过滤显示 minimax 下的匹配模型
+      if (query.startsWith('<')) {
+        final firstSlash = query.indexOf('/');
+        if (firstSlash > 1) {
+          final provider = query.substring(1, firstSlash);
+          final modelQuery = query.substring(firstSlash + 1).toLowerCase();
+          if (_slashModelProviders.contains(provider)) {
+            return _allowedSlashModels
+                .where((m) =>
+                    m.commandValue.startsWith('$provider/') &&
+                    (m.label.toLowerCase().contains(modelQuery) ||
+                        m.commandValue.toLowerCase().contains(modelQuery)))
+                .map((model) => _SlashSuggestionItem(
+                      insertText: '/model <${model.commandValue}>',
+                      label: model.label,
+                      subtitle: model.subtitle,
+                    ))
+                .toList();
+          }
+        }
+      }
+
+      // 情况4: 普通搜索（无尖括号）
       final lowerQuery = query.toLowerCase();
       return _allowedSlashModels
-          .where((model) {
-            return model.commandValue.toLowerCase().contains(lowerQuery) ||
-                model.label.toLowerCase().contains(lowerQuery) ||
-                (model.subtitle?.toLowerCase().contains(lowerQuery) ?? false);
-          })
-          .map(
-            (model) => _SlashSuggestionItem(
-              insertText: '/model <${model.commandValue}>',
-              label: model.label,
-              subtitle: model.subtitle,
-            ),
-          )
+          .where((model) =>
+              model.commandValue.toLowerCase().contains(lowerQuery) ||
+              model.label.toLowerCase().contains(lowerQuery) ||
+              (model.subtitle?.toLowerCase().contains(lowerQuery) ?? false))
+          .map((model) => _SlashSuggestionItem(
+                insertText: '/model <${model.commandValue}>',
+                label: model.label,
+                subtitle: model.subtitle,
+              ))
           .toList(growable: false);
     }
 
