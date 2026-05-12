@@ -247,8 +247,8 @@ class TavernService:
     def update_chat(self, chat_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
         return self.store.update_chat(chat_id, payload)
 
-    def list_chat_messages(self, chat_id: str) -> list[dict[str, Any]]:
-        return self.store.list_chat_messages(chat_id)
+    def list_chat_messages(self, chat_id: str, *, limit: int | None = None) -> list[dict[str, Any]]:
+        return self.store.list_chat_messages(chat_id, limit=limit)
 
     def get_scene_image(self, chat_id: str) -> dict[str, Any]:
         chat = self.store.get_chat(chat_id)
@@ -353,24 +353,129 @@ class TavernService:
         prepared = self.prepare_generation(chat_id, text=text, preset_id=preset_id)
         user_message = self.store.append_message(chat_id, role='user', content=text)
         assistant_text = self._build_placeholder_reply(prepared['character'], text)
+        full_prompt_debug = self._trim_prompt_debug_payload({
+            'presetId': prepared['promptDebug'].preset_id,
+            'promptOrderId': prepared['promptDebug'].prompt_order_id,
+            'matchedWorldbookEntries': prepared['promptDebug'].matched_worldbook_entries,
+            'rejectedWorldbookEntries': prepared['promptDebug'].rejected_worldbook_entries,
+            'characterLoreBindings': prepared['promptDebug'].character_lore_bindings,
+            'blocks': prepared['promptDebug'].blocks,
+            'messages': prepared['promptDebug'].messages,
+            'renderedStoryString': prepared['promptDebug'].rendered_story_string,
+            'renderedExamples': prepared['promptDebug'].rendered_examples,
+            'runtimeContext': prepared['promptDebug'].runtime_context,
+            'contextUsage': prepared['promptDebug'].context_usage,
+            'depthInserts': prepared['promptDebug'].depth_inserts,
+            'macroEffects': prepared['promptDebug'].macro_effects,
+            'unknownMacros': prepared['promptDebug'].unknown_macros,
+            'resolvedPersona': prepared.get('persona') or {},
+            'worldbookRuntime': dict((prepared.get('chat') or {}).get('metadata', {}).get('worldbookRuntime') or {}) if isinstance((prepared.get('chat') or {}).get('metadata'), dict) else {},
+            'summary': {
+                'matchedWorldbookCount': len(prepared['promptDebug'].matched_worldbook_entries),
+                'rejectedWorldbookCount': len(prepared['promptDebug'].rejected_worldbook_entries),
+                'blockCount': len(prepared['promptDebug'].blocks),
+                'messageCount': len(prepared['promptDebug'].messages),
+                'source': 'last_real_request',
+                'previewOnly': False,
+            },
+        }, message_limit=3)
         assistant_message = self.store.append_message(
             chat_id,
             role='assistant',
             content=assistant_text,
             metadata={
                 'requestId': user_message['id'],
-                'promptDebug': {
-                    'presetId': prepared['promptDebug'].preset_id,
-                    'promptOrderId': prepared['promptDebug'].prompt_order_id,
-                },
+                'promptDebug': self._build_prompt_debug_summary_payload(full_prompt_debug),
             },
         )
+        self.save_latest_prompt_debug(chat_id, full_prompt_debug)
         return TavernSendResult(
             request_id=user_message['id'],
             user_message=user_message,
             assistant_message=assistant_message,
             prompt_debug=prepared['promptDebug'],
         )
+
+    def _trim_prompt_debug_payload(self, payload: dict[str, Any], *, message_limit: int = 3) -> dict[str, Any]:
+        trimmed = dict(payload)
+        messages = trimmed.get('messages')
+        if isinstance(messages, list):
+            normalized = [item for item in messages if isinstance(item, dict)]
+            if message_limit > 0 and len(normalized) > message_limit:
+                normalized = normalized[-message_limit:]
+            trimmed['messages'] = normalized
+        if isinstance(trimmed.get('summary'), dict):
+            trimmed['summary'] = {
+                **trimmed['summary'],
+                'messageCount': len(trimmed.get('messages') or []),
+            }
+        return trimmed
+
+    def _build_prompt_debug_summary_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        summary = payload.get('summary') if isinstance(payload.get('summary'), dict) else {}
+        context_usage = payload.get('contextUsage') if isinstance(payload.get('contextUsage'), dict) else {}
+        return {
+            'presetId': str(payload.get('presetId') or '').strip(),
+            'promptOrderId': str(payload.get('promptOrderId') or '').strip(),
+            'summary': {
+                **summary,
+                'totalTokens': context_usage.get('totalTokens', summary.get('totalTokens')),
+                'maxContext': context_usage.get('maxContext', summary.get('maxContext')),
+            },
+        }
+
+    def save_latest_prompt_debug(self, chat_id: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        chat = self.store.get_chat(chat_id)
+        if chat is None:
+            return None
+        metadata = dict(chat.get('metadata') or {}) if isinstance(chat.get('metadata'), dict) else {}
+        metadata['latestPromptDebug'] = dict(payload)
+        return self.store.update_chat(chat_id, {'metadata': metadata})
+
+    def compact_prompt_debug_history(self, chat_id: str) -> dict[str, Any] | None:
+        chat = self.store.get_chat(chat_id)
+        if chat is None:
+            return None
+
+        metadata = dict(chat.get('metadata') or {}) if isinstance(chat.get('metadata'), dict) else {}
+        history = self.store.list_chat_messages(chat_id)
+        latest_debug = metadata.get('latestPromptDebug') if isinstance(metadata.get('latestPromptDebug'), dict) else None
+
+        if latest_debug is None:
+            for message in reversed(history):
+                if message.get('role') != 'assistant':
+                    continue
+                msg_meta = message.get('metadata') if isinstance(message.get('metadata'), dict) else {}
+                candidate = msg_meta.get('promptDebug') if isinstance(msg_meta.get('promptDebug'), dict) else None
+                if candidate is not None:
+                    latest_debug = candidate
+                    break
+
+        if latest_debug is not None:
+            metadata['latestPromptDebug'] = self._trim_prompt_debug_payload(dict(latest_debug), message_limit=3)
+            chat = self.store.update_chat(chat_id, {'metadata': metadata}) or chat
+
+        updated_count = 0
+        for message in history:
+            if message.get('role') != 'assistant':
+                continue
+            msg_meta = dict(message.get('metadata') or {}) if isinstance(message.get('metadata'), dict) else {}
+            prompt_debug = msg_meta.get('promptDebug') if isinstance(msg_meta.get('promptDebug'), dict) else None
+            if prompt_debug is None:
+                continue
+            compacted = self._build_prompt_debug_summary_payload(
+                self._trim_prompt_debug_payload(dict(prompt_debug), message_limit=3),
+            )
+            if compacted == prompt_debug:
+                continue
+            msg_meta['promptDebug'] = compacted
+            self.store.replace_message_metadata(str(message.get('id') or '').strip(), msg_meta)
+            updated_count += 1
+
+        return {
+            'chat': chat,
+            'updatedCount': updated_count,
+        }
 
     def build_prompt_debug(self, chat_id: str) -> dict[str, Any]:
         chat = self.store.get_chat(chat_id)
@@ -381,8 +486,19 @@ class TavernService:
             raise ValueError('character not found')
 
         history = self.store.list_chat_messages(chat_id)
-        latest_real_debug = self._latest_real_prompt_debug(history)
         current_worldbook_runtime = dict(chat.get('metadata', {}).get('worldbookRuntime') or {}) if isinstance(chat.get('metadata'), dict) else {}
+        latest_chat_debug = chat.get('metadata', {}).get('latestPromptDebug') if isinstance(chat.get('metadata'), dict) else None
+        if isinstance(latest_chat_debug, dict):
+            latest_chat_debug = dict(latest_chat_debug)
+            latest_chat_debug['worldbookRuntime'] = current_worldbook_runtime
+            latest_chat_debug['summary'] = {
+                **(latest_chat_debug.get('summary') if isinstance(latest_chat_debug.get('summary'), dict) else {}),
+                'source': 'last_real_request',
+                'previewOnly': False,
+            }
+            return self._trim_prompt_debug_payload(latest_chat_debug, message_limit=3)
+
+        latest_real_debug = self._latest_real_prompt_debug(history)
         if latest_real_debug is not None:
             latest_real_debug['worldbookRuntime'] = current_worldbook_runtime
             latest_real_debug['summary'] = {
@@ -390,7 +506,7 @@ class TavernService:
                 'source': 'last_real_request',
                 'previewOnly': False,
             }
-            return latest_real_debug
+            return self._trim_prompt_debug_payload(latest_real_debug, message_limit=3)
 
         worldbook_entries = self._collect_effective_worldbook_entries(character['id'])
         preset, prompt_order = self._resolve_preset_and_prompt_order(chat=chat)
@@ -414,7 +530,7 @@ class TavernService:
             model_name=str((preset or {}).get('model') or ''),
             allow_side_effects=False,
         )
-        return {
+        return self._trim_prompt_debug_payload({
             'presetId': debug.preset_id,
             'promptOrderId': debug.prompt_order_id,
             'matchedWorldbookEntries': debug.matched_worldbook_entries,
@@ -443,7 +559,7 @@ class TavernService:
                 'source': 'preview_rebuild',
                 'previewOnly': True,
             },
-        }
+        }, message_limit=3)
 
     def _hidden_instruction_text(self, mode: str) -> str:
         normalized = str(mode or '').strip().lower()

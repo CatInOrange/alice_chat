@@ -132,8 +132,14 @@ class TavernRepository {
     await _postJson('/api/tavern/chats/$chatId/delete', const {});
   }
 
-  Future<List<TavernMessage>> listChatMessages(String chatId) async {
-    final response = await _getJson('/api/tavern/chats/$chatId/messages');
+  Future<List<TavernMessage>> listChatMessages(
+    String chatId, {
+    int? limit,
+  }) async {
+    final suffix = limit != null ? '?limit=$limit' : '';
+    final response = await _getJson(
+      '/api/tavern/chats/$chatId/messages$suffix',
+    );
     final list = (response['messages'] as List?) ?? const <dynamic>[];
     return list
         .whereType<Map>()
@@ -357,9 +363,10 @@ class TavernRepository {
   }) async {
     final config = await OpenClawSettingsStore.load();
     final client = OpenClawHttpClient(config);
-    final response = await client.putJson('/api/tavern/chats/$chatId/variables', {
-      'variables': variables,
-    });
+    final response = await client.putJson(
+      '/api/tavern/chats/$chatId/variables',
+      {'variables': variables},
+    );
     return Map<String, dynamic>.from(
       (response['variables'] as Map?) ?? const <String, dynamic>{},
     );

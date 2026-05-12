@@ -1054,11 +1054,34 @@ class TavernStore:
             conn.commit()
         return record
 
-    def list_chat_messages(self, chat_id: str) -> list[dict[str, Any]]:
+    def list_chat_messages(self, chat_id: str, *, limit: int | None = None) -> list[dict[str, Any]]:
         self.ensure_schema()
         with connect(self.db) as conn:
-            rows = conn.execute("SELECT * FROM tavern_messages WHERE chat_id=? ORDER BY created_at ASC", (chat_id,)).fetchall()
+            if limit is not None and limit > 0:
+                rows = conn.execute(
+                    "SELECT * FROM (SELECT * FROM tavern_messages WHERE chat_id=? ORDER BY created_at DESC LIMIT ?) ORDER BY created_at ASC, id ASC",
+                    (chat_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM tavern_messages WHERE chat_id=? ORDER BY created_at ASC",
+                    (chat_id,),
+                ).fetchall()
             return [self._row_to_message(row) for row in rows]
+
+    def replace_message_metadata(self, message_id: str, metadata: dict[str, Any] | None) -> dict[str, Any] | None:
+        self.ensure_schema()
+        with connect(self.db) as conn:
+            row = conn.execute("SELECT * FROM tavern_messages WHERE id=? LIMIT 1", (message_id,)).fetchone()
+            if row is None:
+                return None
+            conn.execute(
+                "UPDATE tavern_messages SET metadata_json=? WHERE id=?",
+                (json.dumps(metadata or {}, ensure_ascii=False), message_id),
+            )
+            conn.commit()
+            updated = conn.execute("SELECT * FROM tavern_messages WHERE id=? LIMIT 1", (message_id,)).fetchone()
+            return self._row_to_message(updated) if updated is not None else None
 
     def list_character_lore_bindings(self, character_id: str) -> list[dict[str, Any]]:
         self.ensure_schema()

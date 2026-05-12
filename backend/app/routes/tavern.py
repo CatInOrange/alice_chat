@@ -299,8 +299,8 @@ def create_tavern_router(context: AppContext) -> APIRouter:
         return {'ok': True, 'chat': chat}
 
     @router.get('/api/tavern/chats/{chat_id}/messages')
-    async def list_chat_messages(chat_id: str):
-        return {'ok': True, 'messages': service.list_chat_messages(chat_id)}
+    async def list_chat_messages(chat_id: str, limit: int | None = Query(default=None, ge=1, le=200)):
+        return {'ok': True, 'messages': service.list_chat_messages(chat_id, limit=limit)}
 
     @router.get('/api/tavern/chats/{chat_id}/image')
     async def get_chat_scene_image(chat_id: str):
@@ -365,30 +365,7 @@ def create_tavern_router(context: AppContext) -> APIRouter:
             'requestId': result['requestId'],
             'userMessage': result['userMessage'],
             'assistantMessage': result['assistantMessage'],
-            'promptDebug': {
-                'presetId': result['promptDebug'].preset_id,
-                'promptOrderId': result['promptDebug'].prompt_order_id,
-                'matchedWorldbookEntries': result['promptDebug'].matched_worldbook_entries,
-                'rejectedWorldbookEntries': result['promptDebug'].rejected_worldbook_entries,
-                'characterLoreBindings': result['promptDebug'].character_lore_bindings,
-                'blocks': result['promptDebug'].blocks,
-                'messages': result['promptDebug'].messages,
-                'renderedStoryString': result['promptDebug'].rendered_story_string,
-                'renderedExamples': result['promptDebug'].rendered_examples,
-                'runtimeContext': result['promptDebug'].runtime_context,
-                'macroEffects': result['promptDebug'].macro_effects,
-                'unknownMacros': result['promptDebug'].unknown_macros,
-                'depthInserts': result['promptDebug'].depth_inserts,
-                'contextUsage': result['promptDebug'].context_usage,
-                'summary': {
-                    'matchedWorldbookCount': len(result['promptDebug'].matched_worldbook_entries),
-                    'rejectedWorldbookCount': len(result['promptDebug'].rejected_worldbook_entries),
-                    'blockCount': len(result['promptDebug'].blocks),
-                    'messageCount': len(result['promptDebug'].messages),
-                    'totalTokens': (result['promptDebug'].context_usage.get('totalTokens') if isinstance(result['promptDebug'].context_usage, dict) else None),
-                    'maxContext': (result['promptDebug'].context_usage.get('maxContext') if isinstance(result['promptDebug'].context_usage, dict) else None),
-                },
-            },
+            'promptDebug': result['promptDebug'],
         }
 
     @router.post('/api/tavern/chats/{chat_id}/stream')
@@ -454,30 +431,7 @@ def create_tavern_router(context: AppContext) -> APIRouter:
                     'messageId': final['assistantMessage']['id'],
                     'text': final['text'],
                     'assistantMessage': final['assistantMessage'],
-                    'promptDebug': {
-                        'presetId': final['promptDebug'].preset_id,
-                        'promptOrderId': final['promptDebug'].prompt_order_id,
-                        'matchedWorldbookEntries': final['promptDebug'].matched_worldbook_entries,
-                        'rejectedWorldbookEntries': final['promptDebug'].rejected_worldbook_entries,
-                        'characterLoreBindings': final['promptDebug'].character_lore_bindings,
-                        'blocks': final['promptDebug'].blocks,
-                        'messages': final['promptDebug'].messages,
-                        'renderedStoryString': final['promptDebug'].rendered_story_string,
-                        'renderedExamples': final['promptDebug'].rendered_examples,
-                        'runtimeContext': final['promptDebug'].runtime_context,
-                        'macroEffects': final['promptDebug'].macro_effects,
-                        'unknownMacros': final['promptDebug'].unknown_macros,
-                        'depthInserts': final['promptDebug'].depth_inserts,
-                        'contextUsage': final['promptDebug'].context_usage,
-                        'summary': {
-                            'matchedWorldbookCount': len(final['promptDebug'].matched_worldbook_entries),
-                            'rejectedWorldbookCount': len(final['promptDebug'].rejected_worldbook_entries),
-                            'blockCount': len(final['promptDebug'].blocks),
-                            'messageCount': len(final['promptDebug'].messages),
-                            'totalTokens': (final['promptDebug'].context_usage.get('totalTokens') if isinstance(final['promptDebug'].context_usage, dict) else None),
-                            'maxContext': (final['promptDebug'].context_usage.get('maxContext') if isinstance(final['promptDebug'].context_usage, dict) else None),
-                        },
-                    },
+                    'promptDebug': final['promptDebug'],
                 }, event_name='final', include_id=False)
             except Exception as exc:
                 if final_task is not None and not final_task.done():
@@ -495,5 +449,15 @@ def create_tavern_router(context: AppContext) -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return {'ok': True, 'debug': debug}
+
+    @router.post('/api/tavern/chats/{chat_id}/prompt-debug/compact')
+    async def compact_prompt_debug(chat_id: str):
+        try:
+            result = service.compact_prompt_debug_history(chat_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if result is None:
+            raise HTTPException(status_code=404, detail='chat not found')
+        return {'ok': True, 'updatedCount': result['updatedCount'], 'chat': result['chat']}
 
     return router

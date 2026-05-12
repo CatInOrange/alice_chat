@@ -796,7 +796,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         return;
       }
 
-      final messages = await store.listChatMessages(_chat.id);
+      final messages = await store.listChatMessages(_chat.id, limit: 5);
       if (store.presets.isEmpty) {
         await store.loadPresets(notify: false);
       }
@@ -841,7 +841,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       final shouldKeepAtBottom = _stickToBottom || !_didInitialScroll;
       final futures = <Future<dynamic>>[
         store.getChat(_chat.id),
-        store.listChatMessages(_chat.id),
+        store.listChatMessages(_chat.id, limit: 5),
       ];
       if (store.presets.isEmpty) {
         futures.add(store.loadPresets(notify: false));
@@ -4561,25 +4561,23 @@ $trimmed
         if (debug.depthInserts.isNotEmpty) ...[
           Text('Depth Inserts', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 6),
-          ...debug.depthInserts.map(
-            (item) {
-              final block =
-                  item['block'] is Map
-                      ? Map<String, dynamic>.from(item['block'] as Map)
-                      : const <String, dynamic>{};
-              return Card(
-                child: ListTile(
-                  title: Text(
-                    (block['name'] ?? block['kind'] ?? item['kind'] ?? 'depth')
-                        .toString(),
-                  ),
-                  subtitle: Text(
-                    'depth=${item['depth'] ?? block['depth'] ?? '-'} · position=${block['position'] ?? item['position'] ?? '-'}',
-                  ),
+          ...debug.depthInserts.map((item) {
+            final block =
+                item['block'] is Map
+                    ? Map<String, dynamic>.from(item['block'] as Map)
+                    : const <String, dynamic>{};
+            return Card(
+              child: ListTile(
+                title: Text(
+                  (block['name'] ?? block['kind'] ?? item['kind'] ?? 'depth')
+                      .toString(),
                 ),
-              );
-            },
-          ),
+                subtitle: Text(
+                  'depth=${item['depth'] ?? block['depth'] ?? '-'} · position=${block['position'] ?? item['position'] ?? '-'}',
+                ),
+              ),
+            );
+          }),
           const SizedBox(height: 16),
         ],
         if (debug.characterLoreBindings.isNotEmpty) ...[
@@ -4619,10 +4617,7 @@ $trimmed
         _sectionCard(
           title: 'Chat History',
           subtitle: '历史消息区，可能夹带 at-depth 注入切分后的多个 history 段。',
-          child: _buildDebugMessageList(
-            categories.history,
-            emptyText: '无历史消息',
-          ),
+          child: _buildDebugMessageList(categories.history, emptyText: '无历史消息'),
         ),
         const SizedBox(height: 16),
         _sectionCard(
@@ -4638,7 +4633,10 @@ $trimmed
           _sectionCard(
             title: 'Other Messages',
             subtitle: '暂未归类的 message 片段。',
-            child: _buildDebugMessageList(categories.otherMessages, emptyText: '无'),
+            child: _buildDebugMessageList(
+              categories.otherMessages,
+              emptyText: '无',
+            ),
           ),
         ],
       ],
@@ -4659,10 +4657,11 @@ $trimmed
               title: message.title,
               subtitle: message.subtitle,
               content: message.content,
-              initiallyExpanded: !_shouldCollapseDebugContent(
-                kind: message.kind,
-                content: message.content,
-              ),
+              initiallyExpanded:
+                  !_shouldCollapseDebugContent(
+                    kind: message.kind,
+                    content: message.content,
+                  ),
             ),
           )
           .toList(growable: false),
@@ -4728,10 +4727,11 @@ $trimmed
               subtitle:
                   'kind=${block['kind'] ?? '-'} depth=${block['depth'] ?? '-'} source=${block['source'] ?? '-'}',
               content: (block['content'] ?? '').toString(),
-              initiallyExpanded: !_shouldCollapseDebugContent(
-                kind: (block['kind'] ?? '').toString(),
-                content: (block['content'] ?? '').toString(),
-              ),
+              initiallyExpanded:
+                  !_shouldCollapseDebugContent(
+                    kind: (block['kind'] ?? '').toString(),
+                    content: (block['content'] ?? '').toString(),
+                  ),
             ),
           )
           .toList(growable: false),
@@ -4847,7 +4847,8 @@ $trimmed
       final role = (message['role'] ?? 'unknown').toString();
       final content = (message['content'] ?? '').toString();
       final isLastMessage = i == messages.length - 1;
-      final isFinalCurrentUser = isLastMessage && meta.isEmpty && role == 'user';
+      final isFinalCurrentUser =
+          isLastMessage && meta.isEmpty && role == 'user';
       final isHistoryMessage =
           !isFinalCurrentUser &&
           meta.isEmpty &&
@@ -4855,7 +4856,8 @@ $trimmed
       final isChatHistoryBlock = kind == 'chat_history';
 
       if (isChatHistoryBlock || isHistoryMessage) {
-        historySubtitle ??= isChatHistoryBlock ? meta.toString() : 'grouped rendered history';
+        historySubtitle ??=
+            isChatHistoryBlock ? meta.toString() : 'grouped rendered history';
         historyBuffer.add('[$role]\n$content');
         continue;
       }
@@ -5040,7 +5042,8 @@ $trimmed
                             '${(entry['_matchMeta'] as Map)['score']}',
                           ),
                         if (entry['_matchMeta'] is Map &&
-                            ((entry['_matchMeta'] as Map)['runtimeState'] is Map))
+                            ((entry['_matchMeta'] as Map)['runtimeState']
+                                is Map))
                           _summaryMetaChip('Runtime', '已参与'),
                       ],
                     ),
@@ -5054,7 +5057,8 @@ $trimmed
                       ),
                     ],
                     if (entry['_matchMeta'] is Map &&
-                        ((entry['_matchMeta'] as Map)['runtimeState'] is Map)) ...[
+                        ((entry['_matchMeta'] as Map)['runtimeState']
+                            is Map)) ...[
                       const SizedBox(height: 6),
                       Text(
                         'state=${((entry['_matchMeta'] as Map)['runtimeState'] as Map).toString()}',

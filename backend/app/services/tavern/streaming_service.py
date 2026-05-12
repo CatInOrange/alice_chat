@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 
 class TavernStreamingService:
+    _PROMPT_DEBUG_MESSAGE_LIMIT = 3
+
     """Tavern-only generation pipeline.
 
     Separate from main ChatService/OpenClaw path by design.
@@ -46,6 +48,45 @@ class TavernStreamingService:
             name=f'tavern-summary-{chat_id[:8]}',
             daemon=True,
         ).start()
+
+    def _build_prompt_debug_payload(
+        self,
+        prepared: dict[str, Any],
+        *,
+        instruction_mode: str,
+        suppress_user_message: bool,
+    ) -> dict[str, Any]:
+        return self.tavern_service._trim_prompt_debug_payload(
+            {
+                'presetId': prepared['promptDebug'].preset_id,
+                'promptOrderId': prepared['promptDebug'].prompt_order_id,
+                'matchedWorldbookEntries': prepared['promptDebug'].matched_worldbook_entries,
+                'rejectedWorldbookEntries': prepared['promptDebug'].rejected_worldbook_entries,
+                'characterLoreBindings': prepared['promptDebug'].character_lore_bindings,
+                'blocks': prepared['promptDebug'].blocks,
+                'messages': prepared['promptDebug'].messages,
+                'renderedStoryString': prepared['promptDebug'].rendered_story_string,
+                'renderedExamples': prepared['promptDebug'].rendered_examples,
+                'runtimeContext': prepared['promptDebug'].runtime_context,
+                'contextUsage': prepared['promptDebug'].context_usage,
+                'depthInserts': prepared['promptDebug'].depth_inserts,
+                'macroEffects': prepared['promptDebug'].macro_effects,
+                'unknownMacros': prepared['promptDebug'].unknown_macros,
+                'resolvedPersona': prepared.get('persona') or {},
+                'worldbookRuntime': dict((prepared.get('chat') or {}).get('metadata', {}).get('worldbookRuntime') or {}) if isinstance((prepared.get('chat') or {}).get('metadata'), dict) else {},
+                'summary': {
+                    'matchedWorldbookCount': len(prepared['promptDebug'].matched_worldbook_entries),
+                    'rejectedWorldbookCount': len(prepared['promptDebug'].rejected_worldbook_entries),
+                    'blockCount': len(prepared['promptDebug'].blocks),
+                    'messageCount': len(prepared['promptDebug'].messages),
+                    'source': 'last_real_request',
+                    'previewOnly': False,
+                    'instructionMode': instruction_mode,
+                    'suppressedUserMessage': suppress_user_message,
+                },
+            },
+            message_limit=self._PROMPT_DEBUG_MESSAGE_LIMIT,
+        )
 
     def send(
         self,
@@ -86,6 +127,14 @@ class TavernStreamingService:
                 content=text,
             )
         )
+        prompt_debug_payload = self._build_prompt_debug_payload(
+            prepared,
+            instruction_mode=instruction_mode,
+            suppress_user_message=suppress_user_message,
+        )
+        prompt_debug_summary = self.tavern_service._build_prompt_debug_summary_payload(
+            prompt_debug_payload,
+        )
         assistant_message = self.tavern_service.store.append_message(
             chat_id,
             role='assistant',
@@ -94,38 +143,7 @@ class TavernStreamingService:
                 'requestId': request_id,
                 'providerId': provider.get('id'),
                 'model': client.provider_config.get('model'),
-                'promptDebug': {
-                    'presetId': prepared['promptDebug'].preset_id,
-                    'promptOrderId': prepared['promptDebug'].prompt_order_id,
-                    'matchedWorldbookEntries': prepared['promptDebug'].matched_worldbook_entries,
-                    'rejectedWorldbookEntries': prepared['promptDebug'].rejected_worldbook_entries,
-                    'characterLoreBindings': prepared['promptDebug'].character_lore_bindings,
-                    'blocks': prepared['promptDebug'].blocks,
-                    'messages': prepared['promptDebug'].messages,
-                    'renderedStoryString': prepared['promptDebug'].rendered_story_string,
-                    'renderedExamples': prepared['promptDebug'].rendered_examples,
-                    'runtimeContext': prepared['promptDebug'].runtime_context,
-                    'contextUsage': prepared['promptDebug'].context_usage,
-                    'depthInserts': prepared['promptDebug'].depth_inserts,
-                    'macroEffects': prepared['promptDebug'].macro_effects,
-                    'unknownMacros': prepared['promptDebug'].unknown_macros,
-                    'resolvedPersona': prepared.get('persona') or {},
-                    'worldbookRuntime': dict((prepared.get('chat') or {}).get('metadata', {}).get('worldbookRuntime') or {}) if isinstance((prepared.get('chat') or {}).get('metadata'), dict) else {},
-                    'summary': {
-                        'matchedWorldbookCount': len(
-                            prepared['promptDebug'].matched_worldbook_entries,
-                        ),
-                        'rejectedWorldbookCount': len(
-                            prepared['promptDebug'].rejected_worldbook_entries,
-                        ),
-                        'blockCount': len(prepared['promptDebug'].blocks),
-                        'messageCount': len(prepared['promptDebug'].messages),
-                        'source': 'last_real_request',
-                        'previewOnly': False,
-                        'instructionMode': instruction_mode,
-                        'suppressedUserMessage': suppress_user_message,
-                    },
-                },
+                'promptDebug': prompt_debug_summary,
             },
         )
         warnings: list[str] = []
@@ -162,6 +180,7 @@ class TavernStreamingService:
                 exc_info=True,
             )
             warnings.append(f'worldbook_runtime_failed: {exc}')
+        self.tavern_service.save_latest_prompt_debug(chat_id, prompt_debug_payload)
         self._run_summary_postprocess_async(
             chat_id=chat_id,
             provider_config=client.provider_config,
@@ -170,7 +189,7 @@ class TavernStreamingService:
             'requestId': request_id,
             'userMessage': user_message,
             'assistantMessage': assistant_message,
-            'promptDebug': prepared['promptDebug'],
+            'promptDebug': prompt_debug_payload,
             'summary': None,
             'chat': chat_after_runtime,
             'warnings': warnings,
@@ -215,42 +234,19 @@ class TavernStreamingService:
             )
         )
         assistant_message_id = f'tav_stream_{uuid.uuid4().hex[:12]}'
+        prompt_debug_payload = self._build_prompt_debug_payload(
+            prepared,
+            instruction_mode=instruction_mode,
+            suppress_user_message=suppress_user_message,
+        )
+        prompt_debug_summary = self.tavern_service._build_prompt_debug_summary_payload(
+            prompt_debug_payload,
+        )
         assistant_metadata = {
             'requestId': request_id,
             'providerId': provider.get('id'),
             'model': client.provider_config.get('model'),
-            'promptDebug': {
-                'presetId': prepared['promptDebug'].preset_id,
-                'promptOrderId': prepared['promptDebug'].prompt_order_id,
-                'matchedWorldbookEntries': prepared['promptDebug'].matched_worldbook_entries,
-                'rejectedWorldbookEntries': prepared['promptDebug'].rejected_worldbook_entries,
-                'characterLoreBindings': prepared['promptDebug'].character_lore_bindings,
-                'blocks': prepared['promptDebug'].blocks,
-                'messages': prepared['promptDebug'].messages,
-                'renderedStoryString': prepared['promptDebug'].rendered_story_string,
-                'renderedExamples': prepared['promptDebug'].rendered_examples,
-                'runtimeContext': prepared['promptDebug'].runtime_context,
-                'contextUsage': prepared['promptDebug'].context_usage,
-                'depthInserts': prepared['promptDebug'].depth_inserts,
-                'macroEffects': prepared['promptDebug'].macro_effects,
-                'unknownMacros': prepared['promptDebug'].unknown_macros,
-                'resolvedPersona': prepared.get('persona') or {},
-                'worldbookRuntime': dict((prepared.get('chat') or {}).get('metadata', {}).get('worldbookRuntime') or {}) if isinstance((prepared.get('chat') or {}).get('metadata'), dict) else {},
-                'summary': {
-                    'matchedWorldbookCount': len(
-                        prepared['promptDebug'].matched_worldbook_entries,
-                    ),
-                    'rejectedWorldbookCount': len(
-                        prepared['promptDebug'].rejected_worldbook_entries,
-                    ),
-                    'blockCount': len(prepared['promptDebug'].blocks),
-                    'messageCount': len(prepared['promptDebug'].messages),
-                    'source': 'last_real_request',
-                    'previewOnly': False,
-                    'instructionMode': instruction_mode,
-                    'suppressedUserMessage': suppress_user_message,
-                },
-            },
+            'promptDebug': prompt_debug_summary,
         }
 
         def finalize(
@@ -301,6 +297,7 @@ class TavernStreamingService:
                     exc_info=True,
                 )
                 warnings.append(f'worldbook_runtime_failed: {exc}')
+            self.tavern_service.save_latest_prompt_debug(chat_id, prompt_debug_payload)
             self._run_summary_postprocess_async(
                 chat_id=chat_id,
                 provider_config=client.provider_config,
@@ -311,7 +308,7 @@ class TavernStreamingService:
                 'assistantMessage': assistant_message,
                 'assistantMessageId': assistant_message_id,
                 'text': result.text,
-                'promptDebug': prepared['promptDebug'],
+                'promptDebug': prompt_debug_payload,
                 'summary': None,
                 'chat': chat_after_runtime,
                 'warnings': warnings,
@@ -323,5 +320,6 @@ class TavernStreamingService:
             'assistantMessageId': assistant_message_id,
             'prepared': prepared,
             'provider': provider,
+            'promptDebugPayload': prompt_debug_payload,
             'finalize': finalize,
         }

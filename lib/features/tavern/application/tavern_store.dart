@@ -360,8 +360,8 @@ class TavernStore extends ChangeNotifier {
     return updated;
   }
 
-  Future<List<TavernMessage>> listChatMessages(String chatId) {
-    return _repository.listChatMessages(chatId);
+  Future<List<TavernMessage>> listChatMessages(String chatId, {int? limit}) {
+    return _repository.listChatMessages(chatId, limit: limit);
   }
 
   Future<void> deleteChat(String chatId) async {
