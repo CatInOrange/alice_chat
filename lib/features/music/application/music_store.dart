@@ -1996,7 +1996,7 @@ class MusicStore extends ChangeNotifier {
       _position = state.position;
       _duration = state.duration ?? _currentTrack.duration;
       if (state.completed && !_isAdvancingQueue) {
-        if (_queue.length > 1) {
+        if (_queue.isNotEmpty) {
           unawaited(_advanceToNextTrack());
         } else {
           _isPlaying = false;
@@ -2026,7 +2026,7 @@ class MusicStore extends ChangeNotifier {
       _error = state.error;
     }
     if (state.completed && !_isAdvancingQueue) {
-      if (_queue.length > 1) {
+      if (_queue.isNotEmpty) {
         unawaited(_advanceToNextTrack());
       } else {
         _isPlaying = false;
@@ -2864,6 +2864,7 @@ class MusicStore extends ChangeNotifier {
     bool resetPosition = true,
     bool clearCachedPlaybackOnRetry = true,
     bool allowSkipOnFailure = true,
+    int skipFailureCount = 0,
   }) async {
     final targetTrack =
         _queue.isNotEmpty
@@ -2893,6 +2894,7 @@ class MusicStore extends ChangeNotifier {
         final skipped = await _skipFailedCurrentTrack(
           friendlyError,
           allowSkipOnFailure: allowSkipOnFailure,
+          skipFailureCount: skipFailureCount,
         );
         if (skipped) {
           return;
@@ -2923,6 +2925,7 @@ class MusicStore extends ChangeNotifier {
         final skipped = await _skipFailedCurrentTrack(
           friendlyError,
           allowSkipOnFailure: allowSkipOnFailure,
+          skipFailureCount: skipFailureCount,
         );
         if (skipped) {
           return;
@@ -3056,11 +3059,19 @@ class MusicStore extends ChangeNotifier {
   Future<bool> _skipFailedCurrentTrack(
     String friendlyError, {
     required bool allowSkipOnFailure,
+    required int skipFailureCount,
   }) async {
-    if (!allowSkipOnFailure || _queue.length <= 1) {
+    if (!allowSkipOnFailure) {
+      return false;
+    }
+    if (_queue.length <= 1 && _currentPlaylistId == 'netease-fm') {
+      await _maybePrefetchNeteaseFmQueue();
+    }
+    if (_queue.length <= 1) {
       return false;
     }
     final failedTrack = _currentTrack;
+    final nextSkipFailureCount = skipFailureCount + 1;
     _debugState(
       'playback.skip_failed_track',
       extra: {
@@ -3068,6 +3079,7 @@ class MusicStore extends ChangeNotifier {
         'title': failedTrack.title,
         'error': friendlyError,
         'remainingQueue': _queue.length - 1,
+        'skipFailureCount': nextSkipFailureCount,
       },
       force: true,
       level: 'ERROR',
@@ -3079,12 +3091,18 @@ class MusicStore extends ChangeNotifier {
     );
     _duration = _currentTrack.duration;
     _position = Duration.zero;
+    if (nextSkipFailureCount >= 3) {
+      _error = '《${failedTrack.title}》暂时无法播放，已尝试自动跳过；连续失败过多，请手动重试';
+      notifyListeners();
+      return false;
+    }
     _error = '《${failedTrack.title}》暂时无法播放，已自动跳到下一首';
     notifyListeners();
     await _playCurrentQueueHead(
       resetPosition: true,
       clearCachedPlaybackOnRetry: true,
-      allowSkipOnFailure: false,
+      allowSkipOnFailure: true,
+      skipFailureCount: nextSkipFailureCount,
     );
     return true;
   }
