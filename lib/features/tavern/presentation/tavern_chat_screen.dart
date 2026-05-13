@@ -2432,6 +2432,7 @@ $trimmed
                 settleSendState(isSending: false);
                 unawaited(_persistSnapshot());
                 unawaited(_refreshChatMetaOnly());
+                unawaited(_refreshContextState());
                 _scrollToBottom();
               }
               break;
@@ -3197,7 +3198,7 @@ $trimmed
                 _chat.metadata['summarySettings'] as Map,
               )
               : const <String, dynamic>{};
-      final injectLatestOnly = summarySettings['injectLatestOnly'] != false;
+      final injectLatestOnly = summarySettings['injectLatestOnly'] == true;
       final useRecentAfterLatest =
           summarySettings['useRecentMessagesAfterLatest'] != false;
       final summaryBlocks =
@@ -4071,14 +4072,30 @@ $trimmed
             )
             : <String, dynamic>{};
     bool enabled = current['enabled'] != false;
-    bool injectLatestOnly = current['injectLatestOnly'] != false;
+    bool injectLatestOnly = current['injectLatestOnly'] == true;
     bool useRecentAfterLatest =
         current['useRecentMessagesAfterLatest'] != false;
-    double threshold = ((current['threshold'] as num?)?.toDouble() ?? 0.8)
-        .clamp(0.5, 0.98);
+    double triggerRatio =
+        ((current['triggerRatio'] as num?)?.toDouble() ??
+                (current['threshold'] as num?)?.toDouble() ??
+                0.8)
+            .clamp(0.5, 0.98);
+    double targetRatio =
+        ((current['targetRatio'] as num?)?.toDouble() ?? 0.68)
+            .clamp(0.3, 0.95);
     int minMessages = (current['minMessages'] as num?)?.toInt() ?? 8;
-    int minNewMessages = (current['minNewMessages'] as num?)?.toInt() ?? 4;
-    int minNewTokens = (current['minNewTokens'] as num?)?.toInt() ?? 192;
+    int recentMessageWindow =
+        (current['recentMessageWindow'] as num?)?.toInt() ?? 24;
+    int recentTokenWindow =
+        (current['recentTokenWindow'] as num?)?.toInt() ?? 3500;
+    int chunkMinMessages =
+        (current['chunkMinMessages'] as num?)?.toInt() ?? 8;
+    int chunkMaxMessages =
+        (current['chunkMaxMessages'] as num?)?.toInt() ?? 16;
+    int chunkTargetTokens =
+        (current['chunkTargetTokens'] as num?)?.toInt() ?? 1800;
+    int maxInjectedSummaries =
+        (current['maxInjectedSummaries'] as num?)?.toInt() ?? 3;
     bool saving = false;
 
     final saved = await showModalBottomSheet<bool>(
@@ -4116,7 +4133,7 @@ $trimmed
                           SwitchListTile(
                             contentPadding: EdgeInsets.zero,
                             title: const Text('仅注入最新摘要'),
-                            subtitle: const Text('关闭后可让更老的摘要也参与 prompt'),
+                            subtitle: const Text('开启后只注入最新 chunk；关闭后注入最近多个 chunk'),
                             value: injectLatestOnly,
                             onChanged:
                                 (value) => setModalState(
@@ -4136,16 +4153,30 @@ $trimmed
                                 ),
                           ),
                           const SizedBox(height: 8),
-                          Text('总结触发阈值：${threshold.toStringAsFixed(2)}'),
+                          Text('触发阈值：${triggerRatio.toStringAsFixed(2)}'),
                           Slider(
-                            value: threshold,
+                            value: triggerRatio,
                             min: 0.5,
                             max: 0.98,
                             divisions: 24,
-                            label: threshold.toStringAsFixed(2),
+                            label: triggerRatio.toStringAsFixed(2),
                             onChanged:
-                                (value) =>
-                                    setModalState(() => threshold = value),
+                                (value) => setModalState(() {
+                                  triggerRatio = value;
+                                  if (targetRatio >= triggerRatio) {
+                                    targetRatio = (triggerRatio - 0.02).clamp(0.3, 0.95);
+                                  }
+                                }),
+                          ),
+                          Text('回落目标：${targetRatio.toStringAsFixed(2)}'),
+                          Slider(
+                            value: targetRatio.clamp(0.3, triggerRatio - 0.02),
+                            min: 0.3,
+                            max: (triggerRatio - 0.02).clamp(0.32, 0.96),
+                            divisions: 33,
+                            label: targetRatio.toStringAsFixed(2),
+                            onChanged:
+                                (value) => setModalState(() => targetRatio = value),
                           ),
                           _intStepper(
                             context,
@@ -4159,24 +4190,74 @@ $trimmed
                           ),
                           _intStepper(
                             context,
-                            label: '最少新增消息数',
-                            value: minNewMessages,
-                            min: 1,
-                            max: 32,
+                            label: '最近原文保护消息数',
+                            value: recentMessageWindow,
+                            min: 0,
+                            max: 128,
                             onChanged:
-                                (value) =>
-                                    setModalState(() => minNewMessages = value),
+                                (value) => setModalState(
+                                  () => recentMessageWindow = value,
+                                ),
                           ),
                           _intStepper(
                             context,
-                            label: '最少新增 Token',
-                            value: minNewTokens,
-                            min: 32,
-                            max: 2048,
-                            step: 32,
+                            label: '最近原文保护 Token',
+                            value: recentTokenWindow,
+                            min: 0,
+                            max: 12000,
+                            step: 100,
                             onChanged:
-                                (value) =>
-                                    setModalState(() => minNewTokens = value),
+                                (value) => setModalState(
+                                  () => recentTokenWindow = value,
+                                ),
+                          ),
+                          _intStepper(
+                            context,
+                            label: 'Chunk 最少消息数',
+                            value: chunkMinMessages,
+                            min: 1,
+                            max: 64,
+                            onChanged:
+                                (value) => setModalState(() {
+                                  chunkMinMessages = value;
+                                  if (chunkMaxMessages < chunkMinMessages) {
+                                    chunkMaxMessages = chunkMinMessages;
+                                  }
+                                }),
+                          ),
+                          _intStepper(
+                            context,
+                            label: 'Chunk 最多消息数',
+                            value: chunkMaxMessages,
+                            min: chunkMinMessages,
+                            max: 96,
+                            onChanged:
+                                (value) => setModalState(
+                                  () => chunkMaxMessages = value,
+                                ),
+                          ),
+                          _intStepper(
+                            context,
+                            label: 'Chunk 目标 Token',
+                            value: chunkTargetTokens,
+                            min: 64,
+                            max: 8192,
+                            step: 64,
+                            onChanged:
+                                (value) => setModalState(
+                                  () => chunkTargetTokens = value,
+                                ),
+                          ),
+                          _intStepper(
+                            context,
+                            label: '最多注入摘要块数',
+                            value: maxInjectedSummaries,
+                            min: 1,
+                            max: 12,
+                            onChanged:
+                                (value) => setModalState(
+                                  () => maxInjectedSummaries = value,
+                                ),
                           ),
                           const SizedBox(height: 12),
                           Container(
@@ -4189,7 +4270,7 @@ $trimmed
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
-                              '说明：本轮生成使用“本轮开始前的上下文状态 + 当前输入”。新 summary 和 worldbook runtime 更新会在回复完成后写回，并影响下一轮。',
+                              '说明：当前策略会优先保护最近原文窗口，只从最远端按 chunk 做摘要压缩；触线后会持续压缩到回落目标附近。新 summary 和 worldbook runtime 更新会在回复完成后写回，并影响下一轮。',
                               style: Theme.of(
                                 context,
                               ).textTheme.bodySmall?.copyWith(height: 1.45),
@@ -4226,12 +4307,22 @@ $trimmed
                                                   injectLatestOnly,
                                               'useRecentMessagesAfterLatest':
                                                   useRecentAfterLatest,
+                                              'triggerRatio': double.parse(
+                                                triggerRatio.toStringAsFixed(2),
+                                              ),
                                               'threshold': double.parse(
-                                                threshold.toStringAsFixed(2),
+                                                triggerRatio.toStringAsFixed(2),
+                                              ),
+                                              'targetRatio': double.parse(
+                                                targetRatio.toStringAsFixed(2),
                                               ),
                                               'minMessages': minMessages,
-                                              'minNewMessages': minNewMessages,
-                                              'minNewTokens': minNewTokens,
+                                              'recentMessageWindow': recentMessageWindow,
+                                              'recentTokenWindow': recentTokenWindow,
+                                              'chunkMinMessages': chunkMinMessages,
+                                              'chunkMaxMessages': chunkMaxMessages,
+                                              'chunkTargetTokens': chunkTargetTokens,
+                                              'maxInjectedSummaries': maxInjectedSummaries,
                                             };
                                             final updated = await context
                                                 .read<TavernStore>()

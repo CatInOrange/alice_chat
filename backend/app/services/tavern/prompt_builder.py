@@ -543,6 +543,9 @@ class PromptBuilder:
                     'id': source_summary.get('id') or 'chat_summary',
                     'content': content,
                     'source': source_name,
+                    'endMessageId': str(source_summary.get('endMessageId') or '').strip(),
+                    'endMessageIndex': int(source_summary.get('endMessageIndex') or -1),
+                    'createdAt': float(source_summary.get('createdAt') or 0),
                 })
 
         chat_summaries = chat.get('summaries') if isinstance(chat.get('summaries'), list) else []
@@ -557,6 +560,9 @@ class PromptBuilder:
                 'id': item.get('id') or '',
                 'content': content,
                 'source': item.get('source') or 'chat',
+                'endMessageId': str(item.get('endMessageId') or '').strip(),
+                'endMessageIndex': int(item.get('endMessageIndex') or -1),
+                'createdAt': float(item.get('createdAt') or 0),
             })
 
         for item in history:
@@ -568,6 +574,9 @@ class PromptBuilder:
                         'id': item.get('id') or '',
                         'content': content,
                         'source': 'message',
+                        'endMessageId': str(metadata.get('endMessageId') or '').strip(),
+                        'endMessageIndex': int(metadata.get('endMessageIndex') or -1),
+                        'createdAt': float(metadata.get('createdAt') or item.get('createdAt') or 0),
                     })
                 continue
             filtered_history.append(item)
@@ -583,13 +592,24 @@ class PromptBuilder:
 
         metadata = chat.get('metadata') if isinstance(chat.get('metadata'), dict) else {}
         summary_settings = metadata.get('summarySettings') if isinstance(metadata.get('summarySettings'), dict) else {}
-        inject_latest_only = bool(summary_settings.get('injectLatestOnly', True))
+        inject_latest_only = bool(summary_settings.get('injectLatestOnly', False))
         use_recent_after_latest = bool(summary_settings.get('useRecentMessagesAfterLatest', True))
-        if deduped and use_recent_after_latest:
-            filtered_history = self._slice_history_after_latest_summary(filtered_history, deduped[-1])
-        if inject_latest_only and deduped:
-            return [deduped[-1]], filtered_history
-        return deduped, filtered_history
+        max_injected_summaries = max(1, int(summary_settings.get('maxInjectedSummaries', 3) or 3))
+        ordered = sorted(
+            deduped,
+            key=lambda item: (
+                int(item.get('startMessageIndex') or item.get('endMessageIndex') or -1),
+                int(item.get('endMessageIndex') or -1),
+                float(item.get('createdAt') or 0),
+            ),
+        )
+        if ordered and use_recent_after_latest:
+            filtered_history = self._slice_history_after_latest_summary(filtered_history, ordered[-1])
+        if inject_latest_only and ordered:
+            return [ordered[-1]], filtered_history
+        if len(ordered) > max_injected_summaries:
+            ordered = ordered[-max_injected_summaries:]
+        return ordered, filtered_history
 
     def _slice_history_after_latest_summary(
         self,

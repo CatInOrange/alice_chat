@@ -432,6 +432,68 @@ class TavernService:
         metadata['latestPromptDebug'] = dict(payload)
         return self.store.update_chat(chat_id, {'metadata': metadata})
 
+    def rebuild_and_save_latest_prompt_debug(self, chat_id: str) -> dict[str, Any] | None:
+        chat = self.store.get_chat(chat_id)
+        if chat is None:
+            return None
+        character = self.store.get_character(chat['characterId'])
+        if character is None:
+            return None
+
+        history = self.store.list_chat_messages(chat_id)
+        preset, prompt_order = self._resolve_preset_and_prompt_order(chat=chat)
+        character_lore_bindings = self.store.list_character_lore_bindings(character['id'])
+        persona = self.persona_service.resolve_for_chat(chat)
+        variables = self.variable_service.snapshot_for_chat(chat)
+        debug = self.prompt_builder.build_messages(
+            character=character,
+            preset=preset,
+            prompt_order=prompt_order,
+            prompt_blocks=self.store.list_prompt_blocks(),
+            worldbook_entries=self._collect_effective_worldbook_entries(character['id']),
+            character_lore_bindings=character_lore_bindings,
+            history=history,
+            user_text='',
+            chat=chat,
+            persona=persona,
+            local_variables=variables.local,
+            global_variables=variables.global_,
+            provider_id=str((preset or {}).get('provider') or ''),
+            model_name=str((preset or {}).get('model') or ''),
+            allow_side_effects=False,
+        )
+        payload = self._trim_prompt_debug_payload({
+            'presetId': debug.preset_id,
+            'promptOrderId': debug.prompt_order_id,
+            'matchedWorldbookEntries': debug.matched_worldbook_entries,
+            'rejectedWorldbookEntries': debug.rejected_worldbook_entries,
+            'characterLoreBindings': debug.character_lore_bindings,
+            'blocks': debug.blocks,
+            'messages': debug.messages,
+            'renderedStoryString': debug.rendered_story_string,
+            'renderedExamples': debug.rendered_examples,
+            'runtimeContext': debug.runtime_context,
+            'macroEffects': debug.macro_effects,
+            'unknownMacros': debug.unknown_macros,
+            'resolvedPersona': persona,
+            'depthInserts': debug.depth_inserts,
+            'contextUsage': debug.context_usage,
+            'worldbookRuntime': dict(chat.get('metadata', {}).get('worldbookRuntime') or {}) if isinstance(chat.get('metadata'), dict) else {},
+            'summary': {
+                'matchedWorldbookCount': len(debug.matched_worldbook_entries),
+                'rejectedWorldbookCount': len(debug.rejected_worldbook_entries),
+                'blockCount': len(debug.blocks),
+                'messageCount': len(debug.messages),
+                'totalTokens': (debug.context_usage.get('totalTokens') if isinstance(debug.context_usage, dict) else None),
+                'maxContext': (debug.context_usage.get('maxContext') if isinstance(debug.context_usage, dict) else None),
+                'overLimitTokens': (((debug.context_usage.get('meta') or {}).get('trimPlan') or {}).get('overLimitTokens') if isinstance(debug.context_usage, dict) else None),
+                'suggestedCutCount': (len((((debug.context_usage.get('meta') or {}).get('trimPlan') or {}).get('suggestedCuts') or [])) if isinstance(debug.context_usage, dict) else 0),
+                'source': 'rebuild_after_summary',
+                'previewOnly': False,
+            },
+        }, message_limit=3)
+        return self.save_latest_prompt_debug(chat_id, payload)
+
     def compact_prompt_debug_history(self, chat_id: str) -> dict[str, Any] | None:
         chat = self.store.get_chat(chat_id)
         if chat is None:
@@ -497,16 +559,6 @@ class TavernService:
                 'previewOnly': False,
             }
             return self._trim_prompt_debug_payload(latest_chat_debug, message_limit=3)
-
-        latest_real_debug = self._latest_real_prompt_debug(history)
-        if latest_real_debug is not None:
-            latest_real_debug['worldbookRuntime'] = current_worldbook_runtime
-            latest_real_debug['summary'] = {
-                **(latest_real_debug.get('summary') if isinstance(latest_real_debug.get('summary'), dict) else {}),
-                'source': 'last_real_request',
-                'previewOnly': False,
-            }
-            return self._trim_prompt_debug_payload(latest_real_debug, message_limit=3)
 
         worldbook_entries = self._collect_effective_worldbook_entries(character['id'])
         preset, prompt_order = self._resolve_preset_and_prompt_order(chat=chat)
@@ -685,45 +737,61 @@ class TavernService:
             allow_side_effects=False,
         )
         summaries = self.summarization_service.list_summaries(chat)
-        recent_messages = self.summarization_service.get_recent_messages(
-            all_messages=history,
-            existing_summaries=summaries,
-        )
-        recent_token_count = self.summarization_service.count_tokens_for_messages(recent_messages)
         effective_context_usage = dict(prompt_debug.context_usage or {})
-        if summaries and effective_context_usage:
-            latest_summary = summaries[-1]
-            summary_tokens = self.summarization_service.count_tokens_for_messages([
-                {'content': str(latest_summary.get('content') or '')}
-            ])
-            effective_context_usage['totalTokens'] = max(
-                summary_tokens + recent_token_count,
-                int(effective_context_usage.get('totalTokens') or 0),
-            )
         if not self.summarization_service.should_summarize(
             context_usage=effective_context_usage,
             chat=chat,
             message_count=len(history),
-            new_message_count=len(recent_messages),
-            new_token_count=recent_token_count,
-            existing_summaries=summaries,
-            latest_message=history[-1] if history else None,
-        ):
-            return None
-        summary = self.summarization_service.generate_summary(
-            chat=chat,
-            character=character,
             all_messages=history,
             existing_summaries=summaries,
-            provider_config=provider_config,
-        )
-        if summary is None:
+        ):
             return None
-        metadata = self.summarization_service.append_summary_to_chat_metadata(chat=chat, summary=summary)
-        updated = self.store.update_chat(chat_id, {'metadata': metadata})
+
+        generated: list[dict[str, Any]] = []
+        working_chat = chat
+        working_summaries = list(summaries)
+        trigger_ratio = self.summarization_service.trigger_ratio(working_chat)
+        target_ratio = self.summarization_service.target_ratio(working_chat)
+        max_context = int(effective_context_usage.get('maxContext') or 0)
+        total_tokens = int(effective_context_usage.get('totalTokens') or 0)
+        current_ratio = ((total_tokens / max_context) if max_context > 0 and total_tokens > 0 else 0.0)
+
+        for _ in range(8):
+            if current_ratio < trigger_ratio and generated:
+                break
+            if current_ratio <= target_ratio and generated:
+                break
+            summary = self.summarization_service.generate_summary(
+                chat=working_chat,
+                character=character,
+                all_messages=history,
+                existing_summaries=working_summaries,
+                provider_config=provider_config,
+            )
+            if summary is None:
+                break
+            generated.append(summary)
+            metadata = self.summarization_service.append_summary_to_chat_metadata(chat=working_chat, summary=summary)
+            updated = self.store.update_chat(chat_id, {'metadata': metadata})
+            working_chat = updated or {**working_chat, 'metadata': metadata}
+            working_summaries = self.summarization_service.list_summaries(working_chat)
+            rebuilt = self.rebuild_and_save_latest_prompt_debug(chat_id)
+            latest_chat = rebuilt or self.store.get_chat(chat_id) or working_chat
+            latest_debug = ((latest_chat.get('metadata') or {}).get('latestPromptDebug') if isinstance(latest_chat.get('metadata'), dict) else None)
+            latest_usage = (latest_debug.get('contextUsage') if isinstance(latest_debug, dict) and isinstance(latest_debug.get('contextUsage'), dict) else {})
+            max_context = int(latest_usage.get('maxContext') or max_context or 0)
+            total_tokens = int(latest_usage.get('totalTokens') or total_tokens or 0)
+            current_ratio = ((total_tokens / max_context) if max_context > 0 and total_tokens > 0 else 0.0)
+            if current_ratio <= target_ratio:
+                break
+
+        if not generated:
+            return None
+        refreshed_chat = self.store.get_chat(chat_id)
         return {
-            'summary': summary,
-            'chat': updated or chat,
+            'summary': generated[-1],
+            'summaries': generated,
+            'chat': refreshed_chat or working_chat,
         }
 
     def update_worldbook_runtime_after_turn(
