@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 from ...config import get_tavern_config, get_tavern_image_provider, get_tavern_provider
 from ...store.tavern import TavernStore
 from .chat_summarization_service import TavernChatSummarizationService
+from .long_term_memory_service import TavernLongTermMemoryService
 from .prompt_builder import PromptBuilder, PromptDebugResult
 from .persona_service import TavernPersonaService
 from .variable_service import TavernVariableService
@@ -53,6 +54,7 @@ class TavernService:
         self.prompt_builder = prompt_builder or PromptBuilder()
         self.uploads_dir = uploads_dir
         self.summarization_service = summarization_service or TavernChatSummarizationService()
+        self.long_term_memory_service = TavernLongTermMemoryService()
         self.persona_service = TavernPersonaService(self.store)
         self.variable_service = TavernVariableService(self.store)
         self.macro_engine = MacroEngine()
@@ -429,6 +431,7 @@ class TavernService:
         if chat is None:
             return None
         metadata = dict(chat.get('metadata') or {}) if isinstance(chat.get('metadata'), dict) else {}
+        metadata = self.long_term_memory_service.ensure_metadata_shape({'metadata': metadata})
         metadata['latestPromptDebug'] = dict(payload)
         return self.store.update_chat(chat_id, {'metadata': metadata})
 
@@ -490,6 +493,7 @@ class TavernService:
                 'suggestedCutCount': (len((((debug.context_usage.get('meta') or {}).get('trimPlan') or {}).get('suggestedCuts') or [])) if isinstance(debug.context_usage, dict) else 0),
                 'source': 'rebuild_after_summary',
                 'previewOnly': False,
+                'longTermMemoryCount': len(self.long_term_memory_service.list_items(chat)),
             },
         }, message_limit=3)
         return self.save_latest_prompt_debug(chat_id, payload)
@@ -787,6 +791,15 @@ class TavernService:
 
         if not generated:
             return None
+
+        memory_metadata = self.long_term_memory_service.extract_and_merge(
+            chat=working_chat,
+            new_summaries=generated,
+            provider_config=provider_config,
+        )
+        updated_with_memory = self.store.update_chat(chat_id, {'metadata': memory_metadata})
+        working_chat = updated_with_memory or {**working_chat, 'metadata': memory_metadata}
+        self.rebuild_and_save_latest_prompt_debug(chat_id)
         refreshed_chat = self.store.get_chat(chat_id)
         return {
             'summary': generated[-1],

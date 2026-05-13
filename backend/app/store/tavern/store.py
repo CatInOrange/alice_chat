@@ -291,6 +291,7 @@ class TavernStore:
                 {'identifier': 'scenario', 'enabled': True, 'order_index': 40, 'position': 'after_character'},
                 {'identifier': 'worldInfoBefore', 'enabled': True, 'order_index': 50, 'position': 'before_chat_history'},
                 {'identifier': 'dialogueExamples', 'enabled': True, 'order_index': 60, 'position': 'before_example_messages'},
+                {'identifier': 'longTermMemory', 'enabled': True, 'order_index': 65, 'position': 'before_chat_history'},
                 {'identifier': 'summaries', 'enabled': True, 'order_index': 70, 'position': 'before_chat_history'},
                 {'identifier': 'chatHistory', 'enabled': True, 'order_index': 80, 'position': 'before_last_user'},
                 {'identifier': 'worldInfoAfter', 'enabled': True, 'order_index': 90, 'position': 'after_character'},

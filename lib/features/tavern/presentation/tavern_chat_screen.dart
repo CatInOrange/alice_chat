@@ -2780,6 +2780,183 @@ $trimmed
         .toList(growable: false);
   }
 
+  List<Map<String, dynamic>> _longTermMemoryItems() {
+    final metadata = _chat.metadata;
+    final rawMemory =
+        metadata['longTermMemory'] is Map
+            ? Map<String, dynamic>.from(metadata['longTermMemory'] as Map)
+            : const <String, dynamic>{};
+    final rawItems = rawMemory['items'];
+    if (rawItems is! List) return const <Map<String, dynamic>>[];
+    final items = rawItems
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .where((item) => (item['content'] ?? '').toString().trim().isNotEmpty)
+        .toList(growable: false);
+    items.sort((a, b) {
+      final aActive = a['active'] != false ? 1 : 0;
+      final bActive = b['active'] != false ? 1 : 0;
+      if (aActive != bActive) return bActive.compareTo(aActive);
+      final aPriority = (a['priority'] as num?)?.toInt() ?? 0;
+      final bPriority = (b['priority'] as num?)?.toInt() ?? 0;
+      if (aPriority != bPriority) return bPriority.compareTo(aPriority);
+      final aUpdated = (a['updatedAt'] as num?)?.toDouble() ?? 0;
+      final bUpdated = (b['updatedAt'] as num?)?.toDouble() ?? 0;
+      return bUpdated.compareTo(aUpdated);
+    });
+    return items;
+  }
+
+  Future<void> _saveLongTermMemoryItems(List<Map<String, dynamic>> items) async {
+    final metadata = Map<String, dynamic>.from(_chat.metadata);
+    final existing =
+        metadata['longTermMemory'] is Map
+            ? Map<String, dynamic>.from(metadata['longTermMemory'] as Map)
+            : <String, dynamic>{};
+    final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
+    metadata['longTermMemory'] = {
+      'version': (existing['version'] as num?)?.toInt() ?? 1,
+      'updatedAt': now,
+      'items': items,
+    };
+    final updated = await context.read<TavernStore>().updateChat(
+      chatId: _chat.id,
+      payload: {'metadata': metadata},
+    );
+    if (!mounted) return;
+    setState(() {
+      _chat = updated;
+    });
+    await _persistSnapshot();
+  }
+
+  Future<Map<String, dynamic>?> _editLongTermMemoryItem({
+    Map<String, dynamic>? initial,
+  }) async {
+    final categories = <String>[
+      'relationship',
+      'identity',
+      'preference',
+      'promise',
+      'world_state',
+      'unresolved_thread',
+      'boundary',
+      'note',
+    ];
+    final contentController = TextEditingController(
+      text: (initial?['content'] ?? '').toString(),
+    );
+    String category = (initial?['category'] ?? 'note').toString();
+    if (!categories.contains(category)) category = 'note';
+    int priority = ((initial?['priority'] as num?)?.toInt() ?? 3).clamp(1, 5);
+    double confidence =
+        ((initial?['confidence'] as num?)?.toDouble() ?? 0.8).clamp(0.0, 1.0);
+    bool active = initial?['active'] != false;
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              title: Text(initial == null ? '新增长期记忆' : '编辑长期记忆'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    DropdownButtonFormField<String>(
+                      value: category,
+                      decoration: const InputDecoration(labelText: '类别'),
+                      items: categories
+                          .map(
+                            (item) => DropdownMenuItem<String>(
+                              value: item,
+                              child: Text(item),
+                            ),
+                          )
+                          .toList(growable: false),
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setDialogState(() => category = value);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: contentController,
+                      minLines: 3,
+                      maxLines: 6,
+                      decoration: const InputDecoration(
+                        labelText: '内容',
+                        hintText: '例如：Character promised to return to the lake scene.',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text('优先级：$priority'),
+                    Slider(
+                      value: priority.toDouble(),
+                      min: 1,
+                      max: 5,
+                      divisions: 4,
+                      label: '$priority',
+                      onChanged: (value) => setDialogState(
+                        () => priority = value.round().clamp(1, 5),
+                      ),
+                    ),
+                    Text('置信度：${confidence.toStringAsFixed(2)}'),
+                    Slider(
+                      value: confidence,
+                      min: 0,
+                      max: 1,
+                      divisions: 20,
+                      label: confidence.toStringAsFixed(2),
+                      onChanged: (value) => setDialogState(() => confidence = value),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Active'),
+                      subtitle: const Text('关闭后保留记录，但默认不注入 prompt'),
+                      value: active,
+                      onChanged: (value) => setDialogState(() => active = value),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final content = contentController.text.trim();
+                    if (content.isEmpty) return;
+                    final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
+                    Navigator.of(dialogContext).pop({
+                      'id': (initial?['id'] ?? 'ltm_${DateTime.now().microsecondsSinceEpoch}').toString(),
+                      'category': category,
+                      'content': content,
+                      'priority': priority,
+                      'confidence': confidence,
+                      'active': active,
+                      'createdAt': (initial?['createdAt'] as num?)?.toDouble() ?? now,
+                      'updatedAt': now,
+                      'sourceSummaryIds': List<String>.from((initial?['sourceSummaryIds'] as List?) ?? const <String>[]),
+                      'sourceMessageIds': List<String>.from((initial?['sourceMessageIds'] as List?) ?? const <String>[]),
+                    });
+                  },
+                  child: const Text('保存'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    contentController.dispose();
+    return result;
+  }
+
   List<Map<String, String>> _quickReplies() {
     return _quickReplyConfigs;
   }
@@ -2788,6 +2965,7 @@ $trimmed
     final usage = debug.contextUsage;
     final parts = <String, int>{
       'summary': 0,
+      'long_term_memory': 0,
       'world_info': 0,
       'chat_history': 0,
       'author_note': 0,
@@ -2814,7 +2992,9 @@ $trimmed
           0;
       if (tokens <= 0) continue;
       final key = '$name $kind';
-      if (key.contains('summary')) {
+      if (key.contains('long term memory') || key.contains('long_term_memory')) {
+        parts['long_term_memory'] = parts['long_term_memory']! + tokens;
+      } else if (key.contains('summary')) {
         parts['summary'] = parts['summary']! + tokens;
       } else if (key.contains('world info') || key.contains('lore')) {
         parts['world_info'] = parts['world_info']! + tokens;
@@ -2863,6 +3043,12 @@ $trimmed
         'label': 'Summary',
         'tokens': parts['summary'] ?? 0,
         'color': const Color(0xFF14B8A6),
+      },
+      {
+        'key': 'long_term_memory',
+        'label': 'Memory',
+        'tokens': parts['long_term_memory'] ?? 0,
+        'color': const Color(0xFF10B981),
       },
       {
         'key': 'world_info',
@@ -3518,6 +3704,295 @@ $trimmed
     }
   }
 
+  Future<void> _showLongTermMemorySheet() async {
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder:
+          (context) => StatefulBuilder(
+            builder: (context, setSheetState) {
+              List<Map<String, dynamic>> items = _longTermMemoryItems();
+
+              Future<void> refreshItems() async {
+                await _refreshChatMetaOnly();
+                if (!mounted) return;
+                setSheetState(() {});
+              }
+
+              Future<void> saveItems(List<Map<String, dynamic>> nextItems) async {
+                await _saveLongTermMemoryItems(nextItems);
+                if (!mounted) return;
+                setSheetState(() {});
+              }
+
+              return SafeArea(
+                child: DraggableScrollableSheet(
+                  expand: false,
+                  initialChildSize: 0.78,
+                  maxChildSize: 0.94,
+                  minChildSize: 0.34,
+                  builder:
+                      (context, controller) => Column(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '长期记忆',
+                                        style: Theme.of(context).textTheme.titleLarge,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        items.isEmpty
+                                            ? '当前还没有长期记忆条目'
+                                            : '共 ${items.length} 条，可直接手动维护',
+                                        style: Theme.of(context).textTheme.bodySmall,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: '新增',
+                                  onPressed: () async {
+                                    final created = await _editLongTermMemoryItem();
+                                    if (created == null) return;
+                                    final next = <Map<String, dynamic>>[
+                                      created,
+                                      ...items,
+                                    ];
+                                    await saveItems(next);
+                                  },
+                                  icon: const Icon(Icons.add),
+                                ),
+                                IconButton(
+                                  tooltip: '刷新',
+                                  onPressed: refreshItems,
+                                  icon: const Icon(Icons.refresh),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Divider(height: 1),
+                          Expanded(
+                            child: items.isEmpty
+                                ? Center(
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(24),
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            '还没有长期记忆条目。',
+                                            textAlign: TextAlign.center,
+                                            style: Theme.of(context).textTheme.bodyMedium,
+                                          ),
+                                          const SizedBox(height: 12),
+                                          FilledButton.icon(
+                                            onPressed: () async {
+                                              final created = await _editLongTermMemoryItem();
+                                              if (created == null) return;
+                                              await saveItems([created]);
+                                            },
+                                            icon: const Icon(Icons.add),
+                                            label: const Text('新增一条'),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  )
+                                : ListView.separated(
+                                    controller: controller,
+                                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                                    itemCount: items.length,
+                                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                                    itemBuilder: (context, index) {
+                                      final item = items[index];
+                                      final category = (item['category'] ?? 'note').toString();
+                                      final content = (item['content'] ?? '').toString().trim();
+                                      final active = item['active'] != false;
+                                      final priority = (item['priority'] as num?)?.toInt() ?? 0;
+                                      final confidence = (item['confidence'] as num?)?.toDouble();
+                                      final pinned = priority >= 5;
+                                      return Container(
+                                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+                                        decoration: BoxDecoration(
+                                          color: Theme.of(context).colorScheme.surface,
+                                          borderRadius: BorderRadius.circular(18),
+                                          border: Border.all(
+                                            color: Theme.of(context).dividerColor.withValues(alpha: 0.28),
+                                          ),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    category,
+                                                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                                      fontWeight: FontWeight.w800,
+                                                    ),
+                                                  ),
+                                                ),
+                                                if (pinned)
+                                                  Padding(
+                                                    padding: const EdgeInsets.only(right: 8),
+                                                    child: Icon(
+                                                      Icons.push_pin,
+                                                      size: 18,
+                                                      color: Theme.of(context).colorScheme.primary,
+                                                    ),
+                                                  ),
+                                                if (!active)
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.grey.withValues(alpha: 0.12),
+                                                      borderRadius: BorderRadius.circular(999),
+                                                    ),
+                                                    child: Text(
+                                                      'inactive',
+                                                      style: Theme.of(context).textTheme.labelSmall,
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 6),
+                                            Text(content, style: Theme.of(context).textTheme.bodyMedium),
+                                            const SizedBox(height: 10),
+                                            Wrap(
+                                              spacing: 8,
+                                              runSpacing: 8,
+                                              children: [
+                                                _metaChip('priority $priority'),
+                                                if (confidence != null)
+                                                  _metaChip('conf ${confidence.toStringAsFixed(2)}'),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 12),
+                                            Wrap(
+                                              spacing: 8,
+                                              runSpacing: 8,
+                                              children: [
+                                                OutlinedButton.icon(
+                                                  onPressed: () async {
+                                                    final edited = await _editLongTermMemoryItem(initial: item);
+                                                    if (edited == null) return;
+                                                    final next = items
+                                                        .map((entry) => entry['id'] == item['id'] ? edited : entry)
+                                                        .toList(growable: false);
+                                                    await saveItems(next);
+                                                  },
+                                                  icon: const Icon(Icons.edit_outlined, size: 18),
+                                                  label: const Text('编辑'),
+                                                ),
+                                                OutlinedButton.icon(
+                                                  onPressed: () async {
+                                                    final next = items
+                                                        .map(
+                                                          (entry) => entry['id'] == item['id']
+                                                              ? {
+                                                                  ...entry,
+                                                                  'active': !(entry['active'] != false),
+                                                                  'updatedAt': DateTime.now().millisecondsSinceEpoch / 1000.0,
+                                                                }
+                                                              : entry,
+                                                        )
+                                                        .toList(growable: false);
+                                                    await saveItems(next);
+                                                  },
+                                                  icon: Icon(
+                                                    active ? Icons.pause_circle_outline : Icons.play_circle_outline,
+                                                    size: 18,
+                                                  ),
+                                                  label: Text(active ? '失效' : '启用'),
+                                                ),
+                                                OutlinedButton.icon(
+                                                  onPressed: pinned
+                                                      ? null
+                                                      : () async {
+                                                          final next = items
+                                                              .map(
+                                                                (entry) => entry['id'] == item['id']
+                                                                    ? {
+                                                                        ...entry,
+                                                                        'priority': 5,
+                                                                        'updatedAt': DateTime.now().millisecondsSinceEpoch / 1000.0,
+                                                                      }
+                                                                    : entry,
+                                                              )
+                                                              .toList(growable: false);
+                                                          await saveItems(next);
+                                                        },
+                                                  icon: const Icon(Icons.push_pin_outlined, size: 18),
+                                                  label: const Text('置顶'),
+                                                ),
+                                                OutlinedButton.icon(
+                                                  style: OutlinedButton.styleFrom(
+                                                    foregroundColor: Theme.of(context).colorScheme.error,
+                                                  ),
+                                                  onPressed: () async {
+                                                    final confirmed = await showDialog<bool>(
+                                                      context: context,
+                                                      builder: (dialogContext) => AlertDialog(
+                                                        title: const Text('删除长期记忆'),
+                                                        content: const Text('确定删除这条长期记忆吗？此操作不可恢复。'),
+                                                        actions: [
+                                                          TextButton(
+                                                            onPressed: () => Navigator.of(dialogContext).pop(false),
+                                                            child: const Text('取消'),
+                                                          ),
+                                                          FilledButton(
+                                                            onPressed: () => Navigator.of(dialogContext).pop(true),
+                                                            child: const Text('删除'),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    );
+                                                    if (confirmed != true) return;
+                                                    final next = items
+                                                        .where((entry) => entry['id'] != item['id'])
+                                                        .toList(growable: false);
+                                                    await saveItems(next);
+                                                  },
+                                                  icon: const Icon(Icons.delete_outline, size: 18),
+                                                  label: const Text('删除'),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    },
+                                  ),
+                          ),
+                        ],
+                      ),
+                ),
+              );
+            },
+          ),
+    );
+  }
+
+  Widget _metaChip(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(text, style: Theme.of(context).textTheme.labelSmall),
+    );
+  }
+
   Future<void> _showSummariesSheet() async {
     final summaries = _summaryItems().reversed.toList(growable: false);
     if (!mounted) return;
@@ -3925,6 +4400,21 @@ $trimmed
                 ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.psychology_alt_outlined),
+                  title: const Text('长期记忆'),
+                  subtitle: Text(
+                    _longTermMemoryItems().isEmpty
+                        ? '当前还没有长期记忆条目'
+                        : '查看已保存的长期记忆条目',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _showLongTermMemorySheet();
+                  },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.bug_report_outlined),
                   title: const Text('Prompt Debug'),
                   subtitle: const Text('WorldBook runtime、原始明细'),
@@ -4083,6 +4573,11 @@ $trimmed
     double targetRatio =
         ((current['targetRatio'] as num?)?.toDouble() ?? 0.68)
             .clamp(0.3, 0.95);
+    bool longTermMemoryEnabled = current['longTermMemoryEnabled'] != false;
+    int maxInjectedLongTermItems =
+        (current['maxInjectedLongTermItems'] as num?)?.toInt() ?? 8;
+    int maxInjectedLongTermTokens =
+        (current['maxInjectedLongTermTokens'] as num?)?.toInt() ?? 800;
     int minMessages = (current['minMessages'] as num?)?.toInt() ?? 8;
     int recentMessageWindow =
         (current['recentMessageWindow'] as num?)?.toInt() ?? 24;
@@ -4259,6 +4754,40 @@ $trimmed
                                   () => maxInjectedSummaries = value,
                                 ),
                           ),
+                          const SizedBox(height: 8),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('启用长期记忆注入'),
+                            subtitle: const Text('Phase 1 先支持静态注入与基础展示'),
+                            value: longTermMemoryEnabled,
+                            onChanged:
+                                (value) => setModalState(
+                                  () => longTermMemoryEnabled = value,
+                                ),
+                          ),
+                          _intStepper(
+                            context,
+                            label: '长期记忆最多注入条数',
+                            value: maxInjectedLongTermItems,
+                            min: 1,
+                            max: 32,
+                            onChanged:
+                                (value) => setModalState(
+                                  () => maxInjectedLongTermItems = value,
+                                ),
+                          ),
+                          _intStepper(
+                            context,
+                            label: '长期记忆最多注入 Token',
+                            value: maxInjectedLongTermTokens,
+                            min: 64,
+                            max: 4096,
+                            step: 64,
+                            onChanged:
+                                (value) => setModalState(
+                                  () => maxInjectedLongTermTokens = value,
+                                ),
+                          ),
                           const SizedBox(height: 12),
                           Container(
                             padding: const EdgeInsets.all(12),
@@ -4323,6 +4852,9 @@ $trimmed
                                               'chunkMaxMessages': chunkMaxMessages,
                                               'chunkTargetTokens': chunkTargetTokens,
                                               'maxInjectedSummaries': maxInjectedSummaries,
+                                              'longTermMemoryEnabled': longTermMemoryEnabled,
+                                              'maxInjectedLongTermItems': maxInjectedLongTermItems,
+                                              'maxInjectedLongTermTokens': maxInjectedLongTermTokens,
                                             };
                                             final updated = await context
                                                 .read<TavernStore>()

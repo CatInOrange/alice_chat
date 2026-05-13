@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from .context_usage import TavernContextUsageService, TavernTokenizerService
+from .long_term_memory_service import TavernLongTermMemoryService
 from .macro_runtime import MacroEngine, MacroRuntimeContext, build_macro_runtime_context
 
 
@@ -41,6 +42,7 @@ class PromptBuilder:
         self.renderer = MacroEngine()
         self.tokenizer = TavernTokenizerService()
         self.context_usage_service = TavernContextUsageService(self.tokenizer)
+        self.long_term_memory_service = TavernLongTermMemoryService()
 
     _IDENTIFIER_MAP = {
         'main': 'system_prompt',
@@ -57,6 +59,7 @@ class PromptBuilder:
         'worldInfoBefore': 'world_info_before',
         'builtin_worldbook': 'world_info_before',
         'worldInfoAfter': 'world_info_after',
+        'longTermMemory': 'long_term_memory',
         'summaries': 'summaries',
         'chatHistory': 'chat_history',
         'postHistoryInstructions': 'post_history_instructions',
@@ -250,6 +253,7 @@ class PromptBuilder:
         world_depth = world_entries_by_position.get('at_depth', [])
 
         summary_blocks = self._build_summary_blocks(summaries)
+        long_term_memory_block = self._build_long_term_memory_block(chat)
 
         semantic = {
             'system_prompt': self._block(
@@ -318,6 +322,17 @@ class PromptBuilder:
                 source='worldbook',
                 meta={'entryIds': []},
             ),
+            'long_term_memory': self._block(
+                name='long_term_memory',
+                kind='long_term_memory',
+                position='before_chat_history',
+                role='system',
+                content=long_term_memory_block,
+                source='long_term_memory',
+                meta={
+                    'memoryItemCount': len(self.long_term_memory_service.build_prompt_items(chat, tokenizer=self.tokenizer)),
+                },
+            ),
             'chat_history': self._block(
                 name='chat_history',
                 kind='chat_history',
@@ -370,6 +385,7 @@ class PromptBuilder:
                 {'identifier': 'scenario', 'enabled': True, 'order_index': 40},
                 {'identifier': 'worldInfoBefore', 'enabled': True, 'order_index': 50},
                 {'identifier': 'dialogueExamples', 'enabled': True, 'order_index': 60},
+                {'identifier': 'longTermMemory', 'enabled': True, 'order_index': 65},
                 {'identifier': 'summaries', 'enabled': True, 'order_index': 70},
                 {'identifier': 'chatHistory', 'enabled': True, 'order_index': 80},
                 {'identifier': 'worldInfoAfter', 'enabled': True, 'order_index': 90},
@@ -409,6 +425,13 @@ class PromptBuilder:
                 if semantic_key in used_keys:
                     continue
                 ordered_blocks.extend(self._clone_summary_blocks_with_item(summary_blocks, item))
+                used_keys.add(semantic_key)
+                continue
+            if semantic_key == 'long_term_memory':
+                if semantic_key in used_keys:
+                    continue
+                if semantic[semantic_key].get('content'):
+                    ordered_blocks.append(self._clone_block_with_item(semantic[semantic_key], item))
                 used_keys.add(semantic_key)
                 continue
             if semantic_key in used_keys:
@@ -625,6 +648,9 @@ class PromptBuilder:
         if end_message_index >= 0:
             return list(history[end_message_index + 1 :])
         return history
+
+    def _build_long_term_memory_block(self, chat: dict[str, Any]) -> str:
+        return self.long_term_memory_service.render_prompt_block(chat, tokenizer=self.tokenizer)
 
     def _build_summary_blocks(self, summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not summaries:
