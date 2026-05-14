@@ -815,7 +815,7 @@ class _ProjectBoard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 112,
+      height: 98,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         clipBehavior: Clip.none,
@@ -825,7 +825,7 @@ class _ProjectBoard extends StatelessWidget {
         itemBuilder: (context, index) {
           final project = projects[index];
           return SizedBox(
-            width: 164,
+            width: 156,
             child: _ProjectCard(
               project: project,
               pendingCount: pendingCountForProject(project.id),
@@ -863,28 +863,28 @@ class _ProjectCard extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(18),
         child: Ink(
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(18),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x081F2430),
-                blurRadius: 16,
-                offset: Offset(0, 8),
+                color: Color(0x071F2430),
+                blurRadius: 14,
+                offset: Offset(0, 7),
               ),
             ],
           ),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
             child: Column(
               children: [
                 Row(
                   children: [
                     Container(
-                      width: 34,
-                      height: 34,
+                      width: 32,
+                      height: 32,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
@@ -894,15 +894,15 @@ class _ProjectCard extends StatelessWidget {
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(11),
                       ),
                       child: Icon(
                         _projectIconFromCodePoint(project.iconCodePoint),
                         color: color,
-                        size: 18,
+                        size: 17,
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     Expanded(
                       child: Text(
                         project.name,
@@ -914,32 +914,32 @@ class _ProjectCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 4),
                     InkWell(
                       onTap: onEdit,
                       borderRadius: BorderRadius.circular(999),
                       child: Ink(
-                        width: 28,
-                        height: 28,
+                        width: 26,
+                        height: 26,
                         decoration: BoxDecoration(
                           color: const Color(0xFFF6F4FF),
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: const Icon(
                           Icons.edit_outlined,
-                          size: 15,
+                          size: 14,
                           color: Color(0xFF7B6CF6),
                         ),
                       ),
                     ),
                   ],
                 ),
-                const Spacer(),
+                const SizedBox(height: 10),
                 Row(
                   children: [
                     Expanded(
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
                           color: const Color(0xFFF7F8FC),
                           borderRadius: BorderRadius.circular(999),
@@ -959,7 +959,7 @@ class _ProjectCard extends StatelessWidget {
                               '未完成',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: const Color(0xFF8F99AD),
-                                fontSize: desktopAdjustedFontSize(10),
+                                fontSize: desktopAdjustedFontSize(9.5),
                               ),
                             ),
                           ],
@@ -969,7 +969,7 @@ class _ProjectCard extends StatelessWidget {
                     if (dueTodayCount > 0) ...[
                       const SizedBox(width: 6),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
                         decoration: BoxDecoration(
                           color: color.withValues(alpha: 0.10),
                           borderRadius: BorderRadius.circular(999),
@@ -1019,14 +1019,14 @@ class _TaskTile extends StatelessWidget {
     final dueTone = _dueTone(task.dueAt, isDone: task.isDone);
     final card = Material(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(20),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(20),
         child: Ink(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(20),
             border: dueTone == null
                 ? null
                 : Border.all(
@@ -1043,7 +1043,7 @@ class _TaskTile extends StatelessWidget {
           child: Row(
             children: [
               Transform.scale(
-                scale: 0.94,
+                scale: 0.9,
                 child: Checkbox(
                   value: task.isDone,
                   onChanged: (value) => onChanged(value ?? false),
@@ -1057,19 +1057,34 @@ class _TaskTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      task.title,
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        decoration:
-                            task.isDone ? TextDecoration.lineThrough : null,
-                        color:
-                            task.isDone
-                                ? const Color(0xFF9BA4B5)
-                                : const Color(0xFF2D3443),
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            task.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              decoration:
+                                  task.isDone ? TextDecoration.lineThrough : null,
+                              color:
+                                  task.isDone
+                                      ? const Color(0xFF9BA4B5)
+                                      : const Color(0xFF2D3443),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _MiniPill(
+                          label: _priorityLabel(task.priority),
+                          color: _priorityColor(task.priority),
+                          icon: Icons.flag_rounded,
+                          compact: true,
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
@@ -1095,11 +1110,6 @@ class _TaskTile extends StatelessWidget {
                             color: Color(0xFF7B6CF6),
                             icon: Icons.notifications_active_outlined,
                           ),
-                        _MiniPill(
-                          label: _priorityLabel(task.priority),
-                          color: _priorityColor(task.priority),
-                          icon: Icons.flag_rounded,
-                        ),
                         if (task.subtaskCount > 0)
                           _MiniPill(
                             label:
@@ -1149,18 +1159,23 @@ class _MiniPill extends StatelessWidget {
     required this.color,
     this.filled = false,
     this.icon,
+    this.compact = false,
   });
 
   final String label;
   final Color color;
   final bool filled;
   final IconData? icon;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final foreground = filled ? color : const Color(0xFF7B8496);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 8 : 10,
+        vertical: compact ? 4 : 6,
+      ),
       decoration: BoxDecoration(
         color: filled ? color.withValues(alpha: 0.14) : const Color(0xFFF4F6FB),
         border: filled ? Border.all(color: color.withValues(alpha: 0.10)) : null,
@@ -1170,14 +1185,14 @@ class _MiniPill extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 13, color: foreground),
-            const SizedBox(width: 5),
+            Icon(icon, size: compact ? 11 : 13, color: foreground),
+            SizedBox(width: compact ? 4 : 5),
           ],
           Text(
             label,
             style: TextStyle(
               color: foreground,
-              fontSize: desktopAdjustedFontSize(11),
+              fontSize: desktopAdjustedFontSize(compact ? 10 : 11),
               fontWeight: FontWeight.w700,
             ),
           ),
