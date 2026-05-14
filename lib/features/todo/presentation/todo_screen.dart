@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
@@ -22,6 +24,7 @@ class _TodoScreenState extends State<TodoScreen>
     with AutomaticKeepAliveClientMixin {
   static const Uuid _uuid = Uuid();
 
+  late final String _heroMessage;
   _TaskFeedFilter _activeFilter = _TaskFeedFilter.all;
   _TaskSortMode _sortMode = _TaskSortMode.smart;
   String? _projectFilterId;
@@ -29,6 +32,7 @@ class _TodoScreenState extends State<TodoScreen>
   @override
   void initState() {
     super.initState();
+    _heroMessage = _todoHeroMessages[Random().nextInt(_todoHeroMessages.length)];
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<TodoStore>().ensureLoaded();
     });
@@ -84,7 +88,7 @@ class _TodoScreenState extends State<TodoScreen>
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
-            child: _TodoHeroCard(store: store),
+            child: _TodoHeroCard(store: store, message: _heroMessage),
           ),
         ),
         SliverToBoxAdapter(
@@ -421,9 +425,10 @@ class _TodoScreenState extends State<TodoScreen>
 }
 
 class _TodoHeroCard extends StatelessWidget {
-  const _TodoHeroCard({required this.store});
+  const _TodoHeroCard({required this.store, required this.message});
 
   final TodoStore store;
+  final String message;
 
   @override
   Widget build(BuildContext context) {
@@ -457,7 +462,7 @@ class _TodoHeroCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            '慢慢收拾，别着急。',
+            message,
             style: theme.textTheme.bodySmall?.copyWith(
               color: const Color(0xFFF4EFFF),
               height: 1.4,
@@ -493,6 +498,113 @@ class _TodoHeroCard extends StatelessWidget {
     );
   }
 }
+
+const List<String> _todoHeroMessages = [
+  '慢慢收拾，别着急。',
+  '今天做一点，也是在认真前进。',
+  '先完成最小的一步，节奏就会回来。',
+  '把眼前这一件做好，已经很厉害。',
+  '不用一口气做完，先动起来就很好。',
+  '今天稳一点，事情会慢慢顺。',
+  '先整理一个角落，心也会亮一点。',
+  '不用完美，完成就很有力量。',
+  '把复杂拆小，今天就没那么难。',
+  '先做最重要的一件，其他再慢慢来。',
+  '你不是来硬扛的，是来一点点解决的。',
+  '今天能推进一点点，就已经算赢。',
+  '给自己留点呼吸，效率反而会回来。',
+  '别急着证明什么，先把这一项做完。',
+  '把节奏找回来，比一口气冲更重要。',
+  '先完成，再优化，先让事情动起来。',
+  '心乱的时候，任务更要一个个做。',
+  '把今天理顺，明天就会轻很多。',
+  '先处理最卡的那件，后面会顺不少。',
+  '一件件清掉，负担会明显变轻。',
+  '今天不用爆发，稳定就很强。',
+  '别被总量吓到，先看下一步。',
+  '哪怕只前进一点，也是在变好。',
+  '先把眼前这一小块做好。',
+  '每完成一项，都会多一点轻松。',
+  '你在收拾任务，也是在收拾状态。',
+  '做完一件，再做下一件，事情就会散开。',
+  '慢一点没关系，别停下就行。',
+  '先把最重的包放下来。',
+  '有条理地忙，会比着急更快。',
+  '不用同时扛所有事，按顺序来。',
+  '开始之后，很多压力会自己变小。',
+  '你不需要一下变轻松，只要先变清楚。',
+  '清掉一条待办，就是给自己松绑。',
+  '专心做一件，今天就会更稳。',
+  '把今天过扎实，比想太多更重要。',
+  '手上这一步，值得你好好完成。',
+  '别跟全部较劲，先赢下一格。',
+  '现在开始，也一点都不晚。',
+  '先做能做的，力量会跟上来。',
+  '你不是拖慢了，只是在重新找节奏。',
+  '每个小完成，都会积累成轻松。',
+  '先把任务落地，情绪会更安稳。',
+  '先开个头，很多事就没那么难了。',
+  '今天先稳住，不必逞强。',
+  '你已经在处理了，这就很重要。',
+  '专注一点，世界就会安静一点。',
+  '先整理优先级，心会没那么乱。',
+  '做完这一项，就离松快更近一点。',
+  '先把最想逃的那件碰一下。',
+  '不需要超常发挥，正常发挥就很好。',
+  '把难的拆开，办法就会出现。',
+  '先让列表变短一点。',
+  '做事的时候，别忘了对自己温柔一点。',
+  '把注意力放回手上的事。',
+  '一项一项来，今天会比想象中顺。',
+  '先完成眼前，再担心以后。',
+  '收拾任务，也是在收拾生活感。',
+  '完成一小步，也值得被肯定。',
+  '别怕慢，怕的是一直不开始。',
+  '先做一件有结果的事。',
+  '有些轻松，是清掉待办之后来的。',
+  '你现在做的每一步都算数。',
+  '先让自己进入状态，速度自然会来。',
+  '今天清一项，明天就少一项。',
+  '把要做的事摆平，心情也会跟着好一点。',
+  '稳稳推进，本身就是一种厉害。',
+  '今天先别追求满分，先有进度。',
+  '任务不会一下消失，但会慢慢变少。',
+  '先做最能减压的那件事。',
+  '把一团乱麻理出第一根线。',
+  '先给自己一个清晰的开始。',
+  '做完一点，就会更想继续做下去。',
+  '今天也可以温柔地高效。',
+  '别急着全清空，先看得到进展。',
+  '把当前这一段路走稳。',
+  '每一项完成，都会让你更松一口气。',
+  '先减少混乱，再追求漂亮。',
+  '清单不是压力，是帮你减压的。',
+  '把难的往前放，后面会轻很多。',
+  '先把手伸出去，事情才会开始动。',
+  '进度再小，也是在把事情往前推。',
+  '先做完一个，再说下一个。',
+  '不跟焦虑赛跑，跟节奏站一边。',
+  '今天做得稳，比做得猛更有用。',
+  '别让脑子同时背太多，交给清单。',
+  '先把最现实的一步踩稳。',
+  '收拾一点，世界就清爽一点。',
+  '你可以慢，但别散。',
+  '先给今天一个好开头。',
+  '事情一件件落下去，心也会落下来。',
+  '先把最具体的任务拿下。',
+  '一点点来，反而走得更远。',
+  '你不是在赶路，你是在稳稳推进。',
+  '先完成，再放松，都会轮到的。',
+  '别把今天吓大，先把这一格填上。',
+  '每次点掉一项，都会更自在一点。',
+  '现在开始收拾，刚刚好。',
+  '今天也值得一个清爽的结束。',
+  '手头清一点，心里也会亮一点。',
+  '先别急，先清楚。',
+  '把事情变简单，是很高级的能力。',
+  '先做出一点结果，信心就会回来。',
+  '今天这一页，也能慢慢翻过去。',
+];
 
 class _HeroStat extends StatelessWidget {
   const _HeroStat({required this.label, required this.value});
@@ -703,7 +815,7 @@ class _ProjectBoard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 126,
+      height: 112,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         clipBehavior: Clip.none,
@@ -713,7 +825,7 @@ class _ProjectBoard extends StatelessWidget {
         itemBuilder: (context, index) {
           final project = projects[index];
           return SizedBox(
-            width: 154,
+            width: 164,
             child: _ProjectCard(
               project: project,
               pendingCount: pendingCountForProject(project.id),
@@ -751,29 +863,28 @@ class _ProjectCard extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(20),
         child: Ink(
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(22),
+            borderRadius: BorderRadius.circular(20),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x0A1F2430),
-                blurRadius: 20,
-                offset: Offset(0, 10),
+                color: Color(0x081F2430),
+                blurRadius: 16,
+                offset: Offset(0, 8),
               ),
             ],
           ),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
                     Container(
-                      width: 40,
-                      height: 40,
+                      width: 34,
+                      height: 34,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
@@ -783,59 +894,62 @@ class _ProjectCard extends StatelessWidget {
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(12),
                       ),
                       child: Icon(
                         _projectIconFromCodePoint(project.iconCodePoint),
                         color: color,
-                        size: 20,
+                        size: 18,
                       ),
                     ),
-                    const Spacer(),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        project.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFF2D3443),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
                     InkWell(
                       onTap: onEdit,
                       borderRadius: BorderRadius.circular(999),
                       child: Ink(
-                        width: 30,
-                        height: 30,
+                        width: 28,
+                        height: 28,
                         decoration: BoxDecoration(
                           color: const Color(0xFFF6F4FF),
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: const Icon(
                           Icons.edit_outlined,
-                          size: 16,
+                          size: 15,
                           color: Color(0xFF7B6CF6),
                         ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  project.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: const Color(0xFF2D3443),
-                  ),
-                ),
                 const Spacer(),
                 Row(
                   children: [
                     Expanded(
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
                           color: const Color(0xFFF7F8FC),
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(999),
                         ),
                         child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
                             Text(
                               '$pendingCount',
-                              style: theme.textTheme.titleSmall?.copyWith(
+                              style: theme.textTheme.bodyMedium?.copyWith(
                                 fontWeight: FontWeight.w800,
                                 color: const Color(0xFF2D3443),
                               ),
@@ -853,9 +967,9 @@ class _ProjectCard extends StatelessWidget {
                       ),
                     ),
                     if (dueTodayCount > 0) ...[
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 6),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                         decoration: BoxDecoration(
                           color: color.withValues(alpha: 0.10),
                           borderRadius: BorderRadius.circular(999),
@@ -2179,6 +2293,33 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
                     ),
                   ),
                 ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    _ReminderShortcutChip(
+                      label: '截止前三天',
+                      enabled: _dueAt != null,
+                      onTap: () => _applyReminderShortcut(const Duration(days: 3)),
+                    ),
+                    _ReminderShortcutChip(
+                      label: '截止前一天',
+                      enabled: _dueAt != null,
+                      onTap: () => _applyReminderShortcut(const Duration(days: 1)),
+                    ),
+                  ],
+                ),
+                if (_dueAt == null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '先定截止时间，就能一键回填提醒时间。',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF8F99AD),
+                      height: 1.35,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 18),
                 Text('子任务', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
                 const SizedBox(height: 10),
@@ -2292,6 +2433,14 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
     });
   }
 
+  void _applyReminderShortcut(Duration offset) {
+    final dueAt = _dueAt;
+    if (dueAt == null) return;
+    setState(() {
+      _reminderAt = dueAt.subtract(offset);
+    });
+  }
+
   void _submit() {
     final title = _titleController.text.trim();
     if (title.isEmpty) return;
@@ -2325,6 +2474,44 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
     setState(() {
       _subtasks.add(TodoSubtaskDraft(id: _uuid.v4()));
     });
+  }
+}
+
+class _ReminderShortcutChip extends StatelessWidget {
+  const _ReminderShortcutChip({
+    required this.label,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: enabled ? onTap : null,
+      borderRadius: BorderRadius.circular(999),
+      child: Ink(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: enabled ? const Color(0xFFF4EEFF) : const Color(0xFFF3F5F9),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: enabled ? const Color(0xFFD9CCFF) : const Color(0xFFE5E9F2),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: enabled ? const Color(0xFF6E54F7) : const Color(0xFF9AA3B5),
+            fontSize: desktopAdjustedFontSize(11),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
   }
 }
 
