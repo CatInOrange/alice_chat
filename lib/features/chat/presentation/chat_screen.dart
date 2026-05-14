@@ -21,10 +21,16 @@ import '../application/chat_session_store.dart';
 import '../domain/chat_session.dart';
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, required this.session, this.onBack});
+  const ChatScreen({
+    super.key,
+    required this.session,
+    this.onBack,
+    this.onOpenCompanion,
+  });
 
   final ChatSession session;
   final VoidCallback? onBack;
+  final VoidCallback? onOpenCompanion;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -454,6 +460,31 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ],
           ),
+          actions: [
+            if (widget.session.id == 'alice' && widget.onOpenCompanion != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: InkWell(
+                  onTap: widget.onOpenCompanion,
+                  borderRadius: BorderRadius.circular(18),
+                  child: Ink(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF2ECFF),
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: const Icon(
+                      Icons.auto_awesome_rounded,
+                      color: Color(0xFF7C4DFF),
+                      size: 22,
+                    ),
+                  ),
+                ),
+              ),
+          ],
           bottom: PreferredSize(
             preferredSize: const Size.fromHeight(1),
             child: Container(height: 1, color: const Color(0xFFE7EAF3)),

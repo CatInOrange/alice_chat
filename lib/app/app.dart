@@ -19,6 +19,10 @@ import '../features/music/application/music_store.dart';
 import '../features/music/presentation/music_screen.dart';
 import '../features/tavern/application/tavern_store.dart';
 import '../features/tavern/presentation/tavern_screen.dart';
+import '../features/todo/application/todo_store.dart';
+import '../features/todo/presentation/todo_screen.dart';
+import '../features/webview/application/webview_host_controller.dart';
+import '../features/webview/presentation/companion_webview_page.dart';
 import '../features/webview/presentation/webview_screen.dart';
 import '../features/companion/presentation/companion_panel.dart';
 import 'theme.dart';
@@ -34,6 +38,7 @@ class AliceChatApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => MusicStore()),
         ChangeNotifierProvider(create: (_) => MusicPlatformStore()),
         ChangeNotifierProvider(create: (_) => TavernStore()),
+        ChangeNotifierProvider(create: (_) => TodoStore()),
       ],
       child: MaterialApp(
         title: 'Alice Chat',
@@ -57,18 +62,13 @@ class _MainScaffoldState extends State<_MainScaffold>
   static const MethodChannel _appControlChannel = MethodChannel(
     'alicechat/app_control',
   );
-  static const Duration _mobileWebviewDisposeDelay = Duration(minutes: 5);
 
   int _currentIndex = 0;
   bool _desktopLive2dVisible = false;
   ChatSession? _activeChatSession;
   StreamSubscription<NotificationOpenData>? _notificationOpenSub;
   String _lastConsumedNotificationKey = '';
-  bool _mobileWebviewMounted = true;
-  int _mobileWebviewSeed = 0;
-  Timer? _mobileWebviewDisposeTimer;
-  DateTime? _mobileWebviewInactiveAt;
-  DateTime? _appBackgroundAt;
+  late final WebviewHostController _webviewHostController;
 
   // Single source of truth for contacts
   static final List<Contact> _contacts = [
@@ -110,6 +110,7 @@ class _MainScaffoldState extends State<_MainScaffold>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _webviewHostController = WebviewHostController();
     NotificationService.instance.registerContacts(_contacts);
     unawaited(
       NativeDebugBridge.instance.log(
@@ -131,7 +132,7 @@ class _MainScaffoldState extends State<_MainScaffold>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _notificationOpenSub?.cancel();
-    _mobileWebviewDisposeTimer?.cancel();
+    _webviewHostController.disposeController();
     super.dispose();
   }
 
@@ -157,17 +158,10 @@ class _MainScaffoldState extends State<_MainScaffold>
     unawaited(
       BackgroundConnectionService.instance.onAppLifecycleChanged(state),
     );
+    _webviewHostController.onAppLifecycleChanged(state);
     if (state == AppLifecycleState.resumed) {
-      _appBackgroundAt = null;
-      _refreshMobileWebviewRetention(reason: 'appResumed');
       unawaited(_consumePendingNotificationOpen(source: 'resumed'));
       unawaited(context.read<ChatSessionStore>().handleAppResumed());
-    } else if (state == AppLifecycleState.inactive ||
-        state == AppLifecycleState.hidden ||
-        state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
-      _appBackgroundAt ??= DateTime.now();
-      _refreshMobileWebviewRetention(reason: 'appBackground:$state');
     }
   }
 
@@ -183,7 +177,7 @@ class _MainScaffoldState extends State<_MainScaffold>
       _currentIndex = 0;
       _activeChatSession = session;
     });
-    _refreshMobileWebviewRetention(reason: 'navigateToChat');
+    _webviewHostController.refreshRetention(reason: 'navigateToChat');
     unawaited(
       NativeDebugBridge.instance.log(
         'app',
@@ -338,7 +332,7 @@ class _MainScaffoldState extends State<_MainScaffold>
     setState(() {
       _activeChatSession = null;
     });
-    _refreshMobileWebviewRetention(reason: 'closeChat');
+    _webviewHostController.refreshRetention(reason: 'closeChat');
     unawaited(
       NativeDebugBridge.instance.log(
         'app',
@@ -362,7 +356,7 @@ class _MainScaffoldState extends State<_MainScaffold>
         clearActiveSession: true,
       ),
     );
-    _refreshMobileWebviewRetention(reason: 'rootBack');
+    _webviewHostController.refreshRetention(reason: 'rootBack');
     unawaited(
       NativeDebugBridge.instance.log(
         'app',
@@ -383,69 +377,14 @@ class _MainScaffoldState extends State<_MainScaffold>
     }
   }
 
-  bool get _shouldKeepMobileWebviewAlive =>
-      _currentIndex == 1 && _activeChatSession == null;
 
-  void _refreshMobileWebviewRetention({required String reason}) {
-    if (_shouldKeepMobileWebviewAlive) {
-      _mobileWebviewDisposeTimer?.cancel();
-      _mobileWebviewDisposeTimer = null;
-      _mobileWebviewInactiveAt = null;
-      if (!_mobileWebviewMounted && mounted) {
-        setState(() {
-          _mobileWebviewMounted = true;
-          _mobileWebviewSeed++;
-        });
-      }
-      unawaited(
-        NativeDebugBridge.instance.log(
-          'app',
-          'webviewRetention keepAlive reason=$reason seed=$_mobileWebviewSeed mounted=$_mobileWebviewMounted',
+  Future<void> _openCompanionWebview() async {
+    _webviewHostController.setKeepAliveRequested(true, reason: 'companionIntent');
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => CompanionWebviewPage(
+          hostController: _webviewHostController,
         ),
-      );
-      return;
-    }
-
-    _mobileWebviewInactiveAt ??= DateTime.now();
-    final inactiveAt = _mobileWebviewInactiveAt!;
-    final now = DateTime.now();
-    final backgroundAt = _appBackgroundAt;
-    final elapsed =
-        backgroundAt != null && backgroundAt.isBefore(inactiveAt)
-            ? now.difference(backgroundAt)
-            : now.difference(inactiveAt);
-
-    if (elapsed >= _mobileWebviewDisposeDelay) {
-      _disposeMobileWebview(reason: '$reason elapsed=${elapsed.inSeconds}s');
-      return;
-    }
-
-    _mobileWebviewDisposeTimer?.cancel();
-    final remaining = _mobileWebviewDisposeDelay - elapsed;
-    _mobileWebviewDisposeTimer = Timer(remaining, () {
-      _disposeMobileWebview(reason: 'timer elapsed=${remaining.inSeconds}s');
-    });
-    unawaited(
-      NativeDebugBridge.instance.log(
-        'app',
-        'webviewRetention scheduleDispose reason=$reason remaining=${remaining.inSeconds}s mounted=$_mobileWebviewMounted',
-      ),
-    );
-  }
-
-  void _disposeMobileWebview({required String reason}) {
-    _mobileWebviewDisposeTimer?.cancel();
-    _mobileWebviewDisposeTimer = null;
-    if (!_mobileWebviewMounted || !mounted) {
-      return;
-    }
-    setState(() {
-      _mobileWebviewMounted = false;
-    });
-    unawaited(
-      NativeDebugBridge.instance.log(
-        'app',
-        'webviewRetention disposed reason=$reason seed=$_mobileWebviewSeed',
       ),
     );
   }
@@ -499,14 +438,7 @@ class _MainScaffoldState extends State<_MainScaffold>
                 contacts: _contacts,
                 onContactTap: _navigateToChat,
               ),
-              _mobileWebviewMounted
-                  ? WebviewScreen(
-                    key: ValueKey('webview-$_mobileWebviewSeed'),
-                    active: _currentIndex == 1 && _activeChatSession == null,
-                  )
-                  : const SizedBox.expand(
-                    child: ColoredBox(color: Colors.white),
-                  ),
+              const TodoScreen(embedded: true),
               const MusicScreen(),
               const TavernScreen(),
               const SettingsScreen(),
@@ -520,6 +452,9 @@ class _MainScaffoldState extends State<_MainScaffold>
                   key: ValueKey('chat-${_activeChatSession!.id}'),
                   session: _activeChatSession!,
                   onBack: _closeChat,
+                  onOpenCompanion: _activeChatSession!.id == 'alice'
+                      ? _openCompanionWebview
+                      : null,
                 ),
               ),
             ),
@@ -671,12 +606,19 @@ class _MainScaffoldState extends State<_MainScaffold>
                           switchOutCurve: Curves.easeInCubic,
                           child:
                               _desktopLive2dVisible
-                                  ? WebviewScreen(
-                                    key: const ValueKey(
-                                      'webview-live2d-full-panel',
-                                    ),
-                                    active: true,
-                                    embedded: true,
+                                  ? AnimatedBuilder(
+                                    animation: _webviewHostController,
+                                    builder: (context, _) {
+                                      return _webviewHostController.mountedView
+                                          ? WebviewScreen(
+                                            key: ValueKey(
+                                              'webview-live2d-full-panel-${_webviewHostController.seed}',
+                                            ),
+                                            active: true,
+                                            embedded: true,
+                                          )
+                                          : const ColoredBox(color: Colors.white);
+                                    },
                                   )
                                   : SizedBox.expand(
                                     key: const ValueKey('companion-only'),
@@ -717,6 +659,9 @@ class _MainScaffoldState extends State<_MainScaffold>
             key: ValueKey('chat-desktop-${_activeChatSession!.id}'),
             session: _activeChatSession!,
             onBack: _closeChat,
+            onOpenCompanion: _activeChatSession!.id == 'alice'
+                ? _openCompanionWebview
+                : null,
           ),
         ),
       );
@@ -736,7 +681,7 @@ class _MainScaffoldState extends State<_MainScaffold>
   Widget _buildWorkbenchPage() {
     switch (_currentIndex) {
       case 1:
-        return const WebviewScreen(active: true, embedded: true);
+        return const TodoScreen(embedded: true);
       case 2:
         return const MusicScreen();
       case 3:
@@ -760,7 +705,7 @@ class _MainScaffoldState extends State<_MainScaffold>
         setState(() {
           _currentIndex = index;
         });
-        _refreshMobileWebviewRetention(reason: 'bottomNav:$index');
+        _webviewHostController.refreshRetention(reason: 'bottomNav:$index');
       },
       destinations: const [
         NavigationDestination(
@@ -769,9 +714,9 @@ class _MainScaffoldState extends State<_MainScaffold>
           label: '通讯录',
         ),
         NavigationDestination(
-          icon: Icon(Icons.web_outlined),
-          selectedIcon: Icon(Icons.web),
-          label: '网页',
+          icon: Icon(Icons.checklist_rounded),
+          selectedIcon: Icon(Icons.checklist),
+          label: '待办',
         ),
         NavigationDestination(
           icon: Icon(Icons.library_music_outlined),
@@ -795,7 +740,7 @@ class _MainScaffoldState extends State<_MainScaffold>
   String _navTitle(int index) {
     switch (index) {
       case 1:
-        return '网页';
+        return '待办';
       case 2:
         return '音乐';
       case 3:
@@ -810,7 +755,7 @@ class _MainScaffoldState extends State<_MainScaffold>
   IconData _navIcon(int index) {
     switch (index) {
       case 1:
-        return Icons.web_rounded;
+        return Icons.checklist_rounded;
       case 2:
         return Icons.library_music_rounded;
       case 3:
@@ -842,7 +787,7 @@ class _PrimaryNavRail extends StatelessWidget {
   Widget build(BuildContext context) {
     final items = <({IconData icon, String label})>[
       (icon: Icons.chat_bubble_outline_rounded, label: '聊天'),
-      (icon: Icons.web_outlined, label: '网页'),
+      (icon: Icons.checklist_rounded, label: '待办'),
       (icon: Icons.library_music_outlined, label: '音乐'),
       (icon: Icons.auto_awesome_outlined, label: '酒馆'),
       (icon: Icons.settings_outlined, label: '设置'),
