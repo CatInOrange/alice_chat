@@ -764,10 +764,7 @@ class _ProjectCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(18),
                       ),
                       child: Icon(
-                        IconData(
-                          project.iconCodePoint,
-                          fontFamily: 'MaterialIcons',
-                        ),
+                        _projectIconFromCodePoint(project.iconCodePoint),
                         color: color,
                         size: 26,
                       ),
@@ -1468,7 +1465,7 @@ class _ProjectEditorSheetState extends State<_ProjectEditorSheet> {
     _descriptionController = TextEditingController(text: project?.description ?? '');
     _iconData = project == null
         ? _iconChoices.first
-        : IconData(project.iconCodePoint, fontFamily: 'MaterialIcons');
+        : _projectIconFromCodePoint(project.iconCodePoint);
     _color = project == null ? _colorChoices[1] : Color(project.colorValue);
   }
 
@@ -1826,7 +1823,7 @@ class _ProjectDetailScreenState extends State<_ProjectDetailScreen> {
                     borderRadius: BorderRadius.circular(18),
                   ),
                   child: Icon(
-                    IconData(refreshedProject.iconCodePoint, fontFamily: 'MaterialIcons'),
+                    _projectIconFromCodePoint(refreshedProject.iconCodePoint),
                     color: Color(refreshedProject.colorValue),
                   ),
                 ),
@@ -2442,6 +2439,15 @@ class _SubtaskDraftTile extends StatelessWidget {
       ],
     );
   }
+}
+
+IconData _projectIconFromCodePoint(int codePoint) {
+  for (final icon in _ProjectEditorSheetState._iconChoices) {
+    if (icon.codePoint == codePoint) {
+      return icon;
+    }
+  }
+  return Icons.auto_awesome_rounded;
 }
 
 String _priorityLabel(TodoPriority priority) {
