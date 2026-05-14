@@ -15,7 +15,7 @@ class TodoScreen extends StatefulWidget {
   State<TodoScreen> createState() => _TodoScreenState();
 }
 
-enum _TaskFeedFilter { all, today, upcoming, completed }
+enum _TaskFeedFilter { all, today, upcoming }
 enum _TaskSortMode { smart, dueSoon, priority }
 
 class _TodoScreenState extends State<TodoScreen>
@@ -58,11 +58,14 @@ class _TodoScreenState extends State<TodoScreen>
 
     var filteredTasks = switch (_activeFilter) {
       _TaskFeedFilter.all => store.tasks
-          .where((item) => !store.archivedProjects.any((project) => project.id == item.projectId))
+          .where(
+            (item) =>
+                !item.isDone &&
+                !store.archivedProjects.any((project) => project.id == item.projectId),
+          )
           .toList(growable: false),
       _TaskFeedFilter.today => store.todayTasks,
       _TaskFeedFilter.upcoming => store.upcomingTasks,
-      _TaskFeedFilter.completed => store.completedTasks,
     };
     if (_projectFilterId != null) {
       filteredTasks = filteredTasks
@@ -74,7 +77,6 @@ class _TodoScreenState extends State<TodoScreen>
       _TaskFeedFilter.all => '全部',
       _TaskFeedFilter.today => '今天',
       _TaskFeedFilter.upcoming => '接下来',
-      _TaskFeedFilter.completed => '已完成',
     };
 
     final body = CustomScrollView(
@@ -224,14 +226,30 @@ class _TodoScreenState extends State<TodoScreen>
                 final project = store.projects.firstWhere(
                   (item) => item.id == task.projectId,
                 );
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _TaskTile(
-                    task: task,
-                    project: project,
-                    onChanged: (value) => store.toggleTask(task.id, value),
-                    onTap: () => _openEditor(task: task),
-                    onDelete: () => store.deleteTask(task.id),
+                return AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 240),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, animation) {
+                    final offsetAnimation = Tween<Offset>(
+                      begin: const Offset(0, 0.08),
+                      end: Offset.zero,
+                    ).animate(animation);
+                    return FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(position: offsetAnimation, child: child),
+                    );
+                  },
+                  child: Padding(
+                    key: ValueKey('task-row-${task.id}-${task.isDone}-${_activeFilter.name}'),
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _TaskTile(
+                      task: task,
+                      project: project,
+                      onChanged: (value) => store.toggleTask(task.id, value),
+                      onTap: () => _openEditor(task: task),
+                      onDelete: () => store.deleteTask(task.id),
+                    ),
                   ),
                 );
               },
@@ -411,7 +429,7 @@ class _TodoHeroCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [Color(0xFF8E73FF), Color(0xFFB08CFF)],
@@ -437,15 +455,15 @@ class _TodoHeroCard extends StatelessWidget {
               fontWeight: FontWeight.w800,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
-            '把今天慢慢做完，我在这陪你收拾节奏。',
-            style: theme.textTheme.bodyMedium?.copyWith(
+            '慢慢收拾，别着急。',
+            style: theme.textTheme.bodySmall?.copyWith(
               color: const Color(0xFFF4EFFF),
-              height: 1.55,
+              height: 1.4,
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 14),
           Row(
             children: [
               Expanded(
@@ -485,7 +503,7 @@ class _HeroStat extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: const Color(0x26FFFFFF),
         borderRadius: BorderRadius.circular(20),
@@ -497,7 +515,7 @@ class _HeroStat extends StatelessWidget {
             value,
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 24,
+              fontSize: 20,
               fontWeight: FontWeight.w800,
             ),
           ),
@@ -506,7 +524,7 @@ class _HeroStat extends StatelessWidget {
             label,
             style: const TextStyle(
               color: Color(0xFFF2EDFF),
-              fontSize: 12,
+              fontSize: 11,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -547,12 +565,6 @@ class _TaskFeedFilterBar extends StatelessWidget {
             label: '接下来',
             selected: activeFilter == _TaskFeedFilter.upcoming,
             onTap: () => onChanged(_TaskFeedFilter.upcoming),
-          ),
-          const SizedBox(width: 10),
-          _FilterChip(
-            label: '已完成',
-            selected: activeFilter == _TaskFeedFilter.completed,
-            onTap: () => onChanged(_TaskFeedFilter.completed),
           ),
         ],
       ),
@@ -691,7 +703,7 @@ class _ProjectBoard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 150,
+      height: 126,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         clipBehavior: Clip.none,
@@ -701,7 +713,7 @@ class _ProjectBoard extends StatelessWidget {
         itemBuilder: (context, index) {
           final project = projects[index];
           return SizedBox(
-            width: 160,
+            width: 154,
             child: _ProjectCard(
               project: project,
               pendingCount: pendingCountForProject(project.id),
@@ -739,29 +751,29 @@ class _ProjectCard extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(22),
         child: Ink(
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(22),
             boxShadow: const [
               BoxShadow(
                 color: Color(0x0A1F2430),
-                blurRadius: 24,
-                offset: Offset(0, 12),
+                blurRadius: 20,
+                offset: Offset(0, 10),
               ),
             ],
           ),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
                     Container(
-                      width: 44,
-                      height: 44,
+                      width: 40,
+                      height: 40,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
@@ -771,12 +783,12 @@ class _ProjectCard extends StatelessWidget {
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(14),
                       ),
                       child: Icon(
                         _projectIconFromCodePoint(project.iconCodePoint),
                         color: color,
-                        size: 22,
+                        size: 20,
                       ),
                     ),
                     const Spacer(),
@@ -784,53 +796,42 @@ class _ProjectCard extends StatelessWidget {
                       onTap: onEdit,
                       borderRadius: BorderRadius.circular(999),
                       child: Ink(
-                        width: 32,
-                        height: 32,
+                        width: 30,
+                        height: 30,
                         decoration: BoxDecoration(
                           color: const Color(0xFFF6F4FF),
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: const Icon(
                           Icons.edit_outlined,
-                          size: 17,
+                          size: 16,
                           color: Color(0xFF7B6CF6),
                         ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 Text(
                   project.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleMedium?.copyWith(
+                  style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w800,
                     color: const Color(0xFF2D3443),
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  project.description.isEmpty ? '慢慢把这一块收拾好。' : project.description,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF8F99AD),
-                    height: 1.35,
-                  ),
-                ),
-                const SizedBox(height: 10),
+                const Spacer(),
                 Row(
                   children: [
                     Expanded(
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
                           color: const Color(0xFFF7F8FC),
                           borderRadius: BorderRadius.circular(14),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        child: Row(
                           children: [
                             Text(
                               '$pendingCount',
@@ -839,7 +840,7 @@ class _ProjectCard extends StatelessWidget {
                                 color: const Color(0xFF2D3443),
                               ),
                             ),
-                            const SizedBox(height: 2),
+                            const SizedBox(width: 4),
                             Text(
                               '未完成',
                               style: theme.textTheme.bodySmall?.copyWith(
@@ -851,37 +852,24 @@ class _ProjectCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                    if (dueTodayCount > 0) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
                         decoration: BoxDecoration(
                           color: color.withValues(alpha: 0.10),
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(999),
                         ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '$dueTodayCount',
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                color: color,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '今日到期',
-                              style: TextStyle(
-                                color: color,
-                                fontSize: desktopAdjustedFontSize(10),
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
+                        child: Text(
+                          '今 $dueTodayCount',
+                          style: TextStyle(
+                            color: color,
+                            fontSize: desktopAdjustedFontSize(10),
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ],
