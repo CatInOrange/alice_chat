@@ -15,14 +15,14 @@ class TodoScreen extends StatefulWidget {
   State<TodoScreen> createState() => _TodoScreenState();
 }
 
-enum _TaskFeedFilter { today, upcoming, completed }
+enum _TaskFeedFilter { all, today, upcoming, completed }
 enum _TaskSortMode { smart, dueSoon, priority }
 
 class _TodoScreenState extends State<TodoScreen>
     with AutomaticKeepAliveClientMixin {
   static const Uuid _uuid = Uuid();
 
-  _TaskFeedFilter _activeFilter = _TaskFeedFilter.today;
+  _TaskFeedFilter _activeFilter = _TaskFeedFilter.all;
   _TaskSortMode _sortMode = _TaskSortMode.smart;
   String? _projectFilterId;
 
@@ -57,6 +57,9 @@ class _TodoScreenState extends State<TodoScreen>
     }
 
     var filteredTasks = switch (_activeFilter) {
+      _TaskFeedFilter.all => store.tasks
+          .where((item) => !store.archivedProjects.any((project) => project.id == item.projectId))
+          .toList(growable: false),
       _TaskFeedFilter.today => store.todayTasks,
       _TaskFeedFilter.upcoming => store.upcomingTasks,
       _TaskFeedFilter.completed => store.completedTasks,
@@ -68,6 +71,7 @@ class _TodoScreenState extends State<TodoScreen>
     }
     filteredTasks = _sortTasks(filteredTasks);
     final filterLabel = switch (_activeFilter) {
+      _TaskFeedFilter.all => '全部',
       _TaskFeedFilter.today => '今天',
       _TaskFeedFilter.upcoming => '接下来',
       _TaskFeedFilter.completed => '已完成',
@@ -528,6 +532,12 @@ class _TaskFeedFilterBar extends StatelessWidget {
       child: Row(
         children: [
           _FilterChip(
+            label: '全部',
+            selected: activeFilter == _TaskFeedFilter.all,
+            onTap: () => onChanged(_TaskFeedFilter.all),
+          ),
+          const SizedBox(width: 10),
+          _FilterChip(
             label: '今天',
             selected: activeFilter == _TaskFeedFilter.today,
             onTap: () => onChanged(_TaskFeedFilter.today),
@@ -681,7 +691,7 @@ class _ProjectBoard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 172,
+      height: 150,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         clipBehavior: Clip.none,
@@ -691,7 +701,7 @@ class _ProjectBoard extends StatelessWidget {
         itemBuilder: (context, index) {
           final project = projects[index];
           return SizedBox(
-            width: 176,
+            width: 160,
             child: _ProjectCard(
               project: project,
               pendingCount: pendingCountForProject(project.id),
@@ -729,11 +739,11 @@ class _ProjectCard extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(24),
         child: Ink(
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: BorderRadius.circular(24),
             boxShadow: const [
               BoxShadow(
                 color: Color(0x0A1F2430),
@@ -743,15 +753,15 @@ class _ProjectCard extends StatelessWidget {
             ],
           ),
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
                     Container(
-                      width: 50,
-                      height: 50,
+                      width: 44,
+                      height: 44,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
@@ -761,12 +771,12 @@ class _ProjectCard extends StatelessWidget {
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
-                        borderRadius: BorderRadius.circular(18),
+                        borderRadius: BorderRadius.circular(16),
                       ),
                       child: Icon(
                         _projectIconFromCodePoint(project.iconCodePoint),
                         color: color,
-                        size: 26,
+                        size: 22,
                       ),
                     ),
                     const Spacer(),
@@ -789,7 +799,7 @@ class _ProjectCard extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 10),
                 Text(
                   project.name,
                   maxLines: 1,
@@ -802,19 +812,19 @@ class _ProjectCard extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   project.description.isEmpty ? '慢慢把这一块收拾好。' : project.description,
-                  maxLines: 2,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: const Color(0xFF8F99AD),
                     height: 1.35,
                   ),
                 ),
-                const Spacer(),
+                const SizedBox(height: 10),
                 Row(
                   children: [
                     Expanded(
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                         decoration: BoxDecoration(
                           color: const Color(0xFFF7F8FC),
                           borderRadius: BorderRadius.circular(14),
@@ -844,7 +854,7 @@ class _ProjectCard extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                         decoration: BoxDecoration(
                           color: color.withValues(alpha: 0.10),
                           borderRadius: BorderRadius.circular(14),
