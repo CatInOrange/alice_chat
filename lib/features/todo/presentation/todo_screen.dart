@@ -1153,8 +1153,10 @@ class _TaskTileState extends State<_TaskTile> {
                         _MiniPill(
                           label: _priorityLabel(task.priority),
                           color: _priorityColor(task.priority),
-                          icon: Icons.flag_rounded,
+                          icon: _priorityIcon(task.priority),
                           compact: true,
+                          filled: task.priority == TodoPriority.high ||
+                              task.priority == TodoPriority.urgent,
                         ),
                       ],
                     ),
@@ -2791,13 +2793,26 @@ String _priorityLabel(TodoPriority priority) {
 Color _priorityColor(TodoPriority priority) {
   switch (priority) {
     case TodoPriority.low:
-      return const Color(0xFF7BB58D);
+      return const Color(0xFF8FAF9B);
     case TodoPriority.medium:
-      return const Color(0xFF7C4DFF);
+      return const Color(0xFF7B8496);
     case TodoPriority.high:
       return const Color(0xFFF59E0B);
     case TodoPriority.urgent:
       return const Color(0xFFEF4444);
+  }
+}
+
+IconData _priorityIcon(TodoPriority priority) {
+  switch (priority) {
+    case TodoPriority.low:
+      return Icons.flag_outlined;
+    case TodoPriority.medium:
+      return Icons.flag_rounded;
+    case TodoPriority.high:
+      return Icons.priority_high_rounded;
+    case TodoPriority.urgent:
+      return Icons.warning_amber_rounded;
   }
 }
 
