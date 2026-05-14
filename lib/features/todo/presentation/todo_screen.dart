@@ -1168,10 +1168,7 @@ class _ProjectSorterSheet extends StatelessWidget {
                               borderRadius: BorderRadius.circular(16),
                             ),
                             child: Icon(
-                              IconData(
-                                project.iconCodePoint,
-                                fontFamily: 'MaterialIcons',
-                              ),
+                              _projectIconFromCodePoint(project.iconCodePoint),
                               color: color,
                             ),
                           ),
@@ -1253,7 +1250,7 @@ class _ArchivedProjectsScreen extends StatelessWidget {
                           borderRadius: BorderRadius.circular(16),
                         ),
                         child: Icon(
-                          IconData(project.iconCodePoint, fontFamily: 'MaterialIcons'),
+                          _projectIconFromCodePoint(project.iconCodePoint),
                           color: color,
                         ),
                       ),
