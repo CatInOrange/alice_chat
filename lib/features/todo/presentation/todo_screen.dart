@@ -995,7 +995,7 @@ class _ProjectCard extends StatelessWidget {
   }
 }
 
-class _TaskTile extends StatelessWidget {
+class _TaskTile extends StatefulWidget {
   const _TaskTile({
     required this.task,
     required this.project,
@@ -1013,15 +1013,88 @@ class _TaskTile extends StatelessWidget {
   final bool showProjectPill;
 
   @override
+  State<_TaskTile> createState() => _TaskTileState();
+}
+
+class _TaskTileState extends State<_TaskTile> {
+  bool _subtasksExpanded = false;
+  Future<List<TodoSubtask>>? _subtasksFuture;
+
+  Future<void> _toggleSubtasks() async {
+    if (!_subtasksExpanded && _subtasksFuture == null) {
+      setState(() {
+        _subtasksFuture = context.read<TodoStore>().subtasksForTask(widget.task.id);
+      });
+    }
+    setState(() {
+      _subtasksExpanded = !_subtasksExpanded;
+    });
+  }
+
+  Future<void> _showTaskMenu() async {
+    if (widget.onDelete == null) return;
+    final shouldDelete = await showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => SafeArea(
+        top: false,
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFFF8F8FD),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 44,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD9DDEC),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                ListTile(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  tileColor: Colors.white,
+                  leading: const Icon(
+                    Icons.delete_outline_rounded,
+                    color: Color(0xFFEF4444),
+                  ),
+                  title: const Text('删除任务'),
+                  subtitle: const Text('这条任务会从列表里移除'),
+                  onTap: () => Navigator.of(context).pop(true),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (shouldDelete == true) {
+      widget.onDelete?.call();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final task = widget.task;
+    final project = widget.project;
     final color = Color(project.colorValue);
     final theme = Theme.of(context);
     final dueTone = _dueTone(task.dueAt, isDone: task.isDone);
-    final card = Material(
+
+    return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(20),
       child: InkWell(
-        onTap: onTap,
+        onTap: widget.onTap,
+        onLongPress: _showTaskMenu,
         borderRadius: BorderRadius.circular(20),
         child: Ink(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -1041,12 +1114,13 @@ class _TaskTile extends StatelessWidget {
             ],
           ),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Transform.scale(
                 scale: 0.9,
                 child: Checkbox(
                   value: task.isDone,
-                  onChanged: (value) => onChanged(value ?? false),
+                  onChanged: (value) => widget.onChanged(value ?? false),
                   activeColor: color,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(6),
@@ -1090,7 +1164,7 @@ class _TaskTile extends StatelessWidget {
                       runSpacing: 8,
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        if (showProjectPill)
+                        if (widget.showProjectPill)
                           _MiniPill(
                             label: project.name,
                             color: color,
@@ -1111,14 +1185,91 @@ class _TaskTile extends StatelessWidget {
                             icon: Icons.notifications_active_outlined,
                           ),
                         if (task.subtaskCount > 0)
-                          _MiniPill(
-                            label:
-                                '子任务 ${task.completedSubtaskCount}/${task.subtaskCount}',
-                            color: const Color(0xFF7C4DFF),
-                            icon: Icons.checklist_rounded,
+                          InkWell(
+                            onTap: _toggleSubtasks,
+                            borderRadius: BorderRadius.circular(999),
+                            child: _MiniPill(
+                              label:
+                                  '子任务 ${task.completedSubtaskCount}/${task.subtaskCount}',
+                              color: const Color(0xFF7C4DFF),
+                              icon: _subtasksExpanded
+                                  ? Icons.expand_less_rounded
+                                  : Icons.checklist_rounded,
+                              filled: _subtasksExpanded,
+                            ),
                           ),
                       ],
                     ),
+                    if (task.subtaskCount > 0 && _subtasksExpanded) ...[
+                      const SizedBox(height: 10),
+                      FutureBuilder<List<TodoSubtask>>(
+                        future: _subtasksFuture,
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 4),
+                              child: SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2.2),
+                              ),
+                            );
+                          }
+                          final subtasks = snapshot.data!;
+                          if (subtasks.isEmpty) {
+                            return Text(
+                              '还没有子任务内容',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: const Color(0xFF8F99AD),
+                              ),
+                            );
+                          }
+                          return Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF7F6FF),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Column(
+                              children: subtasks
+                                  .map(
+                                    (item) => Padding(
+                                      padding: EdgeInsets.only(
+                                        bottom: item == subtasks.last ? 0 : 8,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            item.isCompleted
+                                                ? Icons.check_circle_rounded
+                                                : Icons.radio_button_unchecked_rounded,
+                                            size: 16,
+                                            color: item.isCompleted
+                                                ? const Color(0xFF7C4DFF)
+                                                : const Color(0xFFB0B7C6),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: Text(
+                                              item.title,
+                                              style: theme.textTheme.bodySmall?.copyWith(
+                                                color: const Color(0xFF5F687A),
+                                                decoration: item.isCompleted
+                                                    ? TextDecoration.lineThrough
+                                                    : null,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  )
+                                  .toList(growable: false),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1126,29 +1277,6 @@ class _TaskTile extends StatelessWidget {
           ),
         ),
       ),
-    );
-
-    if (onDelete == null) {
-      return card;
-    }
-
-    return Dismissible(
-      key: ValueKey('todo-task-${task.id}'),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFFEF4444),
-          borderRadius: BorderRadius.circular(24),
-        ),
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: const Icon(Icons.delete_outline_rounded, color: Colors.white),
-      ),
-      confirmDismiss: (_) async {
-        onDelete?.call();
-        return false;
-      },
-      child: card,
     );
   }
 }
