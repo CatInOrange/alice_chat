@@ -18,6 +18,7 @@ from ..services.routing import resolve_routing
 from ..utils.suspicious_reply import (
     build_suspicious_meta as _build_suspicious_meta,
     detect_suspicious_final as _detect_suspicious_final,
+    is_recoverable_preview_candidate as _is_recoverable_preview_candidate,
     mark_recovery_meta as _mark_recovery_meta,
     select_preview_recovery_text as _select_preview_recovery_text,
     strip_model_prefix as _strip_model_prefix,
@@ -245,6 +246,9 @@ def create_chat_router(context: AppContext) -> APIRouter:
             assistant_message_id = f'msg_ai_{uuid.uuid4().hex[:12]}'
             assistant_raw_parts: list[str] = []
             latest_reply_preview = ''
+            last_recoverable_process_preview = ''
+            last_recoverable_preview_source = ''
+            non_recoverable_preview_streak = 0
             delta_seq = 0
             terminal_event_sent = False
             terminal_result_marked = False
@@ -292,7 +296,7 @@ def create_chat_router(context: AppContext) -> APIRouter:
                 )
 
                 def emit(payload: dict) -> None:
-                    nonlocal delta_seq, latest_reply_preview
+                    nonlocal delta_seq, latest_reply_preview, last_recoverable_process_preview, last_recoverable_preview_source, non_recoverable_preview_streak
                     payload_type = str(payload.get('type') or 'delta').strip().lower()
                     delta_text = str(payload.get('delta') or '')
                     progress_text = str(payload.get('text') or '')
@@ -301,6 +305,12 @@ def create_chat_router(context: AppContext) -> APIRouter:
                     progress_reply_preview = str(payload.get('replyPreview') or '').strip()
                     if progress_reply_preview:
                         latest_reply_preview = progress_reply_preview
+                        if _is_recoverable_preview_candidate(progress_reply_preview):
+                            last_recoverable_process_preview = progress_reply_preview
+                            last_recoverable_preview_source = 'process_reply_preview'
+                            non_recoverable_preview_streak = 0
+                        else:
+                            non_recoverable_preview_streak += 1
                     progress_meta = {
                         'eventStream': str(payload.get('eventStream') or '').strip(),
                         'toolCallId': str(payload.get('toolCallId') or '').strip(),
@@ -520,6 +530,7 @@ def create_chat_router(context: AppContext) -> APIRouter:
                     recovered_text = _select_preview_recovery_text(
                         final_text=assistant_visible,
                         preview_text=latest_reply_preview,
+                        fallback_preview_text=last_recoverable_process_preview,
                     )
                     if recovered_text:
                         persisted = chat_service.update_message_content(
@@ -536,11 +547,13 @@ def create_chat_router(context: AppContext) -> APIRouter:
                         assistant_visible = recovered_text
                         assistant_raw = recovered_text
                         _LOG.warning(
-                            '[alicechat.chat] suspicious_final_recovered sessionId=%s clientMessageId=%s requestId=%s reason=%s final=%r recovered=%r',
+                            '[alicechat.chat] suspicious_final_recovered sessionId=%s clientMessageId=%s requestId=%s reason=%s source=%s streak=%s final=%r recovered=%r',
                             session_id,
                             client_message_id,
                             request_id,
                             suspicious_reason,
+                            last_recoverable_preview_source or 'latest_preview',
+                            non_recoverable_preview_streak,
                             str(result.get('reply') or '')[:160],
                             recovered_text[:160],
                         )
@@ -554,11 +567,15 @@ def create_chat_router(context: AppContext) -> APIRouter:
                         ) or persisted
                         persisted_messages[-1] = persisted
                         _LOG.warning(
-                            '[alicechat.chat] suspicious_final_persisted sessionId=%s clientMessageId=%s requestId=%s reason=%s text=%r',
+                            '[alicechat.chat] suspicious_final_persisted sessionId=%s clientMessageId=%s requestId=%s reason=%s source=%s streak=%s latestPreview=%r fallbackPreview=%r text=%r',
                             session_id,
                             client_message_id,
                             request_id,
                             suspicious_reason,
+                            last_recoverable_preview_source or 'none',
+                            non_recoverable_preview_streak,
+                            latest_reply_preview[:160],
+                            last_recoverable_process_preview[:160],
                             assistant_visible[:160],
                         )
                 _LOG.info(

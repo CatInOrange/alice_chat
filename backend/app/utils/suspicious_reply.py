@@ -23,6 +23,14 @@ SUSPICIOUS_FINAL_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
 )
 
+RECOVERABLE_NOISE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r'^(?:analyzing|loading|thinking|working|processing)\b.*$', re.IGNORECASE),
+    re.compile(r'^(?:done|ok|completed|finished)\.?$', re.IGNORECASE),
+    re.compile(r'^(?:\/approve\b|openclaw\b|flutter\b|git\b|grep\b|sed\b).*$'),
+)
+
+MIN_RECOVERABLE_PREVIEW_LENGTH = 24
+
 
 def strip_model_prefix(text: str) -> str:
     value = str(text or '').lstrip()
@@ -89,20 +97,38 @@ def mark_recovery_meta(*, existing_meta: object, succeeded: bool, recovered_text
     return json.dumps(meta, ensure_ascii=False)
 
 
-def select_preview_recovery_text(*, final_text: str, preview_text: str) -> str:
+def is_recoverable_preview_candidate(text: str) -> bool:
+    value = strip_model_prefix(str(text or '').strip())
+    if not value:
+        return False
+    if not contains_chinese(value):
+        return False
+    if len(value) < MIN_RECOVERABLE_PREVIEW_LENGTH:
+        return False
+    lowered = value.lower()
+    if any(keyword in lowered for keyword in SUSPICIOUS_FINAL_KEYWORDS):
+        return False
+    if any(pattern.match(value) for pattern, _reason in SUSPICIOUS_FINAL_PATTERNS):
+        return False
+    if any(pattern.match(value) for pattern in RECOVERABLE_NOISE_PATTERNS):
+        return False
+    return True
+
+
+def select_preview_recovery_text(*, final_text: str, preview_text: str, fallback_preview_text: str = '') -> str:
     final_value = strip_model_prefix(str(final_text or '').strip())
-    preview_value = strip_model_prefix(str(preview_text or '').strip())
-    if not final_value or not preview_value:
-        return ''
-    if preview_value == final_value:
-        return ''
-    if not contains_chinese(preview_value):
-        return ''
-    if len(preview_value) <= len(final_value) + 12:
-        return ''
-    lowered_preview = preview_value.lower()
-    if any(keyword in lowered_preview for keyword in SUSPICIOUS_FINAL_KEYWORDS):
-        return ''
-    if any(pattern.match(preview_value) for pattern, _reason in SUSPICIOUS_FINAL_PATTERNS):
-        return ''
-    return preview_value
+    candidates = [
+        strip_model_prefix(str(preview_text or '').strip()),
+        strip_model_prefix(str(fallback_preview_text or '').strip()),
+    ]
+    for candidate in candidates:
+        if not final_value or not candidate:
+            continue
+        if candidate == final_value:
+            continue
+        if not is_recoverable_preview_candidate(candidate):
+            continue
+        if len(candidate) <= len(final_value) + 12:
+            continue
+        return candidate
+    return ''
