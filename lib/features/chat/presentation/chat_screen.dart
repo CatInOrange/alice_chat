@@ -1993,7 +1993,7 @@ class _ChatScreenState extends State<ChatScreen> {
       text,
       () => MarkdownBody(
         data: text,
-        selectable: false, // Disabled for performance
+        selectable: true,
         styleSheet: styleSheet,
         softLineBreak: true,
         builders: {

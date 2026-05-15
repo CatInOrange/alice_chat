@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../features/contacts/domain/contact.dart';
 import '../features/contacts/presentation/contacts_screen.dart';
@@ -491,148 +492,212 @@ class _MainScaffoldState extends State<_MainScaffold>
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6FB),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: const Color(0xFFEEF1F8),
-              borderRadius: BorderRadius.circular(30),
-            ),
-            child: Row(
-              children: [
-                _PrimaryNavRail(
-                  currentIndex: _currentIndex,
-                  activeChatSession: _activeChatSession,
-                  live2dVisible: _desktopLive2dVisible,
-                  onSelected: (index) {
-                    setState(() {
-                      _currentIndex = index;
-                      if (index != 0) {
-                        _activeChatSession = null;
-                      }
-                    });
-                  },
-                  onToggleLive2d: () {
-                    setState(() {
-                      _desktopLive2dVisible = !_desktopLive2dVisible;
-                    });
-                  },
-                ),
-                Container(width: 1, color: const Color(0xFFE1E6F0)),
-                if (showSidebar) ...[
-                  SizedBox(
-                    width: 300,
-                    child: Column(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(18, 18, 18, 10),
-                          child: Row(
+      body: Column(
+        children: [
+          if (isDesktop) const _DesktopTitleBar(),
+          Expanded(
+            child: SafeArea(
+              top: !isDesktop,
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEEF1F8),
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                  child: Row(
+                    children: [
+                      _DesktopDragRegion(
+                        enabled: isDesktop,
+                        child: _PrimaryNavRail(
+                          currentIndex: _currentIndex,
+                          activeChatSession: _activeChatSession,
+                          live2dVisible: _desktopLive2dVisible,
+                          onSelected: (index) {
+                            setState(() {
+                              _currentIndex = index;
+                              if (index != 0) {
+                                _activeChatSession = null;
+                              }
+                            });
+                          },
+                          onToggleLive2d: () {
+                            setState(() {
+                              _desktopLive2dVisible = !_desktopLive2dVisible;
+                            });
+                          },
+                        ),
+                      ),
+                      Container(width: 1, color: const Color(0xFFE1E6F0)),
+                      if (showSidebar) ...[
+                        SizedBox(
+                          width: 300,
+                          child: Column(
                             children: [
+                              _DesktopDragRegion(
+                                enabled: isDesktop,
+                                child: Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    18,
+                                    18,
+                                    18,
+                                    10,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              _currentIndex == 0
+                                                  ? '消息'
+                                                  : _navTitle(_currentIndex),
+                                              style: theme.textTheme.titleLarge
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w800,
+                                                    color: const Color(0xFF2D3443),
+                                                  ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              _currentIndex == 0
+                                                  ? '像微信桌面版一样利落，再加一点陪伴感。'
+                                                  : '保留统一功能，不做花哨分叉。',
+                                              style: theme
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.copyWith(
+                                                    color: const Color(
+                                                      0xFF98A1B3,
+                                                    ),
+                                                    fontWeight:
+                                                        FontWeight.w600,
+                                                  ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
                               Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      _currentIndex == 0
-                                          ? '消息'
-                                          : _navTitle(_currentIndex),
-                                      style: theme.textTheme.titleLarge
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.w800,
-                                            color: const Color(0xFF2D3443),
+                                child:
+                                    _currentIndex == 0
+                                        ? ContactsScreen(
+                                          contacts: _contacts,
+                                          onContactTap: _navigateToChat,
+                                          selectedContactId:
+                                              selectedContactId,
+                                          embedded: true,
+                                        )
+                                        : Padding(
+                                          padding: const EdgeInsets.fromLTRB(
+                                            12,
+                                            4,
+                                            12,
+                                            12,
                                           ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      _currentIndex == 0
-                                          ? '像微信桌面版一样利落，再加一点陪伴感。'
-                                          : '保留统一功能，不做花哨分叉。',
-                                      style: theme.textTheme.bodySmall
-                                          ?.copyWith(
-                                            color: const Color(0xFF98A1B3),
-                                            fontWeight: FontWeight.w600,
+                                          child: _WorkbenchPlaceholderCard(
+                                            child: _buildWorkbenchPage(),
                                           ),
+                                        ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(width: 1, color: const Color(0xFFE1E6F0)),
+                      ],
+                      Expanded(
+                        child: Column(
+                          children: [
+                            _DesktopDragRegion(
+                              enabled: isDesktop,
+                              child: const SizedBox(height: 12),
+                            ),
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  12,
+                                  0,
+                                  12,
+                                  12,
+                                ),
+                                child: centerPane,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (showSidebar) ...[
+                        Container(width: 1, color: const Color(0xFFE1E6F0)),
+                        SizedBox(
+                          width: isDesktop ? 340 : 300,
+                          child: Column(
+                            children: [
+                              _DesktopDragRegion(
+                                enabled: isDesktop,
+                                child: const SizedBox(height: 12),
+                              ),
+                              Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    12,
+                                    0,
+                                    12,
+                                    12,
+                                  ),
+                                  child: _WorkbenchPlaceholderCard(
+                                    removePadding: _desktopLive2dVisible,
+                                    child: AnimatedSwitcher(
+                                      duration: const Duration(
+                                        milliseconds: 220,
+                                      ),
+                                      switchInCurve: Curves.easeOutCubic,
+                                      switchOutCurve: Curves.easeInCubic,
+                                      child:
+                                          _desktopLive2dVisible
+                                              ? AnimatedBuilder(
+                                                animation:
+                                                    _webviewHostController,
+                                                builder: (context, _) {
+                                                  return _webviewHostController
+                                                          .mountedView
+                                                      ? WebviewScreen(
+                                                        key: ValueKey(
+                                                          'webview-live2d-full-panel-${_webviewHostController.seed}',
+                                                        ),
+                                                        active: true,
+                                                        embedded: true,
+                                                      )
+                                                      : const ColoredBox(
+                                                        color: Colors.white,
+                                                      );
+                                                },
+                                              )
+                                              : SizedBox.expand(
+                                                key: const ValueKey(
+                                                  'companion-only',
+                                                ),
+                                                child: companion,
+                                              ),
                                     ),
-                                  ],
+                                  ),
                                 ),
                               ),
                             ],
                           ),
                         ),
-                        Expanded(
-                          child:
-                              _currentIndex == 0
-                                  ? ContactsScreen(
-                                    contacts: _contacts,
-                                    onContactTap: _navigateToChat,
-                                    selectedContactId: selectedContactId,
-                                    embedded: true,
-                                  )
-                                  : Padding(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      12,
-                                      4,
-                                      12,
-                                      12,
-                                    ),
-                                    child: _WorkbenchPlaceholderCard(
-                                      child: _buildWorkbenchPage(),
-                                    ),
-                                  ),
-                        ),
                       ],
-                    ),
-                  ),
-                  Container(width: 1, color: const Color(0xFFE1E6F0)),
-                ],
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: centerPane,
+                    ],
                   ),
                 ),
-                if (showSidebar) ...[
-                  Container(width: 1, color: const Color(0xFFE1E6F0)),
-                  SizedBox(
-                    width: isDesktop ? 340 : 300,
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: _WorkbenchPlaceholderCard(
-                        removePadding: _desktopLive2dVisible,
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 220),
-                          switchInCurve: Curves.easeOutCubic,
-                          switchOutCurve: Curves.easeInCubic,
-                          child:
-                              _desktopLive2dVisible
-                                  ? AnimatedBuilder(
-                                    animation: _webviewHostController,
-                                    builder: (context, _) {
-                                      return _webviewHostController.mountedView
-                                          ? WebviewScreen(
-                                            key: ValueKey(
-                                              'webview-live2d-full-panel-${_webviewHostController.seed}',
-                                            ),
-                                            active: true,
-                                            embedded: true,
-                                          )
-                                          : const ColoredBox(color: Colors.white);
-                                    },
-                                  )
-                                  : SizedBox.expand(
-                                    key: const ValueKey('companion-only'),
-                                    child: companion,
-                                  ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ],
+              ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -1015,6 +1080,141 @@ class _WorkbenchEmptyState extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DesktopDragRegion extends StatelessWidget {
+  const _DesktopDragRegion({
+    required this.child,
+    this.enabled = true,
+  });
+
+  final Widget child;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!enabled || kIsWeb) {
+      return child;
+    }
+    return DragToMoveArea(child: child);
+  }
+}
+
+class _DesktopTitleBar extends StatefulWidget {
+  const _DesktopTitleBar();
+
+  @override
+  State<_DesktopTitleBar> createState() => _DesktopTitleBarState();
+}
+
+class _DesktopTitleBarState extends State<_DesktopTitleBar> {
+  bool _isMaximized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _initWindowState();
+  }
+
+  Future<void> _initWindowState() async {
+    if (kIsWeb) return;
+    final isMax = await windowManager.isMaximized();
+    if (mounted) {
+      setState(() => _isMaximized = isMax);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DragToMoveArea(
+      child: Container(
+        height: 36,
+        decoration: const BoxDecoration(
+          color: Color(0xFFEEF1F8),
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(14),
+            topRight: Radius.circular(14),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Row(
+          children: [
+            const Text(
+              'AliceChat',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF2D3443),
+              ),
+            ),
+            const Spacer(),
+            _WindowButton(
+              icon: Icons.remove,
+              onPressed: () => windowManager.minimize(),
+              hoverColor: const Color(0xFFE0E4EF),
+            ),
+            const SizedBox(width: 2),
+            _WindowButton(
+              icon: _isMaximized ? Icons.filter_none : Icons.crop_square,
+              onPressed: () async {
+                if (_isMaximized) {
+                  await windowManager.unmaximize();
+                } else {
+                  await windowManager.maximize();
+                }
+                final isMax = await windowManager.isMaximized();
+                if (mounted) {
+                  setState(() => _isMaximized = isMax);
+                }
+              },
+              hoverColor: const Color(0xFFE0E4EF),
+            ),
+            const SizedBox(width: 2),
+            _WindowButton(
+              icon: Icons.close,
+              onPressed: () => windowManager.close(),
+              hoverColor: Colors.red.shade400,
+              hoverIconColor: Colors.white,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WindowButton extends StatelessWidget {
+  const _WindowButton({
+    required this.icon,
+    required this.onPressed,
+    this.hoverColor = const Color(0xFFE0E4EF),
+    this.hoverIconColor,
+  });
+
+  final IconData icon;
+  final VoidCallback onPressed;
+  final Color hoverColor;
+  final Color? hoverIconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(6),
+        hoverColor: hoverColor,
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: Icon(
+            icon,
+            size: 16,
+            color: hoverIconColor ?? const Color(0xFF7B8496),
+          ),
         ),
       ),
     );
