@@ -379,6 +379,29 @@ class _MainScaffoldState extends State<_MainScaffold>
   }
 
 
+  void _setDesktopLive2dVisible(bool value, {required String reason}) {
+    if (_desktopLive2dVisible == value) {
+      _webviewHostController.setKeepAliveRequested(
+        value,
+        reason: 'desktopLive2dVisible',
+      );
+      _webviewHostController.refreshRetention(reason: reason);
+      return;
+    }
+    setState(() {
+      _desktopLive2dVisible = value;
+    });
+    _webviewHostController.setKeepAliveRequested(
+      value,
+      reason: 'desktopLive2dVisible',
+    );
+    _webviewHostController.refreshRetention(reason: reason);
+  }
+
+  void _toggleDesktopLive2d({required String reason}) {
+    _setDesktopLive2dVisible(!_desktopLive2dVisible, reason: reason);
+  }
+
   Future<void> _openCompanionWebview() async {
     _webviewHostController.setKeepAliveRequested(true, reason: 'companionIntent');
     await Navigator.of(context).push(
@@ -478,11 +501,7 @@ class _MainScaffoldState extends State<_MainScaffold>
       state: activeState,
       compact: !isDesktop,
       live2dVisible: _desktopLive2dVisible,
-      onOpenLive2d: () {
-        setState(() {
-          _desktopLive2dVisible = !_desktopLive2dVisible;
-        });
-      },
+      onOpenLive2d: () => _toggleDesktopLive2d(reason: 'companionPanelToggle'),
       onOpenMusic: () {
         setState(() => _currentIndex = 2);
       },
@@ -521,11 +540,8 @@ class _MainScaffoldState extends State<_MainScaffold>
                               }
                             });
                           },
-                          onToggleLive2d: () {
-                            setState(() {
-                              _desktopLive2dVisible = !_desktopLive2dVisible;
-                            });
-                          },
+                          onToggleLive2d: () =>
+                              _toggleDesktopLive2d(reason: 'navRailToggle'),
                         ),
                       ),
                       Container(width: 1, color: const Color(0xFFE1E6F0)),

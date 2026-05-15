@@ -16,11 +16,11 @@ class WebviewHostController extends ChangeNotifier {
   Timer? _disposeTimer;
   DateTime? _inactiveAt;
   DateTime? _appBackgroundAt;
-  bool _keepAliveRequested = false;
+  final Set<String> _keepAliveReasons = <String>{};
 
   bool get mountedView => _mounted;
   int get seed => _seed;
-  bool get isActive => _keepAliveRequested;
+  bool get isActive => _keepAliveReasons.isNotEmpty;
 
   void disposeController() {
     _disposeTimer?.cancel();
@@ -28,11 +28,12 @@ class WebviewHostController extends ChangeNotifier {
   }
 
   void setKeepAliveRequested(bool value, {required String reason}) {
-    if (_keepAliveRequested == value) {
+    final changed =
+        value ? _keepAliveReasons.add(reason) : _keepAliveReasons.remove(reason);
+    if (!changed) {
       refreshRetention(reason: reason);
       return;
     }
-    _keepAliveRequested = value;
     refreshRetention(reason: reason);
   }
 
@@ -52,7 +53,7 @@ class WebviewHostController extends ChangeNotifier {
   }
 
   void refreshRetention({required String reason}) {
-    if (_keepAliveRequested) {
+    if (_keepAliveReasons.isNotEmpty) {
       _disposeTimer?.cancel();
       _disposeTimer = null;
       _inactiveAt = null;
@@ -64,7 +65,7 @@ class WebviewHostController extends ChangeNotifier {
       unawaited(
         NativeDebugBridge.instance.log(
           'webviewHost',
-          'keepAlive reason=$reason seed=$_seed mounted=$_mounted active=$_keepAliveRequested',
+          'keepAlive reason=$reason seed=$_seed mounted=$_mounted active=$isActive reasons=${_keepAliveReasons.join(',')}',
         ),
       );
       return;
@@ -92,7 +93,7 @@ class WebviewHostController extends ChangeNotifier {
     unawaited(
       NativeDebugBridge.instance.log(
         'webviewHost',
-        'scheduleDispose reason=$reason remaining=${remaining.inSeconds}s mounted=$_mounted active=$_keepAliveRequested',
+        'scheduleDispose reason=$reason remaining=${remaining.inSeconds}s mounted=$_mounted active=$isActive reasons=${_keepAliveReasons.join(',')}',
       ),
     );
   }
