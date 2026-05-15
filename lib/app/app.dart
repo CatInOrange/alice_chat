@@ -548,78 +548,88 @@ class _MainScaffoldState extends State<_MainScaffold>
                       if (showSidebar) ...[
                         SizedBox(
                           width: 300,
-                          child: Column(
+                          child: Stack(
                             children: [
-                              _DesktopDragRegion(
-                                enabled: isDesktop,
-                                child: Padding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    18,
-                                    18,
-                                    18,
-                                    10,
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              _currentIndex == 0
-                                                  ? '消息'
-                                                  : _navTitle(_currentIndex),
-                                              style: theme.textTheme.titleLarge
-                                                  ?.copyWith(
-                                                    fontWeight: FontWeight.w800,
-                                                    color: const Color(0xFF2D3443),
-                                                  ),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              _currentIndex == 0
-                                                  ? '像微信桌面版一样利落，再加一点陪伴感。'
-                                                  : '保留统一功能，不做花哨分叉。',
-                                              style: theme
-                                                  .textTheme
-                                                  .bodySmall
-                                                  ?.copyWith(
-                                                    color: const Color(
-                                                      0xFF98A1B3,
-                                                    ),
-                                                    fontWeight:
-                                                        FontWeight.w600,
-                                                  ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
+                              Positioned.fill(
+                                child: _DesktopDragRegion(
+                                  enabled: isDesktop,
+                                  child: const SizedBox.expand(),
                                 ),
                               ),
-                              Expanded(
-                                child:
-                                    _currentIndex == 0
-                                        ? ContactsScreen(
-                                          contacts: _contacts,
-                                          onContactTap: _navigateToChat,
-                                          selectedContactId:
-                                              selectedContactId,
-                                          embedded: true,
-                                        )
-                                        : Padding(
-                                          padding: const EdgeInsets.fromLTRB(
-                                            12,
-                                            4,
-                                            12,
-                                            12,
+                              Column(
+                                children: [
+                                  _DesktopDragRegion(
+                                    enabled: isDesktop,
+                                    child: Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        18,
+                                        18,
+                                        18,
+                                        10,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  _currentIndex == 0
+                                                      ? '消息'
+                                                      : _navTitle(_currentIndex),
+                                                  style: theme.textTheme.titleLarge
+                                                      ?.copyWith(
+                                                        fontWeight: FontWeight.w800,
+                                                        color: const Color(0xFF2D3443),
+                                                      ),
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  _currentIndex == 0
+                                                      ? '像微信桌面版一样利落，再加一点陪伴感。'
+                                                      : '保留统一功能，不做花哨分叉。',
+                                                  style: theme
+                                                      .textTheme
+                                                      .bodySmall
+                                                      ?.copyWith(
+                                                        color: const Color(
+                                                          0xFF98A1B3,
+                                                        ),
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                ),
+                                              ],
+                                            ),
                                           ),
-                                          child: _WorkbenchPlaceholderCard(
-                                            child: _buildWorkbenchPage(),
-                                          ),
-                                        ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child:
+                                        _currentIndex == 0
+                                            ? ContactsScreen(
+                                              contacts: _contacts,
+                                              onContactTap: _navigateToChat,
+                                              selectedContactId:
+                                                  selectedContactId,
+                                              embedded: true,
+                                            )
+                                            : Padding(
+                                              padding: const EdgeInsets.fromLTRB(
+                                                12,
+                                                4,
+                                                12,
+                                                12,
+                                              ),
+                                              child: _WorkbenchPlaceholderCard(
+                                                child: _buildWorkbenchPage(),
+                                              ),
+                                            ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
@@ -627,22 +637,32 @@ class _MainScaffoldState extends State<_MainScaffold>
                         Container(width: 1, color: const Color(0xFFE1E6F0)),
                       ],
                       Expanded(
-                        child: Column(
+                        child: Stack(
                           children: [
-                            _DesktopDragRegion(
-                              enabled: isDesktop,
-                              child: const SizedBox(height: 12),
-                            ),
-                            Expanded(
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  12,
-                                  0,
-                                  12,
-                                  12,
-                                ),
-                                child: centerPane,
+                            Positioned.fill(
+                              child: _DesktopDragRegion(
+                                enabled: isDesktop,
+                                child: const SizedBox.expand(),
                               ),
+                            ),
+                            Column(
+                              children: [
+                                _DesktopDragRegion(
+                                  enabled: isDesktop,
+                                  child: const SizedBox(height: 12),
+                                ),
+                                Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      12,
+                                      0,
+                                      12,
+                                      12,
+                                    ),
+                                    child: centerPane,
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -651,57 +671,67 @@ class _MainScaffoldState extends State<_MainScaffold>
                         Container(width: 1, color: const Color(0xFFE1E6F0)),
                         SizedBox(
                           width: isDesktop ? 340 : 300,
-                          child: Column(
+                          child: Stack(
                             children: [
-                              _DesktopDragRegion(
-                                enabled: isDesktop,
-                                child: const SizedBox(height: 12),
+                              Positioned.fill(
+                                child: _DesktopDragRegion(
+                                  enabled: isDesktop,
+                                  child: const SizedBox.expand(),
+                                ),
                               ),
-                              Expanded(
-                                child: Padding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    12,
-                                    0,
-                                    12,
-                                    12,
+                              Column(
+                                children: [
+                                  _DesktopDragRegion(
+                                    enabled: isDesktop,
+                                    child: const SizedBox(height: 12),
                                   ),
-                                  child: _WorkbenchPlaceholderCard(
-                                    removePadding: _desktopLive2dVisible,
-                                    child: AnimatedSwitcher(
-                                      duration: const Duration(
-                                        milliseconds: 220,
+                                  Expanded(
+                                    child: Padding(
+                                      padding: const EdgeInsets.fromLTRB(
+                                        12,
+                                        0,
+                                        12,
+                                        12,
                                       ),
-                                      switchInCurve: Curves.easeOutCubic,
-                                      switchOutCurve: Curves.easeInCubic,
-                                      child:
-                                          _desktopLive2dVisible
-                                              ? AnimatedBuilder(
-                                                animation:
-                                                    _webviewHostController,
-                                                builder: (context, _) {
-                                                  return _webviewHostController
-                                                          .mountedView
-                                                      ? WebviewScreen(
-                                                        key: ValueKey(
-                                                          'webview-live2d-full-panel-${_webviewHostController.seed}',
-                                                        ),
-                                                        active: true,
-                                                        embedded: true,
-                                                      )
-                                                      : const ColoredBox(
-                                                        color: Colors.white,
-                                                      );
-                                                },
-                                              )
-                                              : SizedBox.expand(
-                                                key: const ValueKey(
-                                                  'companion-only',
-                                                ),
-                                                child: companion,
-                                              ),
+                                      child: _WorkbenchPlaceholderCard(
+                                        removePadding: _desktopLive2dVisible,
+                                        child: AnimatedSwitcher(
+                                          duration: const Duration(
+                                            milliseconds: 220,
+                                          ),
+                                          switchInCurve: Curves.easeOutCubic,
+                                          switchOutCurve: Curves.easeInCubic,
+                                          child:
+                                              _desktopLive2dVisible
+                                                  ? AnimatedBuilder(
+                                                    animation:
+                                                        _webviewHostController,
+                                                    builder: (context, _) {
+                                                      return _webviewHostController
+                                                              .mountedView
+                                                          ? WebviewScreen(
+                                                            key: ValueKey(
+                                                              'webview-live2d-full-panel-${_webviewHostController.seed}',
+                                                            ),
+                                                            active: true,
+                                                            embedded: true,
+                                                          )
+                                                          : const ColoredBox(
+                                                            color: Colors.white,
+                                                          );
+                                                    },
+                                                  )
+                                                  : SizedBox.expand(
+                                                    key: const ValueKey(
+                                                      'companion-only',
+                                                    ),
+                                                    child: companion,
+                                                  ),
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                ),
+                                ],
                               ),
                             ],
                           ),
