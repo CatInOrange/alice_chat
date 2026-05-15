@@ -17,6 +17,7 @@ import '../../chat/application/chat_session_store.dart';
 import '../../music/application/music_platform_store.dart';
 import '../../notifications/application/notification_service.dart';
 import '../../tavern/presentation/tavern_screen.dart';
+import '../../todo/presentation/todo_screen.dart';
 import 'debug_logs_panel.dart';
 import '../../../app/theme.dart';
 
@@ -555,6 +556,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   icon: Icons.admin_panel_settings_rounded,
                   accentColor: const Color(0xFFD97706),
                   builder: (context) => _buildServiceManagementContent(context),
+                ),
+          ),
+          const SizedBox(height: 12),
+          _SettingsEntryCard(
+            icon: Icons.dashboard_customize_rounded,
+            accentColor: const Color(0xFFB45309),
+            title: '项目管理',
+            subtitle: '统一管理待办项目：新建、编辑、归档与排序。',
+            onTap:
+                () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const TodoScreen(projectConfigOnly: true),
+                  ),
                 ),
           ),
           const SizedBox(height: 12),

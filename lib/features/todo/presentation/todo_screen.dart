@@ -9,9 +9,10 @@ import '../application/todo_store.dart';
 import '../domain/todo_models.dart';
 
 class TodoScreen extends StatefulWidget {
-  const TodoScreen({super.key, this.embedded = false});
+  const TodoScreen({super.key, this.embedded = false, this.projectConfigOnly = false});
 
   final bool embedded;
+  final bool projectConfigOnly;
 
   @override
   State<TodoScreen> createState() => _TodoScreenState();
@@ -47,6 +48,14 @@ class _TodoScreenState extends State<TodoScreen>
     final store = context.watch<TodoStore>();
     final theme = Theme.of(context);
 
+    if (widget.projectConfigOnly) {
+      return _ProjectManagementScreen(
+        onOpenProjectEditor: ({project}) => _openProjectEditor(project: project),
+        onOpenProjectSorter: _openProjectSorter,
+        onOpenArchivedProjects: _openArchivedProjects,
+      );
+    }
+
     if (store.isLoading && !store.isLoaded) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -80,7 +89,7 @@ class _TodoScreenState extends State<TodoScreen>
     final filterLabel = switch (_activeFilter) {
       _TaskFeedFilter.all => '全部',
       _TaskFeedFilter.today => '今天',
-      _TaskFeedFilter.upcoming => '接下来',
+      _TaskFeedFilter.upcoming => '未来',
     };
 
     final body = CustomScrollView(
@@ -213,11 +222,6 @@ class _TodoScreenState extends State<TodoScreen>
               icon: const Icon(Icons.inventory_2_outlined),
               tooltip: '已归档项目',
             ),
-          IconButton(
-            onPressed: () => _openProjectEditor(),
-            icon: const Icon(Icons.dashboard_customize_rounded),
-            tooltip: '管理项目',
-          ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: _AddTaskFab(onTap: () => _openEditor(), compact: true),
@@ -629,7 +633,7 @@ class _FilterChip extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(999),
       child: Ink(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
           color: selected ? const Color(0xFF7C4DFF) : Colors.white,
           borderRadius: BorderRadius.circular(999),
@@ -686,24 +690,24 @@ class _TaskToolbar extends StatelessWidget {
                 selected: activeFilter == _TaskFeedFilter.all,
                 onTap: () => onFilterChanged(_TaskFeedFilter.all),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               _FilterChip(
                 label: '今天',
                 selected: activeFilter == _TaskFeedFilter.today,
                 onTap: () => onFilterChanged(_TaskFeedFilter.today),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               _FilterChip(
-                label: '接下来',
+                label: '未来',
                 selected: activeFilter == _TaskFeedFilter.upcoming,
                 onTap: () => onFilterChanged(_TaskFeedFilter.upcoming),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               _CompactDropdown<String?>(
                 value: selectedProjectId,
                 hint: '项目',
                 items: [
-                  const DropdownMenuItem<String?>(value: null, child: Text('全部项目')),
+                  const DropdownMenuItem<String?>(value: null, child: Text('项目')),
                   ...projects.map(
                     (project) => DropdownMenuItem<String?>(
                       value: project.id,
@@ -713,14 +717,14 @@ class _TaskToolbar extends StatelessWidget {
                 ],
                 onChanged: onProjectChanged,
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               _CompactDropdown<_TaskSortMode>(
                 value: sortMode,
                 hint: '排序',
                 items: const [
-                  DropdownMenuItem(value: _TaskSortMode.smart, child: Text('智能排序')),
-                  DropdownMenuItem(value: _TaskSortMode.dueSoon, child: Text('最近到期')),
-                  DropdownMenuItem(value: _TaskSortMode.priority, child: Text('优先级')),
+                  DropdownMenuItem(value: _TaskSortMode.smart, child: Text('智能')),
+                  DropdownMenuItem(value: _TaskSortMode.dueSoon, child: Text('到期')),
+                  DropdownMenuItem(value: _TaskSortMode.priority, child: Text('优先')),
                 ],
                 onChanged: (value) {
                   if (value != null) onSortChanged(value);
@@ -750,7 +754,7 @@ class _CompactDropdown<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(999),
@@ -1235,6 +1239,137 @@ class _SubtaskLine extends StatelessWidget {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProjectManagementScreen extends StatelessWidget {
+  const _ProjectManagementScreen({
+    required this.onOpenProjectEditor,
+    required this.onOpenProjectSorter,
+    required this.onOpenArchivedProjects,
+  });
+
+  final Future<void> Function({TodoProject? project}) onOpenProjectEditor;
+  final Future<void> Function() onOpenProjectSorter;
+  final VoidCallback onOpenArchivedProjects;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<TodoStore>();
+    final projects = store.activeProjects;
+    final theme = Theme.of(context);
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF6F7FB),
+      appBar: AppBar(title: const Text('项目管理')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+        children: [
+          IgnorePointer(
+            child: _TodoHeroCard(
+              store: store,
+              message: '项目集中管，首页就能更轻。',
+              onOpenCompleted: () {},
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () => onOpenProjectEditor(),
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('新建项目'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              OutlinedButton.icon(
+                onPressed: projects.length > 1 ? onOpenProjectSorter : null,
+                icon: const Icon(Icons.swap_vert_rounded),
+                label: const Text('排序'),
+              ),
+              const SizedBox(width: 10),
+              OutlinedButton.icon(
+                onPressed: store.archivedProjects.isNotEmpty ? onOpenArchivedProjects : null,
+                icon: const Icon(Icons.inventory_2_outlined),
+                label: const Text('归档'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (projects.isEmpty)
+            const _EmptyCard(
+              title: '还没有项目',
+              subtitle: '先建一个项目，把待办分门别类收好。',
+            )
+          else
+            ...projects.asMap().entries.map((entry) {
+              final index = entry.key;
+              final project = entry.value;
+              final color = Color(project.colorValue);
+              return Padding(
+                padding: EdgeInsets.only(bottom: index == projects.length - 1 ? 0 : 12),
+                child: Material(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(22),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(22),
+                    onTap: () => onOpenProjectEditor(project: project),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 42,
+                            height: 42,
+                            decoration: BoxDecoration(
+                              color: color.withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Icon(
+                              _projectIconFromCodePoint(project.iconCodePoint),
+                              color: color,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  project.name,
+                                  style: theme.textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                if (project.description.isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    project.description,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: const Color(0xFF7B8496),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const Icon(
+                            Icons.chevron_right_rounded,
+                            color: Color(0xFF98A2B3),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }),
         ],
       ),
     );

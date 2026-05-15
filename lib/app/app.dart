@@ -486,7 +486,7 @@ class _MainScaffoldState extends State<_MainScaffold>
         setState(() => _currentIndex = 2);
       },
     );
-    final showSidebar = _currentIndex != 2 && _currentIndex != 3;
+    final showSidebar = _currentIndex == 0;
     final centerPane = _buildCenterPane(activeState);
 
     return Scaffold(
@@ -638,6 +638,15 @@ class _MainScaffoldState extends State<_MainScaffold>
   }
 
   Widget _buildCenterPane(ChatViewState? activeState) {
+    if (_currentIndex == 1) {
+      return _WorkbenchPlaceholderCard(
+        removePadding: true,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(26),
+          child: const TodoScreen(embedded: true),
+        ),
+      );
+    }
     if (_currentIndex == 2) {
       return const MusicScreen();
     }
@@ -681,7 +690,7 @@ class _MainScaffoldState extends State<_MainScaffold>
   Widget _buildWorkbenchPage() {
     switch (_currentIndex) {
       case 1:
-        return const TodoScreen(embedded: true);
+        return const SizedBox.shrink();
       case 2:
         return const MusicScreen();
       case 3:
