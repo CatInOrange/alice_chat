@@ -1057,63 +1057,72 @@ class _TaskExpandedBody extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final color = Color(project.colorValue);
+    final metaItems = <Widget>[
+      _ExpandedMetaItem(
+        icon: Icons.folder_open_rounded,
+        label: project.name,
+        color: color,
+      ),
+      if (task.dueAt != null)
+        _ExpandedMetaItem(
+          icon: dueTone != null ? Icons.timelapse_rounded : Icons.schedule_rounded,
+          label: dueTone?.label ?? _formatDue(task.dueAt!),
+          color: dueTone?.color ?? const Color(0xFF98A1B3),
+          emphasized: dueTone != null,
+        ),
+      if (task.reminderAt != null)
+        const _ExpandedMetaItem(
+          icon: Icons.notifications_active_outlined,
+          label: '已提醒',
+          color: Color(0xFF7B6CF6),
+        ),
+      _ExpandedMetaItem(
+        icon: _priorityIcon(task.priority),
+        label: _priorityLabel(task.priority),
+        color: _priorityColor(task.priority),
+        emphasized: task.priority == TodoPriority.high ||
+            task.priority == TodoPriority.urgent,
+      ),
+    ];
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        const Divider(height: 1, color: Color(0xFFF0F2F7)),
+        const SizedBox(height: 10),
         if (task.description.trim().isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: Text(
               task.description.trim(),
               style: theme.textTheme.bodySmall?.copyWith(
-                color: const Color(0xFF5F687A),
-                height: 1.45,
+                color: const Color(0xFF667085),
+                height: 1.5,
               ),
             ),
           ),
         Wrap(
-          spacing: 8,
+          spacing: 12,
           runSpacing: 8,
-          children: [
-            _MiniPill(
-              label: project.name,
-              color: color,
-              filled: true,
-              icon: Icons.folder_open_rounded,
-            ),
-            if (task.dueAt != null)
-              _MiniPill(
-                label: dueTone?.label ?? _formatDue(task.dueAt!),
-                color: dueTone?.color ?? const Color(0xFF98A1B3),
-                filled: dueTone != null,
-                icon: dueTone != null
-                    ? Icons.timelapse_rounded
-                    : Icons.schedule_rounded,
-              ),
-            if (task.reminderAt != null)
-              const _MiniPill(
-                label: '已提醒',
-                color: Color(0xFF7B6CF6),
-                icon: Icons.notifications_active_outlined,
-              ),
-            _MiniPill(
-              label: _priorityLabel(task.priority),
-              color: _priorityColor(task.priority),
-              icon: _priorityIcon(task.priority),
-              compact: true,
-              filled: task.priority == TodoPriority.high ||
-                  task.priority == TodoPriority.urgent,
-            ),
-          ],
+          children: metaItems,
         ),
         if (task.subtaskCount > 0) ...[
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
+          Text(
+            '子任务',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: const Color(0xFF8B93A6),
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.2,
+            ),
+          ),
+          const SizedBox(height: 8),
           FutureBuilder<List<TodoSubtask>>(
             future: subtasksFuture,
             builder: (context, snapshot) {
               if (!snapshot.hasData) {
                 return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 4),
+                  padding: EdgeInsets.symmetric(vertical: 6),
                   child: SizedBox(
                     width: 18,
                     height: 18,
@@ -1126,52 +1135,19 @@ class _TaskExpandedBody extends StatelessWidget {
                 return Text(
                   '还没有子任务内容',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF8F99AD),
+                    color: const Color(0xFF98A2B3),
                   ),
                 );
               }
-              return Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF7F6FF),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Column(
-                  children: subtasks
-                      .map(
-                        (item) => Padding(
-                          padding: EdgeInsets.only(
-                            bottom: item == subtasks.last ? 0 : 8,
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                item.isCompleted
-                                    ? Icons.check_circle_rounded
-                                    : Icons.radio_button_unchecked_rounded,
-                                size: 16,
-                                color: item.isCompleted
-                                    ? const Color(0xFF7C4DFF)
-                                    : const Color(0xFFB0B7C6),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  item.title,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: const Color(0xFF5F687A),
-                                    decoration: item.isCompleted
-                                        ? TextDecoration.lineThrough
-                                        : null,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                      .toList(growable: false),
-                ),
+              return Column(
+                children: subtasks
+                    .map(
+                      (item) => _SubtaskLine(
+                        item: item,
+                        isLast: item == subtasks.last,
+                      ),
+                    )
+                    .toList(growable: false),
               );
             },
           ),
@@ -1181,47 +1157,82 @@ class _TaskExpandedBody extends StatelessWidget {
   }
 }
 
-class _MiniPill extends StatelessWidget {
-  const _MiniPill({
+class _ExpandedMetaItem extends StatelessWidget {
+  const _ExpandedMetaItem({
+    required this.icon,
     required this.label,
     required this.color,
-    this.filled = false,
-    this.icon,
-    this.compact = false,
+    this.emphasized = false,
   });
 
+  final IconData icon;
   final String label;
   final Color color;
-  final bool filled;
-  final IconData? icon;
-  final bool compact;
+  final bool emphasized;
 
   @override
   Widget build(BuildContext context) {
-    final foreground = filled ? color : const Color(0xFF7B8496);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: emphasized ? color : const Color(0xFF98A2B3)),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: emphasized ? color : const Color(0xFF667085),
+            fontWeight: emphasized ? FontWeight.w700 : FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SubtaskLine extends StatelessWidget {
+  const _SubtaskLine({required this.item, required this.isLast});
+
+  final TodoSubtask item;
+  final bool isLast;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 8 : 10,
-        vertical: compact ? 4 : 6,
-      ),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
-        color: filled ? color.withValues(alpha: 0.14) : const Color(0xFFF4F6FB),
-        border: filled ? Border.all(color: color.withValues(alpha: 0.10)) : null,
-        borderRadius: BorderRadius.circular(999),
+        border: isLast
+            ? null
+            : const Border(
+                bottom: BorderSide(color: Color(0xFFF2F4F7)),
+              ),
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (icon != null) ...[
-            Icon(icon, size: compact ? 11 : 13, color: foreground),
-            SizedBox(width: compact ? 4 : 5),
-          ],
-          Text(
-            label,
-            style: TextStyle(
-              color: foreground,
-              fontSize: desktopAdjustedFontSize(compact ? 10 : 11),
-              fontWeight: FontWeight.w700,
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Icon(
+              item.isCompleted
+                  ? Icons.check_circle_rounded
+                  : Icons.radio_button_unchecked_rounded,
+              size: 15,
+              color: item.isCompleted
+                  ? const Color(0xFF7C4DFF)
+                  : const Color(0xFFB0B7C6),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              item.title,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: item.isCompleted
+                    ? const Color(0xFF98A2B3)
+                    : const Color(0xFF475467),
+                height: 1.4,
+                decoration: item.isCompleted ? TextDecoration.lineThrough : null,
+              ),
             ),
           ),
         ],
