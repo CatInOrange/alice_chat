@@ -17,15 +17,17 @@ String? _desktopMonospaceFontFamily() {
 }
 
 double desktopAdjustedFontSize(double size) {
-  if (Platform.isWindows && size <= 14) {
-    return size + 1;
+  if (Platform.isWindows) {
+    final adjusted = size <= 14 ? size + 1 : size;
+    return adjusted.roundToDouble();
   }
   return size;
 }
 
 double desktopContentFontSize(double size) {
-  if (Platform.isWindows && size <= 16) {
-    return size + 1;
+  if (Platform.isWindows) {
+    final adjusted = size <= 16 ? size + 1 : size;
+    return adjusted.roundToDouble();
   }
   return size;
 }
