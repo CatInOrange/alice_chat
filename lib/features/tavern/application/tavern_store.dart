@@ -364,6 +364,33 @@ class TavernStore extends ChangeNotifier {
     return _repository.listChatMessages(chatId, limit: limit);
   }
 
+  Future<TavernMessageDeleteResult> deleteMessagesFrom({
+    required String chatId,
+    required String messageId,
+  }) async {
+    final result = await _repository.deleteMessagesFrom(
+      chatId: chatId,
+      messageId: messageId,
+    );
+    final snapshot = _chatSnapshots[chatId];
+    if (snapshot != null && snapshot.character != null) {
+      unawaited(
+        saveChatSnapshot(
+          chat: result.chat,
+          character: snapshot.character!,
+          messages: result.messages,
+          promptDebug: result.promptDebug ?? snapshot.promptDebug,
+        ),
+      );
+    }
+    _recentChats = [
+      result.chat,
+      ..._recentChats.where((item) => item.id != result.chat.id),
+    ];
+    notifyListeners();
+    return result;
+  }
+
   Future<void> deleteChat(String chatId) async {
     await _repository.deleteChat(chatId);
     _recentChats = _recentChats

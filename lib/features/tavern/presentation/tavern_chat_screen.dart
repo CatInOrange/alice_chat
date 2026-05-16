@@ -1057,78 +1057,85 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                     (hasStreamingAssistant ? 1 : 0)];
         final isUser = message.role == 'user';
         final bubbleMaxWidth = MediaQuery.of(context).size.width * 0.72;
-        final bubble = ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: bubbleMaxWidth < 560 ? bubbleMaxWidth : 560,
-          ),
-          child: Container(
-            decoration: BoxDecoration(
-              color: isUser ? const Color(0xFF7C4DFF) : Colors.white,
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(20),
-                topRight: const Radius.circular(20),
-                bottomLeft: Radius.circular(isUser ? 20 : 8),
-                bottomRight: Radius.circular(isUser ? 8 : 20),
-              ),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x081F2430),
-                  blurRadius: 10,
-                  offset: Offset(0, 3),
-                ),
-              ],
+        final bubble = GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onLongPress:
+              _canDeleteMessage(message)
+                  ? () => _confirmDeleteFromMessage(message)
+                  : null,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: bubbleMaxWidth < 560 ? bubbleMaxWidth : 560,
             ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-              child: Column(
-                crossAxisAlignment:
-                    isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    isUser ? '你' : _character.name,
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color:
-                          isUser
-                              ? Colors.white.withValues(alpha: 0.88)
-                              : const Color(0xFF98A1B3),
-                      fontWeight: FontWeight.w600,
-                    ),
+            child: Container(
+              decoration: BoxDecoration(
+                color: isUser ? const Color(0xFF7C4DFF) : Colors.white,
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(20),
+                  topRight: const Radius.circular(20),
+                  bottomLeft: Radius.circular(isUser ? 20 : 8),
+                  bottomRight: Radius.circular(isUser ? 8 : 20),
+                ),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x081F2430),
+                    blurRadius: 10,
+                    offset: Offset(0, 3),
                   ),
-                  const SizedBox(height: 6),
-                  if (!isUser && message.thought.trim().isNotEmpty) ...[
-                    _buildThoughtBlock(message),
-                    const SizedBox(height: 8),
-                  ],
-                  _buildMessageContent(message.content, isUser: isUser),
-                  if (message.createdAt != null ||
-                      (message.metadata['requestId'] ?? '')
-                          .toString()
-                          .isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Wrap(
-                      alignment: WrapAlignment.end,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: [
-                        if ((message.metadata['requestId'] ?? '')
-                            .toString()
-                            .isNotEmpty)
-                          _messageMetaPill(
-                            isUser: isUser,
-                            icon: Icons.link_outlined,
-                            label: 'Req',
-                          ),
-                        if (message.createdAt != null)
-                          _messageMetaPill(
-                            isUser: isUser,
-                            icon: Icons.schedule_outlined,
-                            label: _formatMessageTime(message.createdAt!),
-                          ),
-                      ],
-                    ),
-                  ],
                 ],
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+                child: Column(
+                  crossAxisAlignment:
+                      isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isUser ? '你' : _character.name,
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color:
+                            isUser
+                                ? Colors.white.withValues(alpha: 0.88)
+                                : const Color(0xFF98A1B3),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    if (!isUser && message.thought.trim().isNotEmpty) ...[
+                      _buildThoughtBlock(message),
+                      const SizedBox(height: 8),
+                    ],
+                    _buildMessageContent(message.content, isUser: isUser),
+                    if (message.createdAt != null ||
+                        (message.metadata['requestId'] ?? '')
+                            .toString()
+                            .isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        alignment: WrapAlignment.end,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: [
+                          if ((message.metadata['requestId'] ?? '')
+                              .toString()
+                              .isNotEmpty)
+                            _messageMetaPill(
+                              isUser: isUser,
+                              icon: Icons.link_outlined,
+                              label: 'Req',
+                            ),
+                          if (message.createdAt != null)
+                            _messageMetaPill(
+                              isUser: isUser,
+                              icon: Icons.schedule_outlined,
+                              label: _formatMessageTime(message.createdAt!),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -2465,6 +2472,76 @@ $trimmed
       messages: _messages,
       promptDebug: _latestPromptDebug,
     );
+  }
+
+  bool _canDeleteMessage(TavernMessage message) {
+    final id = message.id.trim();
+    if (id.isEmpty) return false;
+    if (id.startsWith('local_')) return false;
+    if (id.startsWith('stream_assistant_')) return false;
+    return true;
+  }
+
+  Future<void> _confirmDeleteFromMessage(TavernMessage message) async {
+    if (_isSending) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('当前正在生成回复，请稍后再删。')));
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final isUser = message.role == 'user';
+        return AlertDialog(
+          title: const Text('删除并回到这里？'),
+          content: Text(
+            isUser
+                ? '会删除这条用户消息，以及它后面的所有对话。'
+                : '会删除这条 AI 回复，以及它后面的所有对话。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('删除'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      final result = await context.read<TavernStore>().deleteMessagesFrom(
+        chatId: _chat.id,
+        messageId: message.id,
+      );
+      if (!mounted) return;
+      setState(() {
+        _chat = result.chat;
+        _messages = result.messages;
+        _streamingAssistantMessage = null;
+        _streamingAssistantMessageId = null;
+      });
+      if (result.promptDebug != null) {
+        _latestPromptDebugNotifier.value = result.promptDebug;
+      }
+      await _persistSnapshot();
+      _scrollToBottom(animated: false, force: true);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已删除 ${result.deletedCount} 条消息')),
+      );
+    } catch (exc) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('删除消息失败：$exc')));
+    }
   }
 
   Future<void> _refreshChatMetaOnly() async {

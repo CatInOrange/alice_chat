@@ -252,6 +252,36 @@ class TavernService:
     def list_chat_messages(self, chat_id: str, *, limit: int | None = None) -> list[dict[str, Any]]:
         return self.store.list_chat_messages(chat_id, limit=limit)
 
+    def delete_messages_from(self, chat_id: str, message_id: str) -> dict[str, Any] | None:
+        chat = self.store.get_chat(chat_id)
+        if chat is None:
+            return None
+        deleted_messages = self.store.delete_messages_from(chat_id, message_id)
+        if not deleted_messages:
+            return None
+        deleted_ids = {
+            str(item.get('id') or '').strip()
+            for item in deleted_messages
+            if str(item.get('id') or '').strip()
+        }
+        metadata = dict(chat.get('metadata') or {}) if isinstance(chat.get('metadata'), dict) else {}
+        scene_image = metadata.get('sceneImage') if isinstance(metadata.get('sceneImage'), dict) else None
+        source_message_id = str((scene_image or {}).get('sourceMessageId') or '').strip()
+        if source_message_id and source_message_id in deleted_ids:
+            metadata.pop('sceneImage', None)
+            chat = self.store.update_chat(chat_id, {'metadata': metadata}) or chat
+        self.rebuild_and_save_latest_prompt_debug(chat_id)
+        refreshed_chat = self.store.get_chat(chat_id) or chat
+        messages = self.store.list_chat_messages(chat_id)
+        prompt_debug = self.build_prompt_debug(chat_id)
+        return {
+            'chat': refreshed_chat,
+            'messages': messages,
+            'promptDebug': prompt_debug,
+            'deletedCount': len(deleted_messages),
+            'deletedMessageIds': sorted(deleted_ids),
+        }
+
     def get_scene_image(self, chat_id: str) -> dict[str, Any]:
         chat = self.store.get_chat(chat_id)
         if chat is None:

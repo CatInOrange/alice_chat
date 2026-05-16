@@ -226,6 +226,20 @@ class TavernMessage {
   }
 }
 
+class TavernMessageDeleteResult {
+  const TavernMessageDeleteResult({
+    required this.chat,
+    required this.messages,
+    required this.deletedCount,
+    this.promptDebug,
+  });
+
+  final TavernChat chat;
+  final List<TavernMessage> messages;
+  final int deletedCount;
+  final TavernPromptDebug? promptDebug;
+}
+
 class TavernPreset {
   const TavernPreset({
     required this.id,

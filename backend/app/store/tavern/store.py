@@ -1070,6 +1070,45 @@ class TavernStore:
                 ).fetchall()
             return [self._row_to_message(row) for row in rows]
 
+    def delete_messages_from(self, chat_id: str, message_id: str) -> list[dict[str, Any]]:
+        self.ensure_schema()
+        target_chat_id = str(chat_id or '').strip()
+        target_message_id = str(message_id or '').strip()
+        if not target_chat_id or not target_message_id:
+            return []
+        with connect(self.db) as conn:
+            rows = conn.execute(
+                "SELECT * FROM tavern_messages WHERE chat_id=? ORDER BY created_at ASC, id ASC",
+                (target_chat_id,),
+            ).fetchall()
+            messages = [self._row_to_message(row) for row in rows]
+            anchor_index = next(
+                (
+                    index
+                    for index, item in enumerate(messages)
+                    if str(item.get('id') or '').strip() == target_message_id
+                ),
+                -1,
+            )
+            if anchor_index < 0:
+                return []
+            deleted_messages = messages[anchor_index:]
+            deleted_ids = [
+                str(item.get('id') or '').strip()
+                for item in deleted_messages
+                if str(item.get('id') or '').strip()
+            ]
+            if not deleted_ids:
+                return []
+            placeholders = ','.join('?' for _ in deleted_ids)
+            conn.execute(
+                f"DELETE FROM tavern_messages WHERE chat_id=? AND id IN ({placeholders})",
+                (target_chat_id, *deleted_ids),
+            )
+            conn.execute("UPDATE tavern_chats SET updated_at=? WHERE id=?", (_now(), target_chat_id))
+            conn.commit()
+            return deleted_messages
+
     def replace_message_metadata(self, message_id: str, metadata: dict[str, Any] | None) -> dict[str, Any] | None:
         self.ensure_schema()
         with connect(self.db) as conn:

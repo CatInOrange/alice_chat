@@ -147,6 +147,34 @@ class TavernRepository {
         .toList(growable: false);
   }
 
+  Future<TavernMessageDeleteResult> deleteMessagesFrom({
+    required String chatId,
+    required String messageId,
+  }) async {
+    final config = await OpenClawSettingsStore.load();
+    final client = OpenClawHttpClient(config);
+    final response = await client.deleteJson(
+      '/api/tavern/chats/$chatId/messages/$messageId',
+    );
+    final list = (response['messages'] as List?) ?? const <dynamic>[];
+    final rawPromptDebug = response['promptDebug'];
+    return TavernMessageDeleteResult(
+      chat: TavernChat.fromJson(
+        Map<String, dynamic>.from(response['chat'] as Map),
+      ),
+      messages: list
+          .whereType<Map>()
+          .map((item) => TavernMessage.fromJson(Map<String, dynamic>.from(item)))
+          .toList(growable: false),
+      deletedCount: (response['deletedCount'] as num?)?.toInt() ?? 0,
+      promptDebug: rawPromptDebug is Map
+          ? TavernPromptDebug.fromJson(
+              Map<String, dynamic>.from(rawPromptDebug.cast<String, dynamic>()),
+            )
+          : null,
+    );
+  }
+
   Future<Map<String, dynamic>> getSceneImage(String chatId) async {
     final response = await _getJson('/api/tavern/chats/$chatId/image');
     return Map<String, dynamic>.from(response);

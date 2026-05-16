@@ -302,6 +302,20 @@ def create_tavern_router(context: AppContext) -> APIRouter:
     async def list_chat_messages(chat_id: str, limit: int | None = Query(default=None, ge=1, le=200)):
         return {'ok': True, 'messages': service.list_chat_messages(chat_id, limit=limit)}
 
+    @router.delete('/api/tavern/chats/{chat_id}/messages/{message_id}')
+    async def delete_chat_messages_from(chat_id: str, message_id: str):
+        result = service.delete_messages_from(chat_id, message_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail='message not found')
+        return {
+            'ok': True,
+            'chat': result['chat'],
+            'messages': result['messages'],
+            'promptDebug': result['promptDebug'],
+            'deletedCount': result['deletedCount'],
+            'deletedMessageIds': result['deletedMessageIds'],
+        }
+
     @router.get('/api/tavern/chats/{chat_id}/image')
     async def get_chat_scene_image(chat_id: str):
         try:
