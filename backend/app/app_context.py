@@ -6,7 +6,7 @@ from pathlib import Path
 from .config import load_config
 from .services import ChatService, EventsBus, MusicService, PushService, RequestDeduper
 from .services.tavern import TavernService, TavernStreamingService
-from .store import MessageStore, MusicStore, PushDeviceStore, SessionStore
+from .store import MessageStore, MusicStore, PushDeviceStore, SessionStore, TodoStore
 from .store.tavern import TavernStore
 
 
@@ -20,6 +20,7 @@ class AppContext:
     music_service: MusicService
     request_deduper: RequestDeduper
     push_device_store: PushDeviceStore
+    todo_store: TodoStore
     push_service: PushService
     tavern_store: TavernStore
     tavern_service: TavernService
@@ -37,6 +38,7 @@ def create_app_context(*, uploads_dir: Path) -> AppContext:
     music_service = MusicService(store=music_store, config=load_config())
     request_deduper = RequestDeduper()
     push_device_store = PushDeviceStore()
+    todo_store = TodoStore()
     tavern_store = TavernStore()
     tavern_service = TavernService(store=tavern_store, uploads_dir=uploads_dir)
     tavern_streaming_service = TavernStreamingService(tavern_service)
@@ -53,6 +55,7 @@ def create_app_context(*, uploads_dir: Path) -> AppContext:
         music_service=music_service,
         request_deduper=request_deduper,
         push_device_store=push_device_store,
+        todo_store=todo_store,
         push_service=PushService(push_device_store, load_config()),
         tavern_store=tavern_store,
         tavern_service=tavern_service,

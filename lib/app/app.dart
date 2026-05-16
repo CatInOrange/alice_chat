@@ -163,6 +163,7 @@ class _MainScaffoldState extends State<_MainScaffold>
     if (state == AppLifecycleState.resumed) {
       unawaited(_consumePendingNotificationOpen(source: 'resumed'));
       unawaited(context.read<ChatSessionStore>().handleAppResumed());
+      unawaited(context.read<TodoStore>().refreshFromRemote(force: true));
     }
   }
 

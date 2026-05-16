@@ -46,6 +46,11 @@ class TodoLocalStore {
     await _replaceAll(db, snapshot);
   }
 
+  Future<void> replaceSnapshot(TodoSnapshot snapshot) async {
+    final db = await _openDatabase();
+    await _replaceAll(db, snapshot);
+  }
+
   Future<void> upsertTask(TodoTask task) async {
     final db = await _openDatabase();
     await db.insert(

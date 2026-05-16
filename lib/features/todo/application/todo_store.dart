@@ -1,20 +1,35 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../../core/debug/native_debug_bridge.dart';
+import '../../../core/openclaw/openclaw_http_client.dart';
+import '../../../core/openclaw/openclaw_settings.dart';
 import '../data/todo_local_store.dart';
 import '../domain/todo_models.dart';
 
 class TodoStore extends ChangeNotifier {
   TodoStore({TodoLocalStore? localStore})
-    : _localStore = localStore ?? TodoLocalStore();
+    : _localStore = localStore ?? TodoLocalStore() {
+    _configReady = _reloadConfig();
+  }
 
   final TodoLocalStore _localStore;
+  static const Uuid _uuid = Uuid();
+  final String _clientInstanceId = _uuid.v4();
+  OpenClawHttpClient? _client;
+  StreamSubscription<Map<String, dynamic>>? _eventsSub;
+  late Future<void> _configReady;
 
   bool _loaded = false;
   bool _loading = false;
   String? _error;
   List<TodoProject> _projects = const [];
   List<TodoTask> _tasks = const [];
+  int _lastRemoteRevision = 0;
+  bool _isRefreshingRemote = false;
+  bool _isPushingRemote = false;
 
   bool get isLoaded => _loaded;
   bool get isLoading => _loading;
@@ -35,16 +50,31 @@ class TodoStore extends ChangeNotifier {
     _loading = true;
     notifyListeners();
     try {
-      final snapshot = await _localStore.load();
-      if (snapshot == null) {
-        final seeded = _seedSnapshot();
-        await _localStore.seedIfEmpty(seeded);
-        _projects = seeded.projects;
-        _tasks = seeded.tasks;
+      await _configReady;
+      final localSnapshot = await _loadOrSeedLocalSnapshot();
+      TodoSnapshot? remoteSnapshot;
+      try {
+        remoteSnapshot = await _loadRemoteSnapshot();
+      } catch (error) {
+        await NativeDebugBridge.instance.log(
+          'todo',
+          'ensureLoaded remote fetch failed error=$error',
+          level: 'WARN',
+        );
+      }
+      if (remoteSnapshot != null) {
+        await _applySnapshot(remoteSnapshot, replaceLocal: true);
       } else {
-        _projects = snapshot.projects.toList(growable: false)
-          ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
-        _tasks = snapshot.tasks.toList(growable: false)..sort(_taskSort);
+        await _applySnapshot(localSnapshot, replaceLocal: false);
+        try {
+          await _pushSnapshotToRemoteIfEnabled(localSnapshot);
+        } catch (error) {
+          await NativeDebugBridge.instance.log(
+            'todo',
+            'ensureLoaded remote seed push failed error=$error',
+            level: 'WARN',
+          );
+        }
       }
       _error = null;
       _loaded = true;
@@ -58,6 +88,32 @@ class TodoStore extends ChangeNotifier {
     } finally {
       _loading = false;
       notifyListeners();
+    }
+  }
+
+  Future<void> refreshFromRemote({bool force = false}) async {
+    await _configReady;
+    if (_client == null) return;
+    if (!_loaded && !force) return;
+    if (_isRefreshingRemote) return;
+    _isRefreshingRemote = true;
+    try {
+      final snapshot = await _loadRemoteSnapshot();
+      if (snapshot == null) return;
+      await _applySnapshot(snapshot, replaceLocal: true);
+      if (!_loaded) {
+        _loaded = true;
+      }
+      _error = null;
+      notifyListeners();
+    } catch (error) {
+      await NativeDebugBridge.instance.log(
+        'todo',
+        'refreshFromRemote failed error=$error',
+        level: 'WARN',
+      );
+    } finally {
+      _isRefreshingRemote = false;
     }
   }
 
@@ -133,7 +189,7 @@ class TodoStore extends ChangeNotifier {
     _projects = mutable.toList(growable: false)
       ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
     notifyListeners();
-    await _localStore.upsertProject(_projects[index]);
+    await _persistSnapshot();
   }
 
   int get totalPendingCount => _tasks.where((item) => !item.isDone).length;
@@ -157,7 +213,7 @@ class TodoStore extends ChangeNotifier {
     mutable.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
     _projects = mutable.toList(growable: false);
     notifyListeners();
-    await _localStore.upsertProject(normalized);
+    await _persistSnapshot();
   }
 
   Future<void> reorderProjects(int oldIndex, int newIndex) async {
@@ -179,7 +235,7 @@ class TodoStore extends ChangeNotifier {
         )
         .toList(growable: false);
     notifyListeners();
-    await _localStore.replaceProjectOrders(_projects);
+    await _persistSnapshot();
   }
 
   Future<void> toggleTask(String taskId, bool value) async {
@@ -194,22 +250,22 @@ class TodoStore extends ChangeNotifier {
       );
     }).toList(growable: false);
     notifyListeners();
-    final updatedTask = _tasks.firstWhere((item) => item.id == taskId);
-    await _localStore.upsertTask(updatedTask);
     final subtasks = await _localStore.listSubtasks(taskId);
-    if (subtasks.isEmpty) return;
-    final normalized = subtasks
-        .asMap()
-        .entries
-        .map(
-          (entry) => entry.value.copyWith(
-            isCompleted: value,
-            sortOrder: entry.key,
-            updatedAt: now,
-          ),
-        )
-        .toList(growable: false);
-    await _localStore.replaceSubtasks(taskId, normalized);
+    if (subtasks.isNotEmpty) {
+      final normalized = subtasks
+          .asMap()
+          .entries
+          .map(
+            (entry) => entry.value.copyWith(
+              isCompleted: value,
+              sortOrder: entry.key,
+              updatedAt: now,
+            ),
+          )
+          .toList(growable: false);
+      await _localStore.replaceSubtasks(taskId, normalized);
+    }
+    await _persistSnapshot();
   }
 
   Future<void> saveTask(
@@ -264,16 +320,17 @@ class TodoStore extends ChangeNotifier {
     }
     _tasks = mutable.toList(growable: false)..sort(_taskSort);
     notifyListeners();
-    await _localStore.upsertTask(normalized);
     if (normalizedSubtasks != null) {
       await _localStore.replaceSubtasks(task.id, normalizedSubtasks);
     }
+    await _persistSnapshot();
   }
 
   Future<void> deleteTask(String taskId) async {
     _tasks = _tasks.where((item) => item.id != taskId).toList(growable: false);
     notifyListeners();
     await _localStore.deleteTask(taskId);
+    await _persistSnapshot();
   }
 
   Future<void> replaceSubtasks(
@@ -319,9 +376,142 @@ class TodoStore extends ChangeNotifier {
         }).toList(growable: false)
           ..sort(_taskSort);
     notifyListeners();
-    final updatedTask = _tasks.firstWhere((item) => item.id == taskId);
-    await _localStore.upsertTask(updatedTask);
     await _localStore.replaceSubtasks(taskId, normalizedSubtasks);
+    await _persistSnapshot();
+  }
+
+  Future<void> _reloadConfig() async {
+    final config = await OpenClawSettingsStore.load();
+    final baseUrl = config.baseUrl.trim();
+    if (baseUrl.isEmpty) {
+      _client = null;
+      await _eventsSub?.cancel();
+      _eventsSub = null;
+      return;
+    }
+    _client = OpenClawHttpClient(config);
+    await _eventsSub?.cancel();
+    _eventsSub = _client!.subscribeEvents().listen(
+      _handleBackendEvent,
+      onError: (Object error, StackTrace stackTrace) async {
+        await NativeDebugBridge.instance.log(
+          'todo',
+          'events failed error=$error',
+          level: 'WARN',
+        );
+      },
+    );
+  }
+
+  Future<TodoSnapshot> _loadOrSeedLocalSnapshot() async {
+    final snapshot = await _localStore.load();
+    if (snapshot != null) {
+      return snapshot;
+    }
+    final seeded = _seedSnapshot();
+    await _localStore.seedIfEmpty(seeded);
+    return seeded;
+  }
+
+  Future<TodoSnapshot?> _loadRemoteSnapshot() async {
+    final client = _client;
+    if (client == null) return null;
+    final payload = await client.getJson('/api/todo');
+    final exists = payload['exists'] == true;
+    final snapshotPayload = payload['snapshot'];
+    final revisionValue = payload['revision'];
+    if (revisionValue is num) {
+      _lastRemoteRevision = revisionValue.toInt();
+    }
+    if (!exists || snapshotPayload is! Map) {
+      return null;
+    }
+    return TodoSnapshot.fromJson(
+      Map<String, dynamic>.from(snapshotPayload.cast<String, dynamic>()),
+    );
+  }
+
+  Future<void> _pushSnapshotToRemoteIfEnabled(TodoSnapshot snapshot) async {
+    final client = _client;
+    if (client == null) return;
+    if (_isPushingRemote) return;
+    _isPushingRemote = true;
+    try {
+      final payload = await client.putJson('/api/todo', {
+        'snapshot': snapshot.toJson(),
+        'clientInstanceId': _clientInstanceId,
+      });
+      final revisionValue = payload['revision'];
+      if (revisionValue is num) {
+        _lastRemoteRevision = revisionValue.toInt();
+      }
+    } finally {
+      _isPushingRemote = false;
+    }
+  }
+
+  Future<void> _persistSnapshot() async {
+    final snapshot = await _currentSnapshot();
+    await _localStore.replaceSnapshot(snapshot);
+    try {
+      await _pushSnapshotToRemoteIfEnabled(snapshot);
+      _error = null;
+    } catch (error) {
+      _error = '待办已保存在本机，云端同步失败';
+      await NativeDebugBridge.instance.log(
+        'todo',
+        'persistSnapshot remote push failed error=$error',
+        level: 'WARN',
+      );
+    }
+    notifyListeners();
+  }
+
+  Future<TodoSnapshot> _currentSnapshot() async {
+    final subtasks = <TodoSubtask>[];
+    for (final task in _tasks) {
+      subtasks.addAll(await _localStore.listSubtasks(task.id));
+    }
+    return TodoSnapshot(
+      projects: _projects,
+      tasks: _tasks,
+      subtasks: subtasks,
+    );
+  }
+
+  Future<void> _applySnapshot(
+    TodoSnapshot snapshot, {
+    required bool replaceLocal,
+  }) async {
+    _projects = snapshot.projects.toList(growable: false)
+      ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    _tasks = snapshot.tasks.toList(growable: false)..sort(_taskSort);
+    if (replaceLocal) {
+      await _localStore.replaceSnapshot(snapshot);
+    }
+  }
+
+  void _handleBackendEvent(Map<String, dynamic> event) {
+    if ((event['event'] ?? '').toString() != 'todo.snapshot_changed') {
+      return;
+    }
+    final clientInstanceId = (event['clientInstanceId'] ?? '').toString();
+    if (clientInstanceId == _clientInstanceId) {
+      return;
+    }
+    final revisionValue = event['revision'];
+    final revision = revisionValue is num ? revisionValue.toInt() : 0;
+    if (revision <= _lastRemoteRevision) {
+      return;
+    }
+    _lastRemoteRevision = revision;
+    unawaited(refreshFromRemote(force: true));
+  }
+
+  @override
+  void dispose() {
+    _eventsSub?.cancel();
+    super.dispose();
   }
 
   TodoSnapshot _seedSnapshot() {
