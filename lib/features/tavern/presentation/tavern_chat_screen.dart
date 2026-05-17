@@ -34,6 +34,8 @@ class TavernChatScreen extends StatefulWidget {
 
 enum _StyledTextSegmentKind { plain, narration, dialogue }
 
+enum _TavernMessageAction { delete, regenerate }
+
 class _StyledTextSegment {
   const _StyledTextSegment(this.text)
     : kind = _StyledTextSegmentKind.plain,
@@ -1060,8 +1062,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         final bubble = GestureDetector(
           behavior: HitTestBehavior.opaque,
           onLongPress:
-              _canDeleteMessage(message)
-                  ? () => _confirmDeleteFromMessage(message)
+              _hasMessageActions(message)
+                  ? () => _showMessageActionSheet(message)
                   : null,
           child: ConstrainedBox(
             constraints: BoxConstraints(
@@ -1088,7 +1090,9 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                 padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
                 child: Column(
                   crossAxisAlignment:
-                      isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                      isUser
+                          ? CrossAxisAlignment.end
+                          : CrossAxisAlignment.start,
                   children: [
                     Text(
                       isUser ? '你' : _character.name,
@@ -1109,7 +1113,8 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                     if (message.createdAt != null ||
                         (message.metadata['requestId'] ?? '')
                             .toString()
-                            .isNotEmpty) ...[
+                            .isNotEmpty ||
+                        _hasMessageActions(message)) ...[
                       const SizedBox(height: 8),
                       Wrap(
                         alignment: WrapAlignment.end,
@@ -1130,6 +1135,53 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                               isUser: isUser,
                               icon: Icons.schedule_outlined,
                               label: _formatMessageTime(message.createdAt!),
+                            ),
+                          if (_hasMessageActions(message))
+                            PopupMenuButton<_TavernMessageAction>(
+                              tooltip: '消息操作',
+                              onSelected:
+                                  (action) =>
+                                      _handleMessageAction(message, action),
+                              itemBuilder:
+                                  (context) => [
+                                    if (_canRegenerateFromMessage(message))
+                                      const PopupMenuItem(
+                                        value: _TavernMessageAction.regenerate,
+                                        child: ListTile(
+                                          contentPadding: EdgeInsets.zero,
+                                          leading: Icon(Icons.refresh_rounded),
+                                          title: Text('删除并重新生成'),
+                                        ),
+                                      ),
+                                    const PopupMenuItem(
+                                      value: _TavernMessageAction.delete,
+                                      child: ListTile(
+                                        contentPadding: EdgeInsets.zero,
+                                        leading: Icon(
+                                          Icons.delete_outline_rounded,
+                                        ),
+                                        title: Text('删除并回到这里'),
+                                      ),
+                                    ),
+                                  ],
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  color:
+                                      isUser
+                                          ? Colors.white.withValues(alpha: 0.12)
+                                          : const Color(0xFFF3F4F7),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Icon(
+                                  Icons.more_horiz_rounded,
+                                  size: 16,
+                                  color:
+                                      isUser
+                                          ? Colors.white.withValues(alpha: 0.88)
+                                          : const Color(0xFF7B8494),
+                                ),
+                              ),
                             ),
                         ],
                       ),
@@ -2482,6 +2534,110 @@ $trimmed
     return true;
   }
 
+  bool _hasMessageActions(TavernMessage message) {
+    return _canDeleteMessage(message) || _canRegenerateFromMessage(message);
+  }
+
+  bool _canRegenerateFromMessage(TavernMessage message) {
+    if (!_canDeleteMessage(message)) return false;
+    if (message.role != 'assistant') return false;
+    return (_findRegenerateSeedText(message) ?? '').trim().isNotEmpty;
+  }
+
+  String? _findRegenerateSeedText(TavernMessage message) {
+    final targetIndex = _messages.indexWhere((item) => item.id == message.id);
+    if (targetIndex <= 0) return null;
+    for (var index = targetIndex - 1; index >= 0; index--) {
+      final candidate = _messages[index];
+      if (candidate.role != 'user') continue;
+      final content = candidate.content.trim();
+      if (content.isNotEmpty) return content;
+    }
+    return null;
+  }
+
+  String _oneLinePreview(String text, {int maxWidth = 48}) {
+    final normalized = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (normalized.isEmpty) return '空消息';
+    if (normalized.length <= maxWidth) return normalized;
+    return '${normalized.substring(0, maxWidth).trimRight()}...';
+  }
+
+  Future<void> _showMessageActionSheet(TavernMessage message) async {
+    final canRegenerate = _canRegenerateFromMessage(message);
+    final action = await showModalBottomSheet<_TavernMessageAction>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      builder: (sheetContext) {
+        return SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF6F7FB),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Text(
+                    _oneLinePreview(message.content, maxWidth: 48),
+                    style: Theme.of(
+                      sheetContext,
+                    ).textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xFF667085),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (canRegenerate)
+                  ListTile(
+                    leading: const Icon(Icons.refresh_rounded),
+                    title: const Text('删除并重新生成'),
+                    subtitle: const Text('回到这轮对话并让 AI 重新回答'),
+                    onTap:
+                        () => Navigator.of(
+                          sheetContext,
+                        ).pop(_TavernMessageAction.regenerate),
+                  ),
+                ListTile(
+                  leading: const Icon(Icons.delete_outline_rounded),
+                  title: const Text('删除并回到这里'),
+                  subtitle: const Text('删除当前消息及其后的所有对话'),
+                  onTap:
+                      () => Navigator.of(
+                        sheetContext,
+                      ).pop(_TavernMessageAction.delete),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    if (action == null || !mounted) return;
+    await _handleMessageAction(message, action);
+  }
+
+  Future<void> _handleMessageAction(
+    TavernMessage message,
+    _TavernMessageAction action,
+  ) async {
+    switch (action) {
+      case _TavernMessageAction.delete:
+        await _confirmDeleteFromMessage(message);
+        return;
+      case _TavernMessageAction.regenerate:
+        await _confirmRegenerateFromMessage(message);
+        return;
+    }
+  }
+
   Future<void> _confirmDeleteFromMessage(TavernMessage message) async {
     if (_isSending) {
       if (!mounted) return;
@@ -2497,9 +2653,7 @@ $trimmed
         return AlertDialog(
           title: const Text('删除并回到这里？'),
           content: Text(
-            isUser
-                ? '会删除这条用户消息，以及它后面的所有对话。'
-                : '会删除这条 AI 回复，以及它后面的所有对话。',
+            isUser ? '会删除这条用户消息，以及它后面的所有对话。' : '会删除这条 AI 回复，以及它后面的所有对话。',
           ),
           actions: [
             TextButton(
@@ -2515,12 +2669,65 @@ $trimmed
       },
     );
     if (confirmed != true || !mounted) return;
+    await _deleteFromMessage(message, showSuccessSnack: true);
+  }
+
+  Future<void> _confirmRegenerateFromMessage(TavernMessage message) async {
+    if (_isSending) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('当前正在生成回复，请稍后再试。')));
+      return;
+    }
+    final seedText = _findRegenerateSeedText(message);
+    if ((seedText ?? '').trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('找不到对应的上一条用户消息，暂时无法重新生成。')));
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('删除并重新生成？'),
+          content: const Text('会删除这条 AI 回复以及后面的对话，然后用上一条用户消息重新生成。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('重新生成'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) return;
+    final deleted = await _deleteFromMessage(message, showSuccessSnack: false);
+    if (deleted == null || !mounted) return;
+    await _sendText(
+      seedText!,
+      replaceComposer: false,
+      showUserMessage: false,
+      suppressUserMessage: true,
+    );
+  }
+
+  Future<TavernMessageDeleteResult?> _deleteFromMessage(
+    TavernMessage message, {
+    required bool showSuccessSnack,
+  }) async {
     try {
       final result = await context.read<TavernStore>().deleteMessagesFrom(
         chatId: _chat.id,
         messageId: message.id,
       );
-      if (!mounted) return;
+      if (!mounted) return null;
       setState(() {
         _chat = result.chat;
         _messages = result.messages;
@@ -2532,15 +2739,18 @@ $trimmed
       }
       await _persistSnapshot();
       _scrollToBottom(animated: false, force: true);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已删除 ${result.deletedCount} 条消息')),
-      );
+      if (showSuccessSnack && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已删除 ${result.deletedCount} 条消息')),
+        );
+      }
+      return result;
     } catch (exc) {
-      if (!mounted) return;
+      if (!mounted) return null;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('删除消息失败：$exc')));
+      return null;
     }
   }
 
@@ -2884,7 +3094,9 @@ $trimmed
     return items;
   }
 
-  Future<void> _saveLongTermMemoryItems(List<Map<String, dynamic>> items) async {
+  Future<void> _saveLongTermMemoryItems(
+    List<Map<String, dynamic>> items,
+  ) async {
     final metadata = Map<String, dynamic>.from(_chat.metadata);
     final existing =
         metadata['longTermMemory'] is Map
@@ -2926,8 +3138,8 @@ $trimmed
     String category = (initial?['category'] ?? 'note').toString();
     if (!categories.contains(category)) category = 'note';
     int priority = ((initial?['priority'] as num?)?.toInt() ?? 3).clamp(1, 5);
-    double confidence =
-        ((initial?['confidence'] as num?)?.toDouble() ?? 0.8).clamp(0.0, 1.0);
+    double confidence = ((initial?['confidence'] as num?)?.toDouble() ?? 0.8)
+        .clamp(0.0, 1.0);
     bool active = initial?['active'] != false;
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
@@ -2964,7 +3176,8 @@ $trimmed
                       maxLines: 6,
                       decoration: const InputDecoration(
                         labelText: '内容',
-                        hintText: '例如：Character promised to return to the lake scene.',
+                        hintText:
+                            '例如：Character promised to return to the lake scene.',
                         border: OutlineInputBorder(),
                       ),
                     ),
@@ -2976,9 +3189,10 @@ $trimmed
                       max: 5,
                       divisions: 4,
                       label: '$priority',
-                      onChanged: (value) => setDialogState(
-                        () => priority = value.round().clamp(1, 5),
-                      ),
+                      onChanged:
+                          (value) => setDialogState(
+                            () => priority = value.round().clamp(1, 5),
+                          ),
                     ),
                     Text('置信度：${confidence.toStringAsFixed(2)}'),
                     Slider(
@@ -2987,14 +3201,16 @@ $trimmed
                       max: 1,
                       divisions: 20,
                       label: confidence.toStringAsFixed(2),
-                      onChanged: (value) => setDialogState(() => confidence = value),
+                      onChanged:
+                          (value) => setDialogState(() => confidence = value),
                     ),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('Active'),
                       subtitle: const Text('关闭后保留记录，但默认不注入 prompt'),
                       value: active,
-                      onChanged: (value) => setDialogState(() => active = value),
+                      onChanged:
+                          (value) => setDialogState(() => active = value),
                     ),
                   ],
                 ),
@@ -3010,16 +3226,26 @@ $trimmed
                     if (content.isEmpty) return;
                     final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
                     Navigator.of(dialogContext).pop({
-                      'id': (initial?['id'] ?? 'ltm_${DateTime.now().microsecondsSinceEpoch}').toString(),
+                      'id':
+                          (initial?['id'] ??
+                                  'ltm_${DateTime.now().microsecondsSinceEpoch}')
+                              .toString(),
                       'category': category,
                       'content': content,
                       'priority': priority,
                       'confidence': confidence,
                       'active': active,
-                      'createdAt': (initial?['createdAt'] as num?)?.toDouble() ?? now,
+                      'createdAt':
+                          (initial?['createdAt'] as num?)?.toDouble() ?? now,
                       'updatedAt': now,
-                      'sourceSummaryIds': List<String>.from((initial?['sourceSummaryIds'] as List?) ?? const <String>[]),
-                      'sourceMessageIds': List<String>.from((initial?['sourceMessageIds'] as List?) ?? const <String>[]),
+                      'sourceSummaryIds': List<String>.from(
+                        (initial?['sourceSummaryIds'] as List?) ??
+                            const <String>[],
+                      ),
+                      'sourceMessageIds': List<String>.from(
+                        (initial?['sourceMessageIds'] as List?) ??
+                            const <String>[],
+                      ),
                     });
                   },
                   child: const Text('保存'),
@@ -3069,7 +3295,8 @@ $trimmed
           0;
       if (tokens <= 0) continue;
       final key = '$name $kind';
-      if (key.contains('long term memory') || key.contains('long_term_memory')) {
+      if (key.contains('long term memory') ||
+          key.contains('long_term_memory')) {
         parts['long_term_memory'] = parts['long_term_memory']! + tokens;
       } else if (key.contains('summary')) {
         parts['summary'] = parts['summary']! + tokens;
@@ -3797,7 +4024,9 @@ $trimmed
                 setSheetState(() {});
               }
 
-              Future<void> saveItems(List<Map<String, dynamic>> nextItems) async {
+              Future<void> saveItems(
+                List<Map<String, dynamic>> nextItems,
+              ) async {
                 await _saveLongTermMemoryItems(nextItems);
                 if (!mounted) return;
                 setSheetState(() {});
@@ -3818,18 +4047,25 @@ $trimmed
                               children: [
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         '长期记忆',
-                                        style: Theme.of(context).textTheme.titleLarge,
+                                        style:
+                                            Theme.of(
+                                              context,
+                                            ).textTheme.titleLarge,
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
                                         items.isEmpty
                                             ? '当前还没有长期记忆条目'
                                             : '共 ${items.length} 条，可直接手动维护',
-                                        style: Theme.of(context).textTheme.bodySmall,
+                                        style:
+                                            Theme.of(
+                                              context,
+                                            ).textTheme.bodySmall,
                                       ),
                                     ],
                                   ),
@@ -3837,7 +4073,8 @@ $trimmed
                                 IconButton(
                                   tooltip: '新增',
                                   onPressed: () async {
-                                    final created = await _editLongTermMemoryItem();
+                                    final created =
+                                        await _editLongTermMemoryItem();
                                     if (created == null) return;
                                     final next = <Map<String, dynamic>>[
                                       created,
@@ -3857,198 +4094,350 @@ $trimmed
                           ),
                           const Divider(height: 1),
                           Expanded(
-                            child: items.isEmpty
-                                ? Center(
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(24),
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Text(
-                                            '还没有长期记忆条目。',
-                                            textAlign: TextAlign.center,
-                                            style: Theme.of(context).textTheme.bodyMedium,
-                                          ),
-                                          const SizedBox(height: 12),
-                                          FilledButton.icon(
-                                            onPressed: () async {
-                                              final created = await _editLongTermMemoryItem();
-                                              if (created == null) return;
-                                              await saveItems([created]);
-                                            },
-                                            icon: const Icon(Icons.add),
-                                            label: const Text('新增一条'),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  )
-                                : ListView.separated(
-                                    controller: controller,
-                                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                                    itemCount: items.length,
-                                    separatorBuilder: (_, __) => const SizedBox(height: 12),
-                                    itemBuilder: (context, index) {
-                                      final item = items[index];
-                                      final category = (item['category'] ?? 'note').toString();
-                                      final content = (item['content'] ?? '').toString().trim();
-                                      final active = item['active'] != false;
-                                      final priority = (item['priority'] as num?)?.toInt() ?? 0;
-                                      final confidence = (item['confidence'] as num?)?.toDouble();
-                                      final pinned = priority >= 5;
-                                      return Container(
-                                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-                                        decoration: BoxDecoration(
-                                          color: Theme.of(context).colorScheme.surface,
-                                          borderRadius: BorderRadius.circular(18),
-                                          border: Border.all(
-                                            color: Theme.of(context).dividerColor.withValues(alpha: 0.28),
-                                          ),
-                                        ),
+                            child:
+                                items.isEmpty
+                                    ? Center(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(24),
                                         child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            Row(
-                                              children: [
-                                                Expanded(
-                                                  child: Text(
-                                                    category,
-                                                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                                      fontWeight: FontWeight.w800,
-                                                    ),
-                                                  ),
-                                                ),
-                                                if (pinned)
-                                                  Padding(
-                                                    padding: const EdgeInsets.only(right: 8),
-                                                    child: Icon(
-                                                      Icons.push_pin,
-                                                      size: 18,
-                                                      color: Theme.of(context).colorScheme.primary,
-                                                    ),
-                                                  ),
-                                                if (!active)
-                                                  Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                                    decoration: BoxDecoration(
-                                                      color: Colors.grey.withValues(alpha: 0.12),
-                                                      borderRadius: BorderRadius.circular(999),
-                                                    ),
-                                                    child: Text(
-                                                      'inactive',
-                                                      style: Theme.of(context).textTheme.labelSmall,
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
-                                            const SizedBox(height: 6),
-                                            Text(content, style: Theme.of(context).textTheme.bodyMedium),
-                                            const SizedBox(height: 10),
-                                            Wrap(
-                                              spacing: 8,
-                                              runSpacing: 8,
-                                              children: [
-                                                _metaChip('priority $priority'),
-                                                if (confidence != null)
-                                                  _metaChip('conf ${confidence.toStringAsFixed(2)}'),
-                                              ],
+                                            Text(
+                                              '还没有长期记忆条目。',
+                                              textAlign: TextAlign.center,
+                                              style:
+                                                  Theme.of(
+                                                    context,
+                                                  ).textTheme.bodyMedium,
                                             ),
                                             const SizedBox(height: 12),
-                                            Wrap(
-                                              spacing: 8,
-                                              runSpacing: 8,
-                                              children: [
-                                                OutlinedButton.icon(
-                                                  onPressed: () async {
-                                                    final edited = await _editLongTermMemoryItem(initial: item);
-                                                    if (edited == null) return;
-                                                    final next = items
-                                                        .map((entry) => entry['id'] == item['id'] ? edited : entry)
-                                                        .toList(growable: false);
-                                                    await saveItems(next);
-                                                  },
-                                                  icon: const Icon(Icons.edit_outlined, size: 18),
-                                                  label: const Text('编辑'),
-                                                ),
-                                                OutlinedButton.icon(
-                                                  onPressed: () async {
-                                                    final next = items
-                                                        .map(
-                                                          (entry) => entry['id'] == item['id']
-                                                              ? {
-                                                                  ...entry,
-                                                                  'active': !(entry['active'] != false),
-                                                                  'updatedAt': DateTime.now().millisecondsSinceEpoch / 1000.0,
-                                                                }
-                                                              : entry,
-                                                        )
-                                                        .toList(growable: false);
-                                                    await saveItems(next);
-                                                  },
-                                                  icon: Icon(
-                                                    active ? Icons.pause_circle_outline : Icons.play_circle_outline,
-                                                    size: 18,
-                                                  ),
-                                                  label: Text(active ? '失效' : '启用'),
-                                                ),
-                                                OutlinedButton.icon(
-                                                  onPressed: pinned
-                                                      ? null
-                                                      : () async {
-                                                          final next = items
-                                                              .map(
-                                                                (entry) => entry['id'] == item['id']
-                                                                    ? {
-                                                                        ...entry,
-                                                                        'priority': 5,
-                                                                        'updatedAt': DateTime.now().millisecondsSinceEpoch / 1000.0,
-                                                                      }
-                                                                    : entry,
-                                                              )
-                                                              .toList(growable: false);
-                                                          await saveItems(next);
-                                                        },
-                                                  icon: const Icon(Icons.push_pin_outlined, size: 18),
-                                                  label: const Text('置顶'),
-                                                ),
-                                                OutlinedButton.icon(
-                                                  style: OutlinedButton.styleFrom(
-                                                    foregroundColor: Theme.of(context).colorScheme.error,
-                                                  ),
-                                                  onPressed: () async {
-                                                    final confirmed = await showDialog<bool>(
-                                                      context: context,
-                                                      builder: (dialogContext) => AlertDialog(
-                                                        title: const Text('删除长期记忆'),
-                                                        content: const Text('确定删除这条长期记忆吗？此操作不可恢复。'),
-                                                        actions: [
-                                                          TextButton(
-                                                            onPressed: () => Navigator.of(dialogContext).pop(false),
-                                                            child: const Text('取消'),
-                                                          ),
-                                                          FilledButton(
-                                                            onPressed: () => Navigator.of(dialogContext).pop(true),
-                                                            child: const Text('删除'),
-                                                          ),
-                                                        ],
-                                                      ),
-                                                    );
-                                                    if (confirmed != true) return;
-                                                    final next = items
-                                                        .where((entry) => entry['id'] != item['id'])
-                                                        .toList(growable: false);
-                                                    await saveItems(next);
-                                                  },
-                                                  icon: const Icon(Icons.delete_outline, size: 18),
-                                                  label: const Text('删除'),
-                                                ),
-                                              ],
+                                            FilledButton.icon(
+                                              onPressed: () async {
+                                                final created =
+                                                    await _editLongTermMemoryItem();
+                                                if (created == null) return;
+                                                await saveItems([created]);
+                                              },
+                                              icon: const Icon(Icons.add),
+                                              label: const Text('新增一条'),
                                             ),
                                           ],
                                         ),
-                                      );
-                                    },
-                                  ),
+                                      ),
+                                    )
+                                    : ListView.separated(
+                                      controller: controller,
+                                      padding: const EdgeInsets.fromLTRB(
+                                        16,
+                                        16,
+                                        16,
+                                        24,
+                                      ),
+                                      itemCount: items.length,
+                                      separatorBuilder:
+                                          (_, __) => const SizedBox(height: 12),
+                                      itemBuilder: (context, index) {
+                                        final item = items[index];
+                                        final category =
+                                            (item['category'] ?? 'note')
+                                                .toString();
+                                        final content =
+                                            (item['content'] ?? '')
+                                                .toString()
+                                                .trim();
+                                        final active = item['active'] != false;
+                                        final priority =
+                                            (item['priority'] as num?)
+                                                ?.toInt() ??
+                                            0;
+                                        final confidence =
+                                            (item['confidence'] as num?)
+                                                ?.toDouble();
+                                        final pinned = priority >= 5;
+                                        return Container(
+                                          padding: const EdgeInsets.fromLTRB(
+                                            16,
+                                            16,
+                                            16,
+                                            14,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color:
+                                                Theme.of(
+                                                  context,
+                                                ).colorScheme.surface,
+                                            borderRadius: BorderRadius.circular(
+                                              18,
+                                            ),
+                                            border: Border.all(
+                                              color: Theme.of(context)
+                                                  .dividerColor
+                                                  .withValues(alpha: 0.28),
+                                            ),
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  Expanded(
+                                                    child: Text(
+                                                      category,
+                                                      style: Theme.of(context)
+                                                          .textTheme
+                                                          .titleMedium
+                                                          ?.copyWith(
+                                                            fontWeight:
+                                                                FontWeight.w800,
+                                                          ),
+                                                    ),
+                                                  ),
+                                                  if (pinned)
+                                                    Padding(
+                                                      padding:
+                                                          const EdgeInsets.only(
+                                                            right: 8,
+                                                          ),
+                                                      child: Icon(
+                                                        Icons.push_pin,
+                                                        size: 18,
+                                                        color:
+                                                            Theme.of(context)
+                                                                .colorScheme
+                                                                .primary,
+                                                      ),
+                                                    ),
+                                                  if (!active)
+                                                    Container(
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 8,
+                                                            vertical: 4,
+                                                          ),
+                                                      decoration: BoxDecoration(
+                                                        color: Colors.grey
+                                                            .withValues(
+                                                              alpha: 0.12,
+                                                            ),
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              999,
+                                                            ),
+                                                      ),
+                                                      child: Text(
+                                                        'inactive',
+                                                        style:
+                                                            Theme.of(context)
+                                                                .textTheme
+                                                                .labelSmall,
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 6),
+                                              Text(
+                                                content,
+                                                style:
+                                                    Theme.of(
+                                                      context,
+                                                    ).textTheme.bodyMedium,
+                                              ),
+                                              const SizedBox(height: 10),
+                                              Wrap(
+                                                spacing: 8,
+                                                runSpacing: 8,
+                                                children: [
+                                                  _metaChip(
+                                                    'priority $priority',
+                                                  ),
+                                                  if (confidence != null)
+                                                    _metaChip(
+                                                      'conf ${confidence.toStringAsFixed(2)}',
+                                                    ),
+                                                ],
+                                              ),
+                                              const SizedBox(height: 12),
+                                              Wrap(
+                                                spacing: 8,
+                                                runSpacing: 8,
+                                                children: [
+                                                  OutlinedButton.icon(
+                                                    onPressed: () async {
+                                                      final edited =
+                                                          await _editLongTermMemoryItem(
+                                                            initial: item,
+                                                          );
+                                                      if (edited == null) {
+                                                        return;
+                                                      }
+                                                      final next = items
+                                                          .map(
+                                                            (entry) =>
+                                                                entry['id'] ==
+                                                                        item['id']
+                                                                    ? edited
+                                                                    : entry,
+                                                          )
+                                                          .toList(
+                                                            growable: false,
+                                                          );
+                                                      await saveItems(next);
+                                                    },
+                                                    icon: const Icon(
+                                                      Icons.edit_outlined,
+                                                      size: 18,
+                                                    ),
+                                                    label: const Text('编辑'),
+                                                  ),
+                                                  OutlinedButton.icon(
+                                                    onPressed: () async {
+                                                      final next = items
+                                                          .map(
+                                                            (entry) =>
+                                                                entry['id'] ==
+                                                                        item['id']
+                                                                    ? {
+                                                                      ...entry,
+                                                                      'active':
+                                                                          !(entry['active'] !=
+                                                                              false),
+                                                                      'updatedAt':
+                                                                          DateTime.now()
+                                                                              .millisecondsSinceEpoch /
+                                                                          1000.0,
+                                                                    }
+                                                                    : entry,
+                                                          )
+                                                          .toList(
+                                                            growable: false,
+                                                          );
+                                                      await saveItems(next);
+                                                    },
+                                                    icon: Icon(
+                                                      active
+                                                          ? Icons
+                                                              .pause_circle_outline
+                                                          : Icons
+                                                              .play_circle_outline,
+                                                      size: 18,
+                                                    ),
+                                                    label: Text(
+                                                      active ? '失效' : '启用',
+                                                    ),
+                                                  ),
+                                                  OutlinedButton.icon(
+                                                    onPressed:
+                                                        pinned
+                                                            ? null
+                                                            : () async {
+                                                              final next = items
+                                                                  .map(
+                                                                    (entry) =>
+                                                                        entry['id'] ==
+                                                                                item['id']
+                                                                            ? {
+                                                                              ...entry,
+                                                                              'priority':
+                                                                                  5,
+                                                                              'updatedAt':
+                                                                                  DateTime.now().millisecondsSinceEpoch /
+                                                                                  1000.0,
+                                                                            }
+                                                                            : entry,
+                                                                  )
+                                                                  .toList(
+                                                                    growable:
+                                                                        false,
+                                                                  );
+                                                              await saveItems(
+                                                                next,
+                                                              );
+                                                            },
+                                                    icon: const Icon(
+                                                      Icons.push_pin_outlined,
+                                                      size: 18,
+                                                    ),
+                                                    label: const Text('置顶'),
+                                                  ),
+                                                  OutlinedButton.icon(
+                                                    style:
+                                                        OutlinedButton.styleFrom(
+                                                          foregroundColor:
+                                                              Theme.of(context)
+                                                                  .colorScheme
+                                                                  .error,
+                                                        ),
+                                                    onPressed: () async {
+                                                      final confirmed = await showDialog<
+                                                        bool
+                                                      >(
+                                                        context: context,
+                                                        builder:
+                                                            (
+                                                              dialogContext,
+                                                            ) => AlertDialog(
+                                                              title: const Text(
+                                                                '删除长期记忆',
+                                                              ),
+                                                              content: const Text(
+                                                                '确定删除这条长期记忆吗？此操作不可恢复。',
+                                                              ),
+                                                              actions: [
+                                                                TextButton(
+                                                                  onPressed:
+                                                                      () => Navigator.of(
+                                                                        dialogContext,
+                                                                      ).pop(
+                                                                        false,
+                                                                      ),
+                                                                  child:
+                                                                      const Text(
+                                                                        '取消',
+                                                                      ),
+                                                                ),
+                                                                FilledButton(
+                                                                  onPressed:
+                                                                      () => Navigator.of(
+                                                                        dialogContext,
+                                                                      ).pop(
+                                                                        true,
+                                                                      ),
+                                                                  child:
+                                                                      const Text(
+                                                                        '删除',
+                                                                      ),
+                                                                ),
+                                                              ],
+                                                            ),
+                                                      );
+                                                      if (confirmed != true) {
+                                                        return;
+                                                      }
+                                                      final next = items
+                                                          .where(
+                                                            (entry) =>
+                                                                entry['id'] !=
+                                                                item['id'],
+                                                          )
+                                                          .toList(
+                                                            growable: false,
+                                                          );
+                                                      await saveItems(next);
+                                                    },
+                                                    icon: const Icon(
+                                                      Icons.delete_outline,
+                                                      size: 18,
+                                                    ),
+                                                    label: const Text('删除'),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                    ),
                           ),
                         ],
                       ),
@@ -4642,14 +5031,12 @@ $trimmed
     bool injectLatestOnly = current['injectLatestOnly'] == true;
     bool useRecentAfterLatest =
         current['useRecentMessagesAfterLatest'] != false;
-    double triggerRatio =
-        ((current['triggerRatio'] as num?)?.toDouble() ??
-                (current['threshold'] as num?)?.toDouble() ??
-                0.8)
-            .clamp(0.5, 0.98);
-    double targetRatio =
-        ((current['targetRatio'] as num?)?.toDouble() ?? 0.68)
-            .clamp(0.3, 0.95);
+    double triggerRatio = ((current['triggerRatio'] as num?)?.toDouble() ??
+            (current['threshold'] as num?)?.toDouble() ??
+            0.8)
+        .clamp(0.5, 0.98);
+    double targetRatio = ((current['targetRatio'] as num?)?.toDouble() ?? 0.68)
+        .clamp(0.3, 0.95);
     bool longTermMemoryEnabled = current['longTermMemoryEnabled'] != false;
     int maxInjectedLongTermItems =
         (current['maxInjectedLongTermItems'] as num?)?.toInt() ?? 8;
@@ -4660,10 +5047,8 @@ $trimmed
         (current['recentMessageWindow'] as num?)?.toInt() ?? 24;
     int recentTokenWindow =
         (current['recentTokenWindow'] as num?)?.toInt() ?? 3500;
-    int chunkMinMessages =
-        (current['chunkMinMessages'] as num?)?.toInt() ?? 8;
-    int chunkMaxMessages =
-        (current['chunkMaxMessages'] as num?)?.toInt() ?? 16;
+    int chunkMinMessages = (current['chunkMinMessages'] as num?)?.toInt() ?? 8;
+    int chunkMaxMessages = (current['chunkMaxMessages'] as num?)?.toInt() ?? 16;
     int chunkTargetTokens =
         (current['chunkTargetTokens'] as num?)?.toInt() ?? 1800;
     int maxInjectedSummaries =
@@ -4705,7 +5090,9 @@ $trimmed
                           SwitchListTile(
                             contentPadding: EdgeInsets.zero,
                             title: const Text('仅注入最新摘要'),
-                            subtitle: const Text('开启后只注入最新 chunk；关闭后注入最近多个 chunk'),
+                            subtitle: const Text(
+                              '开启后只注入最新 chunk；关闭后注入最近多个 chunk',
+                            ),
                             value: injectLatestOnly,
                             onChanged:
                                 (value) => setModalState(
@@ -4736,7 +5123,10 @@ $trimmed
                                 (value) => setModalState(() {
                                   triggerRatio = value;
                                   if (targetRatio >= triggerRatio) {
-                                    targetRatio = (triggerRatio - 0.02).clamp(0.3, 0.95);
+                                    targetRatio = (triggerRatio - 0.02).clamp(
+                                      0.3,
+                                      0.95,
+                                    );
                                   }
                                 }),
                           ),
@@ -4748,7 +5138,8 @@ $trimmed
                             divisions: 33,
                             label: targetRatio.toStringAsFixed(2),
                             onChanged:
-                                (value) => setModalState(() => targetRatio = value),
+                                (value) =>
+                                    setModalState(() => targetRatio = value),
                           ),
                           _intStepper(
                             context,
@@ -4923,15 +5314,24 @@ $trimmed
                                                 targetRatio.toStringAsFixed(2),
                                               ),
                                               'minMessages': minMessages,
-                                              'recentMessageWindow': recentMessageWindow,
-                                              'recentTokenWindow': recentTokenWindow,
-                                              'chunkMinMessages': chunkMinMessages,
-                                              'chunkMaxMessages': chunkMaxMessages,
-                                              'chunkTargetTokens': chunkTargetTokens,
-                                              'maxInjectedSummaries': maxInjectedSummaries,
-                                              'longTermMemoryEnabled': longTermMemoryEnabled,
-                                              'maxInjectedLongTermItems': maxInjectedLongTermItems,
-                                              'maxInjectedLongTermTokens': maxInjectedLongTermTokens,
+                                              'recentMessageWindow':
+                                                  recentMessageWindow,
+                                              'recentTokenWindow':
+                                                  recentTokenWindow,
+                                              'chunkMinMessages':
+                                                  chunkMinMessages,
+                                              'chunkMaxMessages':
+                                                  chunkMaxMessages,
+                                              'chunkTargetTokens':
+                                                  chunkTargetTokens,
+                                              'maxInjectedSummaries':
+                                                  maxInjectedSummaries,
+                                              'longTermMemoryEnabled':
+                                                  longTermMemoryEnabled,
+                                              'maxInjectedLongTermItems':
+                                                  maxInjectedLongTermItems,
+                                              'maxInjectedLongTermTokens':
+                                                  maxInjectedLongTermTokens,
                                             };
                                             final updated = await context
                                                 .read<TavernStore>()

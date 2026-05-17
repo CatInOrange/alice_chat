@@ -263,6 +263,18 @@ let constrainPointerToCanvasHover = false;
 let isPointerInsideCanvas = false;
 let forceCenterUntilPointerReenters = false;
 
+function publishLive2DDebugState(patch: Record<string, unknown>): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const current = (window as any).__OPENCLAW_LIVE2D_DEBUG__ || {};
+  (window as any).__OPENCLAW_LIVE2D_DEBUG__ = {
+    ...current,
+    ...patch,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 export function setTrackedPointerPosition(pointer: { x: number; y: number; buttons?: number; pointerType?: string | null } | null | undefined): void {
   if (
     !pointer
@@ -284,6 +296,10 @@ export function setTrackedPointerPosition(pointer: { x: number; y: number; butto
     y: lastPointer.y,
     buttons: lastPointer.buttons,
     pointerType: lastPointer.pointerType,
+  });
+  publishLive2DDebugState({
+    lastEvent: 'setTrackedPointerPosition',
+    pointer: { ...lastPointer },
   });
 }
 
@@ -331,6 +347,12 @@ export function resetTrackedPointerToCenter(reason?: string): void {
     y: lastPointer.y,
     forceCenterUntilPointerReenters,
   });
+  publishLive2DDebugState({
+    lastEvent: 'resetTrackedPointerToCenter',
+    reason: reason ?? null,
+    pointer: { ...lastPointer },
+    forceCenterUntilPointerReenters,
+  });
   focusModelCenter();
 }
 
@@ -341,6 +363,12 @@ export function setConstrainPointerToCanvasHover(value: boolean): void {
     forceCenterUntilPointerReenters = false;
   }
   debugLog({ event: 'setConstrainPointerToCanvasHover', value, isPointerInsideCanvas, forceCenterUntilPointerReenters });
+  publishLive2DDebugState({
+    lastEvent: 'setConstrainPointerToCanvasHover',
+    constrainPointerToCanvasHover,
+    isPointerInsideCanvas,
+    forceCenterUntilPointerReenters,
+  });
 }
 
 export function setPointerInsideCanvas(
@@ -363,6 +391,17 @@ export function setPointerInsideCanvas(
     pointerType: pointer?.pointerType ?? null,
     forceCenterUntilPointerReenters,
   });
+  publishLive2DDebugState({
+    lastEvent: 'setPointerInsideCanvas',
+    isPointerInsideCanvas,
+    pointer: pointer ? {
+      x: pointer.x,
+      y: pointer.y,
+      buttons: pointer.buttons ?? null,
+      pointerType: pointer.pointerType ?? null,
+    } : { ...lastPointer },
+    forceCenterUntilPointerReenters,
+  });
   if (!inside) {
     resetTrackedPointerToCenter('pointer-left-canvas');
   }
@@ -370,6 +409,19 @@ export function setPointerInsideCanvas(
 
 if (typeof window !== "undefined" && !(window as any).__OPENCLAW_POINTER_TRACKING__) {
   (window as any).__OPENCLAW_POINTER_TRACKING__ = true;
+  (window as any).aliceLive2dHostPointerLeave = (reason?: string) => {
+    isPointerInsideCanvas = false;
+    debugLog({ event: 'host-pointer-leave', reason: reason ?? null, forceCenterUntilPointerReenters });
+    publishLive2DDebugState({
+      lastEvent: 'host-pointer-leave',
+      reason: reason ?? null,
+      isPointerInsideCanvas,
+      pointer: { ...lastPointer },
+      forceCenterUntilPointerReenters,
+    });
+    resetTrackedPointerToCenter(reason || 'host-pointer-leave');
+    return true;
+  };
   window.addEventListener("pointerdown", (event) => {
     setTrackedPointerPosition({
       x: event.clientX,
@@ -491,6 +543,10 @@ function expandRect(
 export function applyFocusCenter(config: FocusCenterConfig | null | undefined): void {
   const next = config || {};
   if (next.enabled === false) {
+    publishLive2DDebugState({
+      lastEvent: 'applyFocusCenter-disabled',
+      enabled: false,
+    });
     return;
   }
 
@@ -515,21 +571,13 @@ export function applyFocusCenter(config: FocusCenterConfig | null | undefined): 
 
   const canvasRect = canvas.getBoundingClientRect();
   const live2dRect = (document.getElementById("live2d") as HTMLElement | null)?.getBoundingClientRect() ?? canvasRect;
-  const modelBounds = getModelBounds();
-  const expandedModelRect = modelBounds
-    ? expandRect(
-      modelBounds,
-      Math.max(24, Number(modelBounds.width || 0) * 0.18),
-      Math.max(24, Number(modelBounds.height || 0) * 0.14),
-    )
-    : null;
+  const interactionRegionRect = (document.getElementById("live2d-interaction-region") as HTMLElement | null)?.getBoundingClientRect() ?? live2dRect;
+  const activeHoverRect = interactionRegionRect;
   if (lastPointer.pointerType === 'mouse') {
-    const insideModelHitArea = isPointerInsideModelHitArea(lastPointer, canvasRect, view, model);
-    const insideModelBounds = modelBounds ? isPointerInsideRect(modelBounds, lastPointer) : insideModelHitArea;
     const insideCanvasRect = isPointerInsideRect(canvasRect, lastPointer);
     const insideLive2DRect = isPointerInsideRect(live2dRect, lastPointer);
     const insideActiveRect = constrainPointerToCanvasHover
-      ? (expandedModelRect ? isPointerInsideRect(expandedModelRect, lastPointer) : insideModelHitArea)
+      ? isPointerInsideRect(activeHoverRect, lastPointer)
       : insideLive2DRect;
 
     if (constrainPointerToCanvasHover && forceCenterUntilPointerReenters) {
@@ -539,8 +587,18 @@ export function applyFocusCenter(config: FocusCenterConfig | null | undefined): 
         insideCanvas: isPointerInsideCanvas,
         x: lastPointer.x,
         y: lastPointer.y,
-        insideModelBounds,
-        insideModelHitArea,
+        insideCanvasRect,
+        insideLive2DRect,
+        insideActiveRect,
+      });
+      publishLive2DDebugState({
+        lastEvent: 'applyFocusCenter-center',
+        reason: 'force-center-until-pointer-reenters',
+        enabled: true,
+        constrainPointerToCanvasHover,
+        isPointerInsideCanvas,
+        forceCenterUntilPointerReenters,
+        pointer: { ...lastPointer },
         insideCanvasRect,
         insideLive2DRect,
         insideActiveRect,
@@ -559,30 +617,41 @@ export function applyFocusCenter(config: FocusCenterConfig | null | undefined): 
         insideCanvas: isPointerInsideCanvas,
         x: lastPointer.x,
         y: lastPointer.y,
-        insideModelBounds,
-        insideModelHitArea,
         insideCanvasRect,
         insideLive2DRect,
         insideActiveRect,
         live2dRect,
-        activeRect: expandedModelRect,
+        interactionRegionRect,
+        activeRect: activeHoverRect,
+      });
+      publishLive2DDebugState({
+        lastEvent: 'applyFocusCenter-center',
+        reason: 'outside-active-rect',
+        enabled: true,
+        constrainPointerToCanvasHover,
+        isPointerInsideCanvas,
+        forceCenterUntilPointerReenters,
+        pointer: { ...lastPointer },
+        insideCanvasRect,
+        insideLive2DRect,
+        insideActiveRect,
+        live2dRect,
+        interactionRegionRect,
+        activeRect: activeHoverRect,
       });
       focusModelCenter();
       return;
     }
   }
 
-  const debugInsideModelHitArea = lastPointer.pointerType === 'mouse'
-    ? isPointerInsideModelHitArea(lastPointer, canvasRect, view, model)
-    : null;
-  const debugInsideModelBounds = lastPointer.pointerType === 'mouse'
-    ? (modelBounds ? isPointerInsideRect(modelBounds, lastPointer) : debugInsideModelHitArea)
-    : null;
   const debugInsideCanvasRect = lastPointer.pointerType === 'mouse' ? isPointerInsideRect(canvasRect, lastPointer) : null;
   const debugInsideLive2DRect = lastPointer.pointerType === 'mouse' ? isPointerInsideRect(live2dRect, lastPointer) : null;
+  const debugInsideInteractionRegionRect = lastPointer.pointerType === 'mouse'
+    ? isPointerInsideRect(interactionRegionRect, lastPointer)
+    : null;
   const debugInsideActiveRect = lastPointer.pointerType === 'mouse'
     ? (constrainPointerToCanvasHover
-      ? (expandedModelRect ? isPointerInsideRect(expandedModelRect, lastPointer) : debugInsideModelHitArea)
+      ? isPointerInsideRect(activeHoverRect, lastPointer)
       : debugInsideLive2DRect)
     : null;
 
@@ -591,13 +660,28 @@ export function applyFocusCenter(config: FocusCenterConfig | null | undefined): 
     x: lastPointer.x,
     y: lastPointer.y,
     insideCanvas: isPointerInsideCanvas,
-    insideModelBounds: debugInsideModelBounds,
-    insideModelHitArea: debugInsideModelHitArea,
     insideCanvasRect: debugInsideCanvasRect,
     insideLive2DRect: debugInsideLive2DRect,
+    insideInteractionRegionRect: debugInsideInteractionRegionRect,
     insideActiveRect: debugInsideActiveRect,
     pointerType: lastPointer.pointerType,
     buttons: lastPointer.buttons,
+  });
+  publishLive2DDebugState({
+    lastEvent: 'applyFocusCenter',
+    enabled: true,
+    constrainPointerToCanvasHover,
+    isPointerInsideCanvas,
+    forceCenterUntilPointerReenters,
+    pointer: { ...lastPointer },
+    insideCanvasRect: debugInsideCanvasRect,
+    insideLive2DRect: debugInsideLive2DRect,
+    insideInteractionRegionRect: debugInsideInteractionRegionRect,
+    insideActiveRect: debugInsideActiveRect,
+    canvasRect,
+    live2dRect,
+    interactionRegionRect,
+    activeRect: activeHoverRect,
   });
 
   try {

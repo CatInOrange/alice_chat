@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from urllib.parse import quote
+from urllib.parse import unquote, urlparse
 
 from .config import ROOT
 
@@ -26,6 +27,12 @@ def normalize_attachment_url(url: str) -> str:
         return value
     lower = value.lower()
     if lower.startswith(('http://', 'https://')):
+        return value
+    if lower.startswith('file://'):
+        parsed = urlparse(value)
+        resolved_path = unquote(parsed.path or '')
+        if resolved_path:
+            return build_protected_media_url(resolved_path)
         return value
     if value.startswith('/api/') or value.startswith('/uploads/'):
         return value

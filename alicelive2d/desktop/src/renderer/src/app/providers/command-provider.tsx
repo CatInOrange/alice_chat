@@ -383,11 +383,20 @@ export function RendererCommandProvider({
     configName: confName,
     manifestName: manifest?.model.name,
   });
-  const currentFocusCenter = resolveFocusCenterConfig({
-    manifest,
-    focusCenterByModel,
-    modelId: currentModelId,
-  });
+  const currentFocusCenter = {
+    ...resolveFocusCenterConfig({
+      manifest,
+      focusCenterByModel,
+      modelId: currentModelId,
+    }),
+    enabled: !window.api && mode === "window"
+      ? true
+      : resolveFocusCenterConfig({
+        manifest,
+        focusCenterByModel,
+        modelId: currentModelId,
+      }).enabled,
+  };
 
   useEffect(() => {
     currentSessionRef.current = currentSessionId;

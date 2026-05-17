@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
+import os
 import threading
+import tempfile
 import time
 import uuid
 from collections.abc import Callable
@@ -79,6 +82,12 @@ def _extract_text_candidates(frame: dict, current_text: str = "") -> str:
 def _extract_final_reply(frame: dict) -> str:
     candidate = frame.get("reply")
     return candidate.strip() if isinstance(candidate, str) else ""
+
+
+def _resolve_final_reply(*, frame_reply: str, accumulated_reply: str) -> str:
+    final_text = str(frame_reply or "").strip()
+    preview_text = str(accumulated_reply or "").strip()
+    return final_text or preview_text
 
 
 def _is_command_like_text(text: str) -> bool:
@@ -182,6 +191,104 @@ def _classify_progress_kind(text: str, hint: str = "") -> str:
     return "tool"
 
 
+def _classify_bridge_media(url: str, audio_as_voice: bool = False) -> str:
+    value = str(url or "").strip()
+    if audio_as_voice:
+        return "audio"
+    if value.lower().startswith("data:audio/"):
+        return "audio"
+    if any(marker in value.lower() for marker in (".mp3", ".wav", ".ogg", ".m4a", ".aac", ".webm")):
+        return "audio"
+    return "image"
+
+
+def _extract_bridge_media_items(payload: dict | None) -> list[dict]:
+    if not isinstance(payload, dict):
+        return []
+    raw_urls = payload.get("mediaUrls")
+    urls: list[str] = []
+    if isinstance(raw_urls, list):
+        urls.extend(str(item).strip() for item in raw_urls if str(item or "").strip())
+    elif isinstance(payload.get("mediaUrl"), str) and str(payload.get("mediaUrl") or "").strip():
+        urls.append(str(payload.get("mediaUrl") or "").strip())
+    audio_as_voice = bool(payload.get("audioAsVoice"))
+    return [
+        {
+            "url": url,
+            "type": _classify_bridge_media(url, audio_as_voice),
+            "audioAsVoice": audio_as_voice,
+        }
+        for url in urls
+    ]
+
+
+def _normalize_bridge_agent_event(evt: dict | None) -> dict | None:
+    if not isinstance(evt, dict):
+        return None
+    stream = str(evt.get("stream") or "").strip()
+    data = evt.get("data") if isinstance(evt.get("data"), dict) else {}
+    phase = str(data.get("phase") or "").strip()
+    title = str(data.get("title") or "").strip()
+    summary = str(data.get("summary") or "").strip()
+    progress_text = str(data.get("progressText") or "").strip()
+    meta = str(data.get("meta") or "").strip()
+    output = str(data.get("output") or "").strip()
+    explanation = str(data.get("explanation") or "").strip()
+    name = str(data.get("name") or "").strip()
+    kind_hint = str(data.get("kind") or "").strip()
+    status = str(data.get("status") or "").strip()
+    message = str(data.get("message") or "").strip()
+    reason = str(data.get("reason") or "").strip()
+    command = str(data.get("command") or "").strip()
+    item_id = str(data.get("itemId") or "").strip()
+    tool_call_id = str(data.get("toolCallId") or "").strip()
+    approval_id = str(data.get("approvalId") or "").strip()
+    approval_slug = str(data.get("approvalSlug") or "").strip()
+    source = str(data.get("source") or "").strip()
+    args = data.get("args")
+    steps = [str(item or "").strip() for item in (data.get("steps") or []) if str(item or "").strip()]
+    base = {
+        "eventStream": stream or "agent",
+        "phase": phase,
+        "status": status,
+        "title": title,
+        "itemId": item_id,
+        "toolCallId": tool_call_id,
+        "toolName": name,
+        "approvalId": approval_id,
+        "approvalSlug": approval_slug,
+        "command": command,
+        "output": output,
+        "source": source,
+    }
+    if args is not None:
+        base["args"] = args
+    if stream == "plan":
+        text = " · ".join(part for part in [title, explanation, f"步骤：{'；'.join(steps)}" if steps else "", source] if part)
+        return {"stage": "plan", "kind": "plan", "text": text or "计划已更新", **base}
+    if stream == "thinking":
+        thinking_text = str(data.get("text") or "").strip()
+        delta = str(data.get("delta") or "").strip()
+        text = " · ".join(part for part in [thinking_text, delta, progress_text, summary, title, meta] if part)
+        return {"stage": "thinking", "kind": "thinking", "text": text, **base} if text else None
+    if stream == "command_output":
+        text = " · ".join(part for part in [title, name, output, status, phase] if part)
+        return {"stage": "tool", "kind": "exec", "text": text or "命令执行中", **base}
+    if stream in {"tool", "item", "approval", "patch", "compaction"}:
+        text = " · ".join(
+            part
+            for part in [progress_text, summary, title, meta, name, message, reason, command, status, phase, tool_call_id, item_id]
+            if part
+        )
+        return {
+            "stage": (phase or "tool") if stream == "item" else stream,
+            "kind": kind_hint or _classify_progress_kind(text or f"{stream} {name} {command}", name or stream),
+            "text": text or f"{stream}{f' · {name}' if name else ''}{f' · {phase}' if phase else ''}",
+            **base,
+        }
+    return None
+
+
 def _local_upload_url_to_path(url: str) -> Path | None:
     value = str(url or "").strip()
     if not value.startswith("/uploads/"):
@@ -196,8 +303,36 @@ def _local_upload_url_to_path(url: str) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def _bridge_image_suffix(media_type: str | None) -> str:
+    normalized = str(media_type or "").strip().lower()
+    if normalized in {"image/jpeg", "image/jpg"}:
+        return ".jpg"
+    if normalized == "image/png":
+        return ".png"
+    if normalized == "image/webp":
+        return ".webp"
+    if normalized == "image/gif":
+        return ".gif"
+    if normalized == "image/bmp":
+        return ".bmp"
+    if normalized == "image/tiff":
+        return ".tiff"
+    return ".bin"
+
+
+def _write_bridge_temp_image(*, encoded: str, media_type: str | None) -> str:
+    decoded = base64.b64decode(encoded, validate=True)
+    with tempfile.NamedTemporaryFile(
+        mode="wb",
+        prefix="alicechat-bridge-inbound-",
+        suffix=_bridge_image_suffix(media_type),
+        delete=False,
+    ) as handle:
+        handle.write(decoded)
+        return os.path.abspath(handle.name)
+
+
 def _prepare_bridge_attachments(attachments: list[ChatAttachment]) -> list[dict]:
-    import base64
     result: list[dict] = []
     for att in attachments:
         att_kind = str(getattr(att, "kind", "image") or "image").strip().lower() or "image"
@@ -226,6 +361,7 @@ def _prepare_bridge_attachments(attachments: list[ChatAttachment]) -> list[dict]
                 encoded = base64.b64encode(local_path.read_bytes()).decode("ascii")
                 result.append({
                     "kind": "image",
+                    "path": str(local_path),
                     "content": encoded,
                     "mimeType": att.media_type or "image/png",
                 })
@@ -240,22 +376,74 @@ def _prepare_bridge_attachments(attachments: list[ChatAttachment]) -> list[dict]
             encoded = base64.b64encode(path.read_bytes()).decode("ascii")
             result.append({
                 "kind": "image",
+                "path": str(path),
                 "content": encoded,
                 "mimeType": att.media_type or "image/png",
             })
         elif att.type == "base64":
             normalized = _normalize_base64_payload(att.data)
             try:
-                base64.b64decode(normalized, validate=True)
+                temp_path = _write_bridge_temp_image(
+                    encoded=normalized,
+                    media_type=att.media_type or "image/png",
+                )
             except Exception as exc:
                 preview = normalized[:48]
                 raise RuntimeError(f"Invalid base64 image payload: prefix={preview!r}, len={len(normalized)}") from exc
             result.append({
                 "kind": "image",
+                "path": temp_path,
                 "content": normalized,
                 "mimeType": att.media_type or "image/png",
             })
     return result
+
+
+def _prepare_bridge_images(attachments: list[dict]) -> list[dict]:
+    result: list[dict] = []
+    for item in attachments:
+        if not isinstance(item, dict):
+            continue
+        mime_type = str(item.get("mimeType") or item.get("mediaType") or item.get("media_type") or "image/png").strip() or "image/png"
+        if not mime_type.startswith("image/"):
+            continue
+        content = str(item.get("content") or "").strip()
+        if not content:
+            continue
+        result.append({
+            "type": "image",
+            "data": content,
+            "mimeType": mime_type,
+        })
+    return result
+
+
+def _build_bridge_agent_media_payload(attachments: list[dict]) -> dict:
+    media_list: list[dict] = []
+    for item in attachments:
+        if not isinstance(item, dict):
+            continue
+        mime_type = str(item.get("mimeType") or item.get("mediaType") or item.get("media_type") or "").strip()
+        if not mime_type.startswith("image/"):
+            continue
+        media_ref = str(item.get("path") or item.get("url") or "").strip()
+        if not media_ref:
+            continue
+        media_list.append({
+            "path": media_ref,
+            "contentType": mime_type or None,
+        })
+    first = media_list[0] if media_list else None
+    media_paths = [media.get("path") for media in media_list if media.get("path")]
+    media_types = [media.get("contentType") for media in media_list if media.get("contentType")]
+    return {
+        "MediaPath": first.get("path") if first else None,
+        "MediaType": first.get("contentType") if first else None,
+        "MediaUrl": first.get("path") if first else None,
+        "MediaPaths": media_paths or None,
+        "MediaUrls": media_paths or None,
+        "MediaTypes": media_types or None,
+    }
 
 
 _PUSH_CALLBACK: Callable[[dict], None] | None = None
@@ -437,6 +625,8 @@ class OpenClawChannelAgentBackend(AgentBackend):
         sender_id = str(self.provider_config.get("senderId") or "alicechat-user")
         sender_name = str(self.provider_config.get("senderName") or "AliceChat User")
         attachments = _prepare_bridge_attachments(request.attachments)
+        bridge_images = _prepare_bridge_images(attachments)
+        bridge_agent_media = _build_bridge_agent_media_payload(attachments)
         request_id = str(uuid.uuid4())
         session_key = str(request.context.get("sessionKey") or "").strip() or f"agent:{agent}:{session_name}"
 
@@ -469,6 +659,8 @@ class OpenClawChannelAgentBackend(AgentBackend):
                 "requestId": request_id,
                 "text": request.user_text,
                 "attachments": attachments,
+                "images": bridge_images,
+                "agentMedia": bridge_agent_media,
                 "agent": agent,
                 "session": session_name,
                 "sessionKey": session_key,
@@ -512,12 +704,57 @@ class OpenClawChannelAgentBackend(AgentBackend):
             request_started_at = time.monotonic()
             last_typing_at: float | None = None
             last_activity_at: float | None = None
+            last_progress_signature = ""
 
             def current_reply() -> str:
                 return str(accumulated_reply or "").strip()
 
             def current_final_reply() -> str:
                 return str(final_reply or "").strip()
+
+            def emit_progress(*, text: str = "", stage: str = "working", kind: str = "tool", reply_preview: str = "", **meta) -> None:
+                nonlocal last_progress_signature
+                if not emit:
+                    return
+                trimmed_text = str(text or "").strip()
+                preview_text = str(reply_preview or "").strip()
+                tool_call_id = str(meta.get("toolCallId") or "").strip()
+                item_id = str(meta.get("itemId") or "").strip()
+                signature = (
+                    f"{stage}::{kind}::{trimmed_text}::{preview_text}::{tool_call_id}::{item_id}::"
+                    f"{str(meta.get('status') or '')}::{str(meta.get('phase') or '')}"
+                )
+                has_structured_meta = any(str(value or "").strip() for value in meta.values())
+                if not trimmed_text and not preview_text and not has_structured_meta:
+                    return
+                if signature == last_progress_signature:
+                    return
+                last_progress_signature = signature
+                emit({
+                    "type": "progress",
+                    "text": trimmed_text,
+                    "stage": stage,
+                    "kind": kind,
+                    "replyPreview": preview_text,
+                    "state": "streaming",
+                    **{key: value for key, value in meta.items() if value is not None and value != ""},
+                })
+
+            def emit_snapshot_delta(snapshot_text: str) -> None:
+                nonlocal accumulated_reply
+                next_text = str(snapshot_text or "")
+                if not next_text:
+                    return
+                previous = accumulated_reply
+                delta_text = next_text[len(previous):] if next_text.startswith(previous) else next_text
+                accumulated_reply = next_text
+                if emit and delta_text:
+                    emit({
+                        "type": "delta",
+                        "delta": delta_text,
+                        "replyPreview": current_reply(),
+                        "state": "streaming",
+                    })
 
             while True:
                 now = time.monotonic()
@@ -656,6 +893,10 @@ class OpenClawChannelAgentBackend(AgentBackend):
                             "replyPreview": current_reply(),
                             "state": "streaming",
                         })
+                elif ftype == "chat.reply_start":
+                    now = time.monotonic()
+                    last_typing_at = now
+                    emit_progress(stage="typing", kind="thinking", reply_preview=current_reply())
                 elif ftype == "chat.progress":
                     progress_text = str(frame.get("text") or "").strip()
                     progress_stage = str(frame.get("stage") or "working")
@@ -688,6 +929,70 @@ class OpenClawChannelAgentBackend(AgentBackend):
                             "state": "streaming",
                             **{key: value for key, value in progress_meta.items() if value},
                         })
+                elif ftype == "chat.raw_partial":
+                    partial_text = str(frame.get("text") or "").strip()
+                    if partial_text:
+                        emit_snapshot_delta(partial_text)
+                    if pending_empty_final_deadline is not None and (partial_text or accumulated_reply):
+                        pending_empty_final_deadline = time.monotonic() + _EMPTY_FINAL_GRACE_SECONDS
+                    last_typing_at = None
+                elif ftype == "chat.raw_reasoning":
+                    reasoning_text = str(frame.get("text") or "").strip()
+                    if reasoning_text:
+                        emit_progress(
+                            text=reasoning_text,
+                            stage="thinking",
+                            kind="thinking",
+                            reply_preview=current_reply(),
+                        )
+                    last_typing_at = None
+                elif ftype == "chat.raw_agent_event":
+                    normalized = _normalize_bridge_agent_event(frame.get("event") if isinstance(frame.get("event"), dict) else None)
+                    if normalized is not None:
+                        emit_progress(reply_preview=current_reply(), **normalized)
+                    last_typing_at = None
+                elif ftype == "chat.raw_deliver":
+                    payload_kind = str(frame.get("payloadKind") or "block").strip() or "block"
+                    payload = frame.get("payload") if isinstance(frame.get("payload"), dict) else {}
+                    payload_text = str(payload.get("text") or payload.get("body") or "").strip()
+                    media_items = _extract_bridge_media_items(payload)
+                    media_added = False
+                    for item in media_items:
+                        final_media.append(item)
+                        media_added = True
+                    if payload_kind == "tool":
+                        emit_progress(
+                            text=payload_text,
+                            stage="tool",
+                            kind=_classify_progress_kind(payload_text),
+                            reply_preview=current_reply(),
+                        )
+                    elif payload_kind == "block":
+                        if payload_text:
+                            accumulated_reply = f"{accumulated_reply}{payload_text}"
+                            if emit:
+                                emit({
+                                    "type": "delta",
+                                    "delta": payload_text,
+                                    "replyPreview": current_reply(),
+                                    "state": "streaming",
+                                })
+                    elif payload_kind == "final":
+                        if payload_text:
+                            emit_snapshot_delta(payload_text)
+                            final_reply = current_reply()
+                        elif media_added and not final_reply:
+                            final_reply = current_reply()
+                    elif payload_text:
+                        emit_progress(
+                            text=payload_text,
+                            stage=payload_kind,
+                            kind=_classify_progress_kind(payload_text, payload_kind),
+                            reply_preview=current_reply(),
+                        )
+                    if pending_empty_final_deadline is not None and (payload_text or accumulated_reply or media_added or final_media):
+                        pending_empty_final_deadline = time.monotonic() + _EMPTY_FINAL_GRACE_SECONDS
+                    last_typing_at = None
                 elif ftype == "chat.media":
                     media = frame.get("media") or {}
                     last_typing_at = None
@@ -696,7 +1001,10 @@ class OpenClawChannelAgentBackend(AgentBackend):
                         if pending_empty_final_deadline is not None:
                             pending_empty_final_deadline = time.monotonic() + _EMPTY_FINAL_GRACE_SECONDS
                 elif ftype in {"chat.reply_final", "chat.final"}:
-                    final_reply_text = _extract_final_reply(frame)
+                    final_reply_text = _resolve_final_reply(
+                        frame_reply=_extract_final_reply(frame),
+                        accumulated_reply=accumulated_reply,
+                    )
                     media = frame.get("media") or []
                     media_added = False
                     if isinstance(media, list):
@@ -722,6 +1030,17 @@ class OpenClawChannelAgentBackend(AgentBackend):
                     run_state = str(frame.get("runState") or "").strip().lower()
                     had_reply_final = bool(frame.get("hadReplyFinal"))
                     if run_state == "completed" and not had_reply_final and not saw_reply_final_frame:
+                        if final_reply or accumulated_reply or final_media:
+                            final_reply = current_reply()
+                            saw_reply_final_frame = True
+                            _LOG.warning(
+                                "[OPENCLAW_CHANNEL RECOVERED_FINAL] requestId=%s sessionKey=%s reply_len=%s media_count=%s",
+                                request_id,
+                                session_key,
+                                len(final_reply),
+                                len(final_media),
+                            )
+                            break
                         if _is_command_like_text(request.user_text):
                             final_reply = _synthetic_command_ack(request.user_text)
                             accumulated_reply = final_reply

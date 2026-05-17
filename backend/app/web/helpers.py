@@ -28,10 +28,16 @@ def build_route_key(*, provider_id: str, session_key: str = "", agent: str = "",
 
 def build_push_route_key(frame: dict) -> str:
     provider_id = str(frame.get("providerId") or frame.get("provider") or "live2d-channel").strip()
+    account_id = str(frame.get("accountId") or "default").strip() or "default"
     session_key = str(frame.get("sessionKey") or "").strip()
     agent = str(frame.get("agent") or "").strip()
     session_name = str(frame.get("session") or frame.get("conversationLabel") or "").strip()
-    return build_route_key(provider_id=provider_id, session_key=session_key, agent=agent, session_name=session_name)
+    return build_route_key(
+        provider_id=f"{provider_id}:{account_id}",
+        session_key=session_key,
+        agent=agent,
+        session_name=session_name,
+    )
 
 
 def build_session_label(frame: dict) -> str:

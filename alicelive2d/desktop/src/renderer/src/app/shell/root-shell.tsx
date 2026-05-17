@@ -8,6 +8,8 @@ import {
   Text,
 } from "@chakra-ui/react";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
+
+const LIVE2D_WEB_DEBUG_VERSION = "web-debug-20260515-214450";
 import { useTranslation } from "react-i18next";
 import {
   FiLayers,
@@ -30,6 +32,7 @@ import {
   getNextWindowSidebarPanel,
   shouldShowWindowSidebarSection,
 } from "@/runtime/window-shell-utils.ts";
+import { setPointerInsideCanvas } from "@/runtime/live2d-bridge";
 import { getLunariaScrollbarStyles } from "@/runtime/chat-shell-utils.ts";
 import { formatChatMessageTimestamp } from "@/runtime/chat-time-utils.ts";
 import { Live2D } from "@/platform/live2d/ui/live2d-canvas";
@@ -242,6 +245,7 @@ function WindowShell() {
   const { t } = useTranslation();
   const [sidebarPanel, setSidebarPanel] = useState<"sessions" | "settings" | null>(null);
   const [windowPlusOpen, setWindowPlusOpen] = useState(false);
+  const [live2dDebugTick, setLive2dDebugTick] = useState(0);
   const [viewportSize, setViewportSize] = useState({
     width: typeof window !== "undefined" ? window.innerWidth : 1280,
     height: typeof window !== "undefined" ? window.innerHeight : 720,
@@ -327,6 +331,21 @@ function WindowShell() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    (window as any).__OPENCLAW_WEB_DEBUG_VERSION__ = LIVE2D_WEB_DEBUG_VERSION;
+    const timer = window.setInterval(() => {
+      setLive2dDebugTick((value) => value + 1);
+    }, 200);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const live2dDebugState = ((typeof window !== "undefined"
+    ? (window as any).__OPENCLAW_LIVE2D_DEBUG__
+    : null) || {}) as Record<string, any>;
+
   const handleWindowUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files?.length) {
@@ -367,6 +386,43 @@ function WindowShell() {
         </Text>
       </Box>
 
+      <Box
+        position="fixed"
+        top={isPortraitLayout ? "52px" : "68px"}
+        right={isPortraitLayout ? "14px" : "24px"}
+        zIndex="35"
+        maxW="min(420px, calc(100vw - 24px))"
+        bg="rgba(20, 24, 32, 0.84)"
+        color="#EAF2FF"
+        border="1px solid rgba(120, 170, 255, 0.38)"
+        borderRadius="14px"
+        boxShadow="0 16px 40px rgba(0,0,0,0.28)"
+        px="3"
+        py="2.5"
+        fontSize="11px"
+        lineHeight="1.45"
+        pointerEvents="none"
+        whiteSpace="pre-wrap"
+      >
+        <Text fontWeight="800" color="#9CC0FF">Live2D Web Debug</Text>
+        <Text>ver: {LIVE2D_WEB_DEBUG_VERSION}</Text>
+        <Text>tick: {live2dDebugTick}</Text>
+        <Text>event: {String(live2dDebugState.lastEvent || "-")}</Text>
+        <Text>enabled: {String(live2dDebugState.enabled ?? "unknown")}</Text>
+        <Text>constrain: {String(live2dDebugState.constrainPointerToCanvasHover ?? "unknown")}</Text>
+        <Text>insideCanvasFlag: {String(live2dDebugState.isPointerInsideCanvas ?? "unknown")}</Text>
+        <Text>forceCenter: {String(live2dDebugState.forceCenterUntilPointerReenters ?? "unknown")}</Text>
+        <Text>pointer: {live2dDebugState.pointer ? `${Math.round(Number(live2dDebugState.pointer.x || 0))}, ${Math.round(Number(live2dDebugState.pointer.y || 0))}` : "-"}</Text>
+        <Text>pointerType: {String(live2dDebugState.pointer?.pointerType || "-")}</Text>
+        <Text>buttons: {String(live2dDebugState.pointer?.buttons ?? "-")}</Text>
+        <Text>insideActiveRect: {String(live2dDebugState.insideActiveRect ?? "unknown")}</Text>
+        <Text>insideLive2DRect: {String(live2dDebugState.insideLive2DRect ?? "unknown")}</Text>
+        <Text>insideCanvasRect: {String(live2dDebugState.insideCanvasRect ?? "unknown")}</Text>
+        <Text>insideModelBounds: {String(live2dDebugState.insideModelBounds ?? "unknown")}</Text>
+        <Text>reason: {String(live2dDebugState.reason || "-")}</Text>
+        <Text>updated: {String(live2dDebugState.updatedAt || "-")}</Text>
+      </Box>
+
       <style>{vnFloatInKeyframes}</style>
 
       <Flex
@@ -383,10 +439,41 @@ function WindowShell() {
         {isElectron ? <TitleBar /> : null}
 
         <Box
+          id="live2d-interaction-region"
           flex="1"
           minH="0"
           position="relative"
           overflow="hidden"
+          onPointerEnter={(e) => {
+            if (e.pointerType === "mouse") {
+              setPointerInsideCanvas(true, {
+                x: e.clientX,
+                y: e.clientY,
+                buttons: e.buttons,
+                pointerType: e.pointerType,
+              });
+            }
+          }}
+          onPointerMove={(e) => {
+            if (e.pointerType === "mouse") {
+              setPointerInsideCanvas(true, {
+                x: e.clientX,
+                y: e.clientY,
+                buttons: e.buttons,
+                pointerType: e.pointerType,
+              });
+            }
+          }}
+          onPointerLeave={(e) => {
+            if (e.pointerType === "mouse") {
+              setPointerInsideCanvas(false, {
+                x: e.clientX,
+                y: e.clientY,
+                buttons: e.buttons,
+                pointerType: e.pointerType,
+              });
+            }
+          }}
         >
           <Box
             position="absolute"

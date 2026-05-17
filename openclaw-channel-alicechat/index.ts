@@ -1,9 +1,6 @@
 import { WebSocketServer } from 'ws';
 import fsSync from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
-import crypto from 'node:crypto';
-import fs from 'node:fs/promises';
 import { createChannelReplyPipeline } from 'openclaw/plugin-sdk/channel-reply-pipeline';
 
 const ALICECHAT_BACKEND_CONFIG_PATH = process.env.ALICECHAT_BACKEND_CONFIG_PATH || '/root/.openclaw/AliceChat/backend/config.json';
@@ -72,33 +69,18 @@ function toReplyImage(att) {
   return null;
 }
 
-function extensionFromMimeType(mimeType) {
-  const normalized = String(mimeType || '').toLowerCase();
-  if (normalized === 'image/jpeg' || normalized === 'image/jpg') return '.jpg';
-  if (normalized === 'image/png') return '.png';
-  if (normalized === 'image/webp') return '.webp';
-  if (normalized === 'image/gif') return '.gif';
-  if (normalized === 'image/bmp') return '.bmp';
-  if (normalized === 'image/tiff') return '.tiff';
-  return '.bin';
-}
-
-async function materializeInboundMediaList(attachments) {
+function materializeInboundMediaList(attachments) {
   const list = [];
   for (const att of Array.isArray(attachments) ? attachments : []) {
     if (!att) continue;
     const mimeType = String(att.mimeType || att.mediaType || att.mime_type || '');
     if (!mimeType.startsWith('image/')) continue;
-    if (att.content) {
-      const base64 = String(att.content).replace(/^data:[^,]+,/, '').replace(/\s+/g, '');
-      if (!base64) continue;
-      const fileName = `alicechat-inbound-${Date.now()}-${crypto.randomUUID()}${extensionFromMimeType(mimeType)}`;
-      const filePath = path.join(os.tmpdir(), fileName);
-      await fs.writeFile(filePath, Buffer.from(base64, 'base64'));
-      list.push({ path: filePath, contentType: mimeType || undefined });
+    const localPath = String(att.path || '').trim();
+    if (localPath && path.isAbsolute(localPath)) {
+      list.push({ path: localPath, contentType: mimeType || undefined });
       continue;
     }
-    const url = String(att.url || att.path || '').trim();
+    const url = String(att.url || '').trim();
     if (url.startsWith('/')) list.push({ path: url, contentType: mimeType || undefined });
   }
   return list;
@@ -124,100 +106,28 @@ function classifyMedia(url, audioAsVoice) {
   return 'image';
 }
 
-function classifyToolKind(text = '', hint = '') {
-  const haystack = `${hint} ${text}`.trim().toLowerCase();
-  if (!haystack) return 'tool';
-  if (/(web_search|web search|web_fetch|web fetch|search|搜索|查一下|查一查|lookup|google|bing)/i.test(haystack)) return 'search';
-  if (/(read\(|\bread\b|\bcat\b|\bsed\b|\btail\b|\bhead\b|\bgrep\b|查看文件|读取|读一下|翻文件|inspect|open file)/i.test(haystack)) return 'read';
-  if (/(exec\(|\bexec\b|bash|shell|command|命令|运行|python3|\bgit\b|\bnpm\b|\bpnpm\b|\bflutter\b|\bpytest\b|\bmake\b)/i.test(haystack)) return 'exec';
-  if (/(think|reason|推理|思考|思路)/i.test(haystack)) return 'thinking';
-  if (/(plan|步骤|计划|方案)/i.test(haystack)) return 'plan';
-  return 'tool';
-}
-
-function normalizeAgentEventProgress(evt) {
-  const stream = String(evt?.stream || '').trim();
-  const data = evt && typeof evt.data === 'object' && evt.data ? evt.data : {};
-  const phase = String(data.phase || '').trim();
-  const title = String(data.title || '').trim();
-  const summary = String(data.summary || '').trim();
-  const progressText = String(data.progressText || '').trim();
-  const meta = String(data.meta || '').trim();
-  const output = String(data.output || '').trim();
-  const explanation = String(data.explanation || '').trim();
-  const name = String(data.name || '').trim();
-  const kindHint = String(data.kind || '').trim();
-  const status = String(data.status || '').trim();
-  const message = String(data.message || '').trim();
-  const reason = String(data.reason || '').trim();
-  const command = String(data.command || '').trim();
-  const itemId = String(data.itemId || '').trim();
-  const toolCallId = String(data.toolCallId || '').trim();
-  const approvalId = String(data.approvalId || '').trim();
-  const approvalSlug = String(data.approvalSlug || '').trim();
-  const source = String(data.source || '').trim();
-  const args = data.args;
-  const steps = Array.isArray(data.steps)
-    ? data.steps.map((item) => String(item || '').trim()).filter(Boolean)
-    : [];
-
-  const base = {
-    eventStream: stream || 'agent',
-    phase,
-    status,
-    title,
-    itemId,
-    toolCallId,
-    toolName: name,
-    approvalId,
-    approvalSlug,
-    command,
-    output,
-    source,
-    ...(args !== undefined ? { args } : {}),
+function toPushAttachmentRef(mediaUrl, audioAsVoice) {
+  const raw = String(mediaUrl || '').trim();
+  if (!raw) return null;
+  const attachment = {
+    type: classifyMedia(raw, audioAsVoice),
+    audioAsVoice: !!audioAsVoice,
   };
-
-  if (stream === 'plan') {
-    const text = [title, explanation, steps.length ? `步骤：${steps.join('；')}` : '', source].filter(Boolean).join(' · ');
-    return { stage: 'plan', kind: 'plan', text: text || '计划已更新', ...base };
+  if (/^data:/i.test(raw)) {
+    return { ...attachment, url: raw };
   }
-
-  if (stream === 'thinking') {
-    const thinkingText = String(data.text || '').trim();
-    const delta = String(data.delta || '').trim();
-    const text = [thinkingText, delta, progressText, summary, title, meta].filter(Boolean).join(' · ');
-    return text ? { stage: 'thinking', kind: 'thinking', text, ...base } : null;
+  if (/^file:/i.test(raw)) {
+    try {
+      const fileUrl = new URL(raw);
+      return { ...attachment, path: decodeURIComponent(fileUrl.pathname || '') };
+    } catch {
+      return { ...attachment, url: raw };
+    }
   }
-
-  if (stream === 'command_output') {
-    const text = [title, name, output, status, phase].filter(Boolean).join(' · ');
-    return { stage: 'tool', kind: 'exec', text: text || '命令执行中', ...base };
+  if (raw.startsWith('/')) {
+    return { ...attachment, path: raw };
   }
-
-  if (stream === 'tool' || stream === 'item' || stream === 'approval' || stream === 'patch' || stream === 'compaction') {
-    const text = [
-      progressText,
-      summary,
-      title,
-      meta,
-      name,
-      message,
-      reason,
-      command,
-      status,
-      phase,
-      toolCallId,
-      itemId,
-    ].filter(Boolean).join(' · ');
-    return {
-      stage: stream === 'item' ? (phase || 'tool') : stream,
-      kind: kindHint || classifyToolKind(text || `${stream} ${name} ${command}`, name || stream),
-      text: text || `${stream}${name ? ` · ${name}` : ''}${phase ? ` · ${phase}` : ''}`,
-      ...base,
-    };
-  }
-
-  return null;
+  return { ...attachment, url: raw };
 }
 
 function registerClient(activeClients, client) {
@@ -239,38 +149,6 @@ function unregisterClient(activeClients, client) {
     const cur = activeClients.get(key);
     if (cur === client) activeClients.delete(key);
   }
-}
-
-async function mediaUrlToDataPayload(mediaUrl) {
-  if (!mediaUrl) return null;
-  const raw = String(mediaUrl).trim();
-  if (/^data:/i.test(raw)) {
-    const match = /^data:([^;]+);base64,(.*)$/i.exec(raw);
-    if (!match) return null;
-    return { mimeType: match[1], data: match[2] };
-  }
-  const resolveMimeType = (pathname) => {
-    const ext = String(pathname || '').split('.').pop()?.toLowerCase() || '';
-    return ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
-      : ext === 'webp' ? 'image/webp'
-      : ext === 'gif' ? 'image/gif'
-      : ext === 'mp3' ? 'audio/mpeg'
-      : ext === 'wav' ? 'audio/wav'
-      : ext === 'ogg' ? 'audio/ogg'
-      : ext === 'm4a' ? 'audio/mp4'
-      : ext === 'webm' ? 'audio/webm'
-      : 'image/png';
-  };
-  if (/^file:/i.test(raw)) {
-    const url = new URL(raw);
-    const buffer = await fs.readFile(url);
-    return { mimeType: resolveMimeType(url.pathname), data: buffer.toString('base64') };
-  }
-  if (raw.startsWith('/')) {
-    const buffer = await fs.readFile(raw);
-    return { mimeType: resolveMimeType(raw), data: buffer.toString('base64') };
-  }
-  return null;
 }
 
 let cachedAliceChatApiSettings = null;
@@ -377,8 +255,10 @@ function createBridgeServer(ctx) {
     const accountId = String(ctx.accountId || 'default');
     const sessionKey = String(frame.sessionKey || buildSessionKey(requestedAgent, requestedSession));
     const attachments = Array.isArray(frame.attachments) ? frame.attachments : [];
-    const images = attachments.map(toReplyImage).filter(Boolean);
-    const inboundMediaList = await materializeInboundMediaList(attachments);
+    const images = Array.isArray(frame.images) ? frame.images : attachments.map(toReplyImage).filter(Boolean);
+    const agentMedia = frame.agentMedia && typeof frame.agentMedia === 'object'
+      ? frame.agentMedia
+      : buildAgentMediaPayload(materializeInboundMediaList(attachments));
 
     const currentCfg = ctx.cfg;
     const route = channelRuntime.routing.resolveAgentRoute({
@@ -416,7 +296,7 @@ function createBridgeServer(ctx) {
       OriginatingChannel: CHANNEL_ID,
       OriginatingTo: `${backendPrefix}${accountId}`,
       AgentId: agentId,
-      ...buildAgentMediaPayload(inboundMediaList),
+      ...agentMedia,
     });
 
     const storePath = channelRuntime.session.resolveStorePath(currentCfg.session?.store, { agentId });
@@ -428,11 +308,7 @@ function createBridgeServer(ctx) {
     });
 
     let frameSeq = 0;
-    let replyFinalSent = false;
     let runFinalSent = false;
-    let officialPreviewText = '';
-    let officialFinalPayload = null;
-    let lastProgressSignature = '';
     const sendBridgeFrame = (outFrame, phase) => {
       const frameType = String(outFrame?.type || '');
       if (runFinalSent) {
@@ -442,7 +318,6 @@ function createBridgeServer(ctx) {
         ...outFrame,
         seq: ++frameSeq,
       };
-      if (frameType === 'chat.reply_final') replyFinalSent = true;
       if (frameType === 'chat.run_final') runFinalSent = true;
       auditFrame('gateway_backend_ws', 'gateway->backend', frameWithSeq, {
         phase,
@@ -452,72 +327,6 @@ function createBridgeServer(ctx) {
         agent: agentId,
       });
       ws.send(JSON.stringify(frameWithSeq));
-    };
-
-    const getReplyPreview = () => String(officialPreviewText || '').trim();
-
-    const emitDeltaFromSnapshot = (nextSnapshot, phase, kind = 'assistant') => {
-      const nextText = String(nextSnapshot || '');
-      const previous = officialPreviewText;
-      officialPreviewText = nextText;
-      if (!nextText) return;
-      const delta = nextText.startsWith(previous) ? nextText.slice(previous.length) : nextText;
-      if (!delta) return;
-      sendBridgeFrame({
-        type: 'chat.delta',
-        requestId,
-        kind,
-        delta,
-      }, phase);
-    };
-
-    const appendDeltaChunk = (chunk, phase, kind = 'assistant') => {
-      const delta = String(chunk || '');
-      if (!delta) return;
-      officialPreviewText = `${officialPreviewText}${delta}`;
-      sendBridgeFrame({
-        type: 'chat.delta',
-        requestId,
-        kind,
-        delta,
-      }, phase);
-    };
-
-    const emitReplyFinalIfNeeded = (finishReason = 'completed') => {
-      if (replyFinalSent) return;
-      if (!officialFinalPayload) {
-        throw new Error(`missing_official_final_payload requestId=${requestId}`);
-      }
-      sendBridgeFrame({
-        type: 'chat.reply_final',
-        requestId,
-        reply: String(officialFinalPayload.text || '').trim(),
-        media: Array.isArray(officialFinalPayload.media) ? officialFinalPayload.media : [],
-        state: 'final',
-        finishReason,
-        sessionKey,
-        agent: agentId,
-      }, 'gateway_send_chat_reply_final');
-    };
-
-    const sendProgressFrame = ({ stage = 'working', kind = 'tool', text = '', replyPreview = '', ...meta }, phase) => {
-      const trimmedText = String(text || '').trim();
-      const previewText = String(replyPreview || '').trim();
-      const toolCallId = String(meta.toolCallId || '').trim();
-      const itemId = String(meta.itemId || '').trim();
-      const signature = `${stage}::${kind}::${trimmedText}::${previewText}::${toolCallId}::${itemId}::${String(meta.status || '')}::${String(meta.phase || '')}`;
-      if (!trimmedText && !previewText && !toolCallId && !itemId) return;
-      if (signature === lastProgressSignature) return;
-      lastProgressSignature = signature;
-      sendBridgeFrame({
-        type: 'chat.progress',
-        requestId,
-        stage,
-        kind,
-        text: trimmedText,
-        ...(previewText ? { replyPreview: previewText } : {}),
-        ...Object.fromEntries(Object.entries(meta).filter(([, value]) => value !== undefined && value !== null && value !== '')),
-      }, phase);
     };
 
     sendBridgeFrame({ type: 'chat.accepted', requestId, sessionKey, agent: agentId }, 'gateway_send_chat_accepted');
@@ -536,60 +345,28 @@ function createBridgeServer(ctx) {
         dispatcherOptions: {
           ...replyPipeline,
           onReplyStart: () => {
-            sendBridgeFrame({ type: 'chat.typing', requestId }, 'gateway_send_chat_typing');
+            sendBridgeFrame({ type: 'chat.reply_start', requestId }, 'gateway_send_chat_reply_start');
           },
           deliver: async (payload, info) => {
             const text = String(payload?.text ?? payload?.body ?? '').trim();
             const payloadKind = String(info?.kind || payload?.kind || 'block');
-            const lower = text.toLowerCase();
-
-            if (text) {
-              if (payloadKind === 'tool') {
-                sendProgressFrame({
-                  stage: 'tool',
-                  kind: classifyToolKind(text),
-                  text,
-                  replyPreview: getReplyPreview(),
-                }, 'gateway_send_chat_progress');
-              } else if (payloadKind === 'block') {
-                appendDeltaChunk(text, 'gateway_send_chat_delta', 'assistant');
-              } else if (payloadKind === 'final') {
-                emitDeltaFromSnapshot(text, 'gateway_send_chat_final_snapshot_delta', 'assistant');
-              } else if (lower) {
-                sendProgressFrame({
-                  stage: payloadKind,
-                  kind: classifyToolKind(text, payloadKind),
-                  text,
-                  replyPreview: getReplyPreview(),
-                }, 'gateway_send_chat_progress');
-              }
-            }
-
             const mediaUrls = Array.isArray(payload?.mediaUrls)
-              ? payload.mediaUrls
+              ? payload.mediaUrls.filter(Boolean)
               : payload?.mediaUrl
                 ? [payload.mediaUrl]
                 : [];
-            for (const mediaUrl of mediaUrls) {
-              if (!mediaUrl) continue;
-              const item = {
-                url: mediaUrl,
-                type: classifyMedia(mediaUrl, payload.audioAsVoice),
-                audioAsVoice: !!payload.audioAsVoice,
-              };
-              sendBridgeFrame({ type: 'chat.media', requestId, media: item }, 'gateway_send_chat_media');
-            }
-
-            if (payloadKind === 'final') {
-              officialFinalPayload = {
+            sendBridgeFrame({
+              type: 'chat.raw_deliver',
+              requestId,
+              payloadKind,
+              payload: {
                 text,
-                media: mediaUrls.filter(Boolean).map((mediaUrl) => ({
-                  url: mediaUrl,
-                  type: classifyMedia(mediaUrl, payload.audioAsVoice),
-                  audioAsVoice: !!payload.audioAsVoice,
-                })),
-              };
-            }
+                body: text,
+                mediaUrl: mediaUrls[0] || '',
+                mediaUrls,
+                audioAsVoice: !!payload?.audioAsVoice,
+              },
+            }, 'gateway_send_chat_raw_deliver');
           },
         },
         replyOptions: {
@@ -598,56 +375,51 @@ function createBridgeServer(ctx) {
           onPartialReply: async (payload) => {
             const nextText = String(payload?.text ?? '').trim();
             if (!nextText) return;
-            emitDeltaFromSnapshot(nextText, 'gateway_send_chat_partial_delta', 'assistant');
+            sendBridgeFrame({
+              type: 'chat.raw_partial',
+              requestId,
+              text: nextText,
+            }, 'gateway_send_chat_raw_partial');
           },
           onReasoningStream: async (payload) => {
             const text = String(payload?.text ?? '').trim();
             if (!text) return;
-            sendProgressFrame({
-              stage: 'thinking',
-              kind: 'thinking',
+            sendBridgeFrame({
+              type: 'chat.raw_reasoning',
+              requestId,
               text,
-              replyPreview: getReplyPreview(),
-            }, 'gateway_send_chat_thinking');
+            }, 'gateway_send_chat_raw_reasoning');
           },
           onAgentEvent: async (evt) => {
-            const normalized = normalizeAgentEventProgress(evt);
-            if (!normalized) return;
-            sendProgressFrame({
-              ...normalized,
-              replyPreview: getReplyPreview(),
-            }, 'gateway_send_chat_agent_event');
+            sendBridgeFrame({
+              type: 'chat.raw_agent_event',
+              requestId,
+              event: evt,
+            }, 'gateway_send_chat_raw_agent_event');
           },
         },
       });
-
-      if (dispatchResult?.queuedFinal && (dispatchResult?.counts?.final || 0) > 0 && !replyFinalSent) {
-        emitReplyFinalIfNeeded('completed');
-      }
 
       sendBridgeFrame({
         type: 'chat.run_final',
         requestId,
         runState: 'completed',
-        hadReplyFinal: replyFinalSent,
+        hadReplyFinal: false,
         reason: '',
         sessionKey,
         agent: agentId,
         stats: dispatchResult?.counts || {},
       }, 'gateway_send_chat_run_final');
     } catch (error) {
-      if (replyFinalSent) {
-        sendBridgeFrame({
-          type: 'chat.run_final',
-          requestId,
-          runState: 'failed',
-          hadReplyFinal: true,
-          reason: error?.message || 'bridge_error',
-          sessionKey,
-          agent: agentId,
-        }, 'gateway_send_chat_run_final_failed');
-        return;
-      }
+      sendBridgeFrame({
+        type: 'chat.run_final',
+        requestId,
+        runState: 'failed',
+        hadReplyFinal: false,
+        reason: error?.message || 'bridge_error',
+        sessionKey,
+        agent: agentId,
+      }, 'gateway_send_chat_run_final_failed');
       throw error;
     }
   }
@@ -864,6 +636,8 @@ const alicechatPlugin = {
         attachments: [],
         from: 'assistant',
         ts: Date.now(),
+        providerId: String(client.cfg?.providerId || CHANNEL_ID),
+        accountId: ctx.accountId || 'default',
       }));
       return { ok: true, channel: CHANNEL_ID };
     },
@@ -873,23 +647,17 @@ const alicechatPlugin = {
       const mediaCandidates = [];
       if (ctx.mediaUrl) mediaCandidates.push(ctx.mediaUrl);
       if (Array.isArray(ctx.mediaUrls)) mediaCandidates.push(...ctx.mediaUrls);
-      const attachments = [];
-      for (const mediaUrl of mediaCandidates) {
-        const payload = await mediaUrlToDataPayload(mediaUrl);
-        if (!payload) continue;
-        attachments.push({
-          type: classifyMedia(mediaUrl, ctx.audioAsVoice),
-          mimeType: payload.mimeType,
-          content: payload.data,
-          audioAsVoice: !!ctx.audioAsVoice,
-        });
-      }
+      const attachments = mediaCandidates
+        .map((mediaUrl) => toPushAttachmentRef(mediaUrl, ctx.audioAsVoice))
+        .filter(Boolean);
       client.ws.send(JSON.stringify({
         type: 'push.message',
         text: String(ctx.text || ''),
         attachments,
         from: 'assistant',
         ts: Date.now(),
+        providerId: String(client.cfg?.providerId || CHANNEL_ID),
+        accountId: ctx.accountId || 'default',
       }));
       return { ok: true, channel: CHANNEL_ID };
     },

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -54,6 +55,12 @@ class _WebviewScreenState extends State<WebviewScreen>
 
   bool get _isWindows =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+
+  bool get _isDesktopPlatform =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.linux);
 
   @override
   bool get wantKeepAlive => true;
@@ -320,6 +327,22 @@ class _WebviewScreenState extends State<WebviewScreen>
     }
   }
 
+  Future<void> _notifyPointerLeaveFromHost([String reason = 'flutter-host-exit']) async {
+    if (!_pageReady) {
+      return;
+    }
+    final js = 'window.aliceLive2dHostPointerLeave?.(${jsonEncode(reason)});';
+    try {
+      if (_isWindows) {
+        await _windowsController?.executeScript(js);
+      } else {
+        await _mobileController?.runJavaScript(js);
+      }
+    } catch (error) {
+      debugPrint('WebView host pointer-leave sync failed: $error');
+    }
+  }
+
   Future<void> _completeLoadingWhenReady() async {
     if (!_pageFinishReady) return;
     final startedAt = _loadingStartedAt;
@@ -519,10 +542,20 @@ class _WebviewScreenState extends State<WebviewScreen>
   }
 
   Widget _buildReadyBody() {
-    if (_isWindows) {
-      return windows_webview.Webview(_windowsController!);
+    final widget =
+        _isWindows
+            ? windows_webview.Webview(_windowsController!)
+            : WebViewWidget(controller: _mobileController!);
+    if (!_isDesktopPlatform) {
+      return widget;
     }
-    return WebViewWidget(controller: _mobileController!);
+    return MouseRegion(
+      opaque: false,
+      onExit: (_) {
+        unawaited(_notifyPointerLeaveFromHost());
+      },
+      child: widget,
+    );
   }
 
   @override
