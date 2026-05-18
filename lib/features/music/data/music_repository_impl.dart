@@ -347,6 +347,24 @@ class MusicRepositoryImpl implements MusicRepository {
   }
 
   @override
+  Future<void> trashNeteaseFmTrack(
+    MusicTrack track, {
+    int playTimeSeconds = 25,
+  }) async {
+    final sourceTrackId =
+        (track.sourceTrackId ?? '').trim().isNotEmpty
+            ? track.sourceTrackId!.trim()
+            : (track.id.contains(':') ? track.id.split(':').last.trim() : '');
+    if (sourceTrackId.isEmpty) {
+      throw Exception('当前歌曲缺少网易云源 ID，暂时没法减少推荐');
+    }
+    await _client.trashNeteaseFmTrack(
+      sourceTrackId: sourceTrackId,
+      playTimeSeconds: playTimeSeconds,
+    );
+  }
+
+  @override
   Future<List<MusicTrack>> loadNeteaseDaily() async {
     final response = await _client.getNeteaseDaily();
     final rawTracks = (response['tracks'] as List<dynamic>? ?? const [])

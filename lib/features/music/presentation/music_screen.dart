@@ -492,6 +492,7 @@ class _MusicScreenState extends State<MusicScreen>
         final displayedCustomPlaylists = <MusicPlaylist>[
           fmPlaylist,
           dailyPlaylist,
+          store.downloadsPlaylist,
           ...store.customPlaylistCards,
         ];
         final latestAiPlaylistActionPending =
@@ -638,14 +639,16 @@ class _MusicScreenState extends State<MusicScreen>
                           playlists: displayedCustomPlaylists,
                           currentPlaylistId: store.currentPlaylistId,
                           onPlaylistTap: (playlist) {
-                            if (playlist.id == 'netease-fm' || playlist.id == 'netease-daily') {
+                            if (playlist.id == 'netease-fm' ||
+                                playlist.id == 'netease-daily') {
                               _playPlaylist(store, playlist);
                               return;
                             }
                             _openPlaylistDetail(store, playlist);
                           },
                           onPlaylistLongPress: (playlist) {
-                            if (playlist.id == 'netease-fm' || playlist.id == 'netease-daily') {
+                            if (playlist.id == 'netease-fm' ||
+                                playlist.id == 'netease-daily') {
                               return;
                             }
                             _showCustomPlaylistActions(
@@ -810,14 +813,18 @@ class _MusicScreenState extends State<MusicScreen>
                                   openPlayer: false,
                                 ),
                             onOpenPlaylist: (playlist) {
-                              if (playlist.id == 'netease-fm' || playlist.id == 'netease-daily') {
+                              if (playlist.id == 'netease-fm' ||
+                                  playlist.id == 'netease-daily') {
                                 _playPlaylist(store, playlist);
                                 return;
                               }
                               _openPlaylistDetail(store, playlist);
                             },
                             onPlaylistLongPress: (playlist) {
-                              if (playlist.id == 'netease-fm' || playlist.id == 'netease-daily') return;
+                              if (playlist.id == 'netease-fm' ||
+                                  playlist.id == 'netease-daily') {
+                                return;
+                              }
                               _showCustomPlaylistActions(
                                 context,
                                 store,
@@ -1819,7 +1826,8 @@ class _PlaylistGridCard extends StatelessWidget {
                   gradient: LinearGradient(colors: palette.gradient),
                   borderRadius: BorderRadius.circular(16),
                   boxShadow:
-                      playlist.id == 'netease-fm' || playlist.id == 'netease-daily'
+                      playlist.id == 'netease-fm' ||
+                              playlist.id == 'netease-daily'
                           ? [
                             BoxShadow(
                               color: palette.glowColor.withValues(alpha: 0.28),
@@ -1848,7 +1856,10 @@ class _PlaylistGridCard extends StatelessWidget {
               Text(
                 isActive
                     ? '当前播放中'
-                    : (playlist.id == 'netease-fm' || playlist.id == 'netease-daily' ? '专属推荐' : playlist.tag),
+                    : (playlist.id == 'netease-fm' ||
+                            playlist.id == 'netease-daily'
+                        ? '专属推荐'
+                        : playlist.tag),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: palette.gradient.first,
                   fontWeight: FontWeight.w700,
@@ -1868,7 +1879,8 @@ class _PlaylistGridCard extends StatelessWidget {
               Row(
                 children: [
                   Text(
-                    playlist.id == 'netease-fm' || playlist.id == 'netease-daily'
+                    playlist.id == 'netease-fm' ||
+                            playlist.id == 'netease-daily'
                         ? '连续播放'
                         : '${playlist.trackCount} 首',
                     style: theme.textTheme.bodySmall,
@@ -2439,7 +2451,6 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
     MusicPlaylist playlist,
     MusicTrack track,
   ) async {
-    if (!store.isCustomPlaylist(playlist.id)) return;
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -2465,43 +2476,108 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                   },
                 ),
                 ListTile(
-                  leading: const Icon(
-                    Icons.playlist_remove_rounded,
-                    color: Colors.redAccent,
+                  leading: const Icon(Icons.playlist_play_rounded),
+                  title: const Text('下一首播放'),
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    await store.queueTrackNext(track);
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.queue_music_rounded),
+                  title: const Text('添加到播放队列'),
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    await store.appendTrackToQueue(track);
+                  },
+                ),
+                ListTile(
+                  leading: Icon(
+                    store.isTrackDownloaded(track.id)
+                        ? Icons.delete_outline_rounded
+                        : Icons.download_rounded,
                   ),
-                  title: const Text(
-                    '从歌单移除',
-                    style: TextStyle(color: Colors.redAccent),
+                  title: Text(
+                    store.isTrackDownloaded(track.id) ? '移除本地下载' : '下载到本机',
                   ),
                   onTap: () async {
                     Navigator.of(sheetContext).pop();
-                    await store.removeTrackFromCustomPlaylist(
-                      playlist.id,
-                      track.id,
-                    );
-                    if (!context.mounted) return;
-                    Navigator.of(context).pop();
-                    final updatedPlaylist =
-                        store.customPlaylistById(playlist.id)?.asPlaylist ??
-                        playlist;
-                    final updatedTracks = await store.loadPlaylistTracks(
-                      updatedPlaylist,
-                    );
-                    if (!context.mounted) return;
-                    await Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder:
-                            (_) => ChangeNotifierProvider.value(
-                              value: store,
-                              child: _PlaylistDetailScreen(
-                                playlist: updatedPlaylist,
-                                initialTracks: updatedTracks,
-                              ),
-                            ),
-                      ),
-                    );
+                    try {
+                      if (store.isTrackDownloaded(track.id)) {
+                        await store.removeDownloadedTrack(track.id);
+                      } else {
+                        await store.downloadTrack(track);
+                      }
+                      if (!context.mounted) return;
+                      setState(() {
+                        _tracks = store.peekPlaylistTracks(playlist);
+                      });
+                    } catch (error) {
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(SnackBar(content: Text('处理失败：\$error')));
+                    }
                   },
                 ),
+                if (store.isCustomPlaylist(playlist.id))
+                  ListTile(
+                    leading: const Icon(
+                      Icons.playlist_remove_rounded,
+                      color: Colors.redAccent,
+                    ),
+                    title: const Text(
+                      '从歌单移除',
+                      style: TextStyle(color: Colors.redAccent),
+                    ),
+                    onTap: () async {
+                      Navigator.of(sheetContext).pop();
+                      await store.removeTrackFromCustomPlaylist(
+                        playlist.id,
+                        track.id,
+                      );
+                      if (!context.mounted) return;
+                      Navigator.of(context).pop();
+                      final updatedPlaylist =
+                          store.customPlaylistById(playlist.id)?.asPlaylist ??
+                          playlist;
+                      final updatedTracks = await store.loadPlaylistTracks(
+                        updatedPlaylist,
+                      );
+                      if (!context.mounted) return;
+                      await Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder:
+                              (_) => ChangeNotifierProvider.value(
+                                value: store,
+                                child: _PlaylistDetailScreen(
+                                  playlist: updatedPlaylist,
+                                  initialTracks: updatedTracks,
+                                ),
+                              ),
+                        ),
+                      );
+                    },
+                  ),
+                if (playlist.id == store.downloadsPlaylist.id)
+                  ListTile(
+                    leading: const Icon(
+                      Icons.delete_outline_rounded,
+                      color: Colors.redAccent,
+                    ),
+                    title: const Text(
+                      '从已下载里移除',
+                      style: TextStyle(color: Colors.redAccent),
+                    ),
+                    onTap: () async {
+                      Navigator.of(sheetContext).pop();
+                      await store.removeDownloadedTrack(track.id);
+                      if (!context.mounted) return;
+                      setState(() {
+                        _tracks = store.peekPlaylistTracks(playlist);
+                      });
+                    },
+                  ),
               ],
             ),
           ),
@@ -2644,6 +2720,50 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                           label: Text(_isSyncingLikedPlaylist ? '同步中' : '同步'),
                         ),
                       ),
+                    if (playlist.id == 'netease-fm')
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: OutlinedButton.icon(
+                          onPressed:
+                              _isLoadingTracks
+                                  ? null
+                                  : () async {
+                                    setState(() {
+                                      _isLoadingTracks = true;
+                                    });
+                                    try {
+                                      final added = await store
+                                          .loadMoreForPlaylist(playlist);
+                                      final tracks = store.peekPlaylistTracks(
+                                        playlist,
+                                      );
+                                      if (!context.mounted) return;
+                                      setState(() {
+                                        _tracks = tracks;
+                                      });
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            added > 0
+                                                ? '这次又续上了 $added 首 FM'
+                                                : '这一轮没捞到新的 FM',
+                                          ),
+                                        ),
+                                      );
+                                    } finally {
+                                      if (mounted) {
+                                        setState(() {
+                                          _isLoadingTracks = false;
+                                        });
+                                      }
+                                    }
+                                  },
+                          icon: const Icon(Icons.queue_music_rounded),
+                          label: const Text('再来一批'),
+                        ),
+                      ),
                     FilledButton.icon(
                       onPressed:
                           tracks.isEmpty ||
@@ -2694,6 +2814,8 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                           child: Text(
                             store.isCustomPlaylist(playlist.id)
                                 ? '这个歌单还没有歌曲\n去播放器长按当前歌曲，就能收藏到这里'
+                                : playlist.id == store.downloadsPlaylist.id
+                                ? '你还没明确下载过歌曲\n去播放器右上角的更多动作里存一首吧'
                                 : '这个歌单暂时没有可播放的歌曲',
                             textAlign: TextAlign.center,
                           ),
@@ -2741,14 +2863,12 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                                 ),
                                 enabled: !_pendingTrackIndexes.contains(index),
                                 onLongPress:
-                                    store.isCustomPlaylist(playlist.id)
-                                        ? () => _showTrackActions(
-                                          context,
-                                          store,
-                                          playlist,
-                                          track,
-                                        )
-                                        : null,
+                                    () => _showTrackActions(
+                                      context,
+                                      store,
+                                      playlist,
+                                      track,
+                                    ),
                                 onTap:
                                     _pendingTrackIndexes.contains(index)
                                         ? null
@@ -3644,7 +3764,8 @@ class _DesktopSidebarPlaylistTile extends StatelessWidget {
                         child: Icon(
                           playlist.isAiGenerated
                               ? Icons.auto_awesome_rounded
-                              : playlist.id == 'netease-fm' || playlist.id == 'netease-daily'
+                              : playlist.id == 'netease-fm' ||
+                                  playlist.id == 'netease-daily'
                               ? Icons.radio_rounded
                               : palette.icon,
                           color: Colors.white,
@@ -3667,7 +3788,8 @@ class _DesktopSidebarPlaylistTile extends StatelessWidget {
                             ),
                             const SizedBox(height: 1),
                             Text(
-                              playlist.id == 'netease-fm' || playlist.id == 'netease-daily'
+                              playlist.id == 'netease-fm' ||
+                                      playlist.id == 'netease-daily'
                                   ? '连续播放'
                                   : '${playlist.trackCount} 首',
                               maxLines: 1,

@@ -8,6 +8,7 @@ from ..music_api_models import (
     MusicAiPlaylistDraftDto,
     MusicCliLoginSessionDto,
     MusicCommandRequest,
+    MusicFmTrashRequestDto,
     MusicHomeDto,
     MusicIntelligenceRequestDto,
     MusicProviderDto,
@@ -250,6 +251,12 @@ class MusicService:
 
     def load_netease_daily(self) -> list:
         return self.netease_openapi.get_daily_tracks()
+
+    def trash_netease_fm_track(self, request: MusicFmTrashRequestDto) -> None:
+        self.netease_openapi.trash_fm_track(
+            source_track_id=request.sourceTrackId,
+            play_time_seconds=request.playTimeSeconds,
+        )
 
     def list_providers(self) -> list[MusicProviderDto]:
         return [

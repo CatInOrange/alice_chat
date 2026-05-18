@@ -117,6 +117,11 @@ abstract class OpenClawClient {
 
   Future<Map<String, dynamic>> getNeteaseFm({int limit = 3});
 
+  Future<Map<String, dynamic>> trashNeteaseFmTrack({
+    required String sourceTrackId,
+    int playTimeSeconds = 25,
+  });
+
   Future<Map<String, dynamic>> getNeteaseDaily();
 
   Future<Map<String, dynamic>> saveMusicState({

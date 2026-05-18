@@ -218,6 +218,20 @@ CiK45wIDAQAB
             raise NeteaseOpenApiError('网易云每日推荐暂时没有返回可播放歌曲')
         return tracks
 
+    def trash_fm_track(self, *, source_track_id: str, play_time_seconds: int = 25) -> None:
+        normalized_track_id = str(source_track_id or '').strip()
+        if not normalized_track_id:
+            raise NeteaseOpenApiError('缺少可用的网易云歌曲ID')
+        safe_play_time = max(0, min(play_time_seconds, 60 * 60))
+        self._run_weapi_json_request(
+            (
+                'https://music.163.com/weapi/radio/trash/add'
+                f'?alg=RT&songId={normalized_track_id}&time={safe_play_time}'
+            ),
+            data={},
+            error_prefix='标记私人 FM 不喜欢失败',
+        )
+
     def _resolve_song_encrypted_id(self, song: dict[str, Any], playlist_encrypted_id: str) -> str:
         encrypted = self._normalize_encrypted_id(
             self._first_non_empty(

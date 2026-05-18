@@ -7,7 +7,8 @@ import 'package:http/http.dart' as http;
 import 'openclaw_client.dart';
 import 'openclaw_config.dart';
 
-typedef SseEventHandler = void Function(String event, Map<String, dynamic> data);
+typedef SseEventHandler =
+    void Function(String event, Map<String, dynamic> data);
 
 class OpenClawHttpClient implements OpenClawClient {
   OpenClawHttpClient(this.config, {http.Client? httpClient})
@@ -510,6 +511,28 @@ class OpenClawHttpClient implements OpenClawClient {
     );
     if (response.statusCode >= 400) {
       throw _buildRequestException('加载网易云私人 FM 失败', response);
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  @override
+  Future<Map<String, dynamic>> trashNeteaseFmTrack({
+    required String sourceTrackId,
+    int playTimeSeconds = 25,
+  }) async {
+    final response = await _httpClient.post(
+      _uri('/api/music/netease/fm/trash'),
+      headers: _headers,
+      body: jsonEncode({
+        'sourceTrackId': sourceTrackId,
+        'playTimeSeconds': playTimeSeconds.clamp(0, 3600),
+      }),
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('标记私人 FM 不喜欢失败', response);
+    }
+    if (response.body.trim().isEmpty) {
+      return const <String, dynamic>{'ok': true};
     }
     return jsonDecode(response.body) as Map<String, dynamic>;
   }

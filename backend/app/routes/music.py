@@ -15,6 +15,7 @@ from fastapi import HTTPException, Query
 from ..music_api_models import (
     MusicAiPlaylistDraftDto,
     MusicCommandRequest,
+    MusicFmTrashRequestDto,
     MusicIntelligenceRequestDto,
     MusicStatePatchDto,
 )
@@ -245,6 +246,14 @@ def create_music_router(context: AppContext) -> APIRouter:
             'ok': True,
             'tracks': [item.model_dump(exclude_none=True) for item in tracks],
         }
+
+    @router.post('/api/music/netease/fm/trash')
+    async def trash_netease_fm_track(body: MusicFmTrashRequestDto) -> dict:
+        try:
+            context.music_service.trash_netease_fm_track(body)
+        except NeteaseOpenApiError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {'ok': True}
 
     @router.get('/api/music/netease/daily')
     async def get_netease_daily() -> dict:

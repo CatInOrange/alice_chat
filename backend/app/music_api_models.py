@@ -257,3 +257,8 @@ class MusicIntelligenceRequestDto(MusicApiModel):
     playlist: MusicIntelligencePlaylistRefDto | None = None
     count: int = 20
     mode: str = 'fromPlayAll'
+
+
+class MusicFmTrashRequestDto(MusicApiModel):
+    sourceTrackId: str = ''
+    playTimeSeconds: int = 25

@@ -165,7 +165,15 @@ class MusicPlayerScreen extends StatelessWidget {
                                 ],
                               ),
                             ),
-                            const SizedBox(width: 44, height: 44),
+                            _GlassIconButton(
+                              icon: Icons.more_horiz_rounded,
+                              onPressed:
+                                  () => _showTrackActionSheet(
+                                    context,
+                                    store,
+                                    currentTrack,
+                                  ),
+                            ),
                           ],
                         ),
                       ),
@@ -488,6 +496,223 @@ Future<void> _showCollectToPlaylistSheet(
               },
             ),
           ],
+        ),
+      );
+    },
+  );
+}
+
+Future<void> _showTrackActionSheet(
+  BuildContext context,
+  MusicStore store,
+  MusicTrack track,
+) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) {
+      final isDownloaded = store.isTrackDownloaded(track.id);
+      final isFm = store.currentPlaylistId == 'netease-fm';
+      return SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.playlist_play_rounded),
+              title: const Text('查看播放队列'),
+              subtitle: Text(
+                '后面还排着 \${store.queue.length <= 1 ? 0 : store.queue.length - 1} 首',
+              ),
+              onTap: () async {
+                Navigator.of(sheetContext).pop();
+                await _showQueueSheet(context, store);
+              },
+            ),
+            if (isFm)
+              ListTile(
+                leading: const Icon(Icons.queue_music_rounded),
+                title: const Text('再捞一批 FM'),
+                subtitle: const Text('提前把后面的歌续上'),
+                onTap: () async {
+                  Navigator.of(sheetContext).pop();
+                  final added = await store.loadMoreForCurrentPlaylist();
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        added > 0 ? '这次又续上了 \${added} 首' : '这一轮没捞到新的 FM',
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ListTile(
+              leading: const Icon(Icons.playlist_add_rounded),
+              title: const Text('收藏到歌单'),
+              subtitle: const Text('手动收进你自己的歌单里'),
+              onTap: () async {
+                Navigator.of(sheetContext).pop();
+                await _showCollectToPlaylistSheet(context, store, track);
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                isDownloaded
+                    ? Icons.delete_outline_rounded
+                    : Icons.download_rounded,
+              ),
+              title: Text(isDownloaded ? '移除本地下载' : '下载到本机'),
+              subtitle: Text(
+                isDownloaded ? '不会影响普通缓存，只移除明确保存的文件' : '和播放缓存分开，留作明确保存',
+              ),
+              onTap: () async {
+                Navigator.of(sheetContext).pop();
+                try {
+                  if (isDownloaded) {
+                    await store.removeDownloadedTrack(track.id);
+                  } else {
+                    await store.downloadTrack(track);
+                  }
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(isDownloaded ? '已移除本地下载' : '已经替你存到本机了'),
+                    ),
+                  );
+                } catch (error) {
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(SnackBar(content: Text('处理失败：\$error')));
+                }
+              },
+            ),
+            if (isFm)
+              ListTile(
+                leading: const Icon(
+                  Icons.thumb_down_alt_outlined,
+                  color: Colors.redAccent,
+                ),
+                title: const Text(
+                  '减少推荐这首',
+                  style: TextStyle(color: Colors.redAccent),
+                ),
+                subtitle: const Text('会同步喂回私人 FM 的负反馈'),
+                onTap: () async {
+                  Navigator.of(sheetContext).pop();
+                  try {
+                    await store.discardCurrentFmTrack();
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('这首歌已经从私人 FM 里记成不喜欢了')),
+                    );
+                  } catch (error) {
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text('操作失败：\$error')));
+                  }
+                },
+              ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+Future<void> _showQueueSheet(BuildContext context, MusicStore store) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (sheetContext) {
+      final queue = store.queue
+          .map((item) => item.track)
+          .toList(growable: false);
+      final nextCount = queue.length <= 1 ? 0 : queue.length - 1;
+      final isFm = store.currentPlaylistId == 'netease-fm';
+      return SafeArea(
+        child: SizedBox(
+          height: MediaQuery.of(sheetContext).size.height * 0.72,
+          child: Column(
+            children: [
+              ListTile(
+                title: const Text('播放队列'),
+                subtitle: Text(
+                  nextCount > 0 ? '后面还排着 \${nextCount} 首' : '这一轮先排到这里',
+                ),
+                trailing:
+                    isFm
+                        ? TextButton(
+                          onPressed: () async {
+                            final added =
+                                await store.loadMoreForCurrentPlaylist();
+                            if (!sheetContext.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  added > 0
+                                      ? '又接上了 \${added} 首 FM'
+                                      : '这一轮没捞到新的 FM',
+                                ),
+                              ),
+                            );
+                            Navigator.of(sheetContext).pop();
+                            await _showQueueSheet(context, store);
+                          },
+                          child: const Text('再捞一批'),
+                        )
+                        : null,
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: ListView.separated(
+                  itemCount: queue.length,
+                  separatorBuilder: (_, _) => const Divider(height: 1),
+                  itemBuilder: (context, index) {
+                    final queued = queue[index];
+                    final isCurrent = index == 0;
+                    return ListTile(
+                      leading: MusicArtwork(
+                        track: queued,
+                        size: 44,
+                        showMeta: false,
+                        overlayStrength: 0.06,
+                      ),
+                      title: Text(
+                        queued.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        isCurrent ? '正在播放 · \${queued.artist}' : queued.artist,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing:
+                          isCurrent
+                              ? const Icon(Icons.graphic_eq_rounded, size: 18)
+                              : IconButton(
+                                icon: const Icon(Icons.playlist_remove_rounded),
+                                onPressed: () async {
+                                  await store.removeTrackFromQueueAt(index);
+                                  if (!sheetContext.mounted) return;
+                                  Navigator.of(sheetContext).pop();
+                                  await _showQueueSheet(context, store);
+                                },
+                              ),
+                      onTap: () async {
+                        await store.playQueueIndex(index);
+                        if (!sheetContext.mounted) return;
+                        Navigator.of(sheetContext).pop();
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
       );
     },

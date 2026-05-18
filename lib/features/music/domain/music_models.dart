@@ -205,6 +205,71 @@ class MusicTrack {
   }
 }
 
+class DownloadedTrackEntry {
+  const DownloadedTrackEntry({
+    required this.track,
+    required this.localFilePath,
+    this.mimeType,
+    this.fileSizeBytes,
+    this.downloadedAt,
+  });
+
+  final MusicTrack track;
+  final String localFilePath;
+  final String? mimeType;
+  final int? fileSizeBytes;
+  final DateTime? downloadedAt;
+
+  Map<String, dynamic> toMap() {
+    return {
+      'track': track.toMap(),
+      'localFilePath': localFilePath,
+      if ((mimeType ?? '').trim().isNotEmpty) 'mimeType': mimeType,
+      if (fileSizeBytes != null) 'fileSizeBytes': fileSizeBytes,
+      if (downloadedAt != null) 'downloadedAt': downloadedAt!.toIso8601String(),
+    };
+  }
+
+  factory DownloadedTrackEntry.fromMap(Map<String, dynamic> map) {
+    return DownloadedTrackEntry(
+      track: MusicTrack.fromMap(
+        Map<String, dynamic>.from(
+          (map['track'] as Map?)?.cast<String, dynamic>() ?? const {},
+        ),
+      ),
+      localFilePath: (map['localFilePath'] ?? '').toString(),
+      mimeType:
+          (map['mimeType'] ?? '').toString().trim().isEmpty
+              ? null
+              : (map['mimeType'] ?? '').toString(),
+      fileSizeBytes:
+          map['fileSizeBytes'] is num
+              ? (map['fileSizeBytes'] as num).toInt()
+              : int.tryParse('${map['fileSizeBytes']}'),
+      downloadedAt:
+          (map['downloadedAt'] ?? '').toString().trim().isEmpty
+              ? null
+              : DateTime.tryParse((map['downloadedAt'] ?? '').toString()),
+    );
+  }
+
+  DownloadedTrackEntry copyWith({
+    MusicTrack? track,
+    String? localFilePath,
+    String? mimeType,
+    int? fileSizeBytes,
+    DateTime? downloadedAt,
+  }) {
+    return DownloadedTrackEntry(
+      track: track ?? this.track,
+      localFilePath: localFilePath ?? this.localFilePath,
+      mimeType: mimeType ?? this.mimeType,
+      fileSizeBytes: fileSizeBytes ?? this.fileSizeBytes,
+      downloadedAt: downloadedAt ?? this.downloadedAt,
+    );
+  }
+}
+
 class MusicLyricsLine {
   const MusicLyricsLine({required this.timestamp, required this.text});
 

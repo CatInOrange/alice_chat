@@ -12,6 +12,7 @@ class MusicLocalCacheSnapshot {
     this.latestAiPlaylist,
     this.aiPlaylistHistory = const [],
     this.playlistTracksCache = const {},
+    this.downloadedTracks = const [],
     this.cachedAt,
     this.localRevision = 0,
     this.lastAckedRevision = 0,
@@ -22,6 +23,7 @@ class MusicLocalCacheSnapshot {
   final MusicAiPlaylistDraft? latestAiPlaylist;
   final List<MusicAiPlaylistDraft> aiPlaylistHistory;
   final Map<String, List<MusicTrack>> playlistTracksCache;
+  final List<DownloadedTrackEntry> downloadedTracks;
   final DateTime? cachedAt;
   final int localRevision;
   final int lastAckedRevision;
@@ -51,6 +53,7 @@ class MusicLocalCacheStore {
   static const String _likedKey = '$_v2Prefix.liked';
   static const String _aiKey = '$_v2Prefix.ai';
   static const String _playlistTracksKey = '$_v2Prefix.playlist_tracks';
+  static const String _downloadsKey = '$_v2Prefix.downloads';
 
   Future<MusicLocalCacheSnapshot?> load() async {
     try {
@@ -115,6 +118,9 @@ class MusicLocalCacheStore {
         value.map((item) => item.toMap()).toList(growable: false),
       ),
     );
+    final downloadsPayload = snapshot.downloadedTracks
+        .map((item) => item.toMap())
+        .toList(growable: false);
     final metaPayload = <String, dynamic>{
       'version': 2,
       'cachedAt': (snapshot.cachedAt ?? DateTime.now()).toIso8601String(),
@@ -133,6 +139,11 @@ class MusicLocalCacheStore {
       _playlistTracksKey,
       jsonEncode(playlistTracksPayload),
     );
+    await _setStringIfChanged(
+      prefs,
+      _downloadsKey,
+      jsonEncode(downloadsPayload),
+    );
   }
 
   MusicLocalCacheSnapshot? _loadV2(SharedPreferences prefs) {
@@ -141,11 +152,13 @@ class MusicLocalCacheStore {
     final library = _decodeMap(prefs.getString(_libraryKey));
     final ai = _decodeMap(prefs.getString(_aiKey));
     final playlistTracks = _decodeMap(prefs.getString(_playlistTracksKey));
+    final downloads = _decodeList(prefs.getString(_downloadsKey));
     if (meta == null &&
         playback == null &&
         library == null &&
         ai == null &&
-        playlistTracks == null) {
+        playlistTracks == null &&
+        downloads == null) {
       return null;
     }
 
@@ -204,6 +217,7 @@ class MusicLocalCacheStore {
       playlistTracksCache: playlistCacheRaw.map(
         (key, value) => MapEntry(key, _tracksFromList(value as List<dynamic>?)),
       ),
+      downloadedTracks: _downloadedTracksFromList(downloads),
       cachedAt: _nullableDateTime(meta?['cachedAt']),
       localRevision: _intValue(meta?['localRevision']),
       lastAckedRevision: _intValue(meta?['lastAckedRevision']),
@@ -323,6 +337,9 @@ class MusicLocalCacheStore {
       playlistTracksCache: playlistCacheRaw.map(
         (key, value) => MapEntry(key, _tracksFromList(value as List<dynamic>?)),
       ),
+      downloadedTracks: _downloadedTracksFromList(
+        map['downloadedTracks'] as List<dynamic>?,
+      ),
       cachedAt: _nullableDateTime(map['cachedAt']),
       localRevision: _intValue(map['localRevision']),
       lastAckedRevision: _intValue(map['lastAckedRevision']),
@@ -353,6 +370,18 @@ class MusicLocalCacheStore {
     return Map<String, dynamic>.from(decoded.cast<String, dynamic>());
   }
 
+  static List<dynamic>? _decodeList(String? raw) {
+    final value = raw?.trim();
+    if (value == null || value.isEmpty) {
+      return null;
+    }
+    final decoded = jsonDecode(value);
+    if (decoded is! List) {
+      return null;
+    }
+    return List<dynamic>.from(decoded);
+  }
+
   static List<MusicTrack> _tracksFromList(List<dynamic>? raw) {
     return (raw ?? const [])
         .whereType<Map>()
@@ -361,6 +390,20 @@ class MusicLocalCacheStore {
             Map<String, dynamic>.from(item.cast<String, dynamic>()),
           ),
         )
+        .toList(growable: false);
+  }
+
+  static List<DownloadedTrackEntry> _downloadedTracksFromList(
+    List<dynamic>? raw,
+  ) {
+    return (raw ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => DownloadedTrackEntry.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .where((item) => item.localFilePath.trim().isNotEmpty)
         .toList(growable: false);
   }
 
