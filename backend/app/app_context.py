@@ -4,9 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .config import load_config
-from .services import ChatService, EventsBus, MusicService, PushService, RequestDeduper
+from .services import ChatService, EventsBus, MusicService, PushService, RequestDeduper, TranscriptRecoveryService
 from .services.tavern import TavernService, TavernStreamingService
-from .store import MessageStore, MusicStore, PushDeviceStore, SessionStore, TodoStore
+from .store import MessageStore, MusicStore, PushDeviceStore, RecoveryStore, SessionStore, TodoStore
 from .store.tavern import TavernStore
 
 
@@ -15,8 +15,10 @@ class AppContext:
     session_store: SessionStore
     message_store: MessageStore
     music_store: MusicStore
+    recovery_store: RecoveryStore
     events_bus: EventsBus
     chat_service: ChatService
+    recovery_service: TranscriptRecoveryService
     music_service: MusicService
     request_deduper: RequestDeduper
     push_device_store: PushDeviceStore
@@ -33,8 +35,16 @@ def create_app_context(*, uploads_dir: Path) -> AppContext:
     session_store = SessionStore()
     message_store = MessageStore()
     music_store = MusicStore()
+    recovery_store = RecoveryStore()
     events_bus = EventsBus()
     chat_service = ChatService(sessions=session_store, messages=message_store)
+    recovery_service = TranscriptRecoveryService(
+        sessions=session_store,
+        messages=message_store,
+        chat_service=chat_service,
+        events_bus=events_bus,
+        recoveries=recovery_store,
+    )
     music_service = MusicService(store=music_store, config=load_config())
     request_deduper = RequestDeduper()
     push_device_store = PushDeviceStore()
@@ -50,8 +60,10 @@ def create_app_context(*, uploads_dir: Path) -> AppContext:
         session_store=session_store,
         message_store=message_store,
         music_store=music_store,
+        recovery_store=recovery_store,
         events_bus=events_bus,
         chat_service=chat_service,
+        recovery_service=recovery_service,
         music_service=music_service,
         request_deduper=request_deduper,
         push_device_store=push_device_store,

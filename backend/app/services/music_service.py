@@ -6,6 +6,7 @@ from time import sleep, time
 
 from ..music_api_models import (
     MusicAiPlaylistDraftDto,
+    MusicActionRequest,
     MusicCliLoginSessionDto,
     MusicCommandRequest,
     MusicFmTrashRequestDto,
@@ -156,6 +157,9 @@ class MusicService:
 
     def build_command_event(self, command: MusicCommandRequest) -> dict:
         return command.model_dump(exclude_none=True)
+
+    def build_action_event(self, action: MusicActionRequest) -> dict:
+        return action.model_dump(exclude_none=True)
 
     def load_netease_intelligence(self, request: MusicIntelligenceRequestDto) -> NeteaseOpenApiResult:
         state = self.store.load_state()

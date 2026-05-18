@@ -187,6 +187,50 @@ class MessageStore:
             ).fetchone()
             return self._row_to_message(row) if row is not None else None
 
+    def find_message_by_client_message_id(self, session_id: str, client_message_id: str) -> dict | None:
+        self.ensure_schema()
+        needle = str(client_message_id or '').strip()
+        if not needle:
+            return None
+        with connect(self.db) as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM messages
+                WHERE session_id=?
+                  AND deleted_at IS NULL
+                  AND role='user'
+                ORDER BY created_at DESC
+                """,
+                (str(session_id),),
+            ).fetchall()
+            for row in rows:
+                try:
+                    meta = json.loads(row["meta"] or "{}")
+                except Exception:
+                    meta = {}
+                if str(meta.get("clientMessageId") or "").strip() == needle:
+                    return self._row_to_message(row)
+        return None
+
+    def has_assistant_after(self, session_id: str, created_at: float) -> bool:
+        self.ensure_schema()
+        with connect(self.db) as conn:
+            row = conn.execute(
+                """
+                SELECT 1
+                FROM messages
+                WHERE session_id=?
+                  AND deleted_at IS NULL
+                  AND role='assistant'
+                  AND created_at > ?
+                ORDER BY created_at ASC
+                LIMIT 1
+                """,
+                (str(session_id), float(created_at)),
+            ).fetchone()
+            return bool(row)
+
     def soft_delete_message(
         self,
         message_id: str,

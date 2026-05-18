@@ -138,15 +138,19 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        recovery_task: asyncio.Task | None = None
         context.session_store.ensure_schema()
         context.message_store.ensure_schema()
         context.music_store.ensure_schema()
+        context.recovery_store.ensure_schema()
         context.events_bus.store.ensure_schema()
         context.push_device_store.ensure_schema()
         context.todo_store.ensure_schema()
         context.tavern_store.ensure_schema()
+        context.recovery_service.ensure_schema()
         context.events_bus.bind_loop(asyncio.get_running_loop())
         set_push_callback(lambda frame: _persist_push_message(context, frame))
+        recovery_task = asyncio.create_task(context.recovery_service.run_loop())
         try:
             for provider in get_chat_providers():
                 if str(provider.get('type') or '').strip() == 'openclaw-channel':
@@ -157,6 +161,12 @@ def create_app() -> FastAPI:
         try:
             yield
         finally:
+            if recovery_task is not None:
+                recovery_task.cancel()
+                try:
+                    await recovery_task
+                except asyncio.CancelledError:
+                    pass
             set_push_callback(None)
             stop_bridge_listener()
 

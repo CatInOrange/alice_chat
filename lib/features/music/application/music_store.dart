@@ -26,6 +26,7 @@ import '../data/sources/music_source_registry.dart';
 import '../data/sources/music_source_resolver.dart';
 import '../data/sources/music_source_resolver_impl.dart';
 import '../data/sources/netease_music_source_provider.dart';
+import '../domain/music_action.dart';
 import '../domain/music_command.dart';
 import '../domain/music_models.dart';
 import '../domain/music_runtime_models.dart';
@@ -1243,6 +1244,30 @@ class MusicStore extends ChangeNotifier {
     _error = null;
   }
 
+  void _applyCommandPlaylistContext(
+    MusicPlaylist? playlist,
+    List<PlaybackQueueItem> queueItems,
+  ) {
+    if (playlist == null) {
+      _currentPlaylistId = null;
+      return;
+    }
+    final tracks = queueItems.map((item) => item.track).toList(growable: false);
+    final normalizedPlaylist = _normalizeAiPlaylistRef(
+      playlist.copyWith(trackCount: tracks.length),
+    );
+    _cacheTracksForPlaylist(normalizedPlaylist.id, tracks);
+    if (normalizedPlaylist.id != _neteaseFmPlaylistId) {
+      _recentPlaylists = List<MusicPlaylist>.unmodifiable(
+        [
+          normalizedPlaylist,
+          ..._recentPlaylists.where((item) => item.id != normalizedPlaylist.id),
+        ].take(6),
+      );
+    }
+    _currentPlaylistId = normalizedPlaylist.id;
+  }
+
   Future<void> _startQueuedPlaybackInBackground() async {
     try {
       await ensurePlaybackReady();
@@ -2174,11 +2199,36 @@ class MusicStore extends ChangeNotifier {
           _queue = List<PlaybackQueueItem>.unmodifiable(normalizedQueue);
           _currentTrack = _queue.first.track;
           _playbackHistory.clear();
+          _applyCommandPlaylistContext(command.playlist, normalizedQueue);
         }
         if (_queue.isEmpty) {
           throw StateError('当前没有可播放的歌曲');
         }
         await _playCurrentQueueHead();
+        break;
+      case MusicCommandType.prependToQueue:
+        if (command.queue.isNotEmpty) {
+          final incoming = command.queue
+              .map(
+                (item) => PlaybackQueueItem(
+                  track: item.track.copyWith(
+                    isFavorite: isTrackLiked(item.track.id),
+                  ),
+                  candidate: item.candidate,
+                  resolvedSource: item.resolvedSource,
+                  requestedBy: item.requestedBy,
+                ),
+              )
+              .toList(growable: false);
+          _queue = List<PlaybackQueueItem>.unmodifiable([
+            if (_queue.isNotEmpty) _queue.first,
+            ...incoming,
+            if (_queue.isNotEmpty) ..._queue.skip(1),
+          ]);
+          if (_queue.isNotEmpty && _currentTrack.id.trim().isEmpty) {
+            _currentTrack = _queue.first.track;
+          }
+        }
         break;
       case MusicCommandType.appendToQueue:
         if (command.queue.isNotEmpty) {
@@ -2234,6 +2284,102 @@ class MusicStore extends ChangeNotifier {
     _markSnapshotDirty();
   }
 
+  Future<void> handleAction(MusicAction action) async {
+    switch (action.type) {
+      case MusicActionType.playTrack:
+        final track = action.track;
+        if (track == null) {
+          throw StateError('缺少要播放的歌曲');
+        }
+        await handleCommand(
+          MusicCommand(
+            type: MusicCommandType.replaceQueue,
+            source: action.source,
+            queue: [PlaybackQueueItem(track: track)],
+            playlist: action.playlist ?? action.playlistDraft?.asPlaylist,
+            requestId: action.requestId,
+          ),
+        );
+        return;
+      case MusicActionType.playPlaylist:
+        final playlistDraft = action.playlistDraft;
+        final playlist = action.playlist ?? playlistDraft?.asPlaylist;
+        if (playlist == null) {
+          throw StateError('缺少要播放的歌单');
+        }
+        final tracks =
+            playlistDraft?.tracks.isNotEmpty == true
+                ? playlistDraft!.tracks
+                : await loadPlaylistTracks(playlist);
+        await playLoadedPlaylist(
+          playlist,
+          tracks,
+          startIndex: action.startIndex,
+        );
+        return;
+      case MusicActionType.queueNext:
+        final tracks = action.tracks;
+        if (tracks.isEmpty) {
+          throw StateError('缺少要插队的歌曲');
+        }
+        await handleCommand(
+          MusicCommand(
+            type: MusicCommandType.prependToQueue,
+            source: action.source,
+            queue: tracks
+                .map((track) => PlaybackQueueItem(track: track))
+                .toList(growable: false),
+            playlist: action.playlist ?? action.playlistDraft?.asPlaylist,
+            requestId: action.requestId,
+          ),
+        );
+        return;
+      case MusicActionType.queueAppend:
+        final tracks = action.tracks;
+        if (tracks.isEmpty) {
+          throw StateError('缺少要加入队列的歌曲');
+        }
+        await handleCommand(
+          MusicCommand(
+            type: MusicCommandType.appendToQueue,
+            source: action.source,
+            queue: tracks
+                .map((track) => PlaybackQueueItem(track: track))
+                .toList(growable: false),
+            playlist: action.playlist ?? action.playlistDraft?.asPlaylist,
+            requestId: action.requestId,
+          ),
+        );
+        return;
+      case MusicActionType.pauseResume:
+        final shouldPause = switch (action.mode) {
+          'pause' => true,
+          'resume' => false,
+          _ => _isPlaying,
+        };
+        await handleCommand(
+          MusicCommand(
+            type:
+                shouldPause ? MusicCommandType.pause : MusicCommandType.resume,
+            source: action.source,
+            requestId: action.requestId,
+          ),
+        );
+        return;
+      case MusicActionType.skip:
+        await handleCommand(
+          MusicCommand(
+            type: MusicCommandType.next,
+            source: action.source,
+            requestId: action.requestId,
+          ),
+        );
+        return;
+      case MusicActionType.saveAiPlaylist:
+        return;
+    }
+  }
+
   Future<void> _refreshLatestAiPlaylist() async {
     try {
       final previousLatestId = _latestAiPlaylist?.id;
@@ -2284,11 +2430,14 @@ class MusicStore extends ChangeNotifier {
       unawaited(_refreshLatestAiPlaylist());
       return;
     }
-    if (eventName != 'music.command') {
+    final payload = Map<String, dynamic>.from(event);
+    if (eventName == 'music.command') {
+      unawaited(handleCommand(MusicCommand.fromMap(payload)));
       return;
     }
-    final payload = Map<String, dynamic>.from(event);
-    unawaited(handleCommand(MusicCommand.fromMap(payload)));
+    if (eventName == 'music.action') {
+      unawaited(handleAction(MusicAction.fromMap(payload)));
+    }
   }
 
   void _handlePlaybackState(PlaybackAdapterState state) {

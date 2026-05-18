@@ -99,6 +99,7 @@ MusicCommandType = Literal[
     'previous',
     'seek',
     'replaceQueue',
+    'prependToQueue',
     'appendToQueue',
     'likeTrack',
     'unlikeTrack',
@@ -111,6 +112,7 @@ class MusicCommandRequest(MusicApiModel):
     type: MusicCommandType = 'play'
     source: MusicCommandSource = 'manual'
     queue: list[PlaybackQueueItemDto] = Field(default_factory=list)
+    playlist: MusicPlaylistDto | None = None
     targetDeviceId: str | None = None
     requestId: str | None = None
     positionMs: int | None = None
@@ -262,3 +264,21 @@ class MusicIntelligenceRequestDto(MusicApiModel):
 class MusicFmTrashRequestDto(MusicApiModel):
     sourceTrackId: str = ''
     playTimeSeconds: int = 25
+
+
+MusicActionType = Literal[
+    'play_track',
+    'play_playlist',
+    'queue_next',
+    'queue_append',
+    'pause_resume',
+    'skip',
+    'save_ai_playlist',
+]
+
+
+class MusicActionRequest(MusicApiModel):
+    type: MusicActionType
+    payload: dict = Field(default_factory=dict)
+    source: MusicCommandSource = 'chatAi'
+    requestId: str | None = None

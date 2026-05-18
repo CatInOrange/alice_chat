@@ -14,6 +14,7 @@ from fastapi import HTTPException, Query
 
 from ..music_api_models import (
     MusicAiPlaylistDraftDto,
+    MusicActionRequest,
     MusicCommandRequest,
     MusicFmTrashRequestDto,
     MusicIntelligenceRequestDto,
@@ -276,6 +277,37 @@ def create_music_router(context: AppContext) -> APIRouter:
             'ok': True,
             'seq': event.seq,
             'type': event.type,
+        }
+
+    @router.post('/api/music/actions')
+    async def issue_music_action(body: MusicActionRequest) -> dict:
+        if body.type == 'save_ai_playlist':
+            playlist = MusicAiPlaylistDraftDto.model_validate(body.payload)
+            saved = context.music_service.save_latest_ai_playlist(playlist).payload
+            payload = None if saved is None else saved.model_dump(exclude_none=True)
+            await context.events_bus.publish(
+                'music.ai_playlist_updated',
+                {
+                    'playlist': payload,
+                    'requestId': body.requestId,
+                    'source': body.source,
+                },
+            )
+            return {
+                'ok': True,
+                'type': body.type,
+                'playlist': payload,
+            }
+
+        event = await context.events_bus.publish(
+            'music.action',
+            context.music_service.build_action_event(body),
+        )
+        return {
+            'ok': True,
+            'seq': event.seq,
+            'type': event.type,
+            'action': body.type,
         }
 
     return router

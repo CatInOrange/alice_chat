@@ -21,6 +21,14 @@ SUSPICIOUS_FINAL_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         ),
         'edit_failed',
     ),
+    (
+        re.compile(r'(?:^|\n)\s*\d+\.\.\.$'),
+        'unfinished_numbered_item',
+    ),
+    (
+        re.compile(r'(?:^|\n)\s*\d+…$'),
+        'unfinished_numbered_item',
+    ),
 )
 
 RECOVERABLE_NOISE_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -30,6 +38,21 @@ RECOVERABLE_NOISE_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 MIN_RECOVERABLE_PREVIEW_LENGTH = 24
+SUSPICIOUS_ELLIPSIS_MIN_LENGTH = 48
+SUSPICIOUS_ELLIPSIS_TAIL_RE = re.compile(
+    r'([\u4e00-\u9fffA-Za-z0-9\`）】》」』])(?:\.\.\.|…)$'
+)
+
+
+def _looks_like_unfinished_ellipsis(text: str) -> bool:
+    value = strip_model_prefix(str(text or '').strip())
+    if not value or not contains_chinese(value):
+        return False
+    if len(value) < SUSPICIOUS_ELLIPSIS_MIN_LENGTH:
+        return False
+    if not SUSPICIOUS_ELLIPSIS_TAIL_RE.search(value):
+        return False
+    return True
 
 
 def strip_model_prefix(text: str) -> str:
@@ -55,8 +78,10 @@ def detect_suspicious_final(text: str) -> str | None:
         if keyword in lowered:
             return keyword
     for pattern, reason in SUSPICIOUS_FINAL_PATTERNS:
-        if pattern.match(value):
+        if pattern.search(value):
             return reason
+    if _looks_like_unfinished_ellipsis(value):
+        return 'unfinished_ellipsis'
     return None
 
 
@@ -121,6 +146,7 @@ def select_preview_recovery_text(*, final_text: str, preview_text: str, fallback
         strip_model_prefix(str(preview_text or '').strip()),
         strip_model_prefix(str(fallback_preview_text or '').strip()),
     ]
+    suspicious_reason = detect_suspicious_final(final_value)
     for candidate in candidates:
         if not final_value or not candidate:
             continue
@@ -128,7 +154,8 @@ def select_preview_recovery_text(*, final_text: str, preview_text: str, fallback
             continue
         if not is_recoverable_preview_candidate(candidate):
             continue
-        if len(candidate) <= len(final_value) + 12:
+        min_growth = 4 if suspicious_reason in {'unfinished_ellipsis', 'unfinished_numbered_item'} else 12
+        if len(candidate) <= len(final_value) + min_growth:
             continue
         return candidate
     return ''

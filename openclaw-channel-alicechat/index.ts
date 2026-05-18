@@ -227,6 +227,85 @@ async function callAliceChatApi(method, routePath, payload) {
   return data;
 }
 
+const MUSIC_ARTWORK_TONES = ['twilight', 'sunset', 'aurora', 'ocean', 'rose', 'midnight'];
+
+function normalizeMusicArtworkTone(value, fallback = 'aurora') {
+  const tone = String(value || '').trim();
+  return MUSIC_ARTWORK_TONES.includes(tone) ? tone : fallback;
+}
+
+function normalizeMusicTrack(track, fallbackIdPrefix, index = 0, fallbackTone = 'aurora') {
+  return {
+    id: String(track?.id || `${String(fallbackIdPrefix || 'music-action')}:track:${index}`),
+    title: String(track?.title || '').trim(),
+    artist: String(track?.artist || '').trim(),
+    album: String(track?.album || '').trim(),
+    category: String(track?.category || '').trim(),
+    description: String(track?.description || '').trim(),
+    artworkTone: normalizeMusicArtworkTone(track?.artworkTone, fallbackTone),
+    artworkUrl: String(track?.artworkUrl || '').trim() || undefined,
+    preferredSourceId: String(track?.preferredSourceId || '').trim() || undefined,
+    sourceTrackId: String(track?.sourceTrackId || '').trim() || undefined,
+    durationMs: Number(track?.durationMs || 0),
+  };
+}
+
+function normalizeMusicTracks(rawTracks, fallbackIdPrefix, fallbackTone = 'aurora') {
+  const tracks = Array.isArray(rawTracks) ? rawTracks : [];
+  return tracks
+    .map((track, index) => normalizeMusicTrack(track, fallbackIdPrefix, index, fallbackTone))
+    .filter((track) => track.title && track.artist);
+}
+
+function normalizeMusicPlaylistRef(rawPlaylist, fallbackTrackCount = 0) {
+  if (!rawPlaylist || typeof rawPlaylist !== 'object') return null;
+  const id = String(rawPlaylist.id || '').trim();
+  const title = String(rawPlaylist.title || '').trim();
+  if (!id || !title) return null;
+  return {
+    id,
+    title,
+    subtitle: String(rawPlaylist.subtitle || '').trim(),
+    tag: String(rawPlaylist.tag || 'AI').trim() || 'AI',
+    trackCount: Number(rawPlaylist.trackCount || fallbackTrackCount || 0),
+    artworkTone: normalizeMusicArtworkTone(rawPlaylist.artworkTone, 'aurora'),
+    isAiGenerated: rawPlaylist.isAiGenerated !== false,
+  };
+}
+
+function normalizeMusicPlaylistDraft(rawDraft, fallbackId) {
+  const nowSeconds = Date.now() / 1000;
+  const tracks = normalizeMusicTracks(rawDraft?.tracks, fallbackId, rawDraft?.artworkTone || 'aurora');
+  if (!tracks.length) return null;
+  return {
+    id: String(rawDraft?.id || fallbackId || `ai-playlist:${Date.now()}`).trim(),
+    title: String(rawDraft?.title || '').trim(),
+    subtitle: String(rawDraft?.subtitle || '').trim(),
+    description: String(rawDraft?.description || '').trim(),
+    tag: String(rawDraft?.tag || 'AI').trim() || 'AI',
+    artworkTone: normalizeMusicArtworkTone(rawDraft?.artworkTone, 'aurora'),
+    isAiGenerated: rawDraft?.isAiGenerated !== false,
+    tracks,
+    createdAt: Number(rawDraft?.createdAt || nowSeconds),
+    updatedAt: Number(rawDraft?.updatedAt || nowSeconds),
+  };
+}
+
+function playlistDraftToPlaylistRef(draft) {
+  if (!draft || typeof draft !== 'object') return null;
+  const title = String(draft.title || '').trim();
+  if (!title) return null;
+  return {
+    id: String(draft.id || '').trim(),
+    title,
+    subtitle: String(draft.subtitle || '').trim(),
+    tag: String(draft.tag || 'AI').trim() || 'AI',
+    trackCount: Array.isArray(draft.tracks) ? draft.tracks.length : 0,
+    artworkTone: normalizeMusicArtworkTone(draft.artworkTone, 'aurora'),
+    isAiGenerated: draft.isAiGenerated !== false,
+  };
+}
+
 function createBridgeServer(ctx) {
   const port = Number(ctx.account.websocketPort || 18791);
   const host = String(ctx.account.websocketHost || '127.0.0.1');
@@ -308,7 +387,10 @@ function createBridgeServer(ctx) {
     });
 
     let frameSeq = 0;
+    let replyFinalSent = false;
     let runFinalSent = false;
+    let officialPreviewText = '';
+    let officialFinalPayload = null;
     const sendBridgeFrame = (outFrame, phase) => {
       const frameType = String(outFrame?.type || '');
       if (runFinalSent) {
@@ -318,6 +400,7 @@ function createBridgeServer(ctx) {
         ...outFrame,
         seq: ++frameSeq,
       };
+      if (frameType === 'chat.reply_final') replyFinalSent = true;
       if (frameType === 'chat.run_final') runFinalSent = true;
       auditFrame('gateway_backend_ws', 'gateway->backend', frameWithSeq, {
         phase,
@@ -327,6 +410,22 @@ function createBridgeServer(ctx) {
         agent: agentId,
       });
       ws.send(JSON.stringify(frameWithSeq));
+    };
+
+    const emitReplyFinalIfNeeded = (finishReason = 'completed') => {
+      if (replyFinalSent) return;
+      const finalText = String(officialFinalPayload?.text ?? officialPreviewText ?? '').trim();
+      const finalMedia = Array.isArray(officialFinalPayload?.media) ? officialFinalPayload.media : [];
+      sendBridgeFrame({
+        type: 'chat.reply_final',
+        requestId,
+        reply: finalText,
+        media: finalMedia,
+        state: 'final',
+        finishReason,
+        sessionKey,
+        agent: agentId,
+      }, 'gateway_send_chat_reply_final');
     };
 
     sendBridgeFrame({ type: 'chat.accepted', requestId, sessionKey, agent: agentId }, 'gateway_send_chat_accepted');
@@ -355,6 +454,24 @@ function createBridgeServer(ctx) {
               : payload?.mediaUrl
                 ? [payload.mediaUrl]
                 : [];
+            const finalMedia = mediaUrls.map((mediaUrl) => ({
+              url: mediaUrl,
+              type: classifyMedia(mediaUrl, payload?.audioAsVoice),
+              audioAsVoice: !!payload?.audioAsVoice,
+            }));
+            if (payloadKind === 'final') {
+              officialFinalPayload = {
+                text: text || officialPreviewText,
+                media: finalMedia,
+              };
+              if (text) {
+                officialPreviewText = text;
+              }
+            } else if (text) {
+              officialPreviewText = payloadKind === 'block'
+                ? `${officialPreviewText}${text}`
+                : text;
+            }
             sendBridgeFrame({
               type: 'chat.raw_deliver',
               requestId,
@@ -375,6 +492,7 @@ function createBridgeServer(ctx) {
           onPartialReply: async (payload) => {
             const nextText = String(payload?.text ?? '').trim();
             if (!nextText) return;
+            officialPreviewText = nextText;
             sendBridgeFrame({
               type: 'chat.raw_partial',
               requestId,
@@ -400,26 +518,32 @@ function createBridgeServer(ctx) {
         },
       });
 
+      if (dispatchResult?.queuedFinal || officialFinalPayload || officialPreviewText) {
+        emitReplyFinalIfNeeded('completed');
+      }
       sendBridgeFrame({
         type: 'chat.run_final',
         requestId,
         runState: 'completed',
-        hadReplyFinal: false,
+        hadReplyFinal: replyFinalSent,
         reason: '',
         sessionKey,
         agent: agentId,
         stats: dispatchResult?.counts || {},
       }, 'gateway_send_chat_run_final');
     } catch (error) {
-      sendBridgeFrame({
-        type: 'chat.run_final',
-        requestId,
-        runState: 'failed',
-        hadReplyFinal: false,
-        reason: error?.message || 'bridge_error',
-        sessionKey,
-        agent: agentId,
-      }, 'gateway_send_chat_run_final_failed');
+      if (replyFinalSent) {
+        sendBridgeFrame({
+          type: 'chat.run_final',
+          requestId,
+          runState: 'failed',
+          hadReplyFinal: true,
+          reason: error?.message || 'bridge_error',
+          sessionKey,
+          agent: agentId,
+        }, 'gateway_send_chat_run_final_failed');
+        return;
+      }
       throw error;
     }
   }
@@ -694,6 +818,241 @@ const alicechatPlugin = {
 };
 
 export function register(api) {
+  api.registerTool({
+    name: 'music_action',
+    label: 'Control music playback',
+    description: 'Send a structured music action to AliceChat for playback control or AI playlist recommendations.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        type: {
+          type: 'string',
+          enum: [
+            'play_track',
+            'play_playlist',
+            'queue_next',
+            'queue_append',
+            'pause_resume',
+            'skip',
+            'save_ai_playlist',
+          ],
+        },
+        requestId: { type: 'string' },
+        mode: {
+          type: 'string',
+          enum: ['pause', 'resume'],
+          description: 'Optional for pause_resume. Omit to toggle.',
+        },
+        startIndex: { type: 'number', description: 'Optional start index for play_playlist.' },
+        track: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            id: { type: 'string' },
+            title: { type: 'string' },
+            artist: { type: 'string' },
+            album: { type: 'string' },
+            category: { type: 'string' },
+            description: { type: 'string' },
+            artworkTone: { type: 'string', enum: MUSIC_ARTWORK_TONES },
+            artworkUrl: { type: 'string' },
+            preferredSourceId: { type: 'string' },
+            sourceTrackId: { type: 'string' },
+            durationMs: { type: 'number' },
+          },
+          required: ['title', 'artist'],
+        },
+        tracks: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              id: { type: 'string' },
+              title: { type: 'string' },
+              artist: { type: 'string' },
+              album: { type: 'string' },
+              category: { type: 'string' },
+              description: { type: 'string' },
+              artworkTone: { type: 'string', enum: MUSIC_ARTWORK_TONES },
+              artworkUrl: { type: 'string' },
+              preferredSourceId: { type: 'string' },
+              sourceTrackId: { type: 'string' },
+              durationMs: { type: 'number' },
+            },
+            required: ['title', 'artist'],
+          },
+        },
+        playlist: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            id: { type: 'string' },
+            title: { type: 'string' },
+            subtitle: { type: 'string' },
+            tag: { type: 'string' },
+            trackCount: { type: 'number' },
+            artworkTone: { type: 'string', enum: MUSIC_ARTWORK_TONES },
+            isAiGenerated: { type: 'boolean' },
+          },
+        },
+        playlistDraft: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            id: { type: 'string' },
+            title: { type: 'string' },
+            subtitle: { type: 'string' },
+            description: { type: 'string' },
+            tag: { type: 'string' },
+            artworkTone: { type: 'string', enum: MUSIC_ARTWORK_TONES },
+            isAiGenerated: { type: 'boolean' },
+            tracks: { type: 'array', items: { type: 'object' } },
+          },
+        },
+        id: { type: 'string', description: 'Legacy draft id for save_ai_playlist.' },
+        title: { type: 'string', description: 'Legacy draft title for save_ai_playlist.' },
+        subtitle: { type: 'string', description: 'Legacy draft subtitle for save_ai_playlist.' },
+        description: { type: 'string', description: 'Legacy draft description for save_ai_playlist.' },
+        tag: { type: 'string', description: 'Legacy draft tag for save_ai_playlist.' },
+        artworkTone: { type: 'string', enum: MUSIC_ARTWORK_TONES },
+        isAiGenerated: { type: 'boolean', description: 'Legacy draft flag for save_ai_playlist.' },
+      },
+      required: ['type'],
+    },
+    async execute(_id, params) {
+      try {
+        const actionType = String(params.type || '').trim();
+        const requestId = String(params.requestId || '').trim() || undefined;
+        const playlistDraftInput = params.playlistDraft && typeof params.playlistDraft === 'object'
+          ? params.playlistDraft
+          : {
+              id: params.id,
+              title: params.title,
+              subtitle: params.subtitle,
+              description: params.description,
+              tag: params.tag,
+              artworkTone: params.artworkTone,
+              isAiGenerated: params.isAiGenerated,
+              tracks: params.tracks,
+            };
+        let payload = {};
+
+        switch (actionType) {
+          case 'play_track': {
+            const normalizedTrack = normalizeMusicTrack(
+              params.track,
+              requestId || 'music-action:play-track',
+              0,
+              params.track?.artworkTone || 'aurora',
+            );
+            if (!normalizedTrack.title || !normalizedTrack.artist) {
+              return {
+                content: [{ type: 'text', text: 'Error: play_track 需要 track.title 和 track.artist。' }],
+                details: { error: true },
+              };
+            }
+            payload = {
+              track: normalizedTrack,
+              ...(normalizeMusicPlaylistRef(params.playlist, 1) ? { playlist: normalizeMusicPlaylistRef(params.playlist, 1) } : {}),
+            };
+            break;
+          }
+          case 'play_playlist': {
+            const normalizedDraft = normalizeMusicPlaylistDraft(
+              params.playlistDraft,
+              requestId || 'music-action:play-playlist',
+            );
+            const normalizedPlaylist = normalizeMusicPlaylistRef(
+              params.playlist || playlistDraftToPlaylistRef(normalizedDraft),
+              normalizedDraft?.tracks?.length || 0,
+            );
+            if (!normalizedDraft && !normalizedPlaylist) {
+              return {
+                content: [{ type: 'text', text: 'Error: play_playlist 需要 playlist 或 playlistDraft。' }],
+                details: { error: true },
+              };
+            }
+            payload = {
+              ...(normalizedPlaylist ? { playlist: normalizedPlaylist } : {}),
+              ...(normalizedDraft ? { playlistDraft: normalizedDraft } : {}),
+              ...(Number.isFinite(Number(params.startIndex)) ? { startIndex: Number(params.startIndex) } : {}),
+            };
+            break;
+          }
+          case 'queue_next':
+          case 'queue_append': {
+            const normalizedTracks = normalizeMusicTracks(
+              params.tracks || (params.track ? [params.track] : []),
+              requestId || `music-action:${actionType}`,
+              params.artworkTone || 'aurora',
+            );
+            if (!normalizedTracks.length) {
+              return {
+                content: [{ type: 'text', text: `Error: ${actionType} 需要 track 或 tracks，且每首歌至少要有 title 和 artist。` }],
+                details: { error: true },
+              };
+            }
+            payload = {
+              tracks: normalizedTracks,
+              ...(normalizeMusicPlaylistRef(params.playlist, normalizedTracks.length)
+                ? { playlist: normalizeMusicPlaylistRef(params.playlist, normalizedTracks.length) }
+                : {}),
+            };
+            break;
+          }
+          case 'pause_resume':
+            payload = {
+              ...(String(params.mode || '').trim() ? { mode: String(params.mode || '').trim() } : {}),
+            };
+            break;
+          case 'skip':
+            payload = {};
+            break;
+          case 'save_ai_playlist': {
+            const normalizedDraft = normalizeMusicPlaylistDraft(
+              playlistDraftInput,
+              requestId || params.id || `ai-playlist:${Date.now()}`,
+            );
+            if (!normalizedDraft || !normalizedDraft.title || !normalizedDraft.subtitle || !normalizedDraft.description) {
+              return {
+                content: [{ type: 'text', text: 'Error: save_ai_playlist 需要完整的 playlistDraft（至少 title/subtitle/description/tracks）。' }],
+                details: { error: true },
+              };
+            }
+            payload = normalizedDraft;
+            break;
+          }
+          default:
+            return {
+              content: [{ type: 'text', text: `Error: 不支持的 music action: ${actionType}` }],
+              details: { error: true },
+            };
+        }
+
+        const response = await callAliceChatApi('POST', '/api/music/actions', {
+          type: actionType,
+          source: 'chatAi',
+          ...(requestId ? { requestId } : {}),
+          payload,
+        });
+        return {
+          content: [{
+            type: 'text',
+            text: `Music action accepted: ${actionType}.`,
+          }],
+          details: response,
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Error: ${error?.message || String(error)}` }],
+          details: { error: true },
+        };
+      }
+    },
+  });
+
   api.registerTool({
     name: 'save_latest_ai_playlist',
     label: 'Save latest AI playlist',

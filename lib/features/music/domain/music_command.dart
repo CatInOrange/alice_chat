@@ -1,4 +1,5 @@
 import 'music_runtime_models.dart';
+import 'music_models.dart';
 
 enum MusicCommandType {
   play,
@@ -8,16 +9,13 @@ enum MusicCommandType {
   previous,
   seek,
   replaceQueue,
+  prependToQueue,
   appendToQueue,
   likeTrack,
   unlikeTrack,
 }
 
-enum MusicCommandSource {
-  manual,
-  chatAi,
-  system,
-}
+enum MusicCommandSource { manual, chatAi, system }
 
 MusicCommandType musicCommandTypeFromName(String value) {
   return MusicCommandType.values.firstWhere(
@@ -38,6 +36,7 @@ class MusicCommand {
     required this.type,
     this.source = MusicCommandSource.manual,
     this.queue = const [],
+    this.playlist,
     this.targetDeviceId,
     this.requestId,
     this.positionMs,
@@ -46,6 +45,7 @@ class MusicCommand {
   final MusicCommandType type;
   final MusicCommandSource source;
   final List<PlaybackQueueItem> queue;
+  final MusicPlaylist? playlist;
   final String? targetDeviceId;
   final String? requestId;
   final int? positionMs;
@@ -66,6 +66,7 @@ class MusicCommand {
       'type': type.name,
       'source': source.name,
       if (queue.isNotEmpty) 'queue': queue.map((item) => item.toMap()).toList(),
+      if (playlist != null) 'playlist': playlist!.toMap(),
       if (targetDeviceId != null && targetDeviceId!.isNotEmpty)
         'targetDeviceId': targetDeviceId,
       if (requestId != null && requestId!.isNotEmpty) 'requestId': requestId,
@@ -92,6 +93,9 @@ class MusicCommand {
         )
         .toList(growable: false);
     final resolvedQueue = payloadQueue.isNotEmpty ? payloadQueue : rawQueue;
+    final playlistMap =
+        (map['playlist'] as Map?)?.cast<String, dynamic>() ??
+        (payload?['playlist'] as Map?)?.cast<String, dynamic>();
     final typeValue =
         (map['type'] ?? payload?['type'] ?? MusicCommandType.play.name)
             .toString();
@@ -109,11 +113,13 @@ class MusicCommand {
       type: musicCommandTypeFromName(typeValue),
       source: musicCommandSourceFromName(sourceValue),
       queue: resolvedQueue,
+      playlist: playlistMap == null ? null : MusicPlaylist.fromMap(playlistMap),
       targetDeviceId: targetDeviceValue.isEmpty ? null : targetDeviceValue,
       requestId: requestValue.isEmpty ? null : requestValue,
-      positionMs: positionRaw is num
-          ? positionRaw.toInt()
-          : int.tryParse('$positionRaw'),
+      positionMs:
+          positionRaw is num
+              ? positionRaw.toInt()
+              : int.tryParse('$positionRaw'),
     );
   }
 }

@@ -81,15 +81,29 @@ openclaw gateway restart
 
 ## AI 工具（新增）
 
-本插件现在除了注册 AliceChat channel，也会注册两个可供 AI 调用的 tool：
+本插件现在除了注册 AliceChat channel，也会注册三个可供 AI 调用的 tool：
 
+- `music_action`
 - `save_latest_ai_playlist`
 - `get_latest_ai_playlist`
 
 它们会直接调用 AliceChat backend：
 
+- `POST /api/music/actions`
 - `POST /api/music/ai-playlists/latest`
 - `GET /api/music/ai-playlists/latest`
+
+`music_action` 是新的统一入口，当前最小可用版支持：
+
+- `play_track`
+- `play_playlist`
+- `queue_next`
+- `queue_append`
+- `pause_resume`
+- `skip`
+- `save_ai_playlist`
+
+`save_latest_ai_playlist` 仍然保留，适合首页推荐位；但 AI 侧今后应优先走 `music_action`。
 
 ### tool 的配置来源
 

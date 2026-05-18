@@ -106,6 +106,24 @@ def migrate(conn: sqlite3.Connection) -> None:
             value TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS message_recoveries (
+            recovery_key TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            client_message_id TEXT NOT NULL,
+            user_message_id TEXT NOT NULL DEFAULT '',
+            request_id TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL,
+            status TEXT NOT NULL,
+            reason TEXT NOT NULL DEFAULT '',
+            message_id TEXT NOT NULL DEFAULT '',
+            meta_json TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_message_recoveries_session ON message_recoveries(session_id, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_message_recoveries_client ON message_recoveries(client_message_id, updated_at DESC);
+
         CREATE TABLE IF NOT EXISTS push_devices (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,

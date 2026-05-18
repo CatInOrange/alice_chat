@@ -5,7 +5,8 @@ from .events import EventStore
 from .messages import MessageStore
 from .music import MusicStore
 from .push_devices import PushDeviceStore
+from .recoveries import RecoveryStore
 from .sessions import SessionStore
 from .todo import TodoStore
 
-__all__ = ["DbConfig", "EventStore", "MessageStore", "MusicStore", "PushDeviceStore", "SessionStore", "TodoStore"]
+__all__ = ["DbConfig", "EventStore", "MessageStore", "MusicStore", "PushDeviceStore", "RecoveryStore", "SessionStore", "TodoStore"]
