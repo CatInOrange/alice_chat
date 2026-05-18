@@ -70,12 +70,12 @@ class MusicStore extends ChangeNotifier {
     _eventClient = _client;
     _currentTrack = const MusicTrack(
       id: '',
-      title: '还没有开始播放',
+      title: '还没开始播放',
       artist: 'AliceChat 音乐',
-      album: '等待你的下一首歌',
+      album: '等你按下这一首',
       duration: Duration.zero,
-      category: '未开始播放',
-      description: '连上你的音乐 或者先从 AI 给你的推荐开始',
+      category: '音乐还没响起',
+      description: '连上你的音乐，或者先听听 AI 替你挑的歌',
       artworkTone: MusicArtworkTone.twilight,
     );
     _duration = _currentTrack.duration;
@@ -286,8 +286,8 @@ class MusicStore extends ChangeNotifier {
       if (isIntelligenceMode && _intelligenceSourcePlaylist != null) {
         return '心动模式 · 基于 ${_intelligenceSourcePlaylist!.title}';
       }
-      if (playlist.id == likedPlaylist.id) return '喜欢过的歌 都收在这里';
-      if (playlist.id == downloadsPlaylist.id) return '这批歌已经替你存到本机了';
+      if (playlist.id == likedPlaylist.id) return '所有心动过的歌，都在这里';
+      if (playlist.id == downloadsPlaylist.id) return '这些歌已经安静躺在本地了';
       if (playlist.isAiGenerated) return '来自 ${playlist.title}';
       return '来自 ${playlist.title}';
     }

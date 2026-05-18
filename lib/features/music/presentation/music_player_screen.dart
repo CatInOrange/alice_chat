@@ -451,12 +451,12 @@ Future<void> _showCollectToPlaylistSheet(
           children: [
             const ListTile(
               title: Text('收藏到歌单'),
-              subtitle: Text('喜欢过的歌 还是交给右上角那颗红心'),
+              subtitle: Text('真的喜欢，就把它留在心爱的歌单里'),
             ),
             if (playlists.isEmpty)
               const Padding(
                 padding: EdgeInsets.all(20),
-                child: Text('你还没有自己的歌单 先去首页留一份吧'),
+                child: Text('你还没有自己的歌单，先去首页存一份心头好吧'),
               )
             else
               ...playlists.map(
@@ -480,7 +480,7 @@ Future<void> _showCollectToPlaylistSheet(
                         content: Text(
                           added
                               ? '已收藏到 ${playlist.title}'
-                              : '这首歌已经在 ${playlist.title} 里了',
+                              : '它已经安安稳稳躺在 ${playlist.title} 里了',
                         ),
                       ),
                     );
@@ -521,7 +521,9 @@ Future<void> _showTrackActionSheet(
               leading: const Icon(Icons.playlist_play_rounded),
               title: const Text('查看播放队列'),
               subtitle: Text(
-                '后面还排着 ${store.queue.length <= 1 ? 0 : store.queue.length - 1} 首',
+                store.queue.length <= 1
+                    ? '接下来就听这一首'
+                    : '后面还有 ${store.queue.length - 1} 首等着你',
               ),
               onTap: () async {
                 Navigator.of(sheetContext).pop();
@@ -532,7 +534,7 @@ Future<void> _showTrackActionSheet(
               ListTile(
                 leading: const Icon(Icons.queue_music_rounded),
                 title: const Text('再捞一批 FM'),
-                subtitle: const Text('提前把后面的歌续上'),
+                subtitle: const Text('让这段电台继续唱下去'),
                 onTap: () async {
                   Navigator.of(sheetContext).pop();
                   final added = await store.loadMoreForCurrentPlaylist();
@@ -540,7 +542,7 @@ Future<void> _showTrackActionSheet(
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
-                        added > 0 ? '这次又续上了 $added 首' : '这一轮没捞到新的 FM',
+                        added > 0 ? '又替你接上了 $added 首' : '这一趟没遇见新的歌',
                       ),
                     ),
                   );
@@ -549,7 +551,7 @@ Future<void> _showTrackActionSheet(
             ListTile(
               leading: const Icon(Icons.playlist_add_rounded),
               title: const Text('收藏到歌单'),
-              subtitle: const Text('手动收进你自己的歌单里'),
+              subtitle: const Text('把它收进你想留下的那一栏'),
               onTap: () async {
                 Navigator.of(sheetContext).pop();
                 await _showCollectToPlaylistSheet(context, store, track);
@@ -563,7 +565,7 @@ Future<void> _showTrackActionSheet(
               ),
               title: Text(isDownloaded ? '移除本地下载' : '下载到本机'),
               subtitle: Text(
-                isDownloaded ? '不会影响普通缓存，只移除明确保存的文件' : '和播放缓存分开，留作明确保存',
+                isDownloaded ? '只是把这份留存拿走，播放缓存还在' : '单独存一份，想听的时候它会一直在',
               ),
               onTap: () async {
                 Navigator.of(sheetContext).pop();
@@ -576,7 +578,9 @@ Future<void> _showTrackActionSheet(
                   if (!context.mounted) return;
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text(isDownloaded ? '已移除本地下载' : '已经替你存到本机了'),
+                      content: Text(
+                        isDownloaded ? '这份本地留存已经移走了' : '已经替你安静地收好了',
+                      ),
                     ),
                   );
                 } catch (error) {
@@ -597,14 +601,14 @@ Future<void> _showTrackActionSheet(
                   '减少推荐这首',
                   style: TextStyle(color: Colors.redAccent),
                 ),
-                subtitle: const Text('会同步喂回私人 FM 的负反馈'),
+                subtitle: const Text('告诉私人 FM，这首就先别再来了'),
                 onTap: () async {
                   Navigator.of(sheetContext).pop();
                   try {
                     await store.discardCurrentFmTrack();
                     if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('这首歌已经从私人 FM 里记成不喜欢了')),
+                      const SnackBar(content: Text('记下了，之后会少给你推这一首')),
                     );
                   } catch (error) {
                     if (!context.mounted) return;
@@ -640,7 +644,7 @@ Future<void> _showQueueSheet(BuildContext context, MusicStore store) async {
               ListTile(
                 title: const Text('播放队列'),
                 subtitle: Text(
-                  nextCount > 0 ? '后面还排着 $nextCount 首' : '这一轮先排到这里',
+                  nextCount > 0 ? '后面还有 $nextCount 首陪着你' : '这一轮就先听到这里',
                 ),
                 trailing:
                     isFm
@@ -653,15 +657,15 @@ Future<void> _showQueueSheet(BuildContext context, MusicStore store) async {
                               SnackBar(
                                 content: Text(
                                   added > 0
-                                      ? '又接上了 $added 首 FM'
-                                      : '这一轮没捞到新的 FM',
+                                      ? '又替你接上了 $added 首 FM'
+                                      : '这一趟没遇见新的 FM',
                                 ),
                               ),
                             );
                             Navigator.of(sheetContext).pop();
                             await _showQueueSheet(context, store);
                           },
-                          child: const Text('再捞一批'),
+                          child: const Text('继续往后听'),
                         )
                         : null,
               ),

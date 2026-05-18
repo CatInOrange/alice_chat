@@ -2717,7 +2717,7 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                                     ),
                                   )
                                   : const Icon(Icons.sync_rounded),
-                          label: Text(_isSyncingLikedPlaylist ? '同步中' : '同步'),
+                          label: Text(_isSyncingLikedPlaylist ? '整理中' : '更新喜欢'),
                         ),
                       ),
                     if (playlist.id == 'netease-fm')
@@ -2747,8 +2747,8 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                                         SnackBar(
                                           content: Text(
                                             added > 0
-                                                ? '这次又续上了 $added 首 FM'
-                                                : '这一轮没捞到新的 FM',
+                                                ? '又替你接上了 $added 首 FM'
+                                                : '这一趟没遇见新的 FM',
                                           ),
                                         ),
                                       );
@@ -2761,7 +2761,7 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                                     }
                                   },
                           icon: const Icon(Icons.queue_music_rounded),
-                          label: const Text('再来一批'),
+                          label: const Text('继续往后听'),
                         ),
                       ),
                     FilledButton.icon(
@@ -2799,7 +2799,7 @@ class _PlaylistDetailScreenState extends State<_PlaylistDetailScreen> {
                                 ),
                               )
                               : const Icon(Icons.play_arrow_rounded),
-                      label: Text(_isPlayingAll ? '处理中...' : '播放全部'),
+                      label: Text(_isPlayingAll ? '这就开唱...' : '播放全部'),
                     ),
                   ],
                 ),
@@ -3590,7 +3590,7 @@ class _DesktopLibrarySidebar extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('音乐空间', style: theme.textTheme.titleMedium),
+                    Text('此刻想听', style: theme.textTheme.titleMedium),
                     const SizedBox(height: 2),
                     Text(
                       currentPlaybackSourceLabel,
@@ -3629,7 +3629,7 @@ class _DesktopLibrarySidebar extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          Text('你的歌单', style: theme.textTheme.titleSmall),
+          Text('你的收藏', style: theme.textTheme.titleSmall),
           const SizedBox(height: 8),
           Expanded(
             child: ListView(
@@ -3653,7 +3653,7 @@ class _DesktopLibrarySidebar extends StatelessWidget {
                 ),
                 if (recentPlaylists.isNotEmpty) ...[
                   const SizedBox(height: 12),
-                  Text('最近播放', style: theme.textTheme.titleSmall),
+                  Text('最近听过', style: theme.textTheme.titleSmall),
                   const SizedBox(height: 8),
                   ...recentPlaylists
                       .take(4)
@@ -3672,7 +3672,7 @@ class _DesktopLibrarySidebar extends StatelessWidget {
                 ],
                 if (aiPlaylists.isNotEmpty) ...[
                   const SizedBox(height: 12),
-                  Text('AI 歌单', style: theme.textTheme.titleSmall),
+                  Text('AI 为你挑的', style: theme.textTheme.titleSmall),
                   const SizedBox(height: 8),
                   ...aiPlaylists
                       .take(3)
@@ -3702,7 +3702,7 @@ class _DesktopLibrarySidebar extends StatelessWidget {
               ),
               onPressed: onCreatePlaylist,
               icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('新建歌单'),
+              label: const Text('新建一份歌单'),
             ),
           ),
         ],
@@ -3790,7 +3790,7 @@ class _DesktopSidebarPlaylistTile extends StatelessWidget {
                             Text(
                               playlist.id == 'netease-fm' ||
                                       playlist.id == 'netease-daily'
-                                  ? '连续播放'
+                                  ? '会一直往下唱'
                                   : '${playlist.trackCount} 首',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -4089,7 +4089,7 @@ class _DesktopLyricsPane extends StatelessWidget {
     if ((currentLyric ?? '').trim().isEmpty) {
       return Center(
         child: Text(
-          '这首歌的歌词暂时还没来，先听听气氛也不错。',
+          '歌词还在路上，先把这段旋律听进去吧。',
           textAlign: TextAlign.center,
           style: theme.textTheme.bodyMedium,
         ),
@@ -4171,7 +4171,7 @@ class _DesktopQueueSidebar extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('播放列表', style: theme.textTheme.titleMedium),
+          Text('接下来想听', style: theme.textTheme.titleMedium),
           const SizedBox(height: 4),
           Text(currentPlaybackSourceLabel, style: theme.textTheme.bodySmall),
           if (hasError && (errorMessage ?? '').trim().isNotEmpty) ...[
@@ -4190,7 +4190,7 @@ class _DesktopQueueSidebar extends StatelessWidget {
               padding: EdgeInsets.zero,
               children: [
                 if (nextTracks.isEmpty)
-                  Text('这一轮先排到这里。', style: theme.textTheme.bodyMedium)
+                  Text('这一轮就先听到这里。', style: theme.textTheme.bodyMedium)
                 else
                   ...nextTracks.map(
                     (track) => Padding(
