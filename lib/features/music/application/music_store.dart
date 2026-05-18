@@ -634,10 +634,11 @@ class MusicStore extends ChangeNotifier {
         state.latestAiPlaylist ??
         snapshot.latestAiPlaylist ??
         _latestAiPlaylist;
-    _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
+    _aiPlaylistHistory = _normalizeAiPlaylistHistoryEntries(
       state.aiPlaylistHistory.isNotEmpty
           ? state.aiPlaylistHistory
           : snapshot.aiPlaylistHistory,
+      latestId: _latestAiPlaylist?.id,
     );
     if (snapshot.playlistTracksCache.isNotEmpty) {
       _playlistTracksCache
@@ -2242,11 +2243,10 @@ class MusicStore extends ChangeNotifier {
       } catch (_) {
         // keep current history when refresh fails
       }
-      if (_latestAiPlaylist != null) {
-        _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
-          _aiPlaylistHistory.where((item) => item.id != _latestAiPlaylist!.id),
-        );
-      }
+      _aiPlaylistHistory = _normalizeAiPlaylistHistoryEntries(
+        _aiPlaylistHistory,
+        latestId: _latestAiPlaylist?.id,
+      );
       _cacheKnownAiPlaylistTracks();
       unawaited(_repairLatestAiPlaylistArtworkIfNeeded());
       _currentPlaylistId = _normalizePlaylistId(_currentPlaylistId);
@@ -2820,6 +2820,23 @@ class MusicStore extends ChangeNotifier {
       }
     }
     return playlist;
+  }
+
+  List<MusicAiPlaylistDraft> _normalizeAiPlaylistHistoryEntries(
+    List<MusicAiPlaylistDraft> items, {
+    String? latestId,
+  }) {
+    final excludedId = (latestId ?? _latestAiPlaylist?.id ?? '').trim();
+    final seen = <String>{};
+    final normalized = <MusicAiPlaylistDraft>[];
+    for (final item in items) {
+      final id = item.id.trim();
+      if (id.isEmpty) continue;
+      if (excludedId.isNotEmpty && id == excludedId) continue;
+      if (!seen.add(id)) continue;
+      normalized.add(item);
+    }
+    return List<MusicAiPlaylistDraft>.unmodifiable(normalized);
   }
 
   Future<void> _mergeRemoteLikedTracks(MusicPlaylist playlist) async {
@@ -4082,8 +4099,9 @@ class MusicStore extends ChangeNotifier {
     _neteaseLikedPlaylistId = state.neteaseLikedPlaylistId?.trim();
     _neteaseLikedPlaylistOpaqueId = state.neteaseLikedPlaylistOpaqueId?.trim();
     _latestAiPlaylist = state.latestAiPlaylist ?? _latestAiPlaylist;
-    _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
+    _aiPlaylistHistory = _normalizeAiPlaylistHistoryEntries(
       state.aiPlaylistHistory,
+      latestId: _latestAiPlaylist?.id,
     );
     _cacheKnownAiPlaylistTracks();
     if (remoteRevision > 0) {
@@ -4129,8 +4147,9 @@ class MusicStore extends ChangeNotifier {
       _neteaseLikedPlaylistId = home.neteaseLikedPlaylistId?.trim();
       _neteaseLikedPlaylistOpaqueId = home.neteaseLikedPlaylistOpaqueId?.trim();
       _latestAiPlaylist = home.latestAiPlaylist ?? _latestAiPlaylist;
-      _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
+      _aiPlaylistHistory = _normalizeAiPlaylistHistoryEntries(
         home.aiPlaylistHistory,
+        latestId: _latestAiPlaylist?.id,
       );
       final latestAiPlaylist = _latestAiPlaylist;
       if (latestAiPlaylist != null) {
@@ -4196,8 +4215,9 @@ class MusicStore extends ChangeNotifier {
         return;
       }
       _latestAiPlaylist = enriched;
-      _aiPlaylistHistory = List<MusicAiPlaylistDraft>.unmodifiable(
-        _aiPlaylistHistory.where((item) => item.id != enriched.id),
+      _aiPlaylistHistory = _normalizeAiPlaylistHistoryEntries(
+        _aiPlaylistHistory,
+        latestId: enriched.id,
       );
       _cacheKnownAiPlaylistTracks();
       _markSnapshotDirty();
