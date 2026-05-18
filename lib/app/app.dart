@@ -125,6 +125,7 @@ class _MainScaffoldState extends State<_MainScaffold>
         .listen(_handleNotificationOpen);
     unawaited(_ensureBackgroundServiceConfigured());
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _primeUnreadSessions();
       await _consumePendingNotificationOpen(source: 'postFrame');
     });
   }
@@ -179,6 +180,7 @@ class _MainScaffoldState extends State<_MainScaffold>
       _currentIndex = 0;
       _activeChatSession = session;
     });
+    context.read<ChatSessionStore>().setActiveSession(session);
     _webviewHostController.refreshRetention(reason: 'navigateToChat');
     unawaited(
       NativeDebugBridge.instance.log(
@@ -226,6 +228,18 @@ class _MainScaffoldState extends State<_MainScaffold>
     await BackgroundConnectionService.instance.updateActiveSession(
       backendSessionId,
     );
+    await context.read<ChatSessionStore>().markSessionRead(
+      session,
+      notify: false,
+    );
+  }
+
+  Future<void> _primeUnreadSessions() async {
+    final store = context.read<ChatSessionStore>();
+    for (final contact in _contacts) {
+      if (!contact.isGatewayBacked) continue;
+      unawaited(store.ensureReady(_sessionFromContact(contact)));
+    }
   }
 
   Future<void> _consumePendingNotificationOpen({required String source}) async {
@@ -334,6 +348,7 @@ class _MainScaffoldState extends State<_MainScaffold>
     setState(() {
       _activeChatSession = null;
     });
+    context.read<ChatSessionStore>().setActiveSession(null);
     _webviewHostController.refreshRetention(reason: 'closeChat');
     unawaited(
       NativeDebugBridge.instance.log(
@@ -379,7 +394,6 @@ class _MainScaffoldState extends State<_MainScaffold>
     }
   }
 
-
   void _setDesktopLive2dVisible(bool value, {required String reason}) {
     if (_desktopLive2dVisible == value) {
       _webviewHostController.setKeepAliveRequested(
@@ -404,12 +418,14 @@ class _MainScaffoldState extends State<_MainScaffold>
   }
 
   Future<void> _openCompanionWebview() async {
-    _webviewHostController.setKeepAliveRequested(true, reason: 'companionIntent');
+    _webviewHostController.setKeepAliveRequested(
+      true,
+      reason: 'companionIntent',
+    );
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => CompanionWebviewPage(
-          hostController: _webviewHostController,
-        ),
+        builder:
+            (_) => CompanionWebviewPage(hostController: _webviewHostController),
       ),
     );
   }
@@ -417,6 +433,10 @@ class _MainScaffoldState extends State<_MainScaffold>
   @override
   Widget build(BuildContext context) {
     final chatStore = context.watch<ChatSessionStore>();
+    final unreadCounts = <String, int>{
+      for (final contact in _contacts)
+        contact.id: chatStore.unreadCountFor(_sessionFromContact(contact)),
+    };
     final activeState =
         _activeChatSession == null
             ? null
@@ -445,14 +465,18 @@ class _MainScaffoldState extends State<_MainScaffold>
                     context,
                     activeState: activeState,
                     isDesktop: isDesktop,
+                    unreadCounts: unreadCounts,
                   )
-                  : _buildMobileScaffold(context),
+                  : _buildMobileScaffold(context, unreadCounts: unreadCounts),
         );
       },
     );
   }
 
-  Widget _buildMobileScaffold(BuildContext context) {
+  Widget _buildMobileScaffold(
+    BuildContext context, {
+    required Map<String, int> unreadCounts,
+  }) {
     return Scaffold(
       body: Stack(
         children: [
@@ -462,6 +486,7 @@ class _MainScaffoldState extends State<_MainScaffold>
               ContactsScreen(
                 contacts: _contacts,
                 onContactTap: _navigateToChat,
+                unreadCounts: unreadCounts,
               ),
               const TodoScreen(embedded: true),
               const MusicScreen(),
@@ -477,9 +502,10 @@ class _MainScaffoldState extends State<_MainScaffold>
                   key: ValueKey('chat-${_activeChatSession!.id}'),
                   session: _activeChatSession!,
                   onBack: _closeChat,
-                  onOpenCompanion: _activeChatSession!.id == 'alice'
-                      ? _openCompanionWebview
-                      : null,
+                  onOpenCompanion:
+                      _activeChatSession!.id == 'alice'
+                          ? _openCompanionWebview
+                          : null,
                 ),
               ),
             ),
@@ -494,6 +520,7 @@ class _MainScaffoldState extends State<_MainScaffold>
     BuildContext context, {
     required ChatViewState? activeState,
     required bool isDesktop,
+    required Map<String, int> unreadCounts,
   }) {
     final theme = Theme.of(context);
     final selectedContactId = _activeChatSession?.id;
@@ -541,8 +568,9 @@ class _MainScaffoldState extends State<_MainScaffold>
                               }
                             });
                           },
-                          onToggleLive2d: () =>
-                              _toggleDesktopLive2d(reason: 'navRailToggle'),
+                          onToggleLive2d:
+                              () =>
+                                  _toggleDesktopLive2d(reason: 'navRailToggle'),
                         ),
                       ),
                       Container(width: 1, color: const Color(0xFFE1E6F0)),
@@ -578,11 +606,18 @@ class _MainScaffoldState extends State<_MainScaffold>
                                                 Text(
                                                   _currentIndex == 0
                                                       ? '消息'
-                                                      : _navTitle(_currentIndex),
-                                                  style: theme.textTheme.titleLarge
+                                                      : _navTitle(
+                                                        _currentIndex,
+                                                      ),
+                                                  style: theme
+                                                      .textTheme
+                                                      .titleLarge
                                                       ?.copyWith(
-                                                        fontWeight: FontWeight.w800,
-                                                        color: const Color(0xFF2D3443),
+                                                        fontWeight:
+                                                            FontWeight.w800,
+                                                        color: const Color(
+                                                          0xFF2D3443,
+                                                        ),
                                                       ),
                                                 ),
                                                 const SizedBox(height: 4),
@@ -614,17 +649,19 @@ class _MainScaffoldState extends State<_MainScaffold>
                                             ? ContactsScreen(
                                               contacts: _contacts,
                                               onContactTap: _navigateToChat,
+                                              unreadCounts: unreadCounts,
                                               selectedContactId:
                                                   selectedContactId,
                                               embedded: true,
                                             )
                                             : Padding(
-                                              padding: const EdgeInsets.fromLTRB(
-                                                12,
-                                                4,
-                                                12,
-                                                12,
-                                              ),
+                                              padding:
+                                                  const EdgeInsets.fromLTRB(
+                                                    12,
+                                                    4,
+                                                    12,
+                                                    12,
+                                                  ),
                                               child: _WorkbenchPlaceholderCard(
                                                 child: _buildWorkbenchPage(),
                                               ),
@@ -780,9 +817,10 @@ class _MainScaffoldState extends State<_MainScaffold>
             key: ValueKey('chat-desktop-${_activeChatSession!.id}'),
             session: _activeChatSession!,
             onBack: _closeChat,
-            onOpenCompanion: _activeChatSession!.id == 'alice'
-                ? _openCompanionWebview
-                : null,
+            onOpenCompanion:
+                _activeChatSession!.id == 'alice'
+                    ? _openCompanionWebview
+                    : null,
           ),
         ),
       );
@@ -1134,10 +1172,7 @@ class _WorkbenchEmptyState extends StatelessWidget {
 }
 
 class _DesktopDragRegion extends StatelessWidget {
-  const _DesktopDragRegion({
-    required this.child,
-    this.enabled = true,
-  });
+  const _DesktopDragRegion({required this.child, this.enabled = true});
 
   final Widget child;
   final bool enabled;

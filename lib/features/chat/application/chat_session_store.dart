@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart' as core;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/openclaw/openclaw_http_client.dart';
@@ -34,6 +35,7 @@ class ChatSessionStore extends ChangeNotifier {
                   'ws://127.0.0.1:18791?token=yuanzhe-7611681-668128-zheyuan-012345',
             ),
           ) {
+    _readStateReady = _loadReadState();
     _configReady = reloadConfig();
   }
 
@@ -45,12 +47,15 @@ class ChatSessionStore extends ChangeNotifier {
   static const Duration replyStuckTimeout = Duration(seconds: 25);
   static const Duration eventReconnectBaseDelay = Duration(seconds: 1);
   static const Duration eventReconnectMaxDelay = Duration(seconds: 8);
+  static const String _lastReadPrefsKey = 'alicechat.chat.last_read_v1';
 
   OpenClawHttpClient _client;
   late Future<void> _configReady;
+  late Future<void> _readStateReady;
   final Uuid _uuid = const Uuid();
   final ChatCacheStore _cacheStore = ChatCacheStore.instance;
   final Map<String, ChatViewState> _states = {};
+  final Map<String, int> _lastReadAtBySessionKey = {};
   final Map<String, String> _sessionIdBySessionKey = {};
   final Map<String, StreamSubscription<Map<String, dynamic>>>
   _eventSubscriptions = {};
@@ -59,6 +64,45 @@ class ChatSessionStore extends ChangeNotifier {
   final Map<String, Timer> _eventReconnectTimers = {};
   final Map<String, DateTime> _lastDebugLogAt = {};
   DateTime? _lastBackendLoadLogAt;
+  String? _activeSessionKey;
+
+  Future<void> _loadReadState() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_lastReadPrefsKey)?.trim();
+      if (raw == null || raw.isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+      for (final entry in decoded.entries) {
+        final key = entry.key.toString().trim();
+        if (key.isEmpty) continue;
+        final value =
+            entry.value is num
+                ? (entry.value as num).toInt()
+                : int.tryParse(entry.value.toString());
+        if (value == null || value <= 0) continue;
+        _lastReadAtBySessionKey[key] = value;
+      }
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[alicechat.unread] loadReadState failed: $error\n$stackTrace',
+      );
+    }
+  }
+
+  Future<void> _persistReadState() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _lastReadPrefsKey,
+        jsonEncode(_lastReadAtBySessionKey),
+      );
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[alicechat.unread] persistReadState failed: $error\n$stackTrace',
+      );
+    }
+  }
 
   Future<void> reloadConfig() async {
     final config = await OpenClawSettingsStore.load();
@@ -84,6 +128,77 @@ class ChatSessionStore extends ChangeNotifier {
 
   OpenClawConfig get currentConfig => _client.config;
 
+  Future<void> _ensureReadStateReady() async {
+    await _readStateReady;
+  }
+
+  int unreadCountFor(ChatSession session) {
+    final key = _keyFor(session);
+    if (_activeSessionKey == key) return 0;
+    final state = _states[key];
+    if (state == null || state.messages.isEmpty) return 0;
+    final lastReadAt = _lastReadAtBySessionKey[key];
+    if (lastReadAt == null || lastReadAt <= 0) return 0;
+    var count = 0;
+    for (final message in state.messages) {
+      if (message.authorId != 'assistant') continue;
+      final createdAt = message.createdAt?.millisecondsSinceEpoch ?? 0;
+      if (createdAt > lastReadAt) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  void setActiveSession(ChatSession? session) {
+    final nextKey = session == null ? null : _keyFor(session);
+    if (_activeSessionKey == nextKey) return;
+    _activeSessionKey = nextKey;
+    if (session != null) {
+      unawaited(markSessionRead(session, notify: false));
+    }
+    notifyListeners();
+  }
+
+  Future<void> markSessionRead(
+    ChatSession session, {
+    bool notify = true,
+  }) async {
+    await _ensureReadStateReady();
+    final state = stateFor(session);
+    final timestamp = _latestMessageTimestamp(state) ?? DateTime.now();
+    final key = _keyFor(session);
+    final nextValue = timestamp.millisecondsSinceEpoch;
+    final currentValue = _lastReadAtBySessionKey[key] ?? 0;
+    if (nextValue <= currentValue) {
+      if (notify) notifyListeners();
+      return;
+    }
+    _lastReadAtBySessionKey[key] = nextValue;
+    unawaited(_persistReadState());
+    if (notify) notifyListeners();
+  }
+
+  void _seedReadStateIfMissing(ChatSession session, ChatViewState state) {
+    final key = _keyFor(session);
+    if (_lastReadAtBySessionKey.containsKey(key)) return;
+    final timestamp = _latestMessageTimestamp(state) ?? DateTime.now();
+    _lastReadAtBySessionKey[key] = timestamp.millisecondsSinceEpoch;
+    unawaited(_persistReadState());
+  }
+
+  DateTime? _latestMessageTimestamp(ChatViewState state) {
+    DateTime? latest;
+    for (final message in state.messages) {
+      final createdAt = message.createdAt;
+      if (createdAt == null) continue;
+      if (latest == null || createdAt.isAfter(latest)) {
+        latest = createdAt;
+      }
+    }
+    return latest;
+  }
+
   ChatViewState stateFor(ChatSession session) {
     return _states.putIfAbsent(
       _keyFor(session),
@@ -92,6 +207,7 @@ class ChatSessionStore extends ChangeNotifier {
   }
 
   Future<void> ensureReady(ChatSession session) async {
+    await _ensureReadStateReady();
     final state = stateFor(session);
     if (state.isReady || state.isLoading) {
       if (state.isReady &&
@@ -145,6 +261,11 @@ class ChatSessionStore extends ChangeNotifier {
         ..newestLoadedMessageId = initialLoad.newestMessageId
         ..isLoading = false
         ..isReady = true;
+
+      _seedReadStateIfMissing(session, state);
+      if (_activeSessionKey == _keyFor(session)) {
+        unawaited(markSessionRead(session, notify: false));
+      }
 
       _ensureEventSubscription(session, sessionId);
       notifyListeners();
@@ -815,6 +936,10 @@ class ChatSessionStore extends ChangeNotifier {
         state.recomputeRequestPhase();
         break;
     }
+    _seedReadStateIfMissing(state.session, state);
+    if (_activeSessionKey == _keyFor(state.session)) {
+      unawaited(markSessionRead(state.session, notify: false));
+    }
     final afterAssistantCount =
         state.messages
             .where((message) => message.authorId == 'assistant')
@@ -1166,6 +1291,7 @@ class ChatSessionStore extends ChangeNotifier {
       ..lastEventSeq = snapshot.lastEventSeq ?? state.lastEventSeq
       ..hasMoreHistory = snapshot.hasMoreHistory ?? state.hasMoreHistory
       ..isReady = true;
+    _seedReadStateIfMissing(session, state);
     if (snapshot.backendSessionId != null &&
         snapshot.backendSessionId!.isNotEmpty) {
       _sessionIdBySessionKey[_keyFor(session)] = snapshot.backendSessionId!;
