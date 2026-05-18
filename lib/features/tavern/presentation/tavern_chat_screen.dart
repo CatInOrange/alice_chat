@@ -2509,12 +2509,29 @@ $trimmed
       });
       unawaited(_persistSnapshot());
       unawaited(_refreshFromServer(includeCharacter: false));
+      final message = _formatStreamFailureMessage(exc);
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('流式连接中断，正在同步结果…')));
+      ).showSnackBar(SnackBar(content: Text(message)));
     } finally {
       settleSendState(isSending: false);
     }
+  }
+
+  String _formatStreamFailureMessage(Object error) {
+    final raw = error.toString().trim();
+    final normalized =
+        raw.startsWith('Exception:') ? raw.substring(10).trim() : raw;
+    if (normalized.isEmpty) {
+      return '流式连接中断，正在同步结果…';
+    }
+    final lower = normalized.toLowerCase();
+    if (lower.contains('insufficient balance') ||
+        lower.contains('payment required') ||
+        lower.contains('余额不足')) {
+      return '酒馆生成失败：当前 Provider 余额不足，请充值或切换到其他 Provider。';
+    }
+    return '酒馆生成失败：$normalized';
   }
 
   Future<void> _persistSnapshot() async {

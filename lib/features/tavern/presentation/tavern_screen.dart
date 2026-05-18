@@ -547,6 +547,8 @@ class _TavernScreenState extends State<TavernScreen>
     BuildContext context,
     TavernStore store,
   ) async {
+    await this.context.read<TavernStore>().loadConfigHubData();
+    if (!mounted) return;
     final navigator = Navigator.of(context);
     await navigator.push(
       MaterialPageRoute(
@@ -558,7 +560,10 @@ class _TavernScreenState extends State<TavernScreen>
                   IconButton(
                     tooltip: '刷新',
                     onPressed:
-                        () => this.context.read<TavernStore>().loadPresets(),
+                        () =>
+                            this.context
+                                .read<TavernStore>()
+                                .loadConfigHubData(),
                     icon: const Icon(Icons.refresh),
                   ),
                   IconButton(
@@ -577,7 +582,7 @@ class _TavernScreenState extends State<TavernScreen>
       ),
     );
     if (!mounted) return;
-    await this.context.read<TavernStore>().loadPresets();
+    await this.context.read<TavernStore>().loadConfigHubData();
   }
 
   Future<void> _showWorldBooksManager(
@@ -630,8 +635,8 @@ class _TavernScreenState extends State<TavernScreen>
             (_) => _PromptManagerPage(
               buildItems: _buildPromptManagerItems,
               builtinOptionFor: _builtinOptionFor,
-              itemLabelBuilder: (liveStore, item) =>
-                  _promptOrderItemLabel(liveStore, item),
+              itemLabelBuilder:
+                  (liveStore, item) => _promptOrderItemLabel(liveStore, item),
               itemPositionFor: itemPositionFor,
               editCustomItem:
                   (pageContext, {item}) =>
@@ -654,9 +659,10 @@ class _TavernScreenState extends State<TavernScreen>
         builder:
             (_) => _SimpleJsonListManagerPage(
               title: 'Personas',
-              itemsBuilder: (liveStore) => liveStore.personas
-                  .map((item) => item.toJson())
-                  .toList(growable: false),
+              itemsBuilder:
+                  (liveStore) => liveStore.personas
+                      .map((item) => item.toJson())
+                      .toList(growable: false),
               emptyText: '还没有 persona，可新增默认人设。',
               onCreate: (payload) => store.createPersona(payload),
               onUpdate:
@@ -1928,6 +1934,9 @@ class _TavernScreenState extends State<TavernScreen>
 
   Future<void> _editPreset(BuildContext context, {TavernPreset? preset}) async {
     final store = context.read<TavernStore>();
+    if (store.providers.isEmpty) {
+      await store.loadConfigOptions(notify: false);
+    }
     final providers = store.providers;
     final isCreate = preset == null;
     final existingPreset = preset;
@@ -4539,138 +4548,140 @@ class _PromptManagerPageState extends State<_PromptManagerPage> {
               child: ReorderableListView.builder(
                 buildDefaultDragHandles: false,
                 itemCount: _items.length,
-            onReorder:
-                _saving
-                    ? (_, __) {}
-                    : (oldIndex, newIndex) {
-                      setState(() {
-                        _lastReorderAt = DateTime.now();
-                        if (newIndex > oldIndex) newIndex -= 1;
-                        final moved = _items.removeAt(oldIndex);
-                        _items.insert(newIndex, moved);
-                        for (var i = 0; i < _items.length; i += 1) {
-                          _items[i] = _items[i].copyWith(orderIndex: i * 10);
-                        }
-                      });
-                    },
-            itemBuilder: (context, index) {
-              final item = _items[index];
-              final option = widget.builtinOptionFor(item.identifier);
-              final isCustom = item.isCustom;
-              final accent =
-                  isCustom
-                      ? const Color(0xFF64748B)
-                      : Color(option?.colorValue ?? 0xFF7C4DFF);
-              final tileColor = Color(
-                option?.colorValue ?? 0xFF7C4DFF,
-              ).withValues(alpha: isCustom ? 0.08 : 0.12);
-              return Card(
-                key: ValueKey(
-                  '${item.identifier}:${item.blockId}:${item.name}:$index',
-                ),
-                margin: const EdgeInsets.only(bottom: 10),
-                color: tileColor,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 6,
-                  ),
-                  leading: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      ReorderableDragStartListener(
-                        index: index,
-                        child: Icon(
-                          Icons.drag_indicator,
-                          size: 18,
-                          color: accent,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Container(
-                        width: 34,
-                        height: 34,
-                        decoration: BoxDecoration(
-                          color: accent.withValues(alpha: 0.14),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Icon(
-                          option?.icon ?? Icons.notes_outlined,
-                          size: 18,
-                          color: accent,
-                        ),
-                      ),
-                    ],
-                  ),
-                  title: Text(
-                    widget.itemLabelBuilder(store, item),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
+                onReorder:
+                    _saving
+                        ? (_, __) {}
+                        : (oldIndex, newIndex) {
+                          setState(() {
+                            _lastReorderAt = DateTime.now();
+                            if (newIndex > oldIndex) newIndex -= 1;
+                            final moved = _items.removeAt(oldIndex);
+                            _items.insert(newIndex, moved);
+                            for (var i = 0; i < _items.length; i += 1) {
+                              _items[i] = _items[i].copyWith(
+                                orderIndex: i * 10,
+                              );
+                            }
+                          });
+                        },
+                itemBuilder: (context, index) {
+                  final item = _items[index];
+                  final option = widget.builtinOptionFor(item.identifier);
+                  final isCustom = item.isCustom;
+                  final accent =
+                      isCustom
+                          ? const Color(0xFF64748B)
+                          : Color(option?.colorValue ?? 0xFF7C4DFF);
+                  final tileColor = Color(
+                    option?.colorValue ?? 0xFF7C4DFF,
+                  ).withValues(alpha: isCustom ? 0.08 : 0.12);
+                  return Card(
+                    key: ValueKey(
+                      '${item.identifier}:${item.blockId}:${item.name}:$index',
                     ),
-                  ),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        _PromptTag(text: isCustom ? '自定义' : '内建'),
-                        if (isCustom) _PromptTag(text: item.role),
-                      ],
+                    margin: const EdgeInsets.only(bottom: 10),
+                    color: tileColor,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
                     ),
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Switch(
-                        value: item.enabled,
-                        onChanged:
-                            _saving
-                                ? null
-                                : (value) {
-                                  setState(() {
-                                    _items[index] = item.copyWith(
-                                      enabled: value,
-                                    );
-                                  });
-                                },
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 6,
                       ),
-                      if (isCustom)
-                        IconButton(
-                          visualDensity: VisualDensity.compact,
-                          tooltip: '编辑',
-                          onPressed:
-                              _saving || _shouldIgnoreTap()
-                                  ? null
-                                  : () => _editCustomItemAt(index),
-                          icon: const Icon(Icons.edit_outlined, size: 18),
+                      leading: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ReorderableDragStartListener(
+                            index: index,
+                            child: Icon(
+                              Icons.drag_indicator,
+                              size: 18,
+                              color: accent,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Container(
+                            width: 34,
+                            height: 34,
+                            decoration: BoxDecoration(
+                              color: accent.withValues(alpha: 0.14),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Icon(
+                              option?.icon ?? Icons.notes_outlined,
+                              size: 18,
+                              color: accent,
+                            ),
+                          ),
+                        ],
+                      ),
+                      title: Text(
+                        widget.itemLabelBuilder(store, item),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
                         ),
-                      if (isCustom)
-                        IconButton(
-                          visualDensity: VisualDensity.compact,
-                          tooltip: '删除',
-                          onPressed:
-                              _saving || _shouldIgnoreTap()
-                                  ? null
-                                  : () {
-                                    setState(() => _items.removeAt(index));
-                                  },
-                          icon: const Icon(Icons.delete_outline, size: 18),
+                      ),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            _PromptTag(text: isCustom ? '自定义' : '内建'),
+                            if (isCustom) _PromptTag(text: item.role),
+                          ],
                         ),
-                    ],
-                  ),
-                  onTap:
-                      _saving || _shouldIgnoreTap() || !isCustom
-                          ? null
-                          : () => _editCustomItemAt(index),
-                ),
-              );
-            },
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Switch(
+                            value: item.enabled,
+                            onChanged:
+                                _saving
+                                    ? null
+                                    : (value) {
+                                      setState(() {
+                                        _items[index] = item.copyWith(
+                                          enabled: value,
+                                        );
+                                      });
+                                    },
+                          ),
+                          if (isCustom)
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              tooltip: '编辑',
+                              onPressed:
+                                  _saving || _shouldIgnoreTap()
+                                      ? null
+                                      : () => _editCustomItemAt(index),
+                              icon: const Icon(Icons.edit_outlined, size: 18),
+                            ),
+                          if (isCustom)
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              tooltip: '删除',
+                              onPressed:
+                                  _saving || _shouldIgnoreTap()
+                                      ? null
+                                      : () {
+                                        setState(() => _items.removeAt(index));
+                                      },
+                              icon: const Icon(Icons.delete_outline, size: 18),
+                            ),
+                        ],
+                      ),
+                      onTap:
+                          _saving || _shouldIgnoreTap() || !isCustom
+                              ? null
+                              : () => _editCustomItemAt(index),
+                    ),
+                  );
+                },
               ),
             ),
           ),
@@ -5328,9 +5339,9 @@ class _SimpleJsonListManagerPage extends StatelessWidget {
                     itemCount: items.length,
                     itemBuilder: (context, index) {
                       final item = items[index];
-                  final id = (item['id'] ?? '').toString();
-                  final title = (item['name'] ?? id).toString();
-                  final subtitle = (item['description'] ?? '').toString();
+                      final id = (item['id'] ?? '').toString();
+                      final title = (item['name'] ?? id).toString();
+                      final subtitle = (item['description'] ?? '').toString();
                       return Card(
                         child: ListTile(
                           title: Text(title),

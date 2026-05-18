@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from typing import Any, Callable
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 
@@ -39,26 +40,29 @@ class TavernModelClient:
         req = Request(endpoint, data=json.dumps(payload).encode('utf-8'), headers=self._headers(), method='POST')
         chunks: list[str] = []
         thought_chunks: list[str] = []
-        with urlopen(req, timeout=self._timeout_seconds()) as resp:
-            for raw_line in resp:
-                line = raw_line.decode('utf-8', errors='ignore').strip()
-                if not line or not line.startswith('data:'):
-                    continue
-                data = line[5:].strip()
-                if not data or data == '[DONE]':
-                    continue
-                try:
-                    frame = json.loads(data)
-                except Exception:
-                    continue
-                thought_delta = self._extract_thought_delta(frame)
-                if thought_delta:
-                    thought_chunks.append(thought_delta)
-                    emit({'thought_delta': thought_delta, 'raw': frame})
-                delta = self._extract_delta(frame)
-                if delta:
-                    chunks.append(delta)
-                    emit({'delta': delta, 'raw': frame})
+        try:
+            with urlopen(req, timeout=self._timeout_seconds()) as resp:
+                for raw_line in resp:
+                    line = raw_line.decode('utf-8', errors='ignore').strip()
+                    if not line or not line.startswith('data:'):
+                        continue
+                    data = line[5:].strip()
+                    if not data or data == '[DONE]':
+                        continue
+                    try:
+                        frame = json.loads(data)
+                    except Exception:
+                        continue
+                    thought_delta = self._extract_thought_delta(frame)
+                    if thought_delta:
+                        thought_chunks.append(thought_delta)
+                        emit({'thought_delta': thought_delta, 'raw': frame})
+                    delta = self._extract_delta(frame)
+                    if delta:
+                        chunks.append(delta)
+                        emit({'delta': delta, 'raw': frame})
+        except HTTPError as exc:
+            raise RuntimeError(self._format_http_error(exc)) from exc
         text = ''.join(chunks).strip()
         thought = ''.join(thought_chunks).strip()
         return TavernModelResponse(text=text, raw={'streamed': True, 'text': text, 'thought': thought}, thought=thought)
@@ -187,9 +191,26 @@ class TavernModelClient:
 
     def _post_json(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
         req = Request(endpoint, data=json.dumps(payload).encode('utf-8'), headers=self._headers(), method='POST')
-        with urlopen(req, timeout=self._timeout_seconds()) as resp:
-            raw = resp.read().decode('utf-8', errors='ignore')
+        try:
+            with urlopen(req, timeout=self._timeout_seconds()) as resp:
+                raw = resp.read().decode('utf-8', errors='ignore')
+        except HTTPError as exc:
+            raise RuntimeError(self._format_http_error(exc)) from exc
         return json.loads(raw or '{}')
+
+    def _format_http_error(self, exc: HTTPError) -> str:
+        body = ''
+        try:
+            body = exc.read().decode('utf-8', errors='ignore').strip()
+        except Exception:
+            body = ''
+        provider = str(self.provider_config.get('id') or '').strip()
+        model = str(self.provider_config.get('model') or '').strip()
+        detail = body or getattr(exc, 'reason', '') or 'upstream request failed'
+        if len(detail) > 400:
+            detail = detail[:400].rstrip() + '...'
+        provider_label = provider or model or 'unknown provider'
+        return f'upstream {provider_label} http {exc.code}: {detail}'
 
     def _extract_text(self, raw: dict[str, Any]) -> str:
         if self._api_kind() == 'anthropic-messages':
