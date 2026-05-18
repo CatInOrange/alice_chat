@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
+import secrets
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+
+import requests
+from Crypto.Cipher import AES
+from Crypto.PublicKey import RSA
+from Crypto.Util.Padding import pad
 
 from ..music_api_models import MusicCliLoginSessionDto, MusicTrackDto
 
@@ -31,6 +39,19 @@ class NeteaseOpenApiResult:
 class NeteaseOpenApiService:
     DEFAULT_CLI_HOME = Path('/root/.openclaw/AliceChat/data/netease-openapi')
     DEFAULT_CLI_PACKAGE_DIR = Path('/root/.openclaw/AliceChat/tools/ncm-cli/package')
+    _WEAPI_IV = b'0102030405060708'
+    _WEAPI_PRESET_KEY = b'0CoJUm6Qyw8W8jud'
+    _WEAPI_PUBLIC_KEY = """-----BEGIN PUBLIC KEY-----
+MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDgtQn2JZ34ZC28NWYpAUd98iZ37BUr
+X/aKzmFbt7clFSs6sXqHauqKWqdtLkF2KexO40H1YTX8z2lSgBBOAxLsvaklV8k4cBFK
+9snQXE9/DDaFt6Rr7iVZMldczhC0JNgTz+SHXT6CBHuX3e9SdB1Ua44oncaTWz7OBGLb
+CiK45wIDAQAB
+-----END PUBLIC KEY-----"""
+    _WEAPI_MOBILE_UA = (
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) '
+        'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 '
+        'Mobile/15E148 Safari/604.1'
+    )
 
     def __init__(self, config: dict):
         self._config = config or {}
@@ -154,21 +175,34 @@ class NeteaseOpenApiService:
         return data
 
     def get_fm_tracks(self, *, limit: int = 3) -> list[MusicTrackDto]:
-        payload = self._run_cookie_json_request(
-            'https://music.163.com/api/radio/get',
-            data={
-                'limit': str(max(1, min(limit, 20))),
-            },
-            error_prefix='加载网易云私人 FM 失败',
-        )
-        data = payload.get('data')
-        if not isinstance(data, list):
-            raise NeteaseOpenApiError('网易云私人 FM 返回为空')
-        tracks = [self._track_from_fm_item(item) for item in data if isinstance(item, dict)]
-        tracks = [item for item in tracks if item is not None]
-        if not tracks:
+        target_count = max(1, min(limit, 20))
+        merged: list[MusicTrackDto] = []
+        seen: set[str] = set()
+        attempt_count = max(2, min(6, (target_count + 2) // 3 + 1))
+        for _ in range(attempt_count):
+            payload = self._run_weapi_json_request(
+                'https://music.163.com/weapi/v1/radio/get',
+                data={},
+                error_prefix='加载网易云私人 FM 失败',
+            )
+            data = payload.get('data')
+            if not isinstance(data, list):
+                raise NeteaseOpenApiError('网易云私人 FM 返回为空')
+            tracks = [self._track_from_fm_item(item) for item in data if isinstance(item, dict)]
+            for track in tracks:
+                if track is None:
+                    continue
+                key = str(track.sourceTrackId or track.id or '').strip()
+                if key and key in seen:
+                    continue
+                if key:
+                    seen.add(key)
+                merged.append(track)
+                if len(merged) >= target_count:
+                    return merged[:target_count]
+        if not merged:
             raise NeteaseOpenApiError('网易云私人 FM 暂时没有返回可播放歌曲')
-        return tracks
+        return merged[:target_count]
 
     def get_daily_tracks(self) -> list[MusicTrackDto]:
         payload = self._run_cookie_json_request(
@@ -423,6 +457,65 @@ class NeteaseOpenApiService:
             raise NeteaseOpenApiError(message)
         return payload
 
+    def _run_weapi_json_request(
+        self,
+        url: str,
+        *,
+        data: dict[str, Any],
+        error_prefix: str,
+    ) -> dict[str, Any]:
+        cookies = self._load_cookie_map()
+        cookies.setdefault('__remember_me', 'true')
+        cookies.setdefault('os', 'ios')
+        cookies.setdefault('appver', '9.0.65')
+        cookies.setdefault('osver', '17.4.1')
+        cookies.setdefault('versioncode', '140')
+        cookies.setdefault('buildver', str(int(time.time())))
+        cookies.setdefault('resolution', '1920x1080')
+        cookies.setdefault('channel', '')
+        cookies.setdefault(
+            '_ntes_nuid',
+            ''.join(secrets.choice('0123456789abcdef') for _ in range(32)),
+        )
+
+        payload = self._encode_weapi_payload(
+            {
+                **data,
+                'csrf_token': cookies.get('__csrf', ''),
+            }
+        )
+        session = requests.Session()
+        for key, value in cookies.items():
+            session.cookies.set(key, value, domain='music.163.com', path='/')
+        headers = {
+            'User-Agent': self._WEAPI_MOBILE_UA,
+            'Referer': 'https://music.163.com',
+            'Origin': 'https://music.163.com',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': '*/*',
+            'os': cookies['os'],
+            'appver': cookies['appver'],
+        }
+        try:
+            response = session.post(url, headers=headers, data=payload, timeout=20)
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            detail = exc.response.text if exc.response is not None else str(exc)
+            raise NeteaseOpenApiError(f'{error_prefix}: {detail or exc}') from exc
+        except requests.RequestException as exc:
+            raise NeteaseOpenApiError(f'{error_prefix}: {exc}') from exc
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise NeteaseOpenApiError(f'{error_prefix}，响应解析失败: {exc}') from exc
+        if not isinstance(payload, dict):
+            raise NeteaseOpenApiError(f'{error_prefix}，返回为空')
+        code = payload.get('code')
+        if code not in (None, 200):
+            message = self._first_non_empty(payload.get('message'), payload.get('msg')) or error_prefix
+            raise NeteaseOpenApiError(message)
+        return payload
+
     def _load_cookie_header(self) -> str:
         cookie_path = self._cli_home / '.netease_cookie'
         if not cookie_path.exists():
@@ -431,6 +524,47 @@ class NeteaseOpenApiService:
         if not text:
             raise NeteaseOpenApiError('网易云 Cookie 为空')
         return text
+
+    def _load_cookie_map(self) -> dict[str, str]:
+        cookie_header = self._load_cookie_header()
+        cookies: dict[str, str] = {}
+        for item in cookie_header.split(';'):
+            part = item.strip()
+            if not part or '=' not in part:
+                continue
+            key, value = part.split('=', 1)
+            key = key.strip()
+            if key:
+                cookies[key] = value.strip()
+        if not cookies:
+            raise NeteaseOpenApiError('网易云 Cookie 解析失败')
+        return cookies
+
+    def _encode_weapi_payload(self, data: dict[str, Any]) -> dict[str, str]:
+        text = json.dumps(data, separators=(',', ':')).encode('utf-8')
+        secret_key = self._new_weapi_secret()
+        reverse_key = secret_key[::-1]
+        first = base64.b64encode(self._aes_cbc_encrypt(text, self._WEAPI_PRESET_KEY))
+        second = self._aes_cbc_encrypt(first, reverse_key)
+        return {
+            'params': base64.b64encode(second).decode('utf-8'),
+            'encSecKey': self._rsa_no_padding_encrypt(secret_key).hex(),
+        }
+
+    def _new_weapi_secret(self) -> bytes:
+        alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+        return ''.join(secrets.choice(alphabet) for _ in range(16)).encode('utf-8')
+
+    def _aes_cbc_encrypt(self, data: bytes, key: bytes) -> bytes:
+        cipher = AES.new(key, AES.MODE_CBC, self._WEAPI_IV)
+        return cipher.encrypt(pad(data, AES.block_size))
+
+    def _rsa_no_padding_encrypt(self, secret: bytes) -> bytes:
+        public_key = RSA.import_key(self._WEAPI_PUBLIC_KEY)
+        padded = (b'\x00' * (128 - len(secret))) + secret
+        message = int.from_bytes(padded, 'big')
+        encrypted = pow(message, public_key.e, public_key.n)
+        return encrypted.to_bytes(128, 'big')
 
     def _is_cli_command_missing(self, error: NeteaseOpenApiError) -> bool:
         message = str(error or '')

@@ -30,6 +30,10 @@ import '../domain/music_runtime_models.dart';
 enum MusicRepeatMode { off, all, one, intelligence }
 
 class MusicStore extends ChangeNotifier {
+  static const int _neteaseFmBatchSize = 6;
+  static const int _neteaseFmPrefetchThreshold = 5;
+  static const int _neteaseFmPrefetchRetryLimit = 3;
+
   MusicStore({OpenClawClient? client})
     : _client =
           client ??
@@ -923,7 +927,7 @@ class MusicStore extends ChangeNotifier {
     final immediateTracks = peekPlaylistTracks(playlist);
     if (playlist.id == 'netease-fm') {
       try {
-        final tracks = await _loadNeteaseFmBatch(limit: 3);
+        final tracks = await _loadNeteaseFmBatch(limit: _neteaseFmBatchSize);
         _cacheTracksForPlaylist(playlist.id, tracks);
         _markSnapshotDirty();
         return _withFavoriteFlags(tracks);
@@ -933,14 +937,14 @@ class MusicStore extends ChangeNotifier {
           extra: {
             'playlistId': playlist.id,
             'attempt': 1,
-            'limit': 3,
+            'limit': _neteaseFmBatchSize,
             'error': firstError.toString(),
           },
           force: true,
           level: 'ERROR',
         );
         try {
-          final tracks = await _loadNeteaseFmBatch(limit: 3);
+          final tracks = await _loadNeteaseFmBatch(limit: _neteaseFmBatchSize);
           _cacheTracksForPlaylist(playlist.id, tracks);
           _markSnapshotDirty();
           return _withFavoriteFlags(tracks);
@@ -950,7 +954,7 @@ class MusicStore extends ChangeNotifier {
             extra: {
               'playlistId': playlist.id,
               'attempt': 2,
-              'limit': 3,
+              'limit': _neteaseFmBatchSize,
               'error': secondError.toString(),
             },
             force: true,
@@ -3118,7 +3122,9 @@ class MusicStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<List<MusicTrack>> _loadNeteaseFmBatch({int limit = 3}) async {
+  Future<List<MusicTrack>> _loadNeteaseFmBatch({
+    int limit = _neteaseFmBatchSize,
+  }) async {
     final existingKeys = <String>{};
     void collect(Iterable<MusicTrack> tracks) {
       for (final track in tracks) {
@@ -3139,7 +3145,8 @@ class MusicStore extends ChangeNotifier {
     final merged = <MusicTrack>[];
     final seen = <String>{...existingKeys};
     for (var attempt = 0; attempt < 3 && merged.length < limit; attempt++) {
-      final fetched = await _repository.loadNeteaseFmTracks(limit: min(limit, 3));
+      final requestLimit = max(1, limit - merged.length);
+      final fetched = await _repository.loadNeteaseFmTracks(limit: requestLimit);
       var addedThisRound = 0;
       for (final track in fetched) {
         final key = _trackIdentityKey(track).trim();
@@ -3156,6 +3163,14 @@ class MusicStore extends ChangeNotifier {
         break;
       }
     }
+    _debugState(
+      'playlist.fm.batch.done',
+      extra: {
+        'requestedLimit': limit,
+        'resultCount': merged.length,
+        'existingKeyCount': existingKeys.length,
+      },
+    );
     return List<MusicTrack>.unmodifiable(merged);
   }
 
@@ -3163,49 +3178,146 @@ class MusicStore extends ChangeNotifier {
     if (_currentPlaylistId != 'netease-fm' || _isLoadingFmBatch) {
       return;
     }
-    if (_queue.length > 3) {
+    if (_queue.length > _neteaseFmPrefetchThreshold) {
       return;
     }
     _isLoadingFmBatch = true;
     try {
-      final incoming = await _loadNeteaseFmBatch(limit: 3);
-      if (incoming.isEmpty) {
-        return;
-      }
-      final existingKeys = <String>{};
-      for (final item in _queue) {
-        final key = _trackIdentityKey(item.track).trim();
-        if (key.isNotEmpty) {
-          existingKeys.add(key);
-        }
-      }
-      final appended = <PlaybackQueueItem>[];
-      for (final track in incoming) {
-        final key = _trackIdentityKey(track).trim();
-        if (key.isEmpty || !existingKeys.add(key)) {
-          continue;
-        }
-        appended.add(
-          PlaybackQueueItem(track: track.copyWith(isFavorite: isTrackLiked(track.id))),
+      _debugState(
+        'playlist.fm.prefetch.start',
+        extra: {
+          'queueLength': _queue.length,
+          'historyLength': _playbackHistory.length,
+          'currentTrackId': _currentTrack.id,
+        },
+      );
+      var totalAppended = 0;
+      for (
+        var attempt = 1;
+        attempt <= _neteaseFmPrefetchRetryLimit &&
+            _queue.length <= _neteaseFmPrefetchThreshold;
+        attempt++
+      ) {
+        final appendedCount = await _appendNeteaseFmPrefetchBatch(
+          attempt: attempt,
+          targetLimit: _neteaseFmBatchSize,
         );
+        totalAppended += appendedCount;
+        if (appendedCount == 0) {
+          break;
+        }
       }
-      if (appended.isEmpty) {
+      if (totalAppended == 0) {
+        _debugState(
+          'playlist.fm.prefetch.give_up',
+          extra: {
+            'queueLength': _queue.length,
+            'historyLength': _playbackHistory.length,
+            'currentTrackId': _currentTrack.id,
+          },
+          force: true,
+          level: 'ERROR',
+        );
         return;
       }
-      _queue = List<PlaybackQueueItem>.unmodifiable([
-        ..._queue,
-        ...appended,
-      ]);
-      final mergedPlaylistTracks = <MusicTrack>[
-        ...(_playlistTracksCache['netease-fm'] ?? const <MusicTrack>[]),
-        ...appended.map((item) => item.track),
-      ];
-      _cacheTracksForPlaylist('netease-fm', mergedPlaylistTracks);
       _markSnapshotDirty();
+      _debugState(
+        'playlist.fm.prefetch.ready',
+        extra: {
+          'totalAppended': totalAppended,
+          'queueLength': _queue.length,
+        },
+      );
       notifyListeners();
+    } catch (error) {
+      _debugState(
+        'playlist.fm.prefetch.error',
+        extra: {
+          'queueLength': _queue.length,
+          'historyLength': _playbackHistory.length,
+          'currentTrackId': _currentTrack.id,
+          'error': error.toString(),
+        },
+        force: true,
+        level: 'ERROR',
+      );
     } finally {
       _isLoadingFmBatch = false;
     }
+  }
+
+  Future<int> _appendNeteaseFmPrefetchBatch({
+    required int attempt,
+    required int targetLimit,
+  }) async {
+    final incoming = await _loadNeteaseFmBatch(limit: targetLimit);
+    if (incoming.isEmpty) {
+      _debugState(
+        'playlist.fm.prefetch.empty',
+        extra: {
+          'attempt': attempt,
+          'queueLength': _queue.length,
+          'historyLength': _playbackHistory.length,
+          'currentTrackId': _currentTrack.id,
+        },
+        force: true,
+        level: 'ERROR',
+      );
+      return 0;
+    }
+
+    final existingKeys = <String>{};
+    for (final item in _queue) {
+      final key = _trackIdentityKey(item.track).trim();
+      if (key.isNotEmpty) {
+        existingKeys.add(key);
+      }
+    }
+
+    final appended = <PlaybackQueueItem>[];
+    for (final track in incoming) {
+      final key = _trackIdentityKey(track).trim();
+      if (key.isEmpty || !existingKeys.add(key)) {
+        continue;
+      }
+      appended.add(
+        PlaybackQueueItem(track: track.copyWith(isFavorite: isTrackLiked(track.id))),
+      );
+    }
+
+    if (appended.isEmpty) {
+      _debugState(
+        'playlist.fm.prefetch.duplicate_only',
+        extra: {
+          'attempt': attempt,
+          'queueLength': _queue.length,
+          'incomingCount': incoming.length,
+          'historyLength': _playbackHistory.length,
+        },
+        force: true,
+        level: 'ERROR',
+      );
+      return 0;
+    }
+
+    _queue = List<PlaybackQueueItem>.unmodifiable([
+      ..._queue,
+      ...appended,
+    ]);
+    final mergedPlaylistTracks = <MusicTrack>[
+      ...(_playlistTracksCache['netease-fm'] ?? const <MusicTrack>[]),
+      ...appended.map((item) => item.track),
+    ];
+    _cacheTracksForPlaylist('netease-fm', mergedPlaylistTracks);
+    _debugState(
+      'playlist.fm.prefetch.attempt_ready',
+      extra: {
+        'attempt': attempt,
+        'appendedCount': appended.length,
+        'queueLength': _queue.length,
+      },
+    );
+    return appended.length;
   }
 
   Future<void> _prewarmLikedTracksInBackground() async {
