@@ -512,7 +512,7 @@ Future<void> _showTrackActionSheet(
     showDragHandle: true,
     builder: (sheetContext) {
       final isDownloaded = store.isTrackDownloaded(track.id);
-      final isFm = store.currentPlaylistId == 'netease-fm';
+      final isFm = store.isCurrentNeteaseFm;
       return SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -521,7 +521,7 @@ Future<void> _showTrackActionSheet(
               leading: const Icon(Icons.playlist_play_rounded),
               title: const Text('查看播放队列'),
               subtitle: Text(
-                '后面还排着 \${store.queue.length <= 1 ? 0 : store.queue.length - 1} 首',
+                '后面还排着 ${store.queue.length <= 1 ? 0 : store.queue.length - 1} 首',
               ),
               onTap: () async {
                 Navigator.of(sheetContext).pop();
@@ -540,7 +540,7 @@ Future<void> _showTrackActionSheet(
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(
-                        added > 0 ? '这次又续上了 \${added} 首' : '这一轮没捞到新的 FM',
+                        added > 0 ? '这次又续上了 $added 首' : '这一轮没捞到新的 FM',
                       ),
                     ),
                   );
@@ -631,7 +631,7 @@ Future<void> _showQueueSheet(BuildContext context, MusicStore store) async {
           .map((item) => item.track)
           .toList(growable: false);
       final nextCount = queue.length <= 1 ? 0 : queue.length - 1;
-      final isFm = store.currentPlaylistId == 'netease-fm';
+      final isFm = store.isCurrentNeteaseFm;
       return SafeArea(
         child: SizedBox(
           height: MediaQuery.of(sheetContext).size.height * 0.72,
@@ -640,7 +640,7 @@ Future<void> _showQueueSheet(BuildContext context, MusicStore store) async {
               ListTile(
                 title: const Text('播放队列'),
                 subtitle: Text(
-                  nextCount > 0 ? '后面还排着 \${nextCount} 首' : '这一轮先排到这里',
+                  nextCount > 0 ? '后面还排着 $nextCount 首' : '这一轮先排到这里',
                 ),
                 trailing:
                     isFm
@@ -653,7 +653,7 @@ Future<void> _showQueueSheet(BuildContext context, MusicStore store) async {
                               SnackBar(
                                 content: Text(
                                   added > 0
-                                      ? '又接上了 \${added} 首 FM'
+                                      ? '又接上了 $added 首 FM'
                                       : '这一轮没捞到新的 FM',
                                 ),
                               ),
@@ -686,7 +686,7 @@ Future<void> _showQueueSheet(BuildContext context, MusicStore store) async {
                         overflow: TextOverflow.ellipsis,
                       ),
                       subtitle: Text(
-                        isCurrent ? '正在播放 · \${queued.artist}' : queued.artist,
+                        isCurrent ? '正在播放 · $queued.artist' : queued.artist,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),

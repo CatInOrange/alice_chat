@@ -222,6 +222,16 @@ class MusicStore extends ChangeNotifier {
   bool get isLoadingPlaylist => _isLoadingPlaylist;
   String? get loadingPlaylistId => _loadingPlaylistId;
   String? get currentPlaylistId => _currentPlaylistId;
+  bool get isCurrentNeteaseFm {
+    if (_currentPlaylistId == _neteaseFmPlaylistId) return true;
+    if (currentPlaylist?.id == _neteaseFmPlaylistId) return true;
+    final currentKey = _trackIdentityKey(_currentTrack).trim();
+    if (currentKey.isEmpty) return false;
+    final fmTracks = _playlistTracksCache[_neteaseFmPlaylistId];
+    if (fmTracks == null || fmTracks.isEmpty) return false;
+    return fmTracks.any((item) => _trackIdentityKey(item).trim() == currentKey);
+  }
+
   bool get shuffleEnabled => _shuffleEnabled;
   MusicRepeatMode get repeatMode => _repeatMode;
   MusicPlaylist? get intelligenceSourcePlaylist => _intelligenceSourcePlaylist;
