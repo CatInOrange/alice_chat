@@ -305,6 +305,24 @@ class MessageStore:
             ).fetchone()
             return bool(row)
 
+    def get_first_assistant_after(self, session_id: str, created_at: float) -> dict | None:
+        self.ensure_schema()
+        with connect(self.db) as conn:
+            row = conn.execute(
+                """
+                SELECT *
+                FROM messages
+                WHERE session_id=?
+                  AND deleted_at IS NULL
+                  AND role='assistant'
+                  AND created_at > ?
+                ORDER BY created_at ASC, id ASC
+                LIMIT 1
+                """,
+                (str(session_id), float(created_at)),
+            ).fetchone()
+            return self._row_to_message(row) if row is not None else None
+
     def soft_delete_message(
         self,
         message_id: str,

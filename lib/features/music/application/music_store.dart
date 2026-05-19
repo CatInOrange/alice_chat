@@ -41,6 +41,8 @@ class MusicStore extends ChangeNotifier {
   static const int _neteaseFmBatchSize = 6;
   static const int _neteaseFmPrefetchThreshold = 5;
   static const int _neteaseFmPrefetchRetryLimit = 3;
+  static const Duration _eventReconnectBaseDelay = Duration(seconds: 1);
+  static const Duration _eventReconnectMaxDelay = Duration(seconds: 8);
 
   MusicStore({OpenClawClient? client})
     : _client =
@@ -112,8 +114,12 @@ class MusicStore extends ChangeNotifier {
           );
   StreamSubscription<Map<String, dynamic>>? _eventsSub;
   StreamSubscription<PlaybackAdapterState>? _playbackStateSub;
+  Timer? _eventReconnectTimer;
+  int? _lastEventSeq;
+  int _eventReconnectAttempts = 0;
 
   bool _isReady = false;
+  bool _isEventConnecting = false;
   bool _isPreparingPlayback = false;
   bool _isRefreshingLibrary = false;
   bool _isHydratingFromCache = false;
@@ -378,6 +384,11 @@ class MusicStore extends ChangeNotifier {
     _eventClient = _client;
     await _eventsSub?.cancel();
     _eventsSub = null;
+    _eventReconnectTimer?.cancel();
+    _eventReconnectTimer = null;
+    _lastEventSeq = null;
+    _eventReconnectAttempts = 0;
+    _isEventConnecting = false;
     _isReady = false;
     _ensurePlaybackReadyTask = null;
     _ensureLibraryReadyTask = null;
@@ -389,13 +400,102 @@ class MusicStore extends ChangeNotifier {
     await _playbackAdapter.dispose();
     _playbackAdapter = _createPlaybackAdapter();
     notifyListeners();
-    _eventsSub = _eventClient.subscribeEvents().listen(
-      _handleBackendEvent,
-      onError: (Object error, StackTrace stackTrace) {
-        _error = error.toString();
-        notifyListeners();
-      },
+    _ensureEventSubscription(reason: 'reload_config');
+  }
+
+  Future<void> handleAppResumed() async {
+    await reconnectEvents(force: true, reason: 'app_resumed');
+  }
+
+  Future<void> reconnectEvents({
+    bool force = false,
+    String reason = 'manual',
+  }) async {
+    if (!force && (_eventsSub != null || _isEventConnecting)) {
+      return;
+    }
+    _eventReconnectTimer?.cancel();
+    _eventReconnectTimer = null;
+    await _eventsSub?.cancel();
+    _eventsSub = null;
+    _isEventConnecting = true;
+    _debugState(
+      'events.reconnect',
+      extra: {'reason': reason, 'lastEventSeq': _lastEventSeq},
+      force: true,
     );
+    notifyListeners();
+    _ensureEventSubscription(reason: reason);
+  }
+
+  void _ensureEventSubscription({String reason = 'initial'}) {
+    if (_eventsSub != null) return;
+    _eventReconnectTimer?.cancel();
+    _eventReconnectTimer = null;
+    _isEventConnecting = true;
+    _debugState(
+      'events.connecting',
+      extra: {'reason': reason, 'since': _lastEventSeq},
+      force: true,
+    );
+    notifyListeners();
+    _eventsSub = _eventClient
+        .subscribeEvents(since: _lastEventSeq)
+        .listen(
+          (event) {
+            _isEventConnecting = false;
+            _handleBackendEvent(event);
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            _eventsSub = null;
+            _isEventConnecting = false;
+            _error = error.toString();
+            _debugState(
+              'events.onError',
+              extra: {'error': error.toString(), 'lastEventSeq': _lastEventSeq},
+              force: true,
+              level: 'ERROR',
+            );
+            notifyListeners();
+            _scheduleEventReconnect();
+          },
+          onDone: () {
+            _eventsSub = null;
+            _isEventConnecting = false;
+            _debugState(
+              'events.onDone',
+              extra: {'lastEventSeq': _lastEventSeq},
+              force: true,
+            );
+            notifyListeners();
+            _scheduleEventReconnect();
+          },
+        );
+  }
+
+  void _scheduleEventReconnect() {
+    if (_eventReconnectTimer != null) return;
+    _eventReconnectAttempts += 1;
+    final multiplier = 1 << (_eventReconnectAttempts - 1).clamp(0, 3);
+    final delayMs = (_eventReconnectBaseDelay.inMilliseconds * multiplier)
+        .clamp(
+          _eventReconnectBaseDelay.inMilliseconds,
+          _eventReconnectMaxDelay.inMilliseconds,
+        );
+    _debugState(
+      'events.reconnect_scheduled',
+      extra: {
+        'attempt': _eventReconnectAttempts,
+        'delayMs': delayMs,
+        'lastEventSeq': _lastEventSeq,
+      },
+      force: true,
+    );
+    _eventReconnectTimer = Timer(Duration(milliseconds: delayMs), () {
+      _eventReconnectTimer?.cancel();
+      _eventReconnectTimer = null;
+      _ensureEventSubscription(reason: 'scheduled_reconnect');
+    });
   }
 
   Future<void> ensureReady() async {
@@ -2490,6 +2590,29 @@ class MusicStore extends ChangeNotifier {
 
   void _handleBackendEvent(Map<String, dynamic> event) {
     final eventName = (event['event'] ?? '').toString();
+    final seqValue = event['seq'];
+    if (seqValue is num) {
+      final seq = seqValue.toInt();
+      if (_lastEventSeq != null && seq <= _lastEventSeq!) {
+        _debugState(
+          'events.duplicate',
+          extra: {'eventType': eventName, 'seq': seq},
+          force: true,
+        );
+        return;
+      }
+      _lastEventSeq = seq;
+      _eventReconnectAttempts = 0;
+    }
+    _debugState(
+      'events.$eventName',
+      extra: {
+        'eventType': eventName,
+        'seq': _lastEventSeq,
+        'transportEvent': event['transportEvent'],
+      },
+      force: eventName == 'music.action' || eventName == 'music.command',
+    );
     if (eventName == 'music.ai_playlist_updated') {
       unawaited(_refreshLatestAiPlaylist());
       return;
@@ -4239,6 +4362,8 @@ class MusicStore extends ChangeNotifier {
       'currentPlaylistId': _currentPlaylistId,
       'loadingPlaylistId': _loadingPlaylistId,
       'queueLength': _queue.length,
+      'lastEventSeq': _lastEventSeq,
+      'eventConnecting': _isEventConnecting,
       'isPlaying': _isPlaying,
       'isBuffering': _isBuffering,
       'isPreparingPlayback': _isPreparingPlayback,
@@ -4261,6 +4386,7 @@ class MusicStore extends ChangeNotifier {
     _snapshotScheduler.dispose();
     _aiPlaylistEnricher.cancel();
     _warmupCoordinator.cancel();
+    _eventReconnectTimer?.cancel();
     _eventsSub?.cancel();
     _playbackStateSub?.cancel();
     unawaited(_playbackAdapter.dispose());

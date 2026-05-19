@@ -14,6 +14,10 @@ from ..services.events_bus import EventsBus
 from ..services.request_deduper import RequestDeduper
 from ..store import MessageStore, RecoveryStore, SessionStore
 from ..store.db import connect
+from ..utils.suspicious_reply import (
+    detect_suspicious_final,
+    parse_message_meta,
+)
 
 
 _LOG = logging.getLogger(__name__)
@@ -223,6 +227,15 @@ class TranscriptRecoveryService:
         if not transcript_messages:
             return 0
 
+        replaced_existing = self._replace_suspicious_assistant_after_user(
+            session_id=resolved_session_id,
+            user_message=latest_user_message,
+            transcript_path=transcript_path,
+        )
+        if replaced_existing:
+            self.sessions.touch(resolved_session_id)
+            return 1
+
         user_index = self._find_latest_user_index_in_transcript(
             transcript_messages,
             role='user',
@@ -279,6 +292,68 @@ class TranscriptRecoveryService:
         if imported > 0:
             self.sessions.touch(resolved_session_id)
         return imported
+
+    def _replace_suspicious_assistant_after_user(
+        self,
+        *,
+        session_id: str,
+        user_message: dict,
+        transcript_path: Path,
+    ) -> bool:
+        user_created_at = float(user_message.get('createdAt') or 0)
+        if user_created_at <= 0:
+            return False
+        existing = self.messages.get_first_assistant_after(session_id, user_created_at)
+        if existing is None:
+            return False
+        suspicious_reason = self._detect_existing_suspicious_reason(existing)
+        if not suspicious_reason:
+            return False
+        recovered_body = self._extract_recovery_body(
+            transcript_path=transcript_path,
+            user_text=str(user_message.get('text') or ''),
+            user_created_at=user_created_at,
+        )
+        if not recovered_body:
+            return False
+        existing_text = str(existing.get('text') or '').strip()
+        if self._normalize_compare_text(existing_text) == self._normalize_compare_text(recovered_body):
+            return False
+
+        meta = parse_message_meta(existing.get('meta'))
+        suspicious_meta = dict(meta.get('suspiciousFinal') or {}) if isinstance(meta.get('suspiciousFinal'), dict) else {}
+        suspicious_meta.update({
+            'flagged': True,
+            'reason': suspicious_meta.get('reason') or suspicious_reason,
+            'recoveryAttempted': True,
+            'recoverySucceeded': True,
+            'recoveredText': recovered_body,
+        })
+        meta['suspiciousFinal'] = suspicious_meta
+        meta['transcriptRecovery'] = {
+            'source': _RECOVERY_SOURCE,
+            'transcriptPath': str(transcript_path),
+            'replacedSuspiciousAssistant': True,
+            'originalText': existing_text,
+            'userMessageId': str(user_message.get('id') or ''),
+        }
+        updated = self.chat_service.update_message_content(
+            message_id=str(existing.get('id') or ''),
+            text=recovered_body,
+            raw_text=recovered_body,
+            meta=meta,
+        )
+        if updated is None:
+            return False
+        _LOG.warning(
+            '[alicechat.recovery] replaced_suspicious_assistant sessionId=%s userMessageId=%s assistantMessageId=%s reason=%s transcript=%s',
+            session_id,
+            str(user_message.get('id') or ''),
+            str(existing.get('id') or ''),
+            suspicious_reason,
+            transcript_path,
+        )
+        return True
 
     def _list_candidates(self, *, min_age_seconds: float | None = None) -> list[dict]:
         self.ensure_schema()
@@ -445,6 +520,15 @@ class TranscriptRecoveryService:
             return ''
         _, session_key = value.split('|', 1)
         return session_key.strip() if session_key.strip().startswith('agent:') else ''
+
+    def _detect_existing_suspicious_reason(self, message: dict) -> str:
+        meta = parse_message_meta(message.get('meta'))
+        suspicious = meta.get('suspiciousFinal')
+        if isinstance(suspicious, dict) and suspicious.get('flagged'):
+            reason = str(suspicious.get('reason') or '').strip()
+            if reason:
+                return reason
+        return str(detect_suspicious_final(str(message.get('text') or '')) or '').strip()
 
     def _load_transcript_messages(self, transcript_path: Path) -> list[dict[str, Any]]:
         try:

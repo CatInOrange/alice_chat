@@ -64,17 +64,18 @@ def create_sessions_router(context: AppContext) -> APIRouter:
             after_message_id=str(after or '').strip() or None,
         )
         if str(before or '').strip() and page['paging'].get('hasMoreBefore') is False:
+            recovered_after = 0
             imported = context.recovery_service.backfill_session_before(
                 session_id,
                 before_message_id=str(before or '').strip(),
                 limit=limit,
             )
             if imported <= 0:
-                context.recovery_service.recover_missing_after_latest_user(
+                recovered_after = context.recovery_service.recover_missing_after_latest_user(
                     session_id,
                     limit=limit,
                 )
-            if imported > 0:
+            if imported > 0 or recovered_after > 0:
                 page = context.message_store.list_session_messages_page(
                     session_id,
                     limit=limit,

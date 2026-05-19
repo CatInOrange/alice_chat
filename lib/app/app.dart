@@ -164,6 +164,7 @@ class _MainScaffoldState extends State<_MainScaffold>
     if (state == AppLifecycleState.resumed) {
       unawaited(_consumePendingNotificationOpen(source: 'resumed'));
       unawaited(context.read<ChatSessionStore>().handleAppResumed());
+      unawaited(context.read<MusicStore>().handleAppResumed());
       unawaited(context.read<TodoStore>().refreshFromRemote(force: true));
     }
   }
@@ -207,6 +208,7 @@ class _MainScaffoldState extends State<_MainScaffold>
 
   Future<void> _syncActiveSessionFromStore(ChatSession session) async {
     if (!mounted || _activeChatSession?.id != session.id) return;
+    final chatStore = context.read<ChatSessionStore>();
     final state = context.read<ChatSessionStore>().stateFor(session);
     final backendSessionId = (state.backendSessionId ?? '').trim();
     if (backendSessionId.isEmpty) return;
@@ -228,10 +230,7 @@ class _MainScaffoldState extends State<_MainScaffold>
     await BackgroundConnectionService.instance.updateActiveSession(
       backendSessionId,
     );
-    await context.read<ChatSessionStore>().markSessionRead(
-      session,
-      notify: false,
-    );
+    await chatStore.markSessionRead(session, notify: false);
   }
 
   Future<void> _primeUnreadSessions() async {

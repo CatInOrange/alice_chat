@@ -36,6 +36,13 @@ SUSPICIOUS_FINAL_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         'tool_summary_failed',
     ),
     (
+        re.compile(
+            r'^(?:\[[^\]]+\]\s*)?(?:[⚠️🛠️📝\s]+)[^\n]{0,400}\bfailed\s*$',
+            re.IGNORECASE,
+        ),
+        'tool_summary_failed',
+    ),
+    (
         re.compile(r'(?:^|\n)\s*\d+\.\.\.$'),
         'unfinished_numbered_item',
     ),
