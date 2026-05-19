@@ -935,6 +935,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final store = context.read<ChatSessionStore>();
     final beforeExtent = _chatListController.position.maxScrollExtent;
     final loaded = await store.loadOlderMessages(widget.session);
+    if (!loaded) {
+      await store.refreshLatestMessages(widget.session);
+    }
     if (!mounted) return;
     if (loaded && _chatListController.hasClients) {
       WidgetsBinding.instance.addPostFrameCallback((_) {

@@ -61,3 +61,4 @@ alicelive2d/desktop/out/
 **/__pycache__/
 **/*.pyc
 tools/ncm-cli/package/node_modules/
+openclaw-channel-alicechat/node_modules/

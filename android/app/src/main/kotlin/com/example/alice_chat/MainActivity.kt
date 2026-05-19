@@ -3,6 +3,8 @@ package com.example.alice_chat
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -16,6 +18,41 @@ class MainActivity : FlutterActivity() {
     companion object {
         const val ACTION_OPEN_CHAT_NOTIFICATION = "com.example.alice_chat.OPEN_CHAT_NOTIFICATION"
         const val EXTRA_NOTIFICATION_OPEN_PAYLOAD = "notificationOpenPayload"
+        private const val MAX_PENDING_MUSIC_ACTIONS = 32
+        private val mainHandler = Handler(Looper.getMainLooper())
+        private var backgroundMusicChannel: MethodChannel? = null
+        private val pendingMusicActionPayloads = ArrayDeque<String>()
+
+        @Synchronized
+        fun publishBackgroundMusicAction(payload: String) {
+            val normalized = payload.trim()
+            if (normalized.isEmpty()) return
+            val channel = backgroundMusicChannel
+            if (channel != null) {
+                mainHandler.post {
+                    channel.invokeMethod("onMusicAction", normalized)
+                }
+                appendStaticLog("main", "publishBackgroundMusicAction delivered payload=$normalized")
+                return
+            }
+            pendingMusicActionPayloads.addLast(normalized)
+            while (pendingMusicActionPayloads.size > MAX_PENDING_MUSIC_ACTIONS) {
+                pendingMusicActionPayloads.removeFirst()
+            }
+            appendStaticLog("main", "publishBackgroundMusicAction queued size=${pendingMusicActionPayloads.size} payload=$normalized")
+        }
+
+        @Synchronized
+        private fun consumePendingMusicActions(): List<String> {
+            val items = pendingMusicActionPayloads.toList()
+            pendingMusicActionPayloads.clear()
+            appendStaticLog("main", "consumePendingMusicActions size=${items.size}")
+            return items
+        }
+
+        private fun appendStaticLog(tag: String, message: String) {
+            DebugLogBuffer.append(tag, message)
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -27,6 +64,11 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         captureIntent(intent)
+    }
+
+    override fun onDestroy() {
+        backgroundMusicChannel = null
+        super.onDestroy()
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -85,6 +127,19 @@ class MainActivity : FlutterActivity() {
                     pendingNotificationOpenPayload = null
                 }
                 else -> result.notImplemented()
+            }
+        }
+        backgroundMusicChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "alicechat/background_music_events"
+        ).also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "consumePendingMusicActions" -> {
+                        result.success(consumePendingMusicActions())
+                    }
+                    else -> result.notImplemented()
+                }
             }
         }
         MethodChannel(

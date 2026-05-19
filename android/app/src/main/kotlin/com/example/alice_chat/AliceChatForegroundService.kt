@@ -176,12 +176,32 @@ class AliceChatForegroundService : Service() {
         DebugLogBuffer.append("fg-service", "effectiveEvent=$effectiveEvent deliveryPhase=${deliveryPhase.ifBlank { "unknown" }}")
         when (effectiveEvent) {
             "notification.candidate" -> handleNotificationCandidate(payload, deliveryPhase)
+            "music.action" -> handleMusicAction(payload, deliveryPhase)
             "assistant.message.completed", "message.created" -> {
                 DebugLogBuffer.append("fg-service", "decision=ignore_legacy_event event=$effectiveEvent")
                 return
             }
             else -> return
         }
+    }
+
+    private fun handleMusicAction(payload: JSONObject, deliveryPhase: String) {
+        if (deliveryPhase == "replay") {
+            DebugLogBuffer.append("fg-service", "decision=suppress_replay_music_action payload=$payload")
+            return
+        }
+        val actionType = payload.optString("type").trim()
+        if (actionType.isEmpty()) {
+            DebugLogBuffer.append("fg-service", "decision=drop_invalid_music_action reason=empty_type payload=$payload")
+            return
+        }
+        if (appForeground) {
+            DebugLogBuffer.append("fg-service", "decision=skip_music_action_forward foreground=true type=$actionType payload=$payload")
+            return
+        }
+        val normalized = payload.toString()
+        DebugLogBuffer.append("fg-service", "decision=forward_music_action foreground=false type=$actionType payload=$normalized")
+        MainActivity.publishBackgroundMusicAction(normalized)
     }
 
     private fun handleNotificationCandidate(payload: JSONObject, deliveryPhase: String) {

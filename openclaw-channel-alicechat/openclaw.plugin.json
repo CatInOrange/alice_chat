@@ -6,6 +6,9 @@
   "channels": [
     "alicechat"
   ],
+  "contracts": {
+    "tools": ["music_action", "save_latest_ai_playlist", "get_latest_ai_playlist"]
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

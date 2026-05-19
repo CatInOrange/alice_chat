@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from ..services.chat_service import ChatService
 from ..services.events_bus import EventsBus
@@ -97,6 +99,186 @@ class TranscriptRecoveryService:
             if await self._recover_candidate(candidate):
                 recovered = True
         return recovered
+
+    def backfill_session_before(
+        self,
+        session_id: str,
+        *,
+        before_message_id: str = '',
+        limit: int = 20,
+    ) -> int:
+        resolved_session_id = str(session_id or '').strip()
+        anchor_message_id = str(before_message_id or '').strip()
+        page_limit = max(1, min(int(limit or 20), 100))
+        if not resolved_session_id or not anchor_message_id:
+            return 0
+
+        session = self.sessions.get_session(resolved_session_id)
+        session_key = self._extract_session_key(getattr(session, 'route_key', '') if session else '')
+        if not session_key:
+            return 0
+        transcript_path = self._resolve_transcript_path(session_key)
+        if transcript_path is None:
+            return 0
+
+        transcript_messages = self._load_transcript_messages(transcript_path)
+        if not transcript_messages:
+            return 0
+
+        local_messages = self.messages.list_session_messages(resolved_session_id, limit=5000)
+        local_visible = self._build_local_visible_messages(local_messages)
+        if not local_visible:
+            return 0
+        anchor_index = next(
+            (index for index, item in enumerate(local_visible) if item['id'] == anchor_message_id),
+            -1,
+        )
+        if anchor_index < 0:
+            return 0
+
+        local_window = local_visible[anchor_index : anchor_index + 12]
+        overlap_start, overlap_run = self._find_overlap_start(
+            transcript_messages,
+            local_window,
+        )
+        if overlap_start < 0:
+            return 0
+
+        min_required_run = 1 if len(local_window) <= 1 else min(3, len(local_window))
+        if overlap_run < min_required_run:
+            return 0
+
+        import_candidates = transcript_messages[max(0, overlap_start - page_limit) : overlap_start]
+        if not import_candidates:
+            return 0
+
+        imported = 0
+        for item in import_candidates:
+            if self._transcript_item_already_present(
+                resolved_session_id,
+                role=str(item.get('role') or ''),
+                text=str(item.get('text') or ''),
+                created_at=float(item.get('createdAt') or 0),
+            ):
+                continue
+            message_id = self._build_transcript_backfill_message_id(
+                session_id=resolved_session_id,
+                transcript_item=item,
+            )
+            if self.messages.get_message(message_id) is not None:
+                continue
+            meta = {
+                'transcriptBackfill': {
+                    'source': _RECOVERY_SOURCE,
+                    'transcriptPath': str(transcript_path),
+                    'transcriptRecordId': str(item.get('recordId') or ''),
+                    'transcriptMessageId': str(item.get('transcriptMessageId') or ''),
+                    'transcriptIndex': int(item.get('transcriptIndex') or 0),
+                },
+            }
+            self.messages.create_message(
+                session_id=resolved_session_id,
+                role=str(item.get('role') or 'assistant'),
+                text=str(item.get('text') or ''),
+                raw_text=str(item.get('text') or ''),
+                attachments=[],
+                source='transcript_backfill',
+                meta=json.dumps(meta, ensure_ascii=False),
+                message_id=message_id,
+                created_at=float(item.get('createdAt') or 0) or None,
+            )
+            imported += 1
+
+        if imported > 0:
+            self.sessions.touch(resolved_session_id)
+        return imported
+
+    def recover_missing_after_latest_user(
+        self,
+        session_id: str,
+        *,
+        limit: int = 20,
+    ) -> int:
+        resolved_session_id = str(session_id or '').strip()
+        page_limit = max(1, min(int(limit or 20), 100))
+        if not resolved_session_id:
+            return 0
+
+        latest_user_message = self.messages.get_latest_session_message_by_role(
+            resolved_session_id,
+            'user',
+        )
+        if latest_user_message is None:
+            return 0
+
+        session = self.sessions.get_session(resolved_session_id)
+        session_key = self._extract_session_key(getattr(session, 'route_key', '') if session else '')
+        if not session_key:
+            return 0
+        transcript_path = self._resolve_transcript_path(session_key)
+        if transcript_path is None:
+            return 0
+
+        transcript_messages = self._load_transcript_messages(transcript_path)
+        if not transcript_messages:
+            return 0
+
+        user_index = self._find_latest_user_index_in_transcript(
+            transcript_messages,
+            role='user',
+            text=str(latest_user_message.get('text') or ''),
+            created_at=float(latest_user_message.get('createdAt') or 0),
+        )
+        if user_index < 0:
+            return 0
+
+        imported = 0
+        for item in transcript_messages[user_index + 1 :]:
+            if str(item.get('role') or '') == 'user':
+                break
+            if str(item.get('role') or '') != 'assistant':
+                continue
+            if self._transcript_item_already_present(
+                resolved_session_id,
+                role='assistant',
+                text=str(item.get('text') or ''),
+                created_at=float(item.get('createdAt') or 0),
+            ):
+                continue
+            message_id = self._build_transcript_backfill_message_id(
+                session_id=resolved_session_id,
+                transcript_item=item,
+            )
+            if self.messages.get_message(message_id) is not None:
+                continue
+            meta = {
+                'transcriptBackfill': {
+                    'source': _RECOVERY_SOURCE,
+                    'transcriptPath': str(transcript_path),
+                    'transcriptRecordId': str(item.get('recordId') or ''),
+                    'transcriptMessageId': str(item.get('transcriptMessageId') or ''),
+                    'transcriptIndex': int(item.get('transcriptIndex') or 0),
+                    'recoveredAfterLatestUser': True,
+                },
+            }
+            self.messages.create_message(
+                session_id=resolved_session_id,
+                role='assistant',
+                text=str(item.get('text') or ''),
+                raw_text=str(item.get('text') or ''),
+                attachments=[],
+                source='transcript_backfill',
+                meta=json.dumps(meta, ensure_ascii=False),
+                message_id=message_id,
+                created_at=float(item.get('createdAt') or 0) or None,
+            )
+            imported += 1
+            if imported >= page_limit:
+                break
+
+        if imported > 0:
+            self.sessions.touch(resolved_session_id)
+        return imported
 
     def _list_candidates(self, *, min_age_seconds: float | None = None) -> list[dict]:
         self.ensure_schema()
@@ -263,6 +445,171 @@ class TranscriptRecoveryService:
             return ''
         _, session_key = value.split('|', 1)
         return session_key.strip() if session_key.strip().startswith('agent:') else ''
+
+    def _load_transcript_messages(self, transcript_path: Path) -> list[dict[str, Any]]:
+        try:
+            lines = transcript_path.read_text(encoding='utf-8', errors='ignore').splitlines()
+        except Exception:
+            _LOG.exception('[alicechat.recovery] transcript_read_failed path=%s', transcript_path)
+            return []
+
+        items: list[dict[str, Any]] = []
+        for index, raw in enumerate(lines):
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                record = json.loads(raw)
+            except Exception:
+                continue
+            if record.get('type') != 'message':
+                continue
+            message = record.get('message') or {}
+            role = str(message.get('role') or '').strip()
+            if role not in {'user', 'assistant'}:
+                continue
+            text = self._extract_text_content(message.get('content')).strip()
+            if not text:
+                continue
+            items.append(
+                {
+                    'role': role,
+                    'text': text,
+                    'normalizedText': self._normalize_compare_text(text),
+                    'createdAt': self._resolve_transcript_message_created_at(record, message),
+                    'recordId': str(record.get('id') or '').strip(),
+                    'transcriptMessageId': str(message.get('id') or '').strip(),
+                    'transcriptIndex': index,
+                }
+            )
+        return items
+
+    def _build_local_visible_messages(self, messages: list[dict]) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        for message in messages:
+            role = str(message.get('role') or '').strip()
+            if role not in {'user', 'assistant'}:
+                continue
+            text = str(message.get('text') or '').strip()
+            if not text:
+                continue
+            items.append(
+                {
+                    'id': str(message.get('id') or '').strip(),
+                    'role': role,
+                    'text': text,
+                    'normalizedText': self._normalize_compare_text(text),
+                    'createdAt': float(message.get('createdAt') or 0),
+                }
+            )
+        return items
+
+    def _find_overlap_start(
+        self,
+        transcript_messages: list[dict[str, Any]],
+        local_window: list[dict[str, Any]],
+    ) -> tuple[int, int]:
+        if not transcript_messages or not local_window:
+            return -1, 0
+        best_index = -1
+        best_run = 0
+        first_key = self._compare_key(local_window[0])
+        for index, item in enumerate(transcript_messages):
+            if self._compare_key(item) != first_key:
+                continue
+            run = 0
+            while (
+                index + run < len(transcript_messages)
+                and run < len(local_window)
+                and self._compare_key(transcript_messages[index + run]) == self._compare_key(local_window[run])
+            ):
+                run += 1
+            if run > best_run:
+                best_index = index
+                best_run = run
+            if best_run == len(local_window):
+                break
+        return best_index, best_run
+
+    def _find_latest_user_index_in_transcript(
+        self,
+        transcript_messages: list[dict[str, Any]],
+        *,
+        role: str,
+        text: str,
+        created_at: float,
+    ) -> int:
+        target_key = (
+            str(role or '').strip(),
+            self._normalize_compare_text(text),
+        )
+        candidates: list[tuple[int, float]] = []
+        for index, item in enumerate(transcript_messages):
+            if self._compare_key(item) != target_key:
+                continue
+            item_created_at = float(item.get('createdAt') or 0)
+            distance = (
+                abs(item_created_at - float(created_at))
+                if created_at > 0 and item_created_at > 0
+                else 0.0
+            )
+            candidates.append((index, distance))
+        if not candidates:
+            return -1
+        if created_at > 0:
+            candidates.sort(key=lambda item: (item[1], -item[0]))
+            return candidates[0][0]
+        return candidates[-1][0]
+
+    def _compare_key(self, item: dict[str, Any]) -> tuple[str, str]:
+        return (
+            str(item.get('role') or '').strip(),
+            str(item.get('normalizedText') or self._normalize_compare_text(str(item.get('text') or ''))),
+        )
+
+    def _normalize_compare_text(self, text: str) -> str:
+        return re.sub(r'\s+', ' ', str(text or '').strip())
+
+    def _resolve_transcript_message_created_at(self, record: dict, message: dict) -> float:
+        message_ts = message.get('timestamp')
+        if isinstance(message_ts, (int, float)):
+            value = float(message_ts)
+            return value / 1000.0 if value > 10_000_000_000 else value
+        return self._record_timestamp(record)
+
+    def _transcript_item_already_present(
+        self,
+        session_id: str,
+        *,
+        role: str,
+        text: str,
+        created_at: float,
+    ) -> bool:
+        return self.messages.find_equivalent_message(
+            session_id,
+            role=role,
+            text=text,
+            created_at=created_at if created_at > 0 else None,
+        ) is not None
+
+    def _build_transcript_backfill_message_id(
+        self,
+        *,
+        session_id: str,
+        transcript_item: dict[str, Any],
+    ) -> str:
+        raw = '|'.join(
+            [
+                str(session_id or '').strip(),
+                str(transcript_item.get('recordId') or '').strip(),
+                str(transcript_item.get('transcriptMessageId') or '').strip(),
+                str(transcript_item.get('role') or '').strip(),
+                str(transcript_item.get('createdAt') or ''),
+                str(transcript_item.get('text') or ''),
+            ]
+        )
+        digest = hashlib.sha1(raw.encode('utf-8')).hexdigest()[:16]
+        return f'msg_tx_{digest}'
 
     def _resolve_transcript_path(self, session_key: str) -> Path | None:
         match = re.match(r'^agent:([^:]+):', str(session_key or '').strip())

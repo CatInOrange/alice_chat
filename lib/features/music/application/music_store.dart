@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -11,6 +12,7 @@ import '../../../core/openclaw/openclaw_client.dart';
 import '../../../core/openclaw/openclaw_config.dart';
 import '../../../core/openclaw/openclaw_http_client.dart';
 import '../../../core/openclaw/openclaw_settings.dart';
+import 'background_music_action_bridge.dart';
 import '../data/music_local_cache_store.dart';
 import '../data/music_repository.dart';
 import '../data/music_repository_impl.dart';
@@ -82,6 +84,7 @@ class MusicStore extends ChangeNotifier {
     _duration = _currentTrack.duration;
     _queue = const [];
     _configReady = reloadConfig();
+    unawaited(BackgroundMusicActionBridge.instance.attach(this));
   }
 
   OpenClawClient _client;
@@ -164,6 +167,7 @@ class MusicStore extends ChangeNotifier {
   final Map<String, List<MusicTrack>> _intelligenceCache =
       <String, List<MusicTrack>>{};
   final Map<String, DateTime> _lastDebugLogAt = <String, DateTime>{};
+  final Map<String, DateTime> _recentActionFingerprints = <String, DateTime>{};
   int _localRevision = 0;
   int _lastAckedRevision = 0;
   bool _hasPendingRemoteSync = false;
@@ -2285,6 +2289,13 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> handleAction(MusicAction action) async {
+    if (!_acceptAction(action)) {
+      _debugState(
+        'action.duplicate_ignored',
+        extra: {'type': action.type.name, 'requestId': action.requestId},
+      );
+      return;
+    }
     switch (action.type) {
       case MusicActionType.playTrack:
         final track = action.track;
@@ -2378,6 +2389,59 @@ class MusicStore extends ChangeNotifier {
       case MusicActionType.saveAiPlaylist:
         return;
     }
+  }
+
+  Future<void> handleBackgroundAction(
+    MusicAction action, {
+    required String source,
+  }) async {
+    _debugState(
+      'background_action.received',
+      extra: {
+        'bridgeSource': source,
+        'type': action.type.name,
+        'requestId': action.requestId,
+        'payload': jsonEncode(action.payload),
+      },
+      force: true,
+    );
+    try {
+      await handleAction(action);
+      _debugState(
+        'background_action.applied',
+        extra: {
+          'bridgeSource': source,
+          'type': action.type.name,
+          'requestId': action.requestId,
+        },
+        force: true,
+      );
+    } catch (error) {
+      _debugState(
+        'background_action.error',
+        extra: {
+          'bridgeSource': source,
+          'type': action.type.name,
+          'requestId': action.requestId,
+          'error': error.toString(),
+        },
+        force: true,
+        level: 'ERROR',
+      );
+      rethrow;
+    }
+  }
+
+  void debugBackgroundActionBridgeError(
+    String error, {
+    String rawPayload = '',
+  }) {
+    _debugState(
+      'background_action.bridge_error',
+      extra: {'error': error, 'rawPayload': rawPayload},
+      force: true,
+      level: 'ERROR',
+    );
   }
 
   Future<void> _refreshLatestAiPlaylist() async {
@@ -4193,6 +4257,7 @@ class MusicStore extends ChangeNotifier {
 
   @override
   void dispose() {
+    BackgroundMusicActionBridge.instance.detach(this);
     _snapshotScheduler.dispose();
     _aiPlaylistEnricher.cancel();
     _warmupCoordinator.cancel();
@@ -4200,6 +4265,30 @@ class MusicStore extends ChangeNotifier {
     _playbackStateSub?.cancel();
     unawaited(_playbackAdapter.dispose());
     super.dispose();
+  }
+
+  bool _acceptAction(MusicAction action) {
+    final now = DateTime.now();
+    final staleBefore = now.subtract(const Duration(seconds: 8));
+    _recentActionFingerprints.removeWhere(
+      (_, timestamp) => timestamp.isBefore(staleBefore),
+    );
+    final fingerprint = _actionFingerprint(action);
+    final previous = _recentActionFingerprints[fingerprint];
+    if (previous != null &&
+        now.difference(previous) < const Duration(seconds: 8)) {
+      return false;
+    }
+    _recentActionFingerprints[fingerprint] = now;
+    return true;
+  }
+
+  String _actionFingerprint(MusicAction action) {
+    final requestId = action.requestId?.trim() ?? '';
+    if (requestId.isNotEmpty) {
+      return 'request:$requestId';
+    }
+    return '${action.type.name}:${jsonEncode(action.payload)}:${action.source.name}';
   }
 
   void _applyRemoteStateSnapshot(

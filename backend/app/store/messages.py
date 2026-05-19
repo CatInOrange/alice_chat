@@ -187,6 +187,80 @@ class MessageStore:
             ).fetchone()
             return self._row_to_message(row) if row is not None else None
 
+    def get_latest_session_message_by_role(self, session_id: str, role: str) -> dict | None:
+        self.ensure_schema()
+        with connect(self.db) as conn:
+            row = conn.execute(
+                """
+                SELECT *
+                FROM messages
+                WHERE session_id=?
+                  AND deleted_at IS NULL
+                  AND role=?
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (str(session_id), str(role or '')),
+            ).fetchone()
+            return self._row_to_message(row) if row is not None else None
+
+    def find_equivalent_message(
+        self,
+        session_id: str,
+        *,
+        role: str,
+        text: str,
+        created_at: float | None = None,
+        time_tolerance_seconds: float = 5.0,
+    ) -> dict | None:
+        self.ensure_schema()
+        resolved_text = str(text or '')
+        if not resolved_text:
+            return None
+        with connect(self.db) as conn:
+            if created_at is not None and float(created_at) > 0:
+                row = conn.execute(
+                    """
+                    SELECT *
+                    FROM messages
+                    WHERE session_id=?
+                      AND deleted_at IS NULL
+                      AND role=?
+                      AND text=?
+                      AND ABS(created_at - ?) <= ?
+                    ORDER BY ABS(created_at - ?) ASC, id ASC
+                    LIMIT 1
+                    """,
+                    (
+                        str(session_id),
+                        str(role or ''),
+                        resolved_text,
+                        float(created_at),
+                        float(max(0.0, time_tolerance_seconds)),
+                        float(created_at),
+                    ),
+                ).fetchone()
+                if row is not None:
+                    return self._row_to_message(row)
+            row = conn.execute(
+                """
+                SELECT *
+                FROM messages
+                WHERE session_id=?
+                  AND deleted_at IS NULL
+                  AND role=?
+                  AND text=?
+                ORDER BY created_at ASC, id ASC
+                LIMIT 1
+                """,
+                (
+                    str(session_id),
+                    str(role or ''),
+                    resolved_text,
+                ),
+            ).fetchone()
+            return self._row_to_message(row) if row is not None else None
+
     def find_message_by_client_message_id(self, session_id: str, client_message_id: str) -> dict | None:
         self.ensure_schema()
         needle = str(client_message_id or '').strip()

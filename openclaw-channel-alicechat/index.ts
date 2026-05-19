@@ -23,7 +23,7 @@ function auditFrame(stream, direction, frame, meta = {}) {
       iso: now.toISOString(),
       stream,
       direction,
-      frameType: String(frame?.type || meta.frameType || ''),
+      frameType: String(frame?.type || (meta as any).frameType || ''),
       meta,
       frame,
     };
@@ -39,16 +39,18 @@ function auditFrame(stream, direction, frame, meta = {}) {
 const activeServers = new Map();
 const activeClients = new Map();
 
-function waitUntilAbort(signal, onAbort) {
-  return new Promise((resolve) => {
+function waitUntilAbort(signal, onAbort?: () => void) {
+  return new Promise<void>((resolve) => {
     if (signal.aborted) {
-      Promise.resolve(onAbort?.()).finally(resolve);
+      onAbort?.();
+      resolve();
       return;
     }
     signal.addEventListener(
       'abort',
       () => {
-        Promise.resolve(onAbort?.()).finally(resolve);
+        onAbort?.();
+        resolve();
       },
       { once: true },
     );
@@ -168,7 +170,7 @@ async function loadAliceChatApiSettings() {
 
   for (const configPath of configPaths) {
     try {
-      const raw = await fs.readFile(configPath, 'utf8');
+      const raw = await fsSync.promises.readFile(configPath, 'utf8');
       const parsed = JSON.parse(raw);
       if (!baseUrl) {
         const server = parsed?.server || {};
@@ -660,7 +662,7 @@ function createBridgeServer(ctx) {
 
   return {
     async stop() {
-      await new Promise((resolve, reject) => {
+      await new Promise<void>((resolve, reject) => {
         wss.close((err) => (err ? reject(err) : resolve()));
       });
     },
@@ -792,7 +794,7 @@ const alicechatPlugin = {
     },
   },
   gateway: {
-    startAccount: async (ctx) => {
+    startAccount: async (ctx: any, _account?: any) => {
       if (!ctx.account?.enabled) return waitUntilAbort(ctx.abortSignal);
       const key = String(ctx.accountId || 'default');
       const prev = activeServers.get(key);
@@ -1170,7 +1172,7 @@ export function register(api) {
     },
     async execute() {
       try {
-        const response = await callAliceChatApi('GET', '/api/music/ai-playlists/latest');
+        const response = await callAliceChatApi('GET', '/api/music/ai-playlists/latest', {});
         const playlist = response?.playlist;
         if (!playlist) {
           return {
