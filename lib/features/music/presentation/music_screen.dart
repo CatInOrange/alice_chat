@@ -462,8 +462,11 @@ class _MusicScreenState extends State<MusicScreen>
         final currentTrack = store.currentTrack.copyWith(
           isFavorite: store.isTrackLiked(store.currentTrack.id),
         );
-        final isPlaying = store.isActivelyPlaying;
-        final isPlaybackBusy = store.isPlaybackBusy;
+        final playbackState = store.playbackControlState;
+        final isPlaying = playbackState == MusicPlaybackControlState.playing;
+        final isPlaybackBusy =
+            playbackState == MusicPlaybackControlState.starting;
+        final hasCompleted = playbackState == MusicPlaybackControlState.ended;
         final playlists = store.playlists;
         final recentPlaylists = store.recentPlaylists;
         final likedPlaylist = store.likedPlaylist;
@@ -766,6 +769,7 @@ class _MusicScreenState extends State<MusicScreen>
                           modeBadge: currentPlaybackModeBadge,
                           isPlaying: isPlaying,
                           isBuffering: isPlaybackBusy,
+                          hasCompleted: hasCompleted,
                           onTap: () => _openPlayer(store),
                           onPlayPause: store.togglePlayPause,
                         ),
@@ -840,6 +844,7 @@ class _MusicScreenState extends State<MusicScreen>
                             track: currentTrack,
                             isPlaying: isPlaying,
                             isBuffering: isPlaybackBusy,
+                            hasCompleted: hasCompleted,
                             hasPrevious: store.hasPreviousTrack,
                             hasNext: store.hasNextTrack,
                             onPrevious: store.playPrevious,
@@ -2218,6 +2223,7 @@ class _MiniPlayer extends StatefulWidget {
     required this.sourceLabel,
     required this.isPlaying,
     required this.isBuffering,
+    required this.hasCompleted,
     required this.onTap,
     required this.onPlayPause,
     required this.backendBaseUrl,
@@ -2229,6 +2235,7 @@ class _MiniPlayer extends StatefulWidget {
   final String sourceLabel;
   final bool isPlaying;
   final bool isBuffering;
+  final bool hasCompleted;
   final String? modeBadge;
   final VoidCallback onTap;
   final VoidCallback onPlayPause;
@@ -2407,6 +2414,8 @@ class _MiniPlayerState extends State<_MiniPlayer>
                                     : Icon(
                                       widget.isPlaying
                                           ? Icons.pause_rounded
+                                          : widget.hasCompleted
+                                          ? Icons.replay_rounded
                                           : Icons.play_arrow_rounded,
                                       color: Colors.white,
                                     ),
@@ -3827,6 +3836,7 @@ class _DesktopNowPlayingStage extends StatelessWidget {
     required this.track,
     required this.isPlaying,
     required this.isBuffering,
+    required this.hasCompleted,
     required this.hasPrevious,
     required this.hasNext,
     required this.onPrevious,
@@ -3855,6 +3865,7 @@ class _DesktopNowPlayingStage extends StatelessWidget {
   final MusicTrack track;
   final bool isPlaying;
   final bool isBuffering;
+  final bool hasCompleted;
   final bool hasPrevious;
   final bool hasNext;
   final Future<void> Function() onPrevious;
@@ -4047,6 +4058,7 @@ class _DesktopNowPlayingStage extends StatelessWidget {
                   accentColor: accentColor,
                   isPlaying: isPlaying,
                   isBuffering: isBuffering,
+                  hasCompleted: hasCompleted,
                   shuffleEnabled: shuffleEnabled,
                   repeatMode: repeatMode,
                   hasPrevious: hasPrevious,
@@ -4457,6 +4469,7 @@ class _DesktopPlayerControls extends StatelessWidget {
     required this.accentColor,
     required this.isPlaying,
     required this.isBuffering,
+    required this.hasCompleted,
     required this.shuffleEnabled,
     required this.repeatMode,
     required this.hasPrevious,
@@ -4474,6 +4487,7 @@ class _DesktopPlayerControls extends StatelessWidget {
   final Color accentColor;
   final bool isPlaying;
   final bool isBuffering;
+  final bool hasCompleted;
   final bool shuffleEnabled;
   final MusicRepeatMode repeatMode;
   final bool hasPrevious;
@@ -4536,7 +4550,11 @@ class _DesktopPlayerControls extends StatelessWidget {
                     ),
                   )
                   : Icon(
-                    isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                    isPlaying
+                        ? Icons.pause_rounded
+                        : hasCompleted
+                        ? Icons.replay_rounded
+                        : Icons.play_arrow_rounded,
                     color: Colors.white,
                     size: 34,
                   ),

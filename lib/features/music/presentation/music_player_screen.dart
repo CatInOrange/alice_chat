@@ -26,6 +26,11 @@ class MusicPlayerScreen extends StatelessWidget {
         final currentTrack = store.currentTrack.copyWith(
           isFavorite: store.isTrackLiked(store.currentTrack.id),
         );
+        final playbackState = store.playbackControlState;
+        final isPlaying = playbackState == MusicPlaybackControlState.playing;
+        final isPlaybackBusy =
+            playbackState == MusicPlaybackControlState.starting;
+        final hasCompleted = playbackState == MusicPlaybackControlState.ended;
         final currentQueue = store.queue
             .map((item) => item.track)
             .toList(growable: false);
@@ -185,8 +190,8 @@ class MusicPlayerScreen extends StatelessWidget {
                             children: [
                               _DiscStage(
                                 track: currentTrack,
-                                isPlaying: store.isActivelyPlaying,
-                                isBuffering: store.isPlaybackBusy,
+                                isPlaying: isPlaying,
+                                isBuffering: isPlaybackBusy,
                                 hasPrevious: store.hasPreviousTrack,
                                 hasNext: store.hasNextTrack,
                                 onPrevious: store.playPrevious,
@@ -327,8 +332,9 @@ class MusicPlayerScreen extends StatelessWidget {
                                       const SizedBox(height: 26),
                                       _PlayerControls(
                                         accentColor: palette.gradient.first,
-                                        isPlaying: store.isActivelyPlaying,
-                                        isBuffering: store.isPlaybackBusy,
+                                        isPlaying: isPlaying,
+                                        isBuffering: isPlaybackBusy,
+                                        hasCompleted: hasCompleted,
                                         shuffleEnabled: store.shuffleEnabled,
                                         repeatMode: store.repeatMode,
                                         hasPrevious: store.hasPreviousTrack,
@@ -1217,6 +1223,7 @@ class _PlayerControls extends StatelessWidget {
     required this.accentColor,
     required this.isPlaying,
     required this.isBuffering,
+    required this.hasCompleted,
     required this.shuffleEnabled,
     required this.repeatMode,
     required this.hasPrevious,
@@ -1233,6 +1240,7 @@ class _PlayerControls extends StatelessWidget {
   final Color accentColor;
   final bool isPlaying;
   final bool isBuffering;
+  final bool hasCompleted;
   final bool shuffleEnabled;
   final MusicRepeatMode repeatMode;
   final bool hasPrevious;
@@ -1282,7 +1290,11 @@ class _PlayerControls extends StatelessWidget {
                     ),
                   )
                   : Icon(
-                    isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                    isPlaying
+                        ? Icons.pause_rounded
+                        : hasCompleted
+                        ? Icons.replay_rounded
+                        : Icons.play_arrow_rounded,
                     color: Colors.white,
                     size: 34,
                   ),

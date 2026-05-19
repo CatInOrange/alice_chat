@@ -35,6 +35,8 @@ import '../domain/music_runtime_models.dart';
 
 enum MusicRepeatMode { off, all, one, intelligence }
 
+enum MusicPlaybackControlState { idle, starting, playing, paused, ended }
+
 class MusicStore extends ChangeNotifier {
   static const String _downloadsPlaylistId = 'downloads-local';
   static const String _neteaseFmPlaylistId = 'netease-fm';
@@ -143,6 +145,7 @@ class MusicStore extends ChangeNotifier {
   MusicAiPlaylistDraft? _latestAiPlaylist;
   final Map<String, List<MusicTrack>> _playlistTracksCache =
       <String, List<MusicTrack>>{};
+  final Map<String, MusicTrack> _trackRegistry = <String, MusicTrack>{};
   final Set<String> _neteaseLikedTrackKeys = <String>{};
   final Set<String> _discardedNeteaseFmTrackKeys = <String>{};
   int _searchRequestSerial = 0;
@@ -185,13 +188,39 @@ class MusicStore extends ChangeNotifier {
   bool get isLoading => _isPreparingPlayback || _isRefreshingLibrary;
   bool get isHydratingFromCache => _isHydratingFromCache;
   String? get error => _error;
-  bool get isPlaying => _isPlaying;
-  bool get isBuffering => _isBuffering;
-  bool get isStartingPlayback => _isPreparingPlayback && !_isPlaying;
-  bool get isActivelyPlaying => _isPlaying && !_isBuffering;
-  bool get isPlaybackBusy => isStartingPlayback || _isBuffering;
+  MusicPlaybackControlState get playbackControlState {
+    final adapterState = _playbackAdapter.state;
+    final hasTrackContext =
+        _currentTrack.id.trim().isNotEmpty || _queue.isNotEmpty;
+    if ((_isPreparingPlayback || _isBuffering || adapterState.isBuffering) &&
+        !adapterState.completed) {
+      return MusicPlaybackControlState.starting;
+    }
+    if (adapterState.completed && hasTrackContext) {
+      return MusicPlaybackControlState.ended;
+    }
+    if ((adapterState.isPlaying && adapterState.currentSource != null) ||
+        (_isPlaying && !_isBuffering)) {
+      return MusicPlaybackControlState.playing;
+    }
+    if (hasTrackContext) {
+      return MusicPlaybackControlState.paused;
+    }
+    return MusicPlaybackControlState.idle;
+  }
+
+  bool get isPlaying =>
+      playbackControlState == MusicPlaybackControlState.playing;
+  bool get isBuffering =>
+      playbackControlState == MusicPlaybackControlState.starting;
+  bool get isStartingPlayback =>
+      playbackControlState == MusicPlaybackControlState.starting;
+  bool get isActivelyPlaying =>
+      playbackControlState == MusicPlaybackControlState.playing;
+  bool get isPlaybackBusy =>
+      playbackControlState == MusicPlaybackControlState.starting;
   bool get hasCompletedCurrentTrack =>
-      _playbackAdapter.state.completed && _currentTrack.id.trim().isNotEmpty;
+      playbackControlState == MusicPlaybackControlState.ended;
   Duration get position => _position;
   Duration get duration => _duration;
   MusicTrack get currentTrack => _currentTrack;
@@ -1363,20 +1392,22 @@ class MusicStore extends ChangeNotifier {
     _isPlaying = false;
     _isBuffering = false;
     _isPreparingPlayback = false;
-    _position = Duration.zero;
   }
 
   void _applyQueuedPlaybackState(List<PlaybackQueueItem> queueItems) {
     if (queueItems.isEmpty) {
       throw StateError('当前没有可播放的歌曲');
     }
+    final previousTrackId = _currentTrack.id.trim();
     _isPreparingPlayback = true;
     _isPlaying = false;
     _isBuffering = false;
     final normalizedQueue = queueItems
         .map(
           (item) => PlaybackQueueItem(
-            track: item.track.copyWith(isFavorite: isTrackLiked(item.track.id)),
+            track: _rememberTrack(
+              item.track.copyWith(isFavorite: isTrackLiked(item.track.id)),
+            ),
             candidate: item.candidate,
             resolvedSource: item.resolvedSource,
             requestedBy: item.requestedBy,
@@ -1391,10 +1422,12 @@ class MusicStore extends ChangeNotifier {
         ..add(first)
         ..addAll(tail);
     }
-    _queue = List<PlaybackQueueItem>.unmodifiable(normalizedQueue);
+    _queue = _rememberQueueItems(normalizedQueue);
     _currentTrack = _queue.first.track;
     _duration = _currentTrack.duration;
-    _position = Duration.zero;
+    if (_currentTrack.id.trim() != previousTrackId) {
+      _position = Duration.zero;
+    }
     _playbackHistory.clear();
     _error = null;
   }
@@ -1471,47 +1504,46 @@ class MusicStore extends ChangeNotifier {
             : _likedTracks
                 .where((item) => item.id != track.id)
                 .toList(growable: false);
-    _likedTracks = List<MusicTrack>.unmodifiable(nextLikedTracks);
+    _likedTracks = _rememberTracks(nextLikedTracks, forceFavorite: true);
     _currentTrack =
         _currentTrack.id == track.id
-            ? _currentTrack.copyWith(
-              isFavorite: liked,
-              cachedPlayback: cachedPlayback,
+            ? _rememberTrack(
+              _currentTrack.copyWith(
+                isFavorite: liked,
+                cachedPlayback: cachedPlayback,
+              ),
+              forceFavorite: liked,
             )
             : _currentTrack;
-    _queue = List<PlaybackQueueItem>.unmodifiable(
-      _queue
-          .map(
-            (item) =>
-                item.track.id == track.id
-                    ? PlaybackQueueItem(
-                      track: item.track.copyWith(
-                        isFavorite: liked,
-                        cachedPlayback:
-                            item.track.id == track.id
-                                ? cachedPlayback
-                                : item.track.cachedPlayback,
-                      ),
-                      candidate: item.candidate,
-                      resolvedSource: item.resolvedSource,
-                      requestedBy: item.requestedBy,
-                    )
-                    : item,
-          )
-          .toList(growable: false),
+    _queue = _rememberQueueItems(
+      _queue.map(
+        (item) =>
+            item.track.id == track.id
+                ? PlaybackQueueItem(
+                  track: item.track.copyWith(
+                    isFavorite: liked,
+                    cachedPlayback:
+                        item.track.id == track.id
+                            ? cachedPlayback
+                            : item.track.cachedPlayback,
+                  ),
+                  candidate: item.candidate,
+                  resolvedSource: item.resolvedSource,
+                  requestedBy: item.requestedBy,
+                )
+                : item,
+      ),
     );
-    _recentTracks = List<MusicTrack>.unmodifiable(
-      _recentTracks
-          .map(
-            (item) =>
-                item.id == track.id
-                    ? item.copyWith(
-                      isFavorite: liked,
-                      cachedPlayback: cachedPlayback,
-                    )
-                    : item,
-          )
-          .toList(growable: false),
+    _recentTracks = _rememberTracks(
+      _recentTracks.map(
+        (item) =>
+            item.id == track.id
+                ? item.copyWith(
+                  isFavorite: liked,
+                  cachedPlayback: cachedPlayback,
+                )
+                : item,
+      ),
     );
     _cacheTracksForPlaylist(likedPlaylist.id, _likedTracks);
     _syncLikedTrackMirrors(nextTrack, liked);
@@ -1929,8 +1961,12 @@ class MusicStore extends ChangeNotifier {
   }
 
   Future<void> togglePlayPause() async {
-    if (_isPlaying && hasLocalPlaybackControl) {
+    final controlState = playbackControlState;
+    if (controlState == MusicPlaybackControlState.playing &&
+        hasLocalPlaybackControl) {
       _isPlaying = false;
+      _isBuffering = false;
+      _isPreparingPlayback = false;
       notifyListeners();
       try {
         await _playbackAdapter.pause();
@@ -1940,6 +1976,11 @@ class MusicStore extends ChangeNotifier {
         rethrow;
       }
       _markSnapshotDirty();
+      return;
+    }
+
+    if (controlState == MusicPlaybackControlState.ended) {
+      await _restartCurrentTrackAfterCompletion();
       return;
     }
 
@@ -1959,17 +2000,17 @@ class MusicStore extends ChangeNotifier {
     }
 
     final adapterState = _playbackAdapter.state;
-    if (adapterState.completed) {
-      await _restartCurrentTrackAfterCompletion();
-      return;
-    }
-    if (adapterState.currentSource != null && hasLocalPlaybackControl) {
+    if (adapterState.currentSource != null &&
+        hasLocalPlaybackControl &&
+        controlState == MusicPlaybackControlState.paused) {
       _isPlaying = true;
+      _isPreparingPlayback = true;
       notifyListeners();
       try {
         await _playbackAdapter.resume();
       } catch (_) {
         _isPlaying = false;
+        _isPreparingPlayback = false;
         notifyListeners();
         rethrow;
       }
@@ -2334,8 +2375,10 @@ class MusicStore extends ChangeNotifier {
           final normalizedQueue = incomingQueue
               .map(
                 (item) => PlaybackQueueItem(
-                  track: item.track.copyWith(
-                    isFavorite: isTrackLiked(item.track.id),
+                  track: _rememberTrack(
+                    item.track.copyWith(
+                      isFavorite: isTrackLiked(item.track.id),
+                    ),
                   ),
                   candidate: item.candidate,
                   resolvedSource: item.resolvedSource,
@@ -2351,7 +2394,7 @@ class MusicStore extends ChangeNotifier {
               ..add(first)
               ..addAll(tail);
           }
-          _queue = List<PlaybackQueueItem>.unmodifiable(normalizedQueue);
+          _queue = _rememberQueueItems(normalizedQueue);
           _currentTrack = _queue.first.track;
           _playbackHistory.clear();
           _applyCommandPlaylistContext(command.playlist, normalizedQueue);
@@ -2366,8 +2409,10 @@ class MusicStore extends ChangeNotifier {
           final incoming = command.queue
               .map(
                 (item) => PlaybackQueueItem(
-                  track: item.track.copyWith(
-                    isFavorite: isTrackLiked(item.track.id),
+                  track: _rememberTrack(
+                    item.track.copyWith(
+                      isFavorite: isTrackLiked(item.track.id),
+                    ),
                   ),
                   candidate: item.candidate,
                   resolvedSource: item.resolvedSource,
@@ -2375,7 +2420,7 @@ class MusicStore extends ChangeNotifier {
                 ),
               )
               .toList(growable: false);
-          _queue = List<PlaybackQueueItem>.unmodifiable([
+          _queue = _rememberQueueItems([
             if (_queue.isNotEmpty) _queue.first,
             ...incoming,
             if (_queue.isNotEmpty) ..._queue.skip(1),
@@ -2387,12 +2432,12 @@ class MusicStore extends ChangeNotifier {
         break;
       case MusicCommandType.appendToQueue:
         if (command.queue.isNotEmpty) {
-          _queue = List<PlaybackQueueItem>.unmodifiable([
+          _queue = _rememberQueueItems([
             ..._queue,
             ...command.queue.map(
               (item) => PlaybackQueueItem(
-                track: item.track.copyWith(
-                  isFavorite: isTrackLiked(item.track.id),
+                track: _rememberTrack(
+                  item.track.copyWith(isFavorite: isTrackLiked(item.track.id)),
                 ),
                 candidate: item.candidate,
                 resolvedSource: item.resolvedSource,
@@ -2405,10 +2450,11 @@ class MusicStore extends ChangeNotifier {
       case MusicCommandType.pause:
         await _playbackAdapter.pause();
         _isPlaying = false;
+        _isBuffering = false;
         _isPreparingPlayback = false;
         break;
       case MusicCommandType.resume:
-        if (_playbackAdapter.state.completed) {
+        if (hasCompletedCurrentTrack) {
           await _restartCurrentTrackAfterCompletion();
           return;
         }
@@ -2766,22 +2812,8 @@ class MusicStore extends ChangeNotifier {
         incomingTrackId != expectedQueueHeadId;
 
     if (shouldIgnoreIncomingTrack) {
-      if (state.error != null && state.error!.trim().isNotEmpty) {
-        _error = state.error;
-      }
-      _isPlaying = state.isPlaying && state.currentSource != null;
-      _isBuffering = state.isBuffering;
-      _position = state.position;
-      _duration = state.duration ?? _currentTrack.duration;
-      if (state.completed && !_isAdvancingQueue) {
-        if (_queue.isNotEmpty) {
-          unawaited(_advanceToNextTrack());
-        } else {
-          _isPlaying = false;
-          _isBuffering = false;
-          _position = _duration;
-        }
-      }
+      _applyPlaybackAdapterState(state);
+      _handlePlaybackCompletionIfNeeded(state);
       notifyListeners();
       return;
     }
@@ -2796,23 +2828,45 @@ class MusicStore extends ChangeNotifier {
         unawaited(_loadLyricsForTrack(_currentTrack, forceRefresh: false));
       }
     }
-    _isPlaying = state.isPlaying;
-    _isBuffering = state.isBuffering;
-    _position = state.position;
-    _duration = state.duration ?? _currentTrack.duration;
+    _applyPlaybackAdapterState(state);
+    _handlePlaybackCompletionIfNeeded(state);
+    notifyListeners();
+  }
+
+  void _applyPlaybackAdapterState(PlaybackAdapterState state) {
     if (state.error != null && state.error!.trim().isNotEmpty) {
       _error = state.error;
     }
-    if (state.completed && !_isAdvancingQueue) {
-      if (_queue.isNotEmpty) {
-        unawaited(_advanceToNextTrack());
-      } else {
-        _isPlaying = false;
-        _isBuffering = false;
-        _position = _duration;
-      }
+    _duration = state.duration ?? _currentTrack.duration;
+    if (state.completed) {
+      _isPlaying = false;
+      _isBuffering = false;
+      _isPreparingPlayback = false;
+      _position = _duration;
+      return;
     }
-    notifyListeners();
+    _isPlaying = state.isPlaying && state.currentSource != null;
+    _isBuffering = state.isBuffering;
+    _position = state.position;
+  }
+
+  void _handlePlaybackCompletionIfNeeded(PlaybackAdapterState state) {
+    if (!state.completed || _isAdvancingQueue) {
+      return;
+    }
+    if (_queue.isNotEmpty) {
+      unawaited(_advanceToNextTrack());
+      return;
+    }
+    _finishPlaybackSession();
+  }
+
+  void _finishPlaybackSession() {
+    _isPlaying = false;
+    _isBuffering = false;
+    _isPreparingPlayback = false;
+    _position = _duration;
+    _markSnapshotDirty();
   }
 
   PlaybackAdapter _createPlaybackAdapter() {
@@ -2853,10 +2907,7 @@ class MusicStore extends ChangeNotifier {
           ]);
           _playbackHistory.clear();
         } else {
-          _isPlaying = false;
-          _isBuffering = false;
-          _isPreparingPlayback = false;
-          _position = _duration;
+          _finishPlaybackSession();
           return;
         }
       }
@@ -3511,8 +3562,44 @@ class MusicStore extends ChangeNotifier {
     );
   }
 
+  MusicTrack _rememberTrack(MusicTrack track, {bool? forceFavorite}) {
+    final normalized = _normalizeTrackArtwork(track);
+    final existing = _trackRegistry[normalized.id];
+    final merged =
+        existing == null
+            ? normalized
+            : _preferRicherTrack(existing, normalized);
+    final favorite =
+        forceFavorite ??
+        normalized.isFavorite ||
+            (existing?.isFavorite ?? false) ||
+            isTrackLiked(normalized.id);
+    final canonical = merged.copyWith(isFavorite: favorite);
+    _trackRegistry[canonical.id] = canonical;
+    return canonical;
+  }
+
+  List<MusicTrack> _rememberTracks(
+    Iterable<MusicTrack> tracks, {
+    bool? forceFavorite,
+  }) {
+    return List<MusicTrack>.unmodifiable(
+      tracks.map((item) => _rememberTrack(item, forceFavorite: forceFavorite)),
+    );
+  }
+
+  PlaybackQueueItem _rememberQueueItem(PlaybackQueueItem item) {
+    return item.copyWith(track: _rememberTrack(item.track));
+  }
+
+  List<PlaybackQueueItem> _rememberQueueItems(
+    Iterable<PlaybackQueueItem> items,
+  ) {
+    return List<PlaybackQueueItem>.unmodifiable(items.map(_rememberQueueItem));
+  }
+
   void _mergeTrackAcrossState(MusicTrack updatedTrack) {
-    final normalized = _normalizeTrackArtwork(updatedTrack);
+    final normalized = _rememberTrack(updatedTrack);
     _currentTrack =
         _currentTrack.id == normalized.id
             ? _preferRicherTrack(
@@ -3520,73 +3607,68 @@ class MusicStore extends ChangeNotifier {
               normalized,
             ).copyWith(isFavorite: isTrackLiked(normalized.id))
             : _currentTrack;
-    _queue = List<PlaybackQueueItem>.unmodifiable(
-      _queue
-          .map(
-            (item) =>
-                item.track.id == normalized.id
-                    ? item.copyWith(
-                      track: _preferRicherTrack(
-                        item.track,
-                        normalized,
-                      ).copyWith(isFavorite: isTrackLiked(normalized.id)),
-                    )
-                    : item,
-          )
-          .toList(growable: false),
+    _queue = _rememberQueueItems(
+      _queue.map(
+        (item) =>
+            item.track.id == normalized.id
+                ? item.copyWith(
+                  track: _preferRicherTrack(
+                    item.track,
+                    normalized,
+                  ).copyWith(isFavorite: isTrackLiked(normalized.id)),
+                )
+                : item,
+      ),
     );
-    _recentTracks = List<MusicTrack>.unmodifiable(
-      _recentTracks
-          .map(
-            (item) =>
-                item.id == normalized.id
-                    ? _preferRicherTrack(
-                      item,
-                      normalized,
-                    ).copyWith(isFavorite: isTrackLiked(normalized.id))
-                    : item,
-          )
-          .toList(growable: false),
+    _recentTracks = _rememberTracks(
+      _recentTracks.map(
+        (item) =>
+            item.id == normalized.id
+                ? _preferRicherTrack(
+                  item,
+                  normalized,
+                ).copyWith(isFavorite: isTrackLiked(normalized.id))
+                : item,
+      ),
     );
-    _likedTracks = List<MusicTrack>.unmodifiable(
-      _likedTracks
-          .map(
-            (item) =>
-                item.id == normalized.id
-                    ? _preferRicherTrack(
-                      item,
-                      normalized,
-                    ).copyWith(isFavorite: true)
-                    : item,
-          )
-          .toList(growable: false),
+    _likedTracks = _rememberTracks(
+      _likedTracks.map(
+        (item) =>
+            item.id == normalized.id
+                ? _preferRicherTrack(
+                  item,
+                  normalized,
+                ).copyWith(isFavorite: true)
+                : item,
+      ),
+      forceFavorite: true,
     );
     for (final entry in _playlistTracksCache.entries.toList(growable: false)) {
-      final replaced = entry.value
-          .map(
-            (item) =>
-                item.id == normalized.id
-                    ? _preferRicherTrack(
-                      item,
-                      normalized,
-                    ).copyWith(isFavorite: isTrackLiked(normalized.id))
-                    : item,
-          )
-          .toList(growable: false);
-      _playlistTracksCache[entry.key] = List<MusicTrack>.unmodifiable(replaced);
+      final replaced = _rememberTracks(
+        entry.value.map(
+          (item) =>
+              item.id == normalized.id
+                  ? _preferRicherTrack(
+                    item,
+                    normalized,
+                  ).copyWith(isFavorite: isTrackLiked(normalized.id))
+                  : item,
+        ),
+      );
+      _playlistTracksCache[entry.key] = replaced;
     }
     if (_latestAiPlaylist != null) {
-      final tracks = _latestAiPlaylist!.tracks
-          .map(
-            (item) =>
-                item.id == normalized.id
-                    ? _preferRicherTrack(
-                      item,
-                      normalized,
-                    ).copyWith(isFavorite: isTrackLiked(normalized.id))
-                    : item,
-          )
-          .toList(growable: false);
+      final tracks = _rememberTracks(
+        _latestAiPlaylist!.tracks.map(
+          (item) =>
+              item.id == normalized.id
+                  ? _preferRicherTrack(
+                    item,
+                    normalized,
+                  ).copyWith(isFavorite: isTrackLiked(normalized.id))
+                  : item,
+        ),
+      );
       _latestAiPlaylist = MusicAiPlaylistDraft(
         id: _latestAiPlaylist!.id,
         title: _latestAiPlaylist!.title,
@@ -4589,7 +4671,7 @@ class MusicStore extends ChangeNotifier {
       _playlists = List<MusicPlaylist>.unmodifiable(state.playlists);
     }
     if (state.currentTrack != null) {
-      final nextTrack = _normalizeTrackArtwork(
+      final nextTrack = _rememberTrack(
         state.currentTrack!.copyWith(
           isFavorite: isTrackLiked(state.currentTrack!.id),
         ),
@@ -4602,10 +4684,10 @@ class MusicStore extends ChangeNotifier {
       _duration = _currentTrack.duration;
     }
     if (state.queue.isNotEmpty || allowStaleOverride) {
-      _queue = List<PlaybackQueueItem>.unmodifiable(
+      _queue = _rememberQueueItems(
         state.queue.map(
           (item) => item.copyWith(
-            track: _normalizeTrackArtwork(
+            track: _rememberTrack(
               item.track.copyWith(isFavorite: isTrackLiked(item.track.id)),
             ),
           ),
@@ -4619,10 +4701,11 @@ class MusicStore extends ChangeNotifier {
       _position = state.currentTrack!.duration;
     }
     _isPreparingPlayback = false;
-    _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
+    _recentTracks = _rememberTracks(state.recentTracks);
     _recentPlaylists = _normalizeRecentPlaylists(state.recentPlaylists);
-    _likedTracks = List<MusicTrack>.unmodifiable(
+    _likedTracks = _rememberTracks(
       state.likedTracks.map(_normalizeTrackArtwork),
+      forceFavorite: true,
     );
     _cacheTracksForPlaylist(likedPlaylist.id, _likedTracks);
     _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(
