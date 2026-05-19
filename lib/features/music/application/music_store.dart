@@ -903,6 +903,7 @@ class MusicStore extends ChangeNotifier {
         MusicCommand.play(
           queue: [PlaybackQueueItem(track: _currentTrack)],
           source: MusicCommandSource.manual,
+          playlist: currentPlaylist,
         ),
       );
       return;
@@ -1356,6 +1357,7 @@ class MusicStore extends ChangeNotifier {
           type: MusicCommandType.replaceQueue,
           source: MusicCommandSource.manual,
           queue: queueItems,
+          playlist: normalizedPlaylist,
         ),
       );
       notifyListeners();
@@ -1997,6 +1999,7 @@ class MusicStore extends ChangeNotifier {
         MusicCommand.play(
           queue: [PlaybackQueueItem(track: _currentTrack)],
           source: MusicCommandSource.manual,
+          playlist: currentPlaylist,
         ),
       );
       return;
@@ -2022,7 +2025,11 @@ class MusicStore extends ChangeNotifier {
     }
 
     await handleCommand(
-      MusicCommand.play(queue: _queue, source: MusicCommandSource.manual),
+      MusicCommand.play(
+        queue: _queue,
+        source: MusicCommandSource.manual,
+        playlist: currentPlaylist,
+      ),
     );
   }
 
@@ -4853,7 +4860,12 @@ class MusicStore extends ChangeNotifier {
     _customPlaylists = List<CustomMusicPlaylist>.unmodifiable(
       state.customPlaylists,
     );
-    _currentPlaylistId = _normalizePlaylistId(state.currentPlaylistId);
+    final nextCurrentPlaylistId = _normalizePlaylistId(state.currentPlaylistId);
+    if (nextCurrentPlaylistId != null) {
+      _currentPlaylistId = nextCurrentPlaylistId;
+    } else if (allowStaleOverride) {
+      _currentPlaylistId = null;
+    }
     _neteaseLikedPlaylistId = state.neteaseLikedPlaylistId?.trim();
     _neteaseLikedPlaylistOpaqueId = state.neteaseLikedPlaylistOpaqueId?.trim();
     _latestAiPlaylist = state.latestAiPlaylist ?? _latestAiPlaylist;

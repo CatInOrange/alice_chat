@@ -56,11 +56,13 @@ class MusicCommand {
   factory MusicCommand.play({
     required List<PlaybackQueueItem> queue,
     MusicCommandSource source = MusicCommandSource.manual,
+    MusicPlaylist? playlist,
   }) {
     return MusicCommand(
       type: MusicCommandType.play,
       source: source,
       queue: queue,
+      playlist: playlist,
     );
   }
 
