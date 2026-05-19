@@ -161,6 +161,111 @@ class MusicService:
     def build_action_event(self, action: MusicActionRequest) -> dict:
         return action.model_dump(exclude_none=True)
 
+    def build_action_state_patch(self, action: MusicActionRequest) -> dict:
+        payload = action.payload if isinstance(action.payload, dict) else {}
+        current = self.store.load_state()
+        queue = list(current.get('queue') or [])
+        current_track = current.get('currentTrack')
+        current_playlist_id = current.get('currentPlaylistId')
+        is_playing = bool(current.get('isPlaying') is True)
+        position_ms = int(current.get('positionMs') or 0)
+
+        def _queue_item(track: dict) -> dict:
+            return {'track': track, 'requestedBy': action.source}
+
+        if action.type == 'play_track':
+            track = payload.get('track') if isinstance(payload.get('track'), dict) else None
+            playlist = payload.get('playlist') if isinstance(payload.get('playlist'), dict) else None
+            if not track:
+                return {}
+            return {
+                'currentTrack': track,
+                'queue': [_queue_item(track)],
+                'currentPlaylistId': (playlist or {}).get('id') or current_playlist_id,
+                'isPlaying': True,
+                'positionMs': 0,
+            }
+
+        if action.type == 'play_playlist':
+            playlist = payload.get('playlist') if isinstance(payload.get('playlist'), dict) else None
+            playlist_draft = payload.get('playlistDraft') if isinstance(payload.get('playlistDraft'), dict) else None
+            tracks = playlist_draft.get('tracks') if isinstance(playlist_draft, dict) else None
+            start_index_raw = payload.get('startIndex')
+            start_index = int(start_index_raw) if isinstance(start_index_raw, (int, float)) else 0
+            track_items = [item for item in (tracks or []) if isinstance(item, dict)]
+            if not track_items:
+                return {
+                    'currentPlaylistId': (playlist or {}).get('id') or current_playlist_id,
+                    'positionMs': 0,
+                }
+            start_index = max(0, min(start_index, len(track_items) - 1))
+            ordered_tracks = track_items[start_index:] + track_items[:start_index]
+            return {
+                'currentTrack': ordered_tracks[0],
+                'queue': [_queue_item(track) for track in ordered_tracks],
+                'currentPlaylistId': (playlist or playlist_draft or {}).get('id') or current_playlist_id,
+                'isPlaying': True,
+                'positionMs': 0,
+            }
+
+        if action.type in {'queue_next', 'queue_append'}:
+            tracks = [item for item in (payload.get('tracks') or []) if isinstance(item, dict)]
+            if not tracks:
+                return {}
+            incoming = [_queue_item(track) for track in tracks]
+            if action.type == 'queue_next':
+                if queue:
+                    queue = [queue[0], *incoming, *queue[1:]]
+                else:
+                    queue = incoming
+                    current_track = tracks[0]
+            else:
+                queue = [*queue, *incoming]
+                if not current_track and tracks:
+                    current_track = tracks[0]
+            return {
+                'currentTrack': current_track,
+                'queue': queue,
+                'currentPlaylistId': current_playlist_id,
+                'isPlaying': is_playing,
+                'positionMs': position_ms,
+            }
+
+        if action.type == 'pause_resume':
+            mode = str(payload.get('mode') or '').strip().lower()
+            if mode == 'pause':
+                is_playing = False
+            elif mode == 'resume':
+                is_playing = True
+            else:
+                is_playing = not is_playing
+            return {
+                'currentTrack': current_track,
+                'queue': queue,
+                'currentPlaylistId': current_playlist_id,
+                'isPlaying': is_playing,
+                'positionMs': position_ms,
+            }
+
+        if action.type == 'skip':
+            if len(queue) > 1:
+                next_queue = queue[1:]
+                next_track = next_queue[0].get('track') if isinstance(next_queue[0], dict) else None
+                return {
+                    'currentTrack': next_track,
+                    'queue': next_queue,
+                    'currentPlaylistId': current_playlist_id,
+                    'isPlaying': True,
+                    'positionMs': 0,
+                }
+            return {
+                'queue': [],
+                'isPlaying': False,
+                'positionMs': 0,
+            }
+
+        return {}
+
     def load_netease_intelligence(self, request: MusicIntelligenceRequestDto) -> NeteaseOpenApiResult:
         state = self.store.load_state()
         fallback_playlist_id = str(state.get('neteaseLikedPlaylistOpaqueId') or state.get('neteaseLikedPlaylistEncryptedId') or '').strip()

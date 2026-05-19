@@ -299,15 +299,35 @@ def create_music_router(context: AppContext) -> APIRouter:
                 'playlist': payload,
             }
 
+        state_patch = context.music_service.build_action_state_patch(body)
+        state_payload = None
+        if state_patch:
+            state = context.music_service.save_state(
+                MusicStatePatchDto.model_validate(state_patch)
+            ).payload
+            state_payload = state.model_dump(exclude_none=True)
+            await context.events_bus.publish(
+                'music.state_changed',
+                {
+                    'state': state_payload,
+                    'requestId': body.requestId,
+                    'source': body.source,
+                    'action': body.type,
+                },
+            )
+
         event = await context.events_bus.publish(
             'music.action',
             context.music_service.build_action_event(body),
         )
-        return {
+        response = {
             'ok': True,
             'seq': event.seq,
             'type': event.type,
             'action': body.type,
         }
+        if state_payload is not None:
+            response['state'] = state_payload
+        return response
 
     return router

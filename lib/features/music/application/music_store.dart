@@ -405,6 +405,10 @@ class MusicStore extends ChangeNotifier {
 
   Future<void> handleAppResumed() async {
     await reconnectEvents(force: true, reason: 'app_resumed');
+    await _reconcileRemoteState(
+      reason: 'app_resumed',
+      allowStaleOverride: true,
+    );
   }
 
   Future<void> reconnectEvents({
@@ -426,6 +430,45 @@ class MusicStore extends ChangeNotifier {
     );
     notifyListeners();
     _ensureEventSubscription(reason: reason);
+  }
+
+  Future<void> _reconcileRemoteState({
+    required String reason,
+    bool allowStaleOverride = false,
+  }) async {
+    try {
+      _debugState(
+        'state.reconcile.begin',
+        extra: {
+          'reason': reason,
+          'allowStaleOverride': allowStaleOverride,
+          'lastEventSeq': _lastEventSeq,
+        },
+        force: true,
+      );
+      final state = await _repository.loadMusicState();
+      _applyRemoteStateSnapshot(state, allowStaleOverride: allowStaleOverride);
+      _debugState(
+        'state.reconcile.applied',
+        extra: {
+          'reason': reason,
+          'remoteRevision': state.remoteRevision,
+          'remoteUpdatedAt': state.serverUpdatedAt?.toIso8601String(),
+          'remoteTrackId': state.currentTrack?.id,
+          'remoteQueueLength': state.queue.length,
+          'remoteIsPlaying': state.isPlaying,
+        },
+        force: true,
+      );
+      notifyListeners();
+    } catch (error) {
+      _debugState(
+        'state.reconcile.error',
+        extra: {'reason': reason, 'error': error.toString()},
+        force: true,
+        level: 'ERROR',
+      );
+    }
   }
 
   void _ensureEventSubscription({String reason = 'initial'}) {
@@ -2618,6 +2661,24 @@ class MusicStore extends ChangeNotifier {
       return;
     }
     final payload = Map<String, dynamic>.from(event);
+    if (eventName == 'music.state_changed') {
+      final stateMap = (payload['state'] as Map?)?.cast<String, dynamic>();
+      if (stateMap != null) {
+        _applyRemoteStateSnapshot(
+          _parseRemoteStateSnapshot(stateMap),
+          allowStaleOverride: true,
+        );
+        notifyListeners();
+      } else {
+        unawaited(
+          _reconcileRemoteState(
+            reason: 'event_music_state_changed',
+            allowStaleOverride: true,
+          ),
+        );
+      }
+      return;
+    }
     if (eventName == 'music.command') {
       unawaited(handleCommand(MusicCommand.fromMap(payload)));
       return;
@@ -4098,6 +4159,11 @@ class MusicStore extends ChangeNotifier {
       saveLocal: _repository.saveLocalCache,
       saveRemote: (payload) async {
         final ackedAt = await _repository.savePlaybackSnapshot(
+          currentTrack: payload.currentTrack,
+          queue: payload.queue,
+          currentPlaylistId: payload.currentPlaylistId,
+          isPlaying: payload.isPlaying,
+          position: payload.position,
           likedTracks: payload.likedTracks,
           recentPlaylists: payload.recentPlaylists,
           customPlaylists: payload.customPlaylists,
@@ -4149,6 +4215,11 @@ class MusicStore extends ChangeNotifier {
     return MusicSnapshotBundle(
       localSnapshot: localSnapshot,
       remoteSnapshot: MusicRemoteSnapshotPayload(
+        currentTrack: _currentTrack.id.trim().isEmpty ? null : _currentTrack,
+        queue: _queue,
+        currentPlaylistId: _currentPlaylistId,
+        isPlaying: _isPlaying,
+        position: _position,
         likedTracks: _likedTracks,
         recentPlaylists: _recentPlaylists,
         customPlaylists: _customPlaylists,
@@ -4421,6 +4492,11 @@ class MusicStore extends ChangeNotifier {
     MusicStateSnapshot state, {
     bool allowStaleOverride = false,
   }) {
+    final previousTrackId = _currentTrack.id.trim();
+    final previousQueueHeadId =
+        _queue.isNotEmpty ? _queue.first.track.id.trim() : '';
+    final adapterTrackId = _playbackAdapter.state.currentTrack?.id.trim() ?? '';
+    final adapterIsPlaying = _playbackAdapter.state.isPlaying;
     final remoteUpdatedAt = state.serverUpdatedAt;
     final remoteRevision = state.remoteRevision;
     final hasNewerLocal =
@@ -4450,6 +4526,37 @@ class MusicStore extends ChangeNotifier {
     if (state.playlists.isNotEmpty) {
       _playlists = List<MusicPlaylist>.unmodifiable(state.playlists);
     }
+    if (state.currentTrack != null) {
+      final nextTrack = _normalizeTrackArtwork(
+        state.currentTrack!.copyWith(
+          isFavorite: isTrackLiked(state.currentTrack!.id),
+        ),
+      );
+      final previousTrackId = _currentTrack.id;
+      _currentTrack = nextTrack;
+      if (_currentTrack.id != previousTrackId) {
+        unawaited(_loadLyricsForTrack(_currentTrack, forceRefresh: false));
+      }
+      _duration = _currentTrack.duration;
+    }
+    if (state.queue.isNotEmpty || allowStaleOverride) {
+      _queue = List<PlaybackQueueItem>.unmodifiable(
+        state.queue.map(
+          (item) => item.copyWith(
+            track: _normalizeTrackArtwork(
+              item.track.copyWith(isFavorite: isTrackLiked(item.track.id)),
+            ),
+          ),
+        ),
+      );
+    }
+    _isPlaying = state.isPlaying;
+    _position = state.position;
+    if (state.currentTrack != null &&
+        state.position > state.currentTrack!.duration) {
+      _position = state.currentTrack!.duration;
+    }
+    _isPreparingPlayback = false;
     _recentTracks = List<MusicTrack>.unmodifiable(state.recentTracks);
     _recentPlaylists = _normalizeRecentPlaylists(state.recentPlaylists);
     _likedTracks = List<MusicTrack>.unmodifiable(
@@ -4481,6 +4588,219 @@ class MusicStore extends ChangeNotifier {
     if (remoteUpdatedAt != null) {
       _lastRemoteStateUpdatedAt = remoteUpdatedAt;
     }
+    _maybeRecoverPlaybackFromRemoteState(
+      state,
+      allowStaleOverride: allowStaleOverride,
+      previousTrackId: previousTrackId,
+      previousQueueHeadId: previousQueueHeadId,
+      adapterTrackId: adapterTrackId,
+      adapterIsPlaying: adapterIsPlaying,
+    );
+  }
+
+  void _maybeRecoverPlaybackFromRemoteState(
+    MusicStateSnapshot state, {
+    required bool allowStaleOverride,
+    required String previousTrackId,
+    required String previousQueueHeadId,
+    required String adapterTrackId,
+    required bool adapterIsPlaying,
+  }) {
+    if (!allowStaleOverride || !state.isPlaying) {
+      return;
+    }
+    final targetTrackId =
+        state.currentTrack?.id.trim().isNotEmpty == true
+            ? state.currentTrack!.id.trim()
+            : (_queue.isNotEmpty ? _queue.first.track.id.trim() : '');
+    final queueHeadId = _queue.isNotEmpty ? _queue.first.track.id.trim() : '';
+    if (targetTrackId.isEmpty ||
+        queueHeadId.isEmpty ||
+        queueHeadId != targetTrackId) {
+      return;
+    }
+    final trackChanged =
+        previousTrackId != targetTrackId || previousQueueHeadId != queueHeadId;
+    final adapterMismatch = adapterTrackId != targetTrackId;
+    final shouldRecover = !adapterIsPlaying || trackChanged || adapterMismatch;
+    if (!shouldRecover) {
+      return;
+    }
+    _debugState(
+      'state.reconcile.recover_playback',
+      extra: {
+        'targetTrackId': targetTrackId,
+        'previousTrackId': previousTrackId,
+        'previousQueueHeadId': previousQueueHeadId,
+        'adapterTrackId': adapterTrackId,
+        'adapterIsPlaying': adapterIsPlaying,
+      },
+      force: true,
+    );
+    unawaited(
+      _recoverPlaybackFromRemoteState(
+        targetTrackId: targetTrackId,
+        targetPosition: state.position,
+      ),
+    );
+  }
+
+  Future<void> _recoverPlaybackFromRemoteState({
+    required String targetTrackId,
+    required Duration targetPosition,
+  }) async {
+    try {
+      await ensurePlaybackReady();
+      if (_queue.isEmpty || _queue.first.track.id.trim() != targetTrackId) {
+        return;
+      }
+      await _playCurrentQueueHead(resetPosition: true);
+      if (targetPosition > Duration.zero) {
+        await seekTo(targetPosition);
+      }
+      _debugState(
+        'state.reconcile.recover_playback.applied',
+        extra: {
+          'targetTrackId': targetTrackId,
+          'targetPositionMs': targetPosition.inMilliseconds,
+        },
+        force: true,
+      );
+    } catch (error) {
+      _debugState(
+        'state.reconcile.recover_playback.error',
+        extra: {
+          'targetTrackId': targetTrackId,
+          'targetPositionMs': targetPosition.inMilliseconds,
+          'error': error.toString(),
+        },
+        force: true,
+        level: 'ERROR',
+      );
+    }
+  }
+
+  MusicStateSnapshot _parseRemoteStateSnapshot(Map<String, dynamic> response) {
+    final currentTrackMap =
+        (response['currentTrack'] as Map?)?.cast<String, dynamic>();
+    final queue = ((response['queue'] as List<dynamic>?) ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => PlaybackQueueItem.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+    final playlists = ((response['playlists'] as List<dynamic>?) ?? const [])
+        .whereType<Map>()
+        .map(
+          (item) => MusicPlaylist.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+    final recentTracks = ((response['recentTracks'] as List<dynamic>?) ??
+            const [])
+        .whereType<Map>()
+        .map(
+          (item) => MusicTrack.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+    final likedTracks = ((response['likedTracks'] as List<dynamic>?) ??
+            const [])
+        .whereType<Map>()
+        .map(
+          (item) => MusicTrack.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+    final recentPlaylists = ((response['recentPlaylists'] as List<dynamic>?) ??
+            const [])
+        .whereType<Map>()
+        .map(
+          (item) => MusicPlaylist.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+    final customPlaylists = ((response['customPlaylists'] as List<dynamic>?) ??
+            const [])
+        .whereType<Map>()
+        .map(
+          (item) => CustomMusicPlaylist.fromMap(
+            Map<String, dynamic>.from(item.cast<String, dynamic>()),
+          ),
+        )
+        .toList(growable: false);
+    final latestAiPlaylistMap =
+        (response['latestAiPlaylist'] as Map?)?.cast<String, dynamic>();
+    final aiPlaylistHistory =
+        ((response['aiPlaylistHistory'] as List<dynamic>?) ?? const [])
+            .whereType<Map>()
+            .map(
+              (item) => MusicAiPlaylistDraft.fromMap(
+                Map<String, dynamic>.from(item.cast<String, dynamic>()),
+              ),
+            )
+            .toList(growable: false);
+    final remoteRevision =
+        (response['localRevision'] is num)
+            ? (response['localRevision'] as num).toInt()
+            : int.tryParse('${response['localRevision']}') ?? 0;
+    final updatedAtRaw = response['updatedAt'];
+    final updatedAtSeconds =
+        updatedAtRaw is num
+            ? updatedAtRaw.toDouble()
+            : double.tryParse('$updatedAtRaw');
+    final currentPlaylistId =
+        (response['currentPlaylistId'] ?? '').toString().trim();
+    final neteaseLikedPlaylistId =
+        (response['neteaseLikedPlaylistId'] ?? '').toString().trim();
+    final neteaseLikedPlaylistOpaqueId =
+        ((response['neteaseLikedPlaylistOpaqueId'] ??
+                    response['neteaseLikedPlaylistEncryptedId']) ??
+                '')
+            .toString()
+            .trim();
+    return MusicStateSnapshot(
+      currentTrack:
+          currentTrackMap == null ? null : MusicTrack.fromMap(currentTrackMap),
+      queue: queue,
+      playlists: playlists,
+      recentTracks: recentTracks,
+      likedTracks: likedTracks,
+      recentPlaylists: recentPlaylists,
+      customPlaylists: customPlaylists,
+      currentPlaylistId: currentPlaylistId.isEmpty ? null : currentPlaylistId,
+      neteaseLikedPlaylistId:
+          neteaseLikedPlaylistId.isEmpty ? null : neteaseLikedPlaylistId,
+      neteaseLikedPlaylistOpaqueId:
+          neteaseLikedPlaylistOpaqueId.isEmpty
+              ? null
+              : neteaseLikedPlaylistOpaqueId,
+      latestAiPlaylist:
+          latestAiPlaylistMap == null
+              ? null
+              : MusicAiPlaylistDraft.fromMap(latestAiPlaylistMap),
+      aiPlaylistHistory: aiPlaylistHistory,
+      serverUpdatedAt:
+          updatedAtSeconds == null
+              ? null
+              : DateTime.fromMillisecondsSinceEpoch(
+                (updatedAtSeconds * 1000).round(),
+              ),
+      remoteRevision: remoteRevision,
+      isPlaying: response['isPlaying'] == true,
+      position: Duration(
+        milliseconds:
+            (response['positionMs'] is num)
+                ? (response['positionMs'] as num).toInt()
+                : int.tryParse('${response['positionMs']}') ?? 0,
+      ),
+    );
   }
 
   Future<void> _refreshHomeSections() async {
