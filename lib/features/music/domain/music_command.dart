@@ -1,3 +1,4 @@
+import 'music_event_envelope.dart';
 import 'music_runtime_models.dart';
 import 'music_models.dart';
 
@@ -17,11 +18,13 @@ enum MusicCommandType {
 
 enum MusicCommandSource { manual, chatAi, system }
 
-MusicCommandType musicCommandTypeFromName(String value) {
-  return MusicCommandType.values.firstWhere(
-    (item) => item.name == value,
-    orElse: () => MusicCommandType.play,
-  );
+MusicCommandType? musicCommandTypeFromName(String value) {
+  for (final item in MusicCommandType.values) {
+    if (item.name == value) {
+      return item;
+    }
+  }
+  return null;
 }
 
 MusicCommandSource musicCommandSourceFromName(String value) {
@@ -75,8 +78,17 @@ class MusicCommand {
   }
 
   factory MusicCommand.fromMap(Map<String, dynamic> map) {
-    final payload = (map['payload'] as Map?)?.cast<String, dynamic>();
-    final rawQueue = ((map['queue'] as List<dynamic>?) ?? const [])
+    final envelope = MusicEventEnvelope.fromMap(
+      map,
+      inlinePayloadKeys: const [
+        'queue',
+        'playlist',
+        'targetDeviceId',
+        'requestId',
+        'positionMs',
+      ],
+    );
+    final rawQueue = ((envelope.payload['queue'] as List<dynamic>?) ?? const [])
         .whereType<Map>()
         .map(
           (item) => PlaybackQueueItem.fromMap(
@@ -84,35 +96,28 @@ class MusicCommand {
           ),
         )
         .toList(growable: false);
-    final payloadQueue = ((payload?['queue'] as List<dynamic>?) ?? const [])
-        .whereType<Map>()
-        .map(
-          (item) => PlaybackQueueItem.fromMap(
-            Map<String, dynamic>.from(item.cast<String, dynamic>()),
-          ),
-        )
-        .toList(growable: false);
-    final resolvedQueue = payloadQueue.isNotEmpty ? payloadQueue : rawQueue;
     final playlistMap =
-        (map['playlist'] as Map?)?.cast<String, dynamic>() ??
-        (payload?['playlist'] as Map?)?.cast<String, dynamic>();
-    final typeValue =
-        (map['type'] ?? payload?['type'] ?? MusicCommandType.play.name)
-            .toString();
+        (envelope.payload['playlist'] as Map?)?.cast<String, dynamic>();
+    final type = musicCommandTypeFromName(envelope.type);
+    if (type == null) {
+      throw FormatException('Unsupported music command type: ${envelope.type}');
+    }
     final sourceValue =
-        (map['source'] ?? payload?['source'] ?? MusicCommandSource.chatAi.name)
+        (envelope.source ??
+                envelope.payload['source'] ??
+                MusicCommandSource.chatAi.name)
             .toString();
     final targetDeviceValue =
-        (map['targetDeviceId'] ?? payload?['targetDeviceId'] ?? '')
+        (envelope.payload['targetDeviceId'] ?? '').toString().trim();
+    final requestValue =
+        (envelope.requestId ?? envelope.payload['requestId'] ?? '')
             .toString()
             .trim();
-    final requestValue =
-        (map['requestId'] ?? payload?['requestId'] ?? '').toString().trim();
-    final positionRaw = map['positionMs'] ?? payload?['positionMs'];
+    final positionRaw = envelope.payload['positionMs'];
     return MusicCommand(
-      type: musicCommandTypeFromName(typeValue),
+      type: type,
       source: musicCommandSourceFromName(sourceValue),
-      queue: resolvedQueue,
+      queue: rawQueue,
       playlist: playlistMap == null ? null : MusicPlaylist.fromMap(playlistMap),
       targetDeviceId: targetDeviceValue.isEmpty ? null : targetDeviceValue,
       requestId: requestValue.isEmpty ? null : requestValue,

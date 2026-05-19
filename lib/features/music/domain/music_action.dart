@@ -1,4 +1,5 @@
 import 'music_command.dart';
+import 'music_event_envelope.dart';
 import 'music_models.dart';
 
 enum MusicActionType {
@@ -11,7 +12,7 @@ enum MusicActionType {
   saveAiPlaylist,
 }
 
-MusicActionType musicActionTypeFromName(String value) {
+MusicActionType? musicActionTypeFromName(String value) {
   return switch (value) {
     'play_track' => MusicActionType.playTrack,
     'play_playlist' => MusicActionType.playPlaylist,
@@ -20,7 +21,7 @@ MusicActionType musicActionTypeFromName(String value) {
     'pause_resume' => MusicActionType.pauseResume,
     'skip' => MusicActionType.skip,
     'save_ai_playlist' => MusicActionType.saveAiPlaylist,
-    _ => MusicActionType.playTrack,
+    _ => null,
   };
 }
 
@@ -38,16 +39,33 @@ class MusicAction {
   final String? requestId;
 
   factory MusicAction.fromMap(Map<String, dynamic> map) {
-    final payload =
-        (map['payload'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final envelope = MusicEventEnvelope.fromMap(
+      map,
+      inlinePayloadKeys: const [
+        'track',
+        'tracks',
+        'playlist',
+        'playlistDraft',
+        'startIndex',
+        'mode',
+      ],
+    );
+    final type = musicActionTypeFromName(envelope.type);
+    if (type == null) {
+      throw FormatException('Unsupported music action type: ${envelope.type}');
+    }
     final sourceValue =
-        (map['source'] ?? payload['source'] ?? MusicCommandSource.chatAi.name)
+        (envelope.source ??
+                envelope.payload['source'] ??
+                MusicCommandSource.chatAi.name)
             .toString();
     final requestValue =
-        (map['requestId'] ?? payload['requestId'] ?? '').toString().trim();
+        (envelope.requestId ?? envelope.payload['requestId'] ?? '')
+            .toString()
+            .trim();
     return MusicAction(
-      type: musicActionTypeFromName((map['type'] ?? '').toString()),
-      payload: Map<String, dynamic>.from(payload),
+      type: type,
+      payload: Map<String, dynamic>.from(envelope.payload),
       source: musicCommandSourceFromName(sourceValue),
       requestId: requestValue.isEmpty ? null : requestValue,
     );

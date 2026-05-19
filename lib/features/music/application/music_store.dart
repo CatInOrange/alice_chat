@@ -447,7 +447,11 @@ class MusicStore extends ChangeNotifier {
         force: true,
       );
       final state = await _repository.loadMusicState();
-      _applyRemoteStateSnapshot(state, allowStaleOverride: allowStaleOverride);
+      _applyRemoteStateSnapshot(
+        state,
+        allowStaleOverride: allowStaleOverride,
+        reason: 'reconcile:$reason',
+      );
       _debugState(
         'state.reconcile.applied',
         extra: {
@@ -627,7 +631,7 @@ class MusicStore extends ChangeNotifier {
     );
     try {
       final state = await _repository.loadMusicState();
-      _applyRemoteStateSnapshot(state);
+      _applyRemoteStateSnapshot(state, reason: 'refresh_library');
       await Future.wait<void>([
         _refreshHomeSections(),
         _loadAndApplyRemotePlaylists(),
@@ -676,7 +680,7 @@ class MusicStore extends ChangeNotifier {
         _handlePlaybackState,
       );
       final state = await _repository.loadMusicState();
-      _applyRemoteStateSnapshot(state);
+      _applyRemoteStateSnapshot(state, reason: 'ensure_playback_ready');
       _duration = _currentTrack.duration;
       unawaited(_loadLyricsForTrack(_currentTrack, forceRefresh: false));
       unawaited(_repairPlaybackArtworkIfNeeded());
@@ -777,7 +781,11 @@ class MusicStore extends ChangeNotifier {
       );
       _cacheTracksForPlaylist(likedPlaylist.id, _likedTracks);
     }
-    _applyRemoteStateSnapshot(state, allowStaleOverride: true);
+    _applyRemoteStateSnapshot(
+      state,
+      allowStaleOverride: true,
+      reason: 'hydrate_local_cache',
+    );
     _latestAiPlaylist =
         state.latestAiPlaylist ??
         snapshot.latestAiPlaylist ??
@@ -2664,27 +2672,78 @@ class MusicStore extends ChangeNotifier {
     if (eventName == 'music.state_changed') {
       final stateMap = (payload['state'] as Map?)?.cast<String, dynamic>();
       if (stateMap != null) {
-        _applyRemoteStateSnapshot(
-          _parseRemoteStateSnapshot(stateMap),
-          allowStaleOverride: true,
-        );
-        notifyListeners();
+        try {
+          _applyRemoteStateSnapshot(
+            _parseRemoteStateSnapshot(stateMap),
+            reason: 'event_music_state_changed',
+          );
+          notifyListeners();
+        } catch (error) {
+          _debugState(
+            'events.state_changed.parse_error',
+            extra: {
+              'error': error.toString(),
+              'seq': _lastEventSeq,
+              'eventType': eventName,
+            },
+            force: true,
+            level: 'ERROR',
+          );
+        }
       } else {
         unawaited(
           _reconcileRemoteState(
             reason: 'event_music_state_changed',
-            allowStaleOverride: true,
+            allowStaleOverride: false,
           ),
         );
       }
       return;
     }
     if (eventName == 'music.command') {
-      unawaited(handleCommand(MusicCommand.fromMap(payload)));
+      _dispatchMusicCommandEvent(payload);
       return;
     }
     if (eventName == 'music.action') {
-      unawaited(handleAction(MusicAction.fromMap(payload)));
+      _dispatchMusicActionEvent(payload);
+    }
+  }
+
+  void _dispatchMusicCommandEvent(Map<String, dynamic> payload) {
+    try {
+      final command = MusicCommand.fromMap(payload);
+      unawaited(handleCommand(command));
+    } catch (error) {
+      _debugState(
+        'events.command.parse_error',
+        extra: {
+          'error': error.toString(),
+          'seq': _lastEventSeq,
+          'eventType': payload['event'],
+          'transportEvent': payload['transportEvent'],
+        },
+        force: true,
+        level: 'ERROR',
+      );
+    }
+  }
+
+  void _dispatchMusicActionEvent(Map<String, dynamic> payload) {
+    try {
+      final action = MusicAction.fromMap(payload);
+      unawaited(handleAction(action));
+    } catch (error) {
+      _debugState(
+        'events.action.parse_error',
+        extra: {
+          'error': error.toString(),
+          'seq': _lastEventSeq,
+          'eventType': payload['event'],
+          'transportEvent': payload['transportEvent'],
+        },
+        force: true,
+        level: 'ERROR',
+      );
     }
   }
 
@@ -4491,6 +4550,7 @@ class MusicStore extends ChangeNotifier {
   void _applyRemoteStateSnapshot(
     MusicStateSnapshot state, {
     bool allowStaleOverride = false,
+    String reason = 'unspecified',
   }) {
     final previousTrackId = _currentTrack.id.trim();
     final previousQueueHeadId =
@@ -4512,6 +4572,8 @@ class MusicStore extends ChangeNotifier {
         _debugState(
           'state.apply_remote.skipped_stale',
           extra: {
+            'reason': reason,
+            'allowStaleOverride': allowStaleOverride,
             'remoteRevision': remoteRevision,
             'localRevision': _localRevision,
             'lastAckedRevision': _lastAckedRevision,
@@ -4588,6 +4650,22 @@ class MusicStore extends ChangeNotifier {
     if (remoteUpdatedAt != null) {
       _lastRemoteStateUpdatedAt = remoteUpdatedAt;
     }
+    _debugState(
+      'state.apply_remote.applied',
+      extra: {
+        'reason': reason,
+        'allowStaleOverride': allowStaleOverride,
+        'remoteRevision': remoteRevision,
+        'localRevision': _localRevision,
+        'lastAckedRevision': _lastAckedRevision,
+        'remoteUpdatedAt': remoteUpdatedAt?.toIso8601String(),
+        'trackId': _currentTrack.id,
+        'queueLength': _queue.length,
+        'isPlaying': _isPlaying,
+        'positionMs': _position.inMilliseconds,
+      },
+      force: allowStaleOverride || reason.startsWith('event_'),
+    );
     _maybeRecoverPlaybackFromRemoteState(
       state,
       allowStaleOverride: allowStaleOverride,
