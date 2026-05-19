@@ -348,6 +348,11 @@ function createBridgeServer(ctx) {
     });
     const agentId = requestedAgent || route.agentId;
 
+    const instructionText = String(frame.instructionText || '').trim();
+    const agentBodyText = instructionText
+      ? `[System Guidance]\n${instructionText}\n\n[User Message]\n${text}`
+      : text;
+
     const body = channelRuntime.reply.formatAgentEnvelope({
       channel: channelLabel,
       from: senderName,
@@ -358,9 +363,9 @@ function createBridgeServer(ctx) {
 
     const inboundCtx = channelRuntime.reply.finalizeInboundContext({
       Body: body,
-      BodyForAgent: text,
+      BodyForAgent: agentBodyText,
       RawBody: text,
-      CommandBody: text,
+      CommandBody: agentBodyText,
       From: `${userPrefix}${senderId}`,
       To: `${backendPrefix}${accountId}`,
       SessionKey: sessionKey,

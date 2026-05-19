@@ -32,10 +32,33 @@ class ChatResolvedRequest:
     attachments: list
     assistant_meta: str
     message_source: str
+    extra_system_prompts: list[str]
     session_key: str = ''
     contact_id: str = ''
     user_id: str = ''
     client_message_id: str = ''
+
+
+_MUSIC_TOOL_GUIDANCE = """
+Music playback control is available through tool calls.
+
+When the user explicitly asks to play music, play a playlist, pause, continue, skip, or reorder the queue, prefer the `music_action` tool instead of plain-text instructions.
+
+Available `music_action` types:
+- `play_track`: play one track immediately
+- `play_playlist`: play a playlist immediately
+- `queue_next`: insert one or more tracks to play next
+- `queue_append`: append one or more tracks to the end of the queue
+- `pause_resume`: pause or resume playback
+- `skip`: skip the current track
+- `save_ai_playlist`: save a recommendation playlist draft for AliceChat's home card; use this for recommendations that should not immediately interrupt playback
+
+Rules:
+- Use playback actions only when the user clearly wants playback control.
+- If the user wants recommendations without asking to start playback right now, prefer `save_ai_playlist`.
+- If essential track or playlist information is missing, ask a concise follow-up question instead of guessing.
+- Do not invent unsupported music actions.
+""".strip()
 
 
 class ChatService:
@@ -87,6 +110,10 @@ class ChatService:
                 )
             )
 
+        extra_system_prompts: list[str] = []
+        if provider_id == "alicechat-channel":
+            extra_system_prompts.append(_MUSIC_TOOL_GUIDANCE)
+
         return ChatResolvedRequest(
             model_config=model_config,
             provider=overrides,
@@ -97,6 +124,7 @@ class ChatService:
             attachments=parsed_attachments,
             assistant_meta=assistant_meta,
             message_source=message_source,
+            extra_system_prompts=extra_system_prompts,
             session_key=str(body.get('sessionKey') or '').strip(),
             contact_id=str(body.get('contactId') or '').strip(),
             user_id=str(body.get('userId') or '').strip(),
@@ -283,6 +311,7 @@ class ChatService:
                 model_config=resolved.model_config,
                 attachments=resolved.attachments,
                 prior_messages=self._build_prior_messages(session_id) if session_id else [],
+                extra_system_prompts=resolved.extra_system_prompts,
                 context={
                     "sessionId": session_id,
                     "routeKey": route_key,

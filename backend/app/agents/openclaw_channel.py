@@ -629,6 +629,11 @@ class OpenClawChannelAgentBackend(AgentBackend):
         bridge_agent_media = _build_bridge_agent_media_payload(attachments)
         request_id = str(uuid.uuid4())
         session_key = str(request.context.get("sessionKey") or "").strip() or f"agent:{agent}:{session_name}"
+        instruction_text = "\n\n".join(
+            item.strip()
+            for item in (request.extra_system_prompts or [])
+            if str(item or "").strip()
+        ).strip()
 
         ws = await _open_bridge_connection(
             bridge_url,
@@ -658,6 +663,7 @@ class OpenClawChannelAgentBackend(AgentBackend):
                 "type": "chat.request",
                 "requestId": request_id,
                 "text": request.user_text,
+                "instructionText": instruction_text,
                 "attachments": attachments,
                 "images": bridge_images,
                 "agentMedia": bridge_agent_media,
