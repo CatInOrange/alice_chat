@@ -227,21 +227,24 @@ class TranscriptRecoveryService:
         if not transcript_messages:
             return 0
 
-        replaced_existing = self._replace_suspicious_assistant_after_user(
-            session_id=resolved_session_id,
-            user_message=latest_user_message,
-            transcript_path=transcript_path,
-        )
-        if replaced_existing:
-            self.sessions.touch(resolved_session_id)
-            return 1
-
         user_index = self._find_latest_user_index_in_transcript(
             transcript_messages,
             role='user',
             text=str(latest_user_message.get('text') or ''),
             created_at=float(latest_user_message.get('createdAt') or 0),
         )
+
+        replaced_existing = self._replace_suspicious_assistant_after_user(
+            session_id=resolved_session_id,
+            user_message=latest_user_message,
+            transcript_path=transcript_path,
+            transcript_messages=transcript_messages,
+            user_index=user_index,
+        )
+        if replaced_existing:
+            self.sessions.touch(resolved_session_id)
+            return 1
+
         if user_index < 0:
             return 0
 
@@ -299,6 +302,8 @@ class TranscriptRecoveryService:
         session_id: str,
         user_message: dict,
         transcript_path: Path,
+        transcript_messages: list[dict[str, Any]],
+        user_index: int,
     ) -> bool:
         user_created_at = float(user_message.get('createdAt') or 0)
         if user_created_at <= 0:
@@ -309,10 +314,11 @@ class TranscriptRecoveryService:
         suspicious_reason = self._detect_existing_suspicious_reason(existing)
         if not suspicious_reason:
             return False
-        recovered_body = self._extract_recovery_body(
-            transcript_path=transcript_path,
-            user_text=str(user_message.get('text') or ''),
-            user_created_at=user_created_at,
+        if user_index < 0:
+            return False
+        recovered_body = self._build_recovery_body_from_transcript_messages(
+            transcript_messages,
+            anchor_index=user_index,
         )
         if not recovered_body:
             return False
@@ -354,6 +360,32 @@ class TranscriptRecoveryService:
             transcript_path,
         )
         return True
+
+    def _build_recovery_body_from_transcript_messages(
+        self,
+        transcript_messages: list[dict[str, Any]],
+        *,
+        anchor_index: int,
+    ) -> str:
+        if anchor_index < 0 or anchor_index >= len(transcript_messages):
+            return ''
+        parts: list[str] = []
+        seen: set[str] = set()
+        for item in transcript_messages[anchor_index + 1 :]:
+            role = str(item.get('role') or '')
+            if role == 'user':
+                break
+            if role != 'assistant':
+                continue
+            content_text = str(item.get('text') or '').strip()
+            if not content_text or content_text in seen:
+                continue
+            seen.add(content_text)
+            parts.append(content_text)
+        body = '\n\n'.join(parts).strip()
+        if len(body) > 12000:
+            body = body[:12000].rstrip() + '\n\n[恢复内容已截断]'
+        return body
 
     def _list_candidates(self, *, min_age_seconds: float | None = None) -> list[dict]:
         self.ensure_schema()
@@ -753,30 +785,16 @@ class TranscriptRecoveryService:
             if self._trajectory_mentions_user(trajectory_path, user_needle):
                 return self._extract_tail_assistant_text(records)
             return self._extract_tail_assistant_text(records, user_created_at=user_created_at)
-
-        parts: list[str] = []
-        seen: set[str] = set()
-        for record in records[anchor_index + 1:]:
-            if record.get('type') != 'message':
-                continue
-            message = record.get('message') or {}
-            role = str(message.get('role') or '')
-            if role == 'user':
-                break
-            if role != 'assistant':
-                continue
-            content_text = self._extract_text_content(message.get('content')).strip()
-            if not content_text:
-                continue
-            if content_text in seen:
-                continue
-            seen.add(content_text)
-            parts.append(content_text)
-
-        body = '\n\n'.join(parts).strip()
-        if len(body) > 12000:
-            body = body[:12000].rstrip() + '\n\n[恢复内容已截断]'
-        return body
+        transcript_messages = self._load_transcript_messages(transcript_path)
+        return self._build_recovery_body_from_transcript_messages(
+            transcript_messages,
+            anchor_index=self._find_latest_user_index_in_transcript(
+                transcript_messages,
+                role='user',
+                text=user_needle,
+                created_at=user_created_at,
+            ),
+        )
 
     def _trajectory_mentions_user(self, trajectory_path: Path, user_text: str) -> bool:
         if not trajectory_path.exists():
