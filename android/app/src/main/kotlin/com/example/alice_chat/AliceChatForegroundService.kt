@@ -176,7 +176,7 @@ class AliceChatForegroundService : Service() {
         DebugLogBuffer.append("fg-service", "effectiveEvent=$effectiveEvent deliveryPhase=${deliveryPhase.ifBlank { "unknown" }}")
         when (effectiveEvent) {
             "notification.candidate" -> handleNotificationCandidate(payload, deliveryPhase)
-            "music.action" -> handleMusicAction(payload, deliveryPhase)
+            "music.action" -> handleMusicAction(json, deliveryPhase)
             "assistant.message.completed", "message.created" -> {
                 DebugLogBuffer.append("fg-service", "decision=ignore_legacy_event event=$effectiveEvent")
                 return
@@ -185,23 +185,32 @@ class AliceChatForegroundService : Service() {
         }
     }
 
-    private fun handleMusicAction(payload: JSONObject, deliveryPhase: String) {
+    private fun handleMusicAction(rawEvent: JSONObject, deliveryPhase: String) {
         if (deliveryPhase == "replay") {
-            DebugLogBuffer.append("fg-service", "decision=suppress_replay_music_action payload=$payload")
+            DebugLogBuffer.append("fg-service", "decision=suppress_replay_music_action payload=$rawEvent")
             return
         }
-        val actionType = payload.optString("type").trim()
+        val payload = rawEvent.optJSONObject("payload")
+        val actionType = payload?.optString("type")?.trim().orEmpty()
         if (actionType.isEmpty()) {
-            DebugLogBuffer.append("fg-service", "decision=drop_invalid_music_action reason=empty_type payload=$payload")
+            DebugLogBuffer.append("fg-service", "decision=drop_invalid_music_action reason=empty_type payload=$rawEvent")
             return
         }
-        if (appForeground) {
-            DebugLogBuffer.append("fg-service", "decision=skip_music_action_forward foreground=true type=$actionType payload=$payload")
-            return
+        val normalized = JSONObject().apply {
+            put("type", actionType)
+            put("payload", payload?.optJSONObject("payload") ?: JSONObject())
+            if (payload?.has("source") == true) {
+                put("source", payload.optString("source"))
+            }
+            if (payload?.has("requestId") == true) {
+                put("requestId", payload.optString("requestId"))
+            }
         }
-        val normalized = payload.toString()
-        DebugLogBuffer.append("fg-service", "decision=forward_music_action foreground=false type=$actionType payload=$normalized")
-        MainActivity.publishBackgroundMusicAction(normalized)
+        DebugLogBuffer.append(
+            "fg-service",
+            "decision=forward_music_action foreground=$appForeground type=$actionType payload=$normalized"
+        )
+        MainActivity.publishBackgroundMusicAction(normalized.toString())
     }
 
     private fun handleNotificationCandidate(payload: JSONObject, deliveryPhase: String) {
