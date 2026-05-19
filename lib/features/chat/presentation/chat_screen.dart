@@ -380,6 +380,7 @@ class _ChatScreenState extends State<ChatScreen> {
           initialScrollToEndMode: InitialScrollToEndMode.none,
           shouldScrollToEndWhenAtBottom: false,
           shouldScrollToEndWhenSendingMessage: false,
+          onEndReached: _triggerLoadOlder,
           bottomPadding: 110,
         ),
   );

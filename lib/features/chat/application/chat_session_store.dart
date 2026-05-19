@@ -611,7 +611,7 @@ class ChatSessionStore extends ChangeNotifier {
         state.backendSessionId ?? await _ensureBackendSession(session);
     final beforeMessageId = state.oldestLoadedMessageId;
     if (beforeMessageId == null || beforeMessageId.isEmpty) return false;
-    if (state.isLoadingOlder || !state.hasMoreHistory) return false;
+    if (state.isLoadingOlder) return false;
 
     state.isLoadingOlder = true;
     notifyListeners();
