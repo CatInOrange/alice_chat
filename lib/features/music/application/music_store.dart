@@ -145,7 +145,10 @@ class MusicStore extends ChangeNotifier {
   MusicAiPlaylistDraft? _latestAiPlaylist;
   final Map<String, List<MusicTrack>> _playlistTracksCache =
       <String, List<MusicTrack>>{};
-  final Map<String, MusicTrack> _trackRegistry = <String, MusicTrack>{};
+  final Map<String, MusicTrack> _trackRegistryById = <String, MusicTrack>{};
+  final Map<String, MusicTrack> _trackRegistryBySource = <String, MusicTrack>{};
+  final Map<String, MusicTrack> _trackRegistryByFingerprint =
+      <String, MusicTrack>{};
   final Set<String> _neteaseLikedTrackKeys = <String>{};
   final Set<String> _discardedNeteaseFmTrackKeys = <String>{};
   int _searchRequestSerial = 0;
@@ -3436,6 +3439,72 @@ class MusicStore extends ChangeNotifier {
     return track.id.trim();
   }
 
+  String _trackSourceIdentityKey(MusicTrack track) {
+    final providerId =
+        (track.preferredSourceId ?? track.cachedPlayback?.providerId ?? '')
+            .trim()
+            .toLowerCase();
+    final sourceTrackId =
+        (track.sourceTrackId ?? track.cachedPlayback?.sourceTrackId ?? '')
+            .trim()
+            .toLowerCase();
+    if (providerId.isEmpty || sourceTrackId.isEmpty) {
+      return '';
+    }
+    return '$providerId::$sourceTrackId';
+  }
+
+  String _trackFingerprintKey(MusicTrack track) {
+    String normalize(String value) =>
+        value.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+
+    final title = normalize(track.title);
+    final artist = normalize(track.artist);
+    final album = normalize(track.album);
+    final durationBucket = track.duration.inSeconds;
+    if (title.isEmpty && artist.isEmpty) {
+      return track.id.trim().toLowerCase();
+    }
+    return '$title::$artist::$album::$durationBucket';
+  }
+
+  bool _tracksRepresentSameEntity(MusicTrack a, MusicTrack b) {
+    final aSourceKey = _trackSourceIdentityKey(a);
+    final bSourceKey = _trackSourceIdentityKey(b);
+    if (aSourceKey.isNotEmpty && bSourceKey.isNotEmpty) {
+      return aSourceKey == bSourceKey;
+    }
+    if (aSourceKey.isNotEmpty || bSourceKey.isNotEmpty) {
+      return _trackFingerprintKey(a) == _trackFingerprintKey(b);
+    }
+    return _trackFingerprintKey(a) == _trackFingerprintKey(b);
+  }
+
+  MusicTrack? _findRememberedTrack(MusicTrack track) {
+    final sourceKey = _trackSourceIdentityKey(track);
+    if (sourceKey.isNotEmpty) {
+      final bySource = _trackRegistryBySource[sourceKey];
+      if (bySource != null) {
+        return bySource;
+      }
+    }
+    final fingerprintKey = _trackFingerprintKey(track);
+    final byFingerprint = _trackRegistryByFingerprint[fingerprintKey];
+    if (byFingerprint != null &&
+        _tracksRepresentSameEntity(byFingerprint, track)) {
+      return byFingerprint;
+    }
+    final idKey = track.id.trim();
+    if (idKey.isEmpty) {
+      return null;
+    }
+    final byId = _trackRegistryById[idKey];
+    if (byId != null && _tracksRepresentSameEntity(byId, track)) {
+      return byId;
+    }
+    return null;
+  }
+
   bool _isCurrentTrackInNeteaseLiked() {
     final likedPlaylistId = (_neteaseLikedPlaylistId ?? '').trim();
     if (likedPlaylistId.isEmpty) {
@@ -3524,6 +3593,75 @@ class MusicStore extends ChangeNotifier {
     );
   }
 
+  int _artworkStrength(MusicTrack track) {
+    final cachedArtwork = (track.cachedPlayback?.artworkUrl ?? '').trim();
+    if (cachedArtwork.isNotEmpty) {
+      return 3;
+    }
+    final directArtwork = (track.artworkUrl ?? '').trim();
+    if (directArtwork.isNotEmpty) {
+      final hasStableSource = _trackSourceIdentityKey(track).isNotEmpty;
+      return hasStableSource ? 2 : 1;
+    }
+    return 0;
+  }
+
+  String? _pickArtworkUrl(MusicTrack base, MusicTrack candidate) {
+    final baseArtwork = (base.artworkUrl ?? '').trim();
+    final candidateArtwork = (candidate.artworkUrl ?? '').trim();
+    if (candidateArtwork.isEmpty) {
+      return base.artworkUrl;
+    }
+    if (baseArtwork.isEmpty) {
+      return candidate.artworkUrl;
+    }
+    final sameEntity = _tracksRepresentSameEntity(base, candidate);
+    final baseStrength = _artworkStrength(base);
+    final candidateStrength = _artworkStrength(candidate);
+    if (candidateStrength > baseStrength && sameEntity) {
+      return candidate.artworkUrl;
+    }
+    if (candidateStrength == baseStrength &&
+        sameEntity &&
+        (base.cachedPlayback?.artworkUrl ?? '').trim().isEmpty) {
+      return candidate.artworkUrl;
+    }
+    return base.artworkUrl;
+  }
+
+  CachedPlaybackSource? _pickCachedPlayback(
+    MusicTrack base,
+    MusicTrack candidate,
+  ) {
+    final candidateCached = candidate.cachedPlayback;
+    if (candidateCached == null) {
+      return base.cachedPlayback;
+    }
+    final hasUsefulCandidateData =
+        (candidateCached.artworkUrl ?? '').trim().isNotEmpty ||
+        candidateCached.streamUrl.trim().isNotEmpty;
+    if (!hasUsefulCandidateData) {
+      return base.cachedPlayback;
+    }
+    final baseCached = base.cachedPlayback;
+    if (baseCached == null) {
+      return candidateCached;
+    }
+    if (!_tracksRepresentSameEntity(base, candidate)) {
+      return baseCached;
+    }
+    final candidateHasArtwork =
+        (candidateCached.artworkUrl ?? '').trim().isNotEmpty;
+    final baseHasArtwork = (baseCached.artworkUrl ?? '').trim().isNotEmpty;
+    final candidateHasStream = candidateCached.streamUrl.trim().isNotEmpty;
+    final baseHasStream = baseCached.streamUrl.trim().isNotEmpty;
+    if ((candidateHasArtwork && !baseHasArtwork) ||
+        (candidateHasStream && !baseHasStream)) {
+      return candidateCached;
+    }
+    return baseCached;
+  }
+
   MusicTrack _preferRicherTrack(MusicTrack base, MusicTrack candidate) {
     return base.copyWith(
       title: candidate.title.trim().isNotEmpty ? candidate.title : base.title,
@@ -3542,10 +3680,7 @@ class MusicStore extends ChangeNotifier {
           candidate.description.trim().isNotEmpty
               ? candidate.description
               : base.description,
-      artworkUrl:
-          (candidate.artworkUrl ?? '').trim().isNotEmpty
-              ? candidate.artworkUrl
-              : base.artworkUrl,
+      artworkUrl: _pickArtworkUrl(base, candidate),
       preferredSourceId:
           (candidate.preferredSourceId ?? '').trim().isNotEmpty
               ? candidate.preferredSourceId
@@ -3554,17 +3689,13 @@ class MusicStore extends ChangeNotifier {
           (candidate.sourceTrackId ?? '').trim().isNotEmpty
               ? candidate.sourceTrackId
               : base.sourceTrackId,
-      cachedPlayback:
-          (candidate.cachedPlayback?.artworkUrl ?? '').trim().isNotEmpty ||
-                  (candidate.cachedPlayback?.streamUrl ?? '').trim().isNotEmpty
-              ? candidate.cachedPlayback
-              : base.cachedPlayback,
+      cachedPlayback: _pickCachedPlayback(base, candidate),
     );
   }
 
   MusicTrack _rememberTrack(MusicTrack track, {bool? forceFavorite}) {
     final normalized = _normalizeTrackArtwork(track);
-    final existing = _trackRegistry[normalized.id];
+    final existing = _findRememberedTrack(normalized);
     final merged =
         existing == null
             ? normalized
@@ -3575,7 +3706,18 @@ class MusicStore extends ChangeNotifier {
             (existing?.isFavorite ?? false) ||
             isTrackLiked(normalized.id);
     final canonical = merged.copyWith(isFavorite: favorite);
-    _trackRegistry[canonical.id] = canonical;
+    final idKey = canonical.id.trim();
+    if (idKey.isNotEmpty) {
+      _trackRegistryById[idKey] = canonical;
+    }
+    final sourceKey = _trackSourceIdentityKey(canonical);
+    if (sourceKey.isNotEmpty) {
+      _trackRegistryBySource[sourceKey] = canonical;
+    }
+    final fingerprintKey = _trackFingerprintKey(canonical);
+    if (fingerprintKey.isNotEmpty) {
+      _trackRegistryByFingerprint[fingerprintKey] = canonical;
+    }
     return canonical;
   }
 
@@ -3601,7 +3743,7 @@ class MusicStore extends ChangeNotifier {
   void _mergeTrackAcrossState(MusicTrack updatedTrack) {
     final normalized = _rememberTrack(updatedTrack);
     _currentTrack =
-        _currentTrack.id == normalized.id
+        _tracksRepresentSameEntity(_currentTrack, normalized)
             ? _preferRicherTrack(
               _currentTrack,
               normalized,
@@ -3610,7 +3752,7 @@ class MusicStore extends ChangeNotifier {
     _queue = _rememberQueueItems(
       _queue.map(
         (item) =>
-            item.track.id == normalized.id
+            _tracksRepresentSameEntity(item.track, normalized)
                 ? item.copyWith(
                   track: _preferRicherTrack(
                     item.track,
@@ -3623,7 +3765,7 @@ class MusicStore extends ChangeNotifier {
     _recentTracks = _rememberTracks(
       _recentTracks.map(
         (item) =>
-            item.id == normalized.id
+            _tracksRepresentSameEntity(item, normalized)
                 ? _preferRicherTrack(
                   item,
                   normalized,
@@ -3634,7 +3776,7 @@ class MusicStore extends ChangeNotifier {
     _likedTracks = _rememberTracks(
       _likedTracks.map(
         (item) =>
-            item.id == normalized.id
+            _tracksRepresentSameEntity(item, normalized)
                 ? _preferRicherTrack(
                   item,
                   normalized,
@@ -3647,7 +3789,7 @@ class MusicStore extends ChangeNotifier {
       final replaced = _rememberTracks(
         entry.value.map(
           (item) =>
-              item.id == normalized.id
+              _tracksRepresentSameEntity(item, normalized)
                   ? _preferRicherTrack(
                     item,
                     normalized,
@@ -3661,7 +3803,7 @@ class MusicStore extends ChangeNotifier {
       final tracks = _rememberTracks(
         _latestAiPlaylist!.tracks.map(
           (item) =>
-              item.id == normalized.id
+              _tracksRepresentSameEntity(item, normalized)
                   ? _preferRicherTrack(
                     item,
                     normalized,

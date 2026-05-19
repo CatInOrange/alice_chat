@@ -50,13 +50,16 @@ String? buildProxiedArtworkUrl(
 }) {
   final normalized = _normalizeArtworkUrl(rawUrl);
   final base = backendBaseUrl.trim();
-  if (normalized.isEmpty || base.isEmpty || !_shouldProxyArtworkUrl(normalized)) {
+  if (normalized.isEmpty ||
+      base.isEmpty ||
+      !_shouldProxyArtworkUrl(normalized)) {
     return normalized.isEmpty ? null : normalized;
   }
-  final cleanBase = base.endsWith('/') ? base.substring(0, base.length - 1) : base;
-  return Uri.parse('$cleanBase/api/music/artwork').replace(
-    queryParameters: {'url': normalized},
-  ).toString();
+  final cleanBase =
+      base.endsWith('/') ? base.substring(0, base.length - 1) : base;
+  return Uri.parse(
+    '$cleanBase/api/music/artwork',
+  ).replace(queryParameters: {'url': normalized}).toString();
 }
 
 String effectiveArtworkSource(MusicTrack track) {
@@ -67,6 +70,31 @@ String effectiveArtworkSource(MusicTrack track) {
   return 'none';
 }
 
+String _artworkIdentityKey(MusicTrack track) {
+  String normalize(String value) =>
+      value.toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+
+  final providerId =
+      (track.preferredSourceId ?? track.cachedPlayback?.providerId ?? '')
+          .trim()
+          .toLowerCase();
+  final sourceTrackId =
+      (track.sourceTrackId ?? track.cachedPlayback?.sourceTrackId ?? '')
+          .trim()
+          .toLowerCase();
+  if (providerId.isNotEmpty && sourceTrackId.isNotEmpty) {
+    return '$providerId::$sourceTrackId';
+  }
+  final title = normalize(track.title);
+  final artist = normalize(track.artist);
+  final album = normalize(track.album);
+  final durationBucket = track.duration.inSeconds;
+  if (title.isEmpty && artist.isEmpty) {
+    return track.id.trim().toLowerCase();
+  }
+  return '$title::$artist::$album::$durationBucket';
+}
+
 Map<String, String> _proxyHeaders(String? appPassword) {
   final password = (appPassword ?? '').trim();
   if (password.isEmpty) return const <String, String>{};
@@ -74,11 +102,12 @@ Map<String, String> _proxyHeaders(String? appPassword) {
 }
 
 String _buildArtworkCacheKey(
+  MusicTrack track,
   String url, {
   required Map<String, String> headers,
 }) {
   final password = headers['X-AliceChat-Password'] ?? '';
-  return 'music-artwork|$url|$password';
+  return 'music-artwork|${_artworkIdentityKey(track)}|$url|$password';
 }
 
 bool _mapEquals(Map<String, String> a, Map<String, String> b) {
@@ -116,7 +145,8 @@ Future<_ResolvedArtworkFile?> _resolveArtworkFile({
     backendBaseUrl: backendBaseUrl ?? '',
   );
   final proxyHeaders = _proxyHeaders(appPassword);
-  final proxyEligible = proxiedArtworkUrl != null && proxiedArtworkUrl != rawArtworkUrl;
+  final proxyEligible =
+      proxiedArtworkUrl != null && proxiedArtworkUrl != rawArtworkUrl;
   final artworkSource = effectiveArtworkSource(track);
 
   Future<_ResolvedArtworkFile> fetchFile(
@@ -126,7 +156,7 @@ Future<_ResolvedArtworkFile?> _resolveArtworkFile({
   }) async {
     final file = await _musicArtworkCacheManager.getSingleFile(
       url,
-      key: _buildArtworkCacheKey(url, headers: headers),
+      key: _buildArtworkCacheKey(track, url, headers: headers),
       headers: headers,
     );
     return _ResolvedArtworkFile(
@@ -144,9 +174,10 @@ Future<_ResolvedArtworkFile?> _resolveArtworkFile({
     );
   } catch (error) {
     final retryPayload = <String, dynamic>{
-      'tag': proxyEligible
-          ? 'music.artwork.image_retry_proxy'
-          : 'music.artwork.image_error',
+      'tag':
+          proxyEligible
+              ? 'music.artwork.image_retry_proxy'
+              : 'music.artwork.image_error',
       'ts': DateTime.now().toIso8601String(),
       'trackId': track.id,
       'title': track.title,
@@ -322,8 +353,11 @@ class _MusicArtworkState extends State<MusicArtwork> {
   Widget build(BuildContext context) {
     final track = widget.track;
     final palette = paletteForTone(track.artworkTone);
-    final borderRadius = BorderRadius.circular(widget.circular ? widget.size / 2 : 28);
-    final effectiveOverlayStrength = widget.overlayStrength ?? (widget.showMeta ? 0.28 : 0.1);
+    final borderRadius = BorderRadius.circular(
+      widget.circular ? widget.size / 2 : 28,
+    );
+    final effectiveOverlayStrength =
+        widget.overlayStrength ?? (widget.showMeta ? 0.28 : 0.1);
 
     final body = Container(
       width: widget.size,
@@ -361,7 +395,8 @@ class _MusicArtworkState extends State<MusicArtwork> {
                     gaplessPlayback: true,
                     filterQuality: FilterQuality.medium,
                   ),
-                if (!hasArtwork && snapshot.connectionState == ConnectionState.waiting)
+                if (!hasArtwork &&
+                    snapshot.connectionState == ConnectionState.waiting)
                   DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
@@ -371,7 +406,8 @@ class _MusicArtworkState extends State<MusicArtwork> {
                       ),
                     ),
                   ),
-                if (!hasArtwork && snapshot.connectionState != ConnectionState.waiting)
+                if (!hasArtwork &&
+                    snapshot.connectionState != ConnectionState.waiting)
                   DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
@@ -401,26 +437,30 @@ class _MusicArtworkState extends State<MusicArtwork> {
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: !hasArtwork
-                          ? palette.gradient
-                          : [
-                              Colors.black.withValues(
-                                alpha: effectiveOverlayStrength * 0.45,
-                              ),
-                              Colors.black.withValues(
-                                alpha: effectiveOverlayStrength + 0.08,
-                              ),
-                            ],
+                      colors:
+                          !hasArtwork
+                              ? palette.gradient
+                              : [
+                                Colors.black.withValues(
+                                  alpha: effectiveOverlayStrength * 0.45,
+                                ),
+                                Colors.black.withValues(
+                                  alpha: effectiveOverlayStrength + 0.08,
+                                ),
+                              ],
                     ),
                   ),
                   child: Material(
                     color: Colors.transparent,
                     child: Padding(
-                      padding: EdgeInsets.all(widget.circular ? widget.size * 0.16 : 18),
+                      padding: EdgeInsets.all(
+                        widget.circular ? widget.size * 0.16 : 18,
+                      ),
                       child: Column(
-                        crossAxisAlignment: widget.circular
-                            ? CrossAxisAlignment.center
-                            : CrossAxisAlignment.start,
+                        crossAxisAlignment:
+                            widget.circular
+                                ? CrossAxisAlignment.center
+                                : CrossAxisAlignment.start,
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           if (widget.showIconBadge)
@@ -443,20 +483,25 @@ class _MusicArtworkState extends State<MusicArtwork> {
                             const SizedBox.shrink(),
                           if (widget.showMeta)
                             Column(
-                              crossAxisAlignment: widget.circular
-                                  ? CrossAxisAlignment.center
-                                  : CrossAxisAlignment.start,
+                              crossAxisAlignment:
+                                  widget.circular
+                                      ? CrossAxisAlignment.center
+                                      : CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   track.title,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  textAlign: widget.circular
-                                      ? TextAlign.center
-                                      : TextAlign.start,
+                                  textAlign:
+                                      widget.circular
+                                          ? TextAlign.center
+                                          : TextAlign.start,
                                   style: TextStyle(
                                     color: Colors.white,
-                                    fontSize: widget.circular ? widget.size * 0.08 : 18,
+                                    fontSize:
+                                        widget.circular
+                                            ? widget.size * 0.08
+                                            : 18,
                                     fontWeight: FontWeight.w700,
                                     letterSpacing: 0.2,
                                   ),
@@ -466,12 +511,16 @@ class _MusicArtworkState extends State<MusicArtwork> {
                                   track.artist,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  textAlign: widget.circular
-                                      ? TextAlign.center
-                                      : TextAlign.start,
+                                  textAlign:
+                                      widget.circular
+                                          ? TextAlign.center
+                                          : TextAlign.start,
                                   style: TextStyle(
                                     color: Colors.white.withValues(alpha: 0.84),
-                                    fontSize: widget.circular ? widget.size * 0.042 : 13,
+                                    fontSize:
+                                        widget.circular
+                                            ? widget.size * 0.042
+                                            : 13,
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
@@ -497,11 +546,7 @@ class _MusicArtworkState extends State<MusicArtwork> {
 }
 
 class MusicArtworkHero extends StatelessWidget {
-  const MusicArtworkHero({
-    super.key,
-    required this.tag,
-    required this.child,
-  });
+  const MusicArtworkHero({super.key, required this.tag, required this.child});
 
   final String tag;
   final Widget child;
@@ -512,9 +557,9 @@ class MusicArtworkHero extends StatelessWidget {
       child: Hero(
         tag: tag,
         createRectTween: (begin, end) => RectTween(begin: begin, end: end),
-        placeholderBuilder: (context, size, child) => IgnorePointer(
-          child: Opacity(opacity: 0, child: child),
-        ),
+        placeholderBuilder:
+            (context, size, child) =>
+                IgnorePointer(child: Opacity(opacity: 0, child: child)),
         child: child,
       ),
     );
@@ -637,8 +682,12 @@ class _MusicArtworkBackdropState extends State<MusicArtworkBackdrop> {
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      palette.gradient.first.withValues(alpha: widget.tintOpacity),
-                      palette.gradient.last.withValues(alpha: widget.tintOpacity * 0.82),
+                      palette.gradient.first.withValues(
+                        alpha: widget.tintOpacity,
+                      ),
+                      palette.gradient.last.withValues(
+                        alpha: widget.tintOpacity * 0.82,
+                      ),
                     ],
                   ),
                 ),
