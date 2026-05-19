@@ -566,7 +566,7 @@ class ChatSessionStore extends ChangeNotifier {
       );
     } catch (error) {
       state.messages = List<core.Message>.unmodifiable(
-        [...state.messages, removedMessage]
+        <core.Message>[...state.messages, removedMessage]
           ..sort(_compareCoreMessagesChronologically),
       );
       if (state.messages.isNotEmpty) {
