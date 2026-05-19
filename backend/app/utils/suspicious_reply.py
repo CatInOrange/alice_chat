@@ -22,6 +22,20 @@ SUSPICIOUS_FINAL_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         'edit_failed',
     ),
     (
+        re.compile(
+            r'^(?:\[[^\]]+\]\s*)?(?:[⚠️🛠️📝\s]+).+?(?:->| in ).+?\b(?:agent|tool|command)\b.*\bfailed\s*$',
+            re.IGNORECASE,
+        ),
+        'tool_summary_failed',
+    ),
+    (
+        re.compile(
+            r'^(?:\[[^\]]+\]\s*)?(?:[⚠️🛠️📝\s]+).+?->.+?\bfailed\s*$',
+            re.IGNORECASE,
+        ),
+        'tool_summary_failed',
+    ),
+    (
         re.compile(r'(?:^|\n)\s*\d+\.\.\.$'),
         'unfinished_numbered_item',
     ),
