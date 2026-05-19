@@ -51,7 +51,11 @@ class MusicService:
         return MusicStateResult(payload=MusicStateDto.model_validate(self.store.load_state()))
 
     def save_state(self, patch: MusicStatePatchDto) -> MusicStateResult:
-        return MusicStateResult(payload=MusicStateDto.model_validate(self.store.save_state(patch.model_dump(exclude_none=True))))
+        return MusicStateResult(
+            payload=MusicStateDto.model_validate(
+                self.store.save_state(patch.model_dump(exclude_unset=True))
+            )
+        )
 
     def load_latest_ai_playlist(self) -> MusicAiPlaylistResult:
         state = self.store.load_state()
@@ -173,21 +177,30 @@ class MusicService:
         def _queue_item(track: dict) -> dict:
             return {'track': track, 'requestedBy': action.source}
 
+        def _playlist_id() -> str | None:
+            playlist = payload.get('playlist') if isinstance(payload.get('playlist'), dict) else None
+            playlist_draft = payload.get('playlistDraft') if isinstance(payload.get('playlistDraft'), dict) else None
+            raw = (
+                (playlist or {}).get('id')
+                or (playlist_draft or {}).get('id')
+                or None
+            )
+            value = str(raw or '').strip()
+            return value or None
+
         if action.type == 'play_track':
             track = payload.get('track') if isinstance(payload.get('track'), dict) else None
-            playlist = payload.get('playlist') if isinstance(payload.get('playlist'), dict) else None
             if not track:
                 return {}
             return {
                 'currentTrack': track,
                 'queue': [_queue_item(track)],
-                'currentPlaylistId': (playlist or {}).get('id') or current_playlist_id,
+                'currentPlaylistId': _playlist_id(),
                 'isPlaying': True,
                 'positionMs': 0,
             }
 
         if action.type == 'play_playlist':
-            playlist = payload.get('playlist') if isinstance(payload.get('playlist'), dict) else None
             playlist_draft = payload.get('playlistDraft') if isinstance(payload.get('playlistDraft'), dict) else None
             tracks = playlist_draft.get('tracks') if isinstance(playlist_draft, dict) else None
             start_index_raw = payload.get('startIndex')
@@ -195,7 +208,7 @@ class MusicService:
             track_items = [item for item in (tracks or []) if isinstance(item, dict)]
             if not track_items:
                 return {
-                    'currentPlaylistId': (playlist or {}).get('id') or current_playlist_id,
+                    'currentPlaylistId': _playlist_id(),
                     'positionMs': 0,
                 }
             start_index = max(0, min(start_index, len(track_items) - 1))
@@ -203,7 +216,7 @@ class MusicService:
             return {
                 'currentTrack': ordered_tracks[0],
                 'queue': [_queue_item(track) for track in ordered_tracks],
-                'currentPlaylistId': (playlist or playlist_draft or {}).get('id') or current_playlist_id,
+                'currentPlaylistId': _playlist_id(),
                 'isPlaying': True,
                 'positionMs': 0,
             }
@@ -213,6 +226,7 @@ class MusicService:
             if not tracks:
                 return {}
             incoming = [_queue_item(track) for track in tracks]
+            playlist_id = _playlist_id()
             if action.type == 'queue_next':
                 if queue:
                     queue = [queue[0], *incoming, *queue[1:]]
@@ -226,7 +240,9 @@ class MusicService:
             return {
                 'currentTrack': current_track,
                 'queue': queue,
-                'currentPlaylistId': current_playlist_id,
+                'currentPlaylistId': (
+                    current_playlist_id if current_track and current.get('queue') else playlist_id
+                ),
                 'isPlaying': is_playing,
                 'positionMs': position_ms,
             }
@@ -259,7 +275,9 @@ class MusicService:
                     'positionMs': 0,
                 }
             return {
+                'currentTrack': None,
                 'queue': [],
+                'currentPlaylistId': None,
                 'isPlaying': False,
                 'positionMs': 0,
             }

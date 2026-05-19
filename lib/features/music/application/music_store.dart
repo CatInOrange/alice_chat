@@ -5158,7 +5158,6 @@ class MusicStore extends ChangeNotifier {
       _cacheTracksForPlaylist(likedPlaylist.id, _likedTracks);
       unawaited(_repairLatestAiPlaylistArtworkIfNeeded());
       unawaited(warmLikedPlaylist());
-      _markSnapshotDirty();
       notifyListeners();
     } catch (error) {
       _debugState(

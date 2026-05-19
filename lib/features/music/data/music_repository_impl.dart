@@ -593,10 +593,10 @@ class MusicRepositoryImpl implements MusicRepository {
     try {
       final response = await _client.saveMusicState(
         payload: {
-          if (currentTrack != null) 'currentTrack': currentTrack.toMap(),
+          'currentTrack': currentTrack?.toMap(),
           if (queue != null)
             'queue': queue.map((item) => item.toMap()).toList(),
-          if (currentPlaylistId != null) 'currentPlaylistId': currentPlaylistId,
+          'currentPlaylistId': currentPlaylistId,
           if (isPlaying != null) 'isPlaying': isPlaying,
           if (position != null) 'positionMs': position.inMilliseconds,
           if (likedTracks != null)
