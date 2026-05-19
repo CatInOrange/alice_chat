@@ -9,6 +9,7 @@ from pathlib import Path
 
 from ..services.chat_service import ChatService
 from ..services.events_bus import EventsBus
+from ..services.request_deduper import RequestDeduper
 from ..store import MessageStore, RecoveryStore, SessionStore
 from ..store.db import connect
 
@@ -28,6 +29,7 @@ class TranscriptRecoveryService:
         chat_service: ChatService,
         events_bus: EventsBus,
         recoveries: RecoveryStore,
+        request_deduper: RequestDeduper | None = None,
         agents_root: Path | None = None,
         recovery_timeout_seconds: float = 60.0,
         scan_interval_seconds: float = 30.0,
@@ -38,6 +40,7 @@ class TranscriptRecoveryService:
         self.chat_service = chat_service
         self.events_bus = events_bus
         self.recoveries = recoveries
+        self.request_deduper = request_deduper
         self.agents_root = (agents_root or _DEFAULT_AGENTS_ROOT).expanduser()
         self.recovery_timeout_seconds = max(15.0, float(recovery_timeout_seconds))
         self.scan_interval_seconds = max(10.0, float(scan_interval_seconds))
@@ -151,6 +154,11 @@ class TranscriptRecoveryService:
         recovery_key = f'{session_id}:{client_message_id}'
         if self.recoveries.get(recovery_key):
             return False
+
+        if self.request_deduper is not None:
+            record = await self.request_deduper.get(session_id, client_message_id)
+            if record is not None and record.status == 'running':
+                return False
 
         user_message = self.messages.find_message_by_client_message_id(session_id, client_message_id)
         if user_message is None:

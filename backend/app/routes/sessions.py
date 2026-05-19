@@ -67,7 +67,7 @@ def create_sessions_router(context: AppContext) -> APIRouter:
             recovered = await context.recovery_service.recover_session_once(
                 session_id,
                 after_message_id=str(after or '').strip(),
-                min_age_seconds=15.0,
+                min_age_seconds=context.recovery_service.recovery_timeout_seconds,
             )
             if recovered:
                 page = context.message_store.list_session_messages_page(

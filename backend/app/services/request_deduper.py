@@ -63,6 +63,12 @@ class RequestDeduper:
         async with self._lock:
             self._records.pop(key, None)
 
+    async def get(self, session_id: str, client_message_id: str) -> RequestRecord | None:
+        key = self._make_key(session_id, client_message_id)
+        async with self._lock:
+            self._prune_locked()
+            return self._records.get(key)
+
     def _prune_locked(self) -> None:
         now = time.time()
         stale = [

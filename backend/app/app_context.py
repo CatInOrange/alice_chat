@@ -38,15 +38,16 @@ def create_app_context(*, uploads_dir: Path) -> AppContext:
     recovery_store = RecoveryStore()
     events_bus = EventsBus()
     chat_service = ChatService(sessions=session_store, messages=message_store)
+    request_deduper = RequestDeduper()
     recovery_service = TranscriptRecoveryService(
         sessions=session_store,
         messages=message_store,
         chat_service=chat_service,
         events_bus=events_bus,
         recoveries=recovery_store,
+        request_deduper=request_deduper,
     )
     music_service = MusicService(store=music_store, config=load_config())
-    request_deduper = RequestDeduper()
     push_device_store = PushDeviceStore()
     todo_store = TodoStore()
     tavern_store = TavernStore()
