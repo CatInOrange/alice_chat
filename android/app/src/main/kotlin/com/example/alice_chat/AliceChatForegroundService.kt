@@ -191,19 +191,19 @@ class AliceChatForegroundService : Service() {
             return
         }
         val payload = rawEvent.optJSONObject("payload")
-        val actionType = payload?.optString("type")?.trim().orEmpty()
+        val actionType = rawEvent.optString("type").trim()
         if (actionType.isEmpty()) {
             DebugLogBuffer.append("fg-service", "decision=drop_invalid_music_action reason=empty_type payload=$rawEvent")
             return
         }
         val normalized = JSONObject().apply {
             put("type", actionType)
-            put("payload", payload?.optJSONObject("payload") ?: JSONObject())
-            if (payload?.has("source") == true) {
-                put("source", payload.optString("source"))
+            put("payload", payload ?: JSONObject())
+            if (rawEvent.has("source")) {
+                put("source", rawEvent.optString("source"))
             }
-            if (payload?.has("requestId") == true) {
-                put("requestId", payload.optString("requestId"))
+            if (rawEvent.has("requestId")) {
+                put("requestId", rawEvent.optString("requestId"))
             }
         }
         DebugLogBuffer.append(
