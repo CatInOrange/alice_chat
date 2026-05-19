@@ -566,15 +566,8 @@ class ChatSessionStore extends ChangeNotifier {
       );
     } catch (error) {
       state.messages = List<core.Message>.unmodifiable(
-        [...state.messages, removedMessage]..sort((a, b) {
-          final createdAtA =
-              a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-          final createdAtB =
-              b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-          final cmp = createdAtA.compareTo(createdAtB);
-          if (cmp != 0) return cmp;
-          return a.id.compareTo(b.id);
-        }),
+        [...state.messages, removedMessage]
+          ..sort(_compareCoreMessagesChronologically),
       );
       if (state.messages.isNotEmpty) {
         state.oldestLoadedMessageId = state.messages.first.id;
@@ -1432,7 +1425,7 @@ class ChatSessionStore extends ChangeNotifier {
         .toList(growable: false);
     final messages =
         mappedMessages.where((message) => message.hasVisibleContent).toList()
-          ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+          ..sort(_compareDomainMessagesChronologically);
 
     _debugBackendLoad(
       sessionId,
@@ -1613,6 +1606,23 @@ class ChatSessionStore extends ChangeNotifier {
   }
 }
 
+int _compareCoreMessagesChronologically(core.Message a, core.Message b) {
+  final createdAtA = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+  final createdAtB = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+  final cmp = createdAtA.compareTo(createdAtB);
+  if (cmp != 0) return cmp;
+  return a.id.compareTo(b.id);
+}
+
+int _compareDomainMessagesChronologically(
+  domain.ChatMessage a,
+  domain.ChatMessage b,
+) {
+  final cmp = a.createdAt.compareTo(b.createdAt);
+  if (cmp != 0) return cmp;
+  return a.id.compareTo(b.id);
+}
+
 class MessageLoadResult {
   const MessageLoadResult({
     required this.messages,
@@ -1705,15 +1715,7 @@ class ChatViewState {
       list[index] = message;
     } else {
       list.add(message);
-      list.sort((a, b) {
-        final createdAtA =
-            a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        final createdAtB =
-            b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        final cmp = createdAtA.compareTo(createdAtB);
-        if (cmp != 0) return cmp;
-        return a.id.compareTo(b.id);
-      });
+      list.sort(_compareCoreMessagesChronologically);
     }
     messages = List<core.Message>.unmodifiable(list);
     trackMessageWindow(message.id);
@@ -1730,13 +1732,7 @@ class ChatViewState {
         merged.add(message);
       }
     }
-    merged.sort((a, b) {
-      final createdAtA = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final createdAtB = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final cmp = createdAtA.compareTo(createdAtB);
-      if (cmp != 0) return cmp;
-      return a.id.compareTo(b.id);
-    });
+    merged.sort(_compareCoreMessagesChronologically);
     messages = List<core.Message>.unmodifiable(merged);
     if (messages.isNotEmpty) {
       oldestLoadedMessageId = messages.first.id;
@@ -1956,13 +1952,7 @@ class ChatViewState {
     final index = list.indexWhere((item) => item.id == clientMessageId);
     if (index < 0) return false;
     list[index] = confirmedMessage;
-    list.sort((a, b) {
-      final createdAtA = a.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final createdAtB = b.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final cmp = createdAtA.compareTo(createdAtB);
-      if (cmp != 0) return cmp;
-      return a.id.compareTo(b.id);
-    });
+    list.sort(_compareCoreMessagesChronologically);
     messages = List<core.Message>.unmodifiable(list);
     return true;
   }
