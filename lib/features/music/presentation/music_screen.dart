@@ -517,11 +517,20 @@ class _MusicScreenState extends State<MusicScreen>
             builder: (context, constraints) {
               final isDesktop = constraints.maxWidth >= 1180;
               if (!isDesktop) {
+                final bottomSafeInset = MediaQuery.paddingOf(context).bottom;
+                final mobileListBottomPadding =
+                    (store.hasPlaybackContext ? 196.0 : 112.0) +
+                    bottomSafeInset;
                 return Stack(
                   children: [
                     const _MusicScreenBackdrop(),
                     ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 148),
+                      padding: EdgeInsets.fromLTRB(
+                        16,
+                        8,
+                        16,
+                        mobileListBottomPadding,
+                      ),
                       children: [
                         _MusicHeroCard(
                           track: store.heroTrack,
@@ -1843,7 +1852,7 @@ class _CompactPlaylistGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 166,
+      height: 196,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: playlists.length,
