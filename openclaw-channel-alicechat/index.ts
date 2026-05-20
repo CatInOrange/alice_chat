@@ -202,13 +202,15 @@ async function callAliceChatApi(method, routePath, payload) {
   }
 
   const url = new URL(routePath, `${baseUrl.replace(/\/$/, '')}/`).toString();
+  const normalizedMethod = String(method || 'GET').toUpperCase();
+  const canSendBody = normalizedMethod !== 'GET' && normalizedMethod !== 'HEAD';
   const response = await fetch(url, {
-    method,
+    method: normalizedMethod,
     headers: {
       'content-type': 'application/json',
       'x-alicechat-password': appPassword,
     },
-    body: payload === undefined ? undefined : JSON.stringify(payload),
+    body: canSendBody && payload !== undefined ? JSON.stringify(payload) : undefined,
   });
 
   const text = await response.text();
@@ -1299,7 +1301,7 @@ export function register(api) {
       try {
         const input: any = params || {};
         const actionType = String(input.type || '').trim();
-        const requestId = String(input.requestId || '').trim() || undefined;
+        const requestId = String(input.requestId || '').trim() || String(_id || '').trim() || undefined;
         const payload: any = {};
 
         if (String(input.taskId || '').trim()) payload.taskId = String(input.taskId).trim();

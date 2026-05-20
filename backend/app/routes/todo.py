@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -11,6 +11,7 @@ from ..auth import verify_app_password
 
 _TASK_PRIORITIES = {"low", "medium", "high", "urgent"}
 _TASK_STATUSES = {"todo", "doing", "done", "archived"}
+_CREATE_TASK_DEDUPE_WINDOW = timedelta(minutes=15)
 _ACTION_TYPES = {
     "create_task",
     "update_task",
@@ -132,6 +133,60 @@ def _optional_iso_datetime(value: Any) -> str | None:
         raise HTTPException(status_code=400, detail=f"invalid datetime: {raw}") from error
 
 
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _normalize_task_match_value(value: Any) -> str:
+    return str(value or "").strip().casefold()
+
+
+def _find_recent_matching_task(
+    tasks: list[dict[str, Any]],
+    *,
+    project_id: str,
+    title: str,
+    description: str,
+    due_at: str | None,
+    reminder_at: str | None,
+    priority: str,
+    status: str,
+) -> dict[str, Any] | None:
+    now = datetime.utcnow()
+    normalized_project_id = _normalize_task_match_value(project_id)
+    normalized_title = _normalize_task_match_value(title)
+    normalized_description = _normalize_task_match_value(description)
+    for task in reversed(tasks):
+        if _normalize_task_match_value(task.get("projectId")) != normalized_project_id:
+            continue
+        if _normalize_task_match_value(task.get("title")) != normalized_title:
+            continue
+        if _normalize_task_match_value(task.get("description")) != normalized_description:
+            continue
+        if _optional_iso_datetime(task.get("dueAt")) != due_at:
+            continue
+        if _optional_iso_datetime(task.get("reminderAt")) != reminder_at:
+            continue
+        if _normalize_priority(task.get("priority")) != priority:
+            continue
+        if _normalize_status(task.get("status"), "todo") != status:
+            continue
+        created_at = _parse_iso_datetime(task.get("createdAt"))
+        if created_at is None:
+            continue
+        if created_at.tzinfo is not None:
+            created_at = created_at.astimezone().replace(tzinfo=None)
+        if now - created_at <= _CREATE_TASK_DEDUPE_WINDOW:
+            return task
+    return None
+
+
 def _replace_subtasks(
     snapshot: dict[str, Any],
     task: dict[str, Any],
@@ -189,15 +244,33 @@ def _create_task(snapshot: dict[str, Any], payload: dict[str, Any]) -> dict[str,
         raise HTTPException(status_code=400, detail="create_task requires title")
     now_iso = _now_iso()
     project = _resolve_project(snapshot, payload)
+    description = str(payload.get("description") or "").strip()
+    priority = _normalize_priority(payload.get("priority"))
+    status = _normalize_status(payload.get("status"), "todo")
+    due_at = _optional_iso_datetime(payload.get("dueAt"))
+    reminder_at = _optional_iso_datetime(payload.get("reminderAt"))
+    if payload.get("_dedupeRecent") is True and not (payload.get("taskId") or payload.get("id")):
+        existing = _find_recent_matching_task(
+            snapshot["tasks"],
+            project_id=str(project["id"]),
+            title=title,
+            description=description,
+            due_at=due_at,
+            reminder_at=reminder_at,
+            priority=priority,
+            status=status,
+        )
+        if existing is not None:
+            return existing
     task = {
         "id": str(payload.get("taskId") or payload.get("id") or f"todo-task:{uuid4().hex}"),
         "projectId": str(project["id"]),
         "title": title,
-        "description": str(payload.get("description") or "").strip(),
-        "priority": _normalize_priority(payload.get("priority")),
-        "status": _normalize_status(payload.get("status"), "todo"),
-        "dueAt": _optional_iso_datetime(payload.get("dueAt")),
-        "reminderAt": _optional_iso_datetime(payload.get("reminderAt")),
+        "description": description,
+        "priority": priority,
+        "status": status,
+        "dueAt": due_at,
+        "reminderAt": reminder_at,
         "createdAt": now_iso,
         "updatedAt": now_iso,
         "completedAt": None,
@@ -458,6 +531,8 @@ def create_todo_router(context: AppContext) -> APIRouter:
         current_snapshot = _normalize_snapshot(
             None if current is None else current.get("snapshot")
         )
+        if action_type == "create_task" and str(body.get("source") or "").strip() == "chatAi":
+            payload = {**payload, "_dedupeRecent": True}
         result = _apply_action(current_snapshot, action_type, payload)
         saved = context.todo_store.save_snapshot(current_snapshot)
         await context.events_bus.publish(

@@ -188,13 +188,15 @@ async function callAliceChatApi(method, routePath, payload) {
         throw new Error('AliceChat appAccessPassword 未配置；请设置 ALICECHAT_APP_PASSWORD，或检查 backend/config.json / config.json');
     }
     const url = new URL(routePath, `${baseUrl.replace(/\/$/, '')}/`).toString();
+    const normalizedMethod = String(method || 'GET').toUpperCase();
+    const canSendBody = normalizedMethod !== 'GET' && normalizedMethod !== 'HEAD';
     const response = await fetch(url, {
-        method,
+        method: normalizedMethod,
         headers: {
             'content-type': 'application/json',
             'x-alicechat-password': appPassword,
         },
-        body: payload === undefined ? undefined : JSON.stringify(payload),
+        body: canSendBody && payload !== undefined ? JSON.stringify(payload) : undefined,
     });
     const text = await response.text();
     let data = null;
@@ -1242,7 +1244,7 @@ export function register(api) {
             try {
                 const input = params || {};
                 const actionType = String(input.type || '').trim();
-                const requestId = String(input.requestId || '').trim() || undefined;
+                const requestId = String(input.requestId || '').trim() || String(_id || '').trim() || undefined;
                 const payload = {};
                 if (String(input.taskId || '').trim())
                     payload.taskId = String(input.taskId).trim();
