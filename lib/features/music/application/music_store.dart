@@ -197,12 +197,16 @@ class MusicStore extends ChangeNotifier {
     if (adapterState.completed && hasTrackContext) {
       return MusicPlaybackControlState.ended;
     }
-    if ((adapterState.isPlaying && adapterState.currentSource != null) ||
-        (_isPlaying && !_isBuffering)) {
+    // Prefer the store's optimistic control state so the UI can react
+    // immediately to pause/resume taps before the adapter event arrives.
+    if (_isPlaying && !_isBuffering) {
       return MusicPlaybackControlState.playing;
     }
     if (hasTrackContext) {
       return MusicPlaybackControlState.paused;
+    }
+    if (adapterState.isPlaying && adapterState.currentSource != null) {
+      return MusicPlaybackControlState.playing;
     }
     return MusicPlaybackControlState.idle;
   }
