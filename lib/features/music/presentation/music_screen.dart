@@ -627,17 +627,18 @@ class _MusicScreenState extends State<MusicScreen>
                             );
                           },
                         ),
-                        const SizedBox(height: 28),
+                        const SizedBox(height: 24),
                         _SectionHeader(
                           title: '我的歌单',
                           subtitle: '你慢慢收下的歌 都在这里',
                           actionLabel: '添加',
+                          actionIcon: Icons.add_rounded,
                           isBusy: false,
                           onActionTap: () {
                             _showCreatePlaylistSheet(context, store);
                           },
                         ),
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 10),
                         _CompactPlaylistGrid(
                           playlists: displayedCustomPlaylists,
                           currentPlaylistId: store.currentPlaylistId,
@@ -663,7 +664,7 @@ class _MusicScreenState extends State<MusicScreen>
                         ),
                         if ((store.error ?? '').trim().isNotEmpty)
                           Padding(
-                            padding: const EdgeInsets.only(top: 20, bottom: 12),
+                            padding: const EdgeInsets.only(top: 18, bottom: 10),
                             child: _InlineNotice(
                               message: _friendlyHomeError(store.error!),
                               tone: _noticeToneForError(store.error!),
@@ -680,20 +681,21 @@ class _MusicScreenState extends State<MusicScreen>
                             ),
                           ),
                         if (recentPlaylists.isNotEmpty) ...[
-                          const SizedBox(height: 28),
+                          const SizedBox(height: 24),
                           _SectionHeader(
                             title: '最近播放',
                             subtitle: '刚刚听过的感觉 还能从这里回去',
                             actionLabel: '刷新',
+                            actionIcon: Icons.refresh_rounded,
                             isBusy: store.isRefreshingLibrary,
                             onActionTap: () {
                               store.refreshLibrary();
                             },
                           ),
-                          const SizedBox(height: 14),
+                          const SizedBox(height: 10),
                           ...recentPlaylists.map(
                             (playlist) => Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.only(bottom: 10),
                               child: _RecentPlaylistTile(
                                 playlist: playlist,
                                 isActive: store.isPlaylistActive(playlist.id),
@@ -706,20 +708,21 @@ class _MusicScreenState extends State<MusicScreen>
                           ),
                         ],
                         if (aiPlaylistHistory.isNotEmpty) ...[
-                          const SizedBox(height: 28),
+                          const SizedBox(height: 24),
                           _SectionHeader(
                             title: 'AI 历史歌单',
                             subtitle: '这次为你整理的在 之前的也还留着',
                             actionLabel: '刷新',
+                            actionIcon: Icons.refresh_rounded,
                             isBusy: store.isRefreshingLibrary,
                             onActionTap: () {
                               store.refreshLibrary();
                             },
                           ),
-                          const SizedBox(height: 14),
+                          const SizedBox(height: 10),
                           ...aiPlaylistHistory.map(
                             (draft) => Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.only(bottom: 10),
                               child: _RecentPlaylistTile(
                                 playlist: draft.asPlaylist,
                                 isActive: store.isPlaylistActive(
@@ -1050,14 +1053,14 @@ class _MusicHeroCard extends StatelessWidget {
         borderRadius: cardRadius,
         boxShadow: [
           BoxShadow(
-            color: palette.glowColor.withValues(alpha: 0.68),
-            blurRadius: 38,
-            offset: const Offset(0, 20),
+            color: palette.glowColor.withValues(alpha: 0.34),
+            blurRadius: 30,
+            offset: const Offset(0, 18),
           ),
           const BoxShadow(
-            color: Color(0x120B1220),
-            blurRadius: 28,
-            offset: Offset(0, 12),
+            color: Color(0x160B1220),
+            blurRadius: 32,
+            offset: Offset(0, 16),
           ),
         ],
       ),
@@ -1072,9 +1075,12 @@ class _MusicHeroCard extends StatelessWidget {
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      palette.gradient.first.withValues(alpha: 0.94),
-                      palette.gradient.last.withValues(alpha: 0.9),
+                      palette.gradient.first.withValues(alpha: 0.96),
+                      palette.gradient.last.withValues(alpha: 0.92),
                     ],
+                  ),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.12),
                   ),
                 ),
               ),
@@ -1083,10 +1089,10 @@ class _MusicHeroCard extends StatelessWidget {
               child: MusicArtworkBackdrop(
                 track: track,
                 borderRadius: cardRadius,
-                blurSigma: 30,
-                opacity: 0.34,
-                tintOpacity: 0.28,
-                darkness: 0.34,
+                blurSigma: 26,
+                opacity: 0.24,
+                tintOpacity: 0.22,
+                darkness: 0.28,
                 backendBaseUrl: backendBaseUrl,
                 appPassword: appPassword,
               ),
@@ -1102,9 +1108,9 @@ class _MusicHeroCard extends StatelessWidget {
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                     colors: [
-                      Colors.white.withValues(alpha: 0.08),
+                      Colors.white.withValues(alpha: 0.06),
                       Colors.transparent,
-                      Colors.black.withValues(alpha: 0.18),
+                      Colors.black.withValues(alpha: 0.14),
                     ],
                     stops: const [0.0, 0.3, 1.0],
                   ),
@@ -1130,7 +1136,7 @@ class _MusicHeroCard extends StatelessWidget {
                           shape: BoxShape.circle,
                           gradient: RadialGradient(
                             colors: [
-                              Colors.white.withValues(alpha: 0.22),
+                              Colors.white.withValues(alpha: 0.18),
                               Colors.white.withValues(alpha: 0.03),
                               Colors.transparent,
                             ],
@@ -1154,22 +1160,22 @@ class _MusicHeroCard extends StatelessWidget {
                                       borderRadius: BorderRadius.circular(40),
                                       border: Border.all(
                                         color: Colors.white.withValues(
-                                          alpha: 0.22,
+                                          alpha: 0.18,
                                         ),
                                       ),
                                       gradient: LinearGradient(
                                         begin: Alignment.topLeft,
                                         end: Alignment.bottomRight,
                                         colors: [
-                                          Colors.white.withValues(alpha: 0.2),
-                                          Colors.white.withValues(alpha: 0.05),
+                                          Colors.white.withValues(alpha: 0.14),
+                                          Colors.white.withValues(alpha: 0.04),
                                         ],
                                       ),
                                       boxShadow: const [
                                         BoxShadow(
-                                          color: Color(0x22000000),
-                                          blurRadius: 28,
-                                          offset: Offset(0, 16),
+                                          color: Color(0x18000000),
+                                          blurRadius: 24,
+                                          offset: Offset(0, 14),
                                         ),
                                       ],
                                     ),
@@ -1232,11 +1238,11 @@ class _MusicHeroCard extends StatelessWidget {
                     begin: Alignment.centerLeft,
                     end: Alignment.centerRight,
                     colors: [
-                      Colors.black.withValues(alpha: 0.34),
-                      Colors.black.withValues(alpha: 0.18),
+                      Colors.black.withValues(alpha: 0.36),
+                      Colors.black.withValues(alpha: 0.14),
                       Colors.black.withValues(alpha: 0.0),
                     ],
-                    stops: const [0.0, 0.52, 1.0],
+                    stops: const [0.0, 0.56, 1.0],
                   ),
                 ),
               ),
@@ -1247,7 +1253,7 @@ class _MusicHeroCard extends StatelessWidget {
                 borderRadius: cardRadius,
                 onTap: onDetailTap ?? onPlayTap,
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 20, 20, 18),
+                  padding: const EdgeInsets.fromLTRB(24, 22, 24, 22),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1255,14 +1261,14 @@ class _MusicHeroCard extends StatelessWidget {
                         children: [
                           Container(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 11,
-                              vertical: 6,
+                              horizontal: 12,
+                              vertical: 7,
                             ),
                             decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.14),
+                              color: Colors.white.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(999),
                               border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.14),
+                                color: Colors.white.withValues(alpha: 0.16),
                               ),
                             ),
                             child: Text(
@@ -1270,7 +1276,7 @@ class _MusicHeroCard extends StatelessWidget {
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: Colors.white,
                                 fontWeight: FontWeight.w700,
-                                letterSpacing: 0.4,
+                                letterSpacing: 0.35,
                               ),
                             ),
                           ),
@@ -1278,69 +1284,69 @@ class _MusicHeroCard extends StatelessWidget {
                           if ((timestampLabel ?? '').trim().isNotEmpty)
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 9,
-                                vertical: 5,
+                                horizontal: 10,
+                                vertical: 6,
                               ),
                               decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.16),
+                                color: Colors.black.withValues(alpha: 0.18),
                                 borderRadius: BorderRadius.circular(999),
                               ),
                               child: Text(
                                 timestampLabel!,
                                 style: theme.textTheme.bodySmall?.copyWith(
-                                  color: Colors.white.withValues(alpha: 0.74),
+                                  color: Colors.white.withValues(alpha: 0.84),
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
                             ),
                         ],
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 22),
                       SizedBox(
-                        width: 208,
+                        width: 224,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
                               title,
                               style: theme.textTheme.bodySmall?.copyWith(
-                                color: Colors.white.withValues(alpha: 0.72),
+                                color: Colors.white.withValues(alpha: 0.78),
                                 fontWeight: FontWeight.w700,
-                                letterSpacing: 0.4,
+                                letterSpacing: 0.32,
                               ),
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 10),
                             Text(
                               headline,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.titleLarge?.copyWith(
                                 color: Colors.white,
-                                fontSize: 24,
-                                height: 1.16,
-                                fontWeight: FontWeight.w800,
+                                fontSize: 27,
+                                height: 1.08,
+                                fontWeight: FontWeight.w900,
                               ),
                             ),
                             if ((subtitle ?? '').trim().isNotEmpty) ...[
-                              const SizedBox(height: 8),
+                              const SizedBox(height: 10),
                               Text(
                                 subtitle!,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: Colors.white.withValues(alpha: 0.9),
-                                  fontWeight: FontWeight.w500,
+                                  color: Colors.white.withValues(alpha: 0.92),
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
                             ],
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 12),
                             Text(
                               description,
                               maxLines: 3,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.bodyMedium?.copyWith(
-                                color: Colors.white.withValues(alpha: 0.78),
-                                height: 1.42,
+                                color: Colors.white.withValues(alpha: 0.84),
+                                height: 1.48,
                               ),
                             ),
                           ],
@@ -1348,50 +1354,47 @@ class _MusicHeroCard extends StatelessWidget {
                       ),
                       const Spacer(),
                       ClipRRect(
-                        borderRadius: BorderRadius.circular(22),
+                        borderRadius: BorderRadius.circular(24),
                         child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 12,
-                            ),
+                            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 begin: Alignment.topLeft,
                                 end: Alignment.bottomRight,
                                 colors: [
-                                  Colors.white.withValues(alpha: 0.11),
-                                  Colors.white.withValues(alpha: 0.05),
+                                  Colors.white.withValues(alpha: 0.14),
+                                  Colors.white.withValues(alpha: 0.07),
                                 ],
                               ),
-                              borderRadius: BorderRadius.circular(22),
+                              borderRadius: BorderRadius.circular(24),
                               border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.12),
+                                color: Colors.white.withValues(alpha: 0.14),
                               ),
                             ),
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
                                 Container(
-                                  width: 38,
-                                  height: 38,
+                                  width: 42,
+                                  height: 42,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
                                     color: Colors.white.withValues(alpha: 0.1),
                                     border: Border.all(
                                       color: Colors.white.withValues(
-                                        alpha: 0.12,
+                                        alpha: 0.16,
                                       ),
                                     ),
                                   ),
                                   child: Icon(
                                     Icons.graphic_eq_rounded,
-                                    color: Colors.white.withValues(alpha: 0.88),
-                                    size: 18,
+                                    color: Colors.white.withValues(alpha: 0.9),
+                                    size: 20,
                                   ),
                                 ),
-                                const SizedBox(width: 10),
+                                const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment:
@@ -1403,13 +1406,13 @@ class _MusicHeroCard extends StatelessWidget {
                                         style: theme.textTheme.bodySmall
                                             ?.copyWith(
                                               color: Colors.white.withValues(
-                                                alpha: 0.66,
+                                                alpha: 0.7,
                                               ),
                                               fontWeight: FontWeight.w700,
                                               letterSpacing: 0.3,
                                             ),
                                       ),
-                                      const SizedBox(height: 3),
+                                      const SizedBox(height: 4),
                                       Text(
                                         track.title,
                                         maxLines: 1,
@@ -1417,11 +1420,11 @@ class _MusicHeroCard extends StatelessWidget {
                                         style: theme.textTheme.titleMedium
                                             ?.copyWith(
                                               color: Colors.white,
-                                              fontSize: 17,
-                                              fontWeight: FontWeight.w700,
+                                              fontSize: 18,
+                                              fontWeight: FontWeight.w800,
                                             ),
                                       ),
-                                      const SizedBox(height: 3),
+                                      const SizedBox(height: 4),
                                       Text(
                                         '${track.artist} · ${track.album}',
                                         maxLines: 1,
@@ -1429,14 +1432,14 @@ class _MusicHeroCard extends StatelessWidget {
                                         style: theme.textTheme.bodySmall
                                             ?.copyWith(
                                               color: Colors.white.withValues(
-                                                alpha: 0.74,
+                                                alpha: 0.78,
                                               ),
                                             ),
                                       ),
                                     ],
                                   ),
                                 ),
-                                const SizedBox(width: 10),
+                                const SizedBox(width: 14),
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   mainAxisSize: MainAxisSize.min,
@@ -1447,10 +1450,11 @@ class _MusicHeroCard extends StatelessWidget {
                                         backgroundColor: Colors.white,
                                         foregroundColor: palette.gradient.first,
                                         padding: const EdgeInsets.symmetric(
-                                          horizontal: 16,
-                                          vertical: 12,
+                                          horizontal: 18,
+                                          vertical: 13,
                                         ),
-                                        visualDensity: VisualDensity.compact,
+                                        elevation: 0,
+                                        shape: const StadiumBorder(),
                                       ),
                                       icon:
                                           isBusy
@@ -1470,22 +1474,65 @@ class _MusicHeroCard extends StatelessWidget {
                                               ),
                                       label: Text(
                                         isBusy ? '处理中...' : buttonLabel,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
                                       ),
                                     ),
                                     if (onDetailTap != null) ...[
-                                      const SizedBox(height: 4),
-                                      TextButton(
-                                        onPressed: isBusy ? null : onDetailTap,
-                                        style: TextButton.styleFrom(
-                                          foregroundColor: Colors.white
-                                              .withValues(alpha: 0.92),
-                                          visualDensity: VisualDensity.compact,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 2,
+                                      const SizedBox(height: 8),
+                                      Container(
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.12,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            999,
+                                          ),
+                                          border: Border.all(
+                                            color: Colors.white.withValues(
+                                              alpha: 0.16,
+                                            ),
                                           ),
                                         ),
-                                        child: const Text('查看歌单'),
+                                        child: InkWell(
+                                          onTap: isBusy ? null : onDetailTap,
+                                          borderRadius: BorderRadius.circular(
+                                            999,
+                                          ),
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 4,
+                                              vertical: 2,
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
+                                                  '查看歌单',
+                                                  style: theme
+                                                      .textTheme
+                                                      .bodySmall
+                                                      ?.copyWith(
+                                                        color: Colors.white
+                                                            .withValues(
+                                                              alpha: 0.96,
+                                                            ),
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                      ),
+                                                ),
+                                                const SizedBox(width: 3),
+                                                Icon(
+                                                  Icons.arrow_forward_rounded,
+                                                  size: 16,
+                                                  color: Colors.white
+                                                      .withValues(alpha: 0.92),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
                                       ),
                                     ],
                                   ],
@@ -1531,45 +1578,48 @@ class _FavoritePlaylistCard extends StatelessWidget {
     final theme = Theme.of(context);
     final palette = paletteForTone(playlist.artworkTone);
     return Material(
-      color: Colors.white.withValues(alpha: 0.82),
-      borderRadius: BorderRadius.circular(26),
+      color: Colors.white.withValues(alpha: 0.9),
+      borderRadius: BorderRadius.circular(28),
       child: InkWell(
-        borderRadius: BorderRadius.circular(26),
+        borderRadius: BorderRadius.circular(28),
         onTap: isLoading ? null : onTap,
         child: Container(
-          padding: const EdgeInsets.fromLTRB(16, 15, 14, 15),
+          padding: const EdgeInsets.fromLTRB(16, 16, 14, 16),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(26),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.78)),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.92)),
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                Colors.white.withValues(alpha: 0.9),
-                Colors.white.withValues(alpha: 0.72),
+                Colors.white.withValues(alpha: 0.98),
+                const Color(0xFFF6F7FB).withValues(alpha: 0.92),
               ],
             ),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x120B1220),
-                blurRadius: 18,
-                offset: Offset(0, 10),
+                color: Color(0x140B1220),
+                blurRadius: 22,
+                offset: Offset(0, 12),
               ),
             ],
           ),
           child: Row(
             children: [
               Container(
-                width: 68,
-                height: 68,
+                width: 72,
+                height: 72,
                 decoration: BoxDecoration(
                   gradient: LinearGradient(colors: palette.gradient),
-                  borderRadius: BorderRadius.circular(22),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.28),
+                  ),
                   boxShadow: [
                     BoxShadow(
-                      color: palette.glowColor.withValues(alpha: 0.38),
-                      blurRadius: 18,
-                      offset: const Offset(0, 10),
+                      color: palette.glowColor.withValues(alpha: 0.22),
+                      blurRadius: 16,
+                      offset: const Offset(0, 8),
                     ),
                   ],
                 ),
@@ -1610,7 +1660,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
                             style: theme.textTheme.bodySmall?.copyWith(
                               fontWeight: FontWeight.w700,
                               letterSpacing: 0.35,
-                              color: const Color(0xFF5B6476),
+                              color: const Color(0xFF616B7E),
                             ),
                           ),
                         ),
@@ -1641,8 +1691,8 @@ class _FavoritePlaylistCard extends StatelessWidget {
                     Text(
                       playlist.title,
                       style: theme.textTheme.titleMedium?.copyWith(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
+                        fontSize: 19,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -1651,7 +1701,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF5B6476),
+                        color: const Color(0xFF616B7E),
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -1673,10 +1723,11 @@ class _FavoritePlaylistCard extends StatelessWidget {
                 style: FilledButton.styleFrom(
                   backgroundColor: palette.gradient.first,
                   foregroundColor: Colors.white,
-                  minimumSize: const Size(50, 50),
+                  minimumSize: const Size(52, 52),
                   shape: const CircleBorder(),
                   padding: EdgeInsets.zero,
                   elevation: 0,
+                  shadowColor: palette.glowColor.withValues(alpha: 0.14),
                 ),
                 child:
                     isLoading
@@ -1711,6 +1762,7 @@ class _SectionHeader extends StatelessWidget {
     required this.subtitle,
     required this.actionLabel,
     required this.onActionTap,
+    this.actionIcon,
     this.isBusy = false,
   });
 
@@ -1718,6 +1770,7 @@ class _SectionHeader extends StatelessWidget {
   final String subtitle;
   final String actionLabel;
   final VoidCallback onActionTap;
+  final IconData? actionIcon;
   final bool isBusy;
 
   @override
@@ -1730,22 +1783,44 @@ class _SectionHeader extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: theme.textTheme.titleLarge),
-              const SizedBox(height: 4),
-              Text(subtitle, style: theme.textTheme.bodySmall),
+              Text(
+                title,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                subtitle,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: const Color(0xFF667085),
+                ),
+              ),
             ],
           ),
         ),
-        TextButton(
+        FilledButton.tonalIcon(
           onPressed: isBusy ? null : onActionTap,
-          child:
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFFF3F4F8),
+            foregroundColor: const Color(0xFF445065),
+            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            shape: const StadiumBorder(),
+            elevation: 0,
+          ),
+          icon:
               isBusy
                   ? const SizedBox(
                     width: 16,
                     height: 16,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                  : Text(actionLabel),
+                  : Icon(actionIcon ?? Icons.arrow_forward_rounded, size: 16),
+          label: Text(
+            actionLabel,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
         ),
       ],
     );
@@ -1768,7 +1843,7 @@ class _CompactPlaylistGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 172,
+      height: 166,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: playlists.length,
@@ -1813,31 +1888,34 @@ class _PlaylistGridCard extends StatelessWidget {
     final theme = Theme.of(context);
     final palette = paletteForTone(playlist.artworkTone);
     return Material(
-      color: Colors.white.withValues(alpha: 0.78),
+      color: Colors.white.withValues(alpha: 0.9),
       borderRadius: BorderRadius.circular(26),
       child: InkWell(
         borderRadius: BorderRadius.circular(26),
         onTap: onTap,
         onLongPress: onLongPress,
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(13, 13, 13, 14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 48,
-                height: 48,
+                width: 54,
+                height: 54,
                 decoration: BoxDecoration(
                   gradient: LinearGradient(colors: palette.gradient),
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.3),
+                  ),
                   boxShadow:
                       playlist.id == 'netease-fm' ||
                               playlist.id == 'netease-daily'
                           ? [
                             BoxShadow(
-                              color: palette.glowColor.withValues(alpha: 0.28),
-                              blurRadius: 18,
-                              offset: const Offset(0, 8),
+                              color: palette.glowColor.withValues(alpha: 0.12),
+                              blurRadius: 10,
+                              offset: const Offset(0, 5),
                             ),
                           ]
                           : null,
@@ -1855,19 +1933,29 @@ class _PlaylistGridCard extends StatelessWidget {
                 playlist.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleSmall,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
               ),
               const SizedBox(height: 6),
-              Text(
-                isActive
-                    ? '当前播放中'
-                    : (playlist.id == 'netease-fm' ||
-                            playlist.id == 'netease-daily'
-                        ? '专属推荐'
-                        : playlist.tag),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: palette.gradient.first,
-                  fontWeight: FontWeight.w700,
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: palette.gradient.first.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  isActive
+                      ? '当前播放中'
+                      : (playlist.id == 'netease-fm' ||
+                              playlist.id == 'netease-daily'
+                          ? '专属推荐'
+                          : playlist.tag),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: palette.gradient.first,
+                    fontWeight: FontWeight.w800,
+                    fontSize: desktopAdjustedFontSize(11),
+                  ),
                 ),
               ),
               const SizedBox(height: 6),
@@ -1876,8 +1964,9 @@ class _PlaylistGridCard extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: const Color(0xFF7D879A),
-                  height: 1.35,
+                  color: const Color(0xFF6B7280),
+                  fontSize: desktopAdjustedFontSize(11.5),
+                  height: 1.3,
                 ),
               ),
               const Spacer(),
@@ -1929,26 +2018,29 @@ class _RecentPlaylistTile extends StatelessWidget {
     final theme = Theme.of(context);
     final palette = paletteForTone(playlist.artworkTone);
     return Material(
-      color: Colors.white.withValues(alpha: 0.8),
-      borderRadius: BorderRadius.circular(22),
+      color: Colors.white.withValues(alpha: 0.92),
+      borderRadius: BorderRadius.circular(24),
       child: InkWell(
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(24),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
           child: Row(
             children: [
               Container(
-                width: 56,
-                height: 56,
+                width: 54,
+                height: 54,
                 decoration: BoxDecoration(
                   gradient: LinearGradient(colors: palette.gradient),
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(17),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: 0.24),
+                  ),
                   boxShadow: [
                     BoxShadow(
-                      color: palette.glowColor.withValues(alpha: 0.22),
-                      blurRadius: 14,
-                      offset: const Offset(0, 8),
+                      color: palette.glowColor.withValues(alpha: 0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
                     ),
                   ],
                 ),
@@ -1973,7 +2065,7 @@ class _RecentPlaylistTile extends StatelessWidget {
                             playlist.title,
                             style: theme.textTheme.titleMedium?.copyWith(
                               fontSize: 15,
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w800,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -2002,35 +2094,64 @@ class _RecentPlaylistTile extends StatelessWidget {
                           ),
                       ],
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     Text(
                       playlist.subtitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        height: 1.25,
-                        color: const Color(0xFF5B6476),
+                        height: 1.2,
+                        color: const Color(0xFF596579),
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      metaLabel?.trim().isNotEmpty == true
-                          ? '${playlist.trackCount} 首歌 · ${metaLabel!}'
-                          : '${playlist.trackCount} 首歌 · 想听的时候 就从这里开始',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF8A93A5),
-                        fontSize: desktopAdjustedFontSize(11.5),
-                      ),
+                    const SizedBox(height: 5),
+                    Row(
+                      children: [
+                        Text(
+                          '${playlist.trackCount} 首歌',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFF8A93A5),
+                            fontSize: desktopAdjustedFontSize(11.5),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (metaLabel?.trim().isNotEmpty == true) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            width: 3,
+                            height: 3,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFA1A9B8),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
+                        Expanded(
+                          child: Text(
+                            metaLabel?.trim().isNotEmpty == true
+                                ? metaLabel!
+                                : '想听的时候 就从这里开始',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF8A93A5),
+                              fontSize: desktopAdjustedFontSize(11.5),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
               const SizedBox(width: 10),
               SizedBox(
-                width: 46,
-                height: 46,
+                width: 44,
+                height: 44,
                 child: Material(
                   color: Colors.transparent,
                   shape: const CircleBorder(),
