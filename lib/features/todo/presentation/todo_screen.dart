@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -9,7 +10,11 @@ import '../application/todo_store.dart';
 import '../domain/todo_models.dart';
 
 class TodoScreen extends StatefulWidget {
-  const TodoScreen({super.key, this.embedded = false, this.projectConfigOnly = false});
+  const TodoScreen({
+    super.key,
+    this.embedded = false,
+    this.projectConfigOnly = false,
+  });
 
   final bool embedded;
   final bool projectConfigOnly;
@@ -19,28 +24,43 @@ class TodoScreen extends StatefulWidget {
 }
 
 enum _TaskFeedFilter { all, today, upcoming }
+
 enum _TaskSortMode { smart, dueSoon, priority }
 
 class _TodoScreenState extends State<TodoScreen>
-    with AutomaticKeepAliveClientMixin {
+    with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   static const Uuid _uuid = Uuid();
+  static const Duration _autoRefreshInterval = Duration(seconds: 45);
 
   late final String _heroMessage;
   _TaskFeedFilter _activeFilter = _TaskFeedFilter.all;
   _TaskSortMode _sortMode = _TaskSortMode.smart;
   String? _projectFilterId;
+  DateTime? _lastAutoRefreshAt;
+  bool _refreshInFlight = false;
+  bool _autoRefreshQueued = false;
 
   @override
   void initState() {
     super.initState();
-    _heroMessage = _todoHeroMessages[Random().nextInt(_todoHeroMessages.length)];
+    WidgetsBinding.instance.addObserver(this);
+    _heroMessage =
+        _todoHeroMessages[Random().nextInt(_todoHeroMessages.length)];
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<TodoStore>().ensureLoaded();
+      unawaited(_refreshTodo(forceRemote: true, markAutoRefresh: true));
     });
   }
 
   @override
   bool get wantKeepAlive => true;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      return;
+    }
+    _scheduleAutoRefresh(force: true);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -50,7 +70,8 @@ class _TodoScreenState extends State<TodoScreen>
 
     if (widget.projectConfigOnly) {
       return _ProjectManagementScreen(
-        onOpenProjectEditor: ({project}) => _openProjectEditor(project: project),
+        onOpenProjectEditor:
+            ({project}) => _openProjectEditor(project: project),
         onOpenProjectSorter: _openProjectSorter,
         onOpenArchivedProjects: _openArchivedProjects,
       );
@@ -69,12 +90,16 @@ class _TodoScreenState extends State<TodoScreen>
       );
     }
 
+    _scheduleAutoRefresh();
+
     var filteredTasks = switch (_activeFilter) {
       _TaskFeedFilter.all => store.tasks
           .where(
             (item) =>
                 !item.isDone &&
-                !store.archivedProjects.any((project) => project.id == item.projectId),
+                !store.archivedProjects.any(
+                  (project) => project.id == item.projectId,
+                ),
           )
           .toList(growable: false),
       _TaskFeedFilter.today => store.todayTasks,
@@ -92,104 +117,117 @@ class _TodoScreenState extends State<TodoScreen>
       _TaskFeedFilter.upcoming => '未来',
     };
 
-    final body = CustomScrollView(
-      slivers: [
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
-            child: _TodoHeroCard(
-              store: store,
-              message: _heroMessage,
-              onOpenCompleted: _openCompletedTasks,
-            ),
-          ),
+    final body = RefreshIndicator(
+      onRefresh: () => _refreshTodo(forceRemote: true, markAutoRefresh: true),
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
         ),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
-            child: Row(
-              children: [
-                Text(
-                  filterLabel,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  '${filteredTasks.length} 项',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-            child: _TaskToolbar(
-              activeFilter: _activeFilter,
-              projects: store.activeProjects,
-              selectedProjectId: _projectFilterId,
-              sortMode: _sortMode,
-              onFilterChanged: (value) => setState(() => _activeFilter = value),
-              onProjectChanged: (value) => setState(() => _projectFilterId = value),
-              onSortChanged: (value) => setState(() => _sortMode = value),
-            ),
-          ),
-        ),
-        if (filteredTasks.isEmpty)
+        slivers: [
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: _EmptyCard(
-                title: '$filterLabel这里空空的',
-                subtitle: '要不要顺手补一个新的小目标？',
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+              child: _TodoHeroCard(
+                store: store,
+                message: _heroMessage,
+                onOpenCompleted: _openCompletedTasks,
               ),
             ),
-          )
-        else
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
-            sliver: SliverList.builder(
-              itemCount: filteredTasks.length,
-              itemBuilder: (context, index) {
-                final task = filteredTasks[index];
-                final project = store.projects.firstWhere(
-                  (item) => item.id == task.projectId,
-                );
-                return AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 240),
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
-                  transitionBuilder: (child, animation) {
-                    final offsetAnimation = Tween<Offset>(
-                      begin: const Offset(0, 0.08),
-                      end: Offset.zero,
-                    ).animate(animation);
-                    return FadeTransition(
-                      opacity: animation,
-                      child: SlideTransition(position: offsetAnimation, child: child),
-                    );
-                  },
-                  child: Padding(
-                    key: ValueKey('task-row-${task.id}-${task.isDone}-${_activeFilter.name}'),
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _TaskTile(
-                      task: task,
-                      project: project,
-                      onChanged: (value) => store.toggleTask(task.id, value),
-                      onTap: () => _openEditor(task: task),
-                      onDelete: () => store.deleteTask(task.id),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
+              child: Row(
+                children: [
+                  Text(
+                    filterLabel,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
-                );
-              },
+                  const Spacer(),
+                  Text(
+                    '${filteredTasks.length} 项',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-      ],
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: _TaskToolbar(
+                activeFilter: _activeFilter,
+                projects: store.activeProjects,
+                selectedProjectId: _projectFilterId,
+                sortMode: _sortMode,
+                onFilterChanged:
+                    (value) => setState(() => _activeFilter = value),
+                onProjectChanged:
+                    (value) => setState(() => _projectFilterId = value),
+                onSortChanged: (value) => setState(() => _sortMode = value),
+              ),
+            ),
+          ),
+          if (filteredTasks.isEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: _EmptyCard(
+                  title: '$filterLabel这里空空的',
+                  subtitle: '要不要顺手补一个新的小目标？',
+                ),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
+              sliver: SliverList.builder(
+                itemCount: filteredTasks.length,
+                itemBuilder: (context, index) {
+                  final task = filteredTasks[index];
+                  final project = store.projects.firstWhere(
+                    (item) => item.id == task.projectId,
+                  );
+                  return AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 240),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    transitionBuilder: (child, animation) {
+                      final offsetAnimation = Tween<Offset>(
+                        begin: const Offset(0, 0.08),
+                        end: Offset.zero,
+                      ).animate(animation);
+                      return FadeTransition(
+                        opacity: animation,
+                        child: SlideTransition(
+                          position: offsetAnimation,
+                          child: child,
+                        ),
+                      );
+                    },
+                    child: Padding(
+                      key: ValueKey(
+                        'task-row-${task.id}-${task.isDone}-${_activeFilter.name}',
+                      ),
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _TaskTile(
+                        task: task,
+                        project: project,
+                        onChanged: (value) => store.toggleTask(task.id, value),
+                        onTap: () => _openEditor(task: task),
+                        onDelete: () => store.deleteTask(task.id),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
     );
 
     if (widget.embedded) {
@@ -233,6 +271,53 @@ class _TodoScreenState extends State<TodoScreen>
     );
   }
 
+  Future<void> _refreshTodo({
+    bool forceRemote = false,
+    bool markAutoRefresh = false,
+  }) async {
+    if (!mounted || _refreshInFlight) return;
+    _refreshInFlight = true;
+    if (markAutoRefresh) {
+      _lastAutoRefreshAt = DateTime.now();
+    }
+    try {
+      final store = context.read<TodoStore>();
+      await store.ensureLoaded();
+      if (forceRemote || store.isLoaded) {
+        await store.refreshFromRemote(force: true);
+      }
+    } finally {
+      _refreshInFlight = false;
+    }
+  }
+
+  void _scheduleAutoRefresh({bool force = false}) {
+    if (!mounted ||
+        widget.projectConfigOnly ||
+        _refreshInFlight ||
+        _autoRefreshQueued) {
+      return;
+    }
+    final now = DateTime.now();
+    if (!force &&
+        _lastAutoRefreshAt != null &&
+        now.difference(_lastAutoRefreshAt!) < _autoRefreshInterval) {
+      return;
+    }
+    _autoRefreshQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _autoRefreshQueued = false;
+      if (!mounted) return;
+      unawaited(_refreshTodo(forceRemote: true, markAutoRefresh: true));
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   Future<void> _openProjectSorter() async {
     await showModalBottomSheet<void>(
       context: context,
@@ -244,17 +329,13 @@ class _TodoScreenState extends State<TodoScreen>
 
   void _openArchivedProjects() {
     Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => const _ArchivedProjectsScreen(),
-      ),
+      MaterialPageRoute<void>(builder: (_) => const _ArchivedProjectsScreen()),
     );
   }
 
   void _openCompletedTasks() {
     Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => const _CompletedTasksScreen(),
-      ),
+      MaterialPageRoute<void>(builder: (_) => const _CompletedTasksScreen()),
     );
   }
 
@@ -288,13 +369,12 @@ class _TodoScreenState extends State<TodoScreen>
       case _TaskSortMode.smart:
         return tasks;
       case _TaskSortMode.dueSoon:
-        return tasks.toList(growable: false)
-          ..sort((a, b) {
-            if (a.dueAt == null && b.dueAt == null) return 0;
-            if (a.dueAt == null) return 1;
-            if (b.dueAt == null) return -1;
-            return a.dueAt!.compareTo(b.dueAt!);
-          });
+        return tasks.toList(growable: false)..sort((a, b) {
+          if (a.dueAt == null && b.dueAt == null) return 0;
+          if (a.dueAt == null) return 1;
+          if (b.dueAt == null) return -1;
+          return a.dueAt!.compareTo(b.dueAt!);
+        });
       case _TaskSortMode.priority:
         return tasks.toList(growable: false)
           ..sort((a, b) => b.priority.index.compareTo(a.priority.index));
@@ -304,13 +384,16 @@ class _TodoScreenState extends State<TodoScreen>
   Future<void> _openEditor({TodoTask? task}) async {
     final store = context.read<TodoStore>();
     final subtasks =
-        task == null ? const <TodoSubtask>[] : await store.subtasksForTask(task.id);
+        task == null
+            ? const <TodoSubtask>[]
+            : await store.subtasksForTask(task.id);
     if (!mounted) return;
     final result = await showModalBottomSheet<_TaskEditorResult>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => _TaskEditorSheet(task: task, initialSubtasks: subtasks),
+      builder:
+          (context) => _TaskEditorSheet(task: task, initialSubtasks: subtasks),
     );
     if (result == null) return;
     if (result.deleteTask && task != null) {
@@ -321,7 +404,8 @@ class _TodoScreenState extends State<TodoScreen>
     final completedSubtasks =
         result.subtasks.where((item) => item.isCompleted).length;
     final shouldAutoComplete =
-        result.subtasks.isNotEmpty && completedSubtasks == result.subtasks.length;
+        result.subtasks.isNotEmpty &&
+        completedSubtasks == result.subtasks.length;
     await store.saveTask(
       TodoTask(
         id: taskId,
@@ -329,16 +413,18 @@ class _TodoScreenState extends State<TodoScreen>
         title: result.title,
         description: result.description,
         priority: result.priority,
-        status: shouldAutoComplete
-            ? TodoStatus.done
-            : task?.status ?? TodoStatus.todo,
+        status:
+            shouldAutoComplete
+                ? TodoStatus.done
+                : task?.status ?? TodoStatus.todo,
         dueAt: result.dueAt,
         reminderAt: result.reminderAt,
         createdAt: task?.createdAt,
         updatedAt: task?.updatedAt,
-        completedAt: shouldAutoComplete
-            ? (task?.completedAt ?? DateTime.now())
-            : task?.completedAt,
+        completedAt:
+            shouldAutoComplete
+                ? (task?.completedAt ?? DateTime.now())
+                : task?.completedAt,
         subtaskCount: result.subtasks.length,
         completedSubtaskCount: completedSubtasks,
       ),
@@ -416,9 +502,18 @@ class _TodoHeroCard extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              _HeroInlineStat(label: '待处理', value: store.totalPendingCount.toString()),
-              _HeroInlineStat(label: '今天', value: store.totalDueTodayCount.toString()),
-              _HeroInlineStat(label: '项目', value: store.activeProjects.length.toString()),
+              _HeroInlineStat(
+                label: '待处理',
+                value: store.totalPendingCount.toString(),
+              ),
+              _HeroInlineStat(
+                label: '今天',
+                value: store.totalDueTodayCount.toString(),
+              ),
+              _HeroInlineStat(
+                label: '项目',
+                value: store.activeProjects.length.toString(),
+              ),
             ],
           ),
         ],
@@ -707,11 +802,17 @@ class _TaskToolbar extends StatelessWidget {
                 value: selectedProjectId,
                 hint: '项目',
                 items: [
-                  const DropdownMenuItem<String?>(value: null, child: Text('项目')),
+                  const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('项目'),
+                  ),
                   ...projects.map(
                     (project) => DropdownMenuItem<String?>(
                       value: project.id,
-                      child: Text(project.name, overflow: TextOverflow.ellipsis),
+                      child: Text(
+                        project.name,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   ),
                 ],
@@ -722,9 +823,18 @@ class _TaskToolbar extends StatelessWidget {
                 value: sortMode,
                 hint: '排序',
                 items: const [
-                  DropdownMenuItem(value: _TaskSortMode.smart, child: Text('智能')),
-                  DropdownMenuItem(value: _TaskSortMode.dueSoon, child: Text('到期')),
-                  DropdownMenuItem(value: _TaskSortMode.priority, child: Text('优先')),
+                  DropdownMenuItem(
+                    value: _TaskSortMode.smart,
+                    child: Text('智能'),
+                  ),
+                  DropdownMenuItem(
+                    value: _TaskSortMode.dueSoon,
+                    child: Text('到期'),
+                  ),
+                  DropdownMenuItem(
+                    value: _TaskSortMode.priority,
+                    child: Text('优先'),
+                  ),
                 ],
                 onChanged: (value) {
                   if (value != null) onSortChanged(value);
@@ -785,7 +895,6 @@ class _CompactDropdown<T> extends StatelessWidget {
   }
 }
 
-
 class _TaskTile extends StatefulWidget {
   const _TaskTile({
     required this.task,
@@ -813,7 +922,9 @@ class _TaskTileState extends State<_TaskTile> {
 
   Future<void> _toggleExpanded() async {
     if (!_expanded && widget.task.subtaskCount > 0 && _subtasksFuture == null) {
-      _subtasksFuture = context.read<TodoStore>().subtasksForTask(widget.task.id);
+      _subtasksFuture = context.read<TodoStore>().subtasksForTask(
+        widget.task.id,
+      );
     }
     setState(() {
       _expanded = !_expanded;
@@ -824,61 +935,62 @@ class _TaskTileState extends State<_TaskTile> {
     final action = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => SafeArea(
-        top: false,
-        child: Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFFF8F8FD),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 44,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD9DDEC),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-                const SizedBox(height: 18),
-                ListTile(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  tileColor: Colors.white,
-                  leading: const Icon(
-                    Icons.edit_outlined,
-                    color: Color(0xFF7B6CF6),
-                  ),
-                  title: const Text('编辑任务'),
-                  subtitle: const Text('打开完整编辑面板'),
-                  onTap: () => Navigator.of(context).pop('edit'),
-                ),
-                if (widget.onDelete != null) ...[
-                  const SizedBox(height: 10),
-                  ListTile(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
+      builder:
+          (context) => SafeArea(
+            top: false,
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Color(0xFFF8F8FD),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD9DDEC),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
                     ),
-                    tileColor: Colors.white,
-                    leading: const Icon(
-                      Icons.delete_outline_rounded,
-                      color: Color(0xFFEF4444),
+                    const SizedBox(height: 18),
+                    ListTile(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      tileColor: Colors.white,
+                      leading: const Icon(
+                        Icons.edit_outlined,
+                        color: Color(0xFF7B6CF6),
+                      ),
+                      title: const Text('编辑任务'),
+                      subtitle: const Text('打开完整编辑面板'),
+                      onTap: () => Navigator.of(context).pop('edit'),
                     ),
-                    title: const Text('删除任务'),
-                    subtitle: const Text('这条任务会从列表里移除'),
-                    onTap: () => Navigator.of(context).pop('delete'),
-                  ),
-                ],
-              ],
+                    if (widget.onDelete != null) ...[
+                      const SizedBox(height: 10),
+                      ListTile(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        tileColor: Colors.white,
+                        leading: const Icon(
+                          Icons.delete_outline_rounded,
+                          color: Color(0xFFEF4444),
+                        ),
+                        title: const Text('删除任务'),
+                        subtitle: const Text('这条任务会从列表里移除'),
+                        onTap: () => Navigator.of(context).pop('delete'),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             ),
           ),
-        ),
-      ),
     );
     if (!mounted) return;
     if (action == 'edit') {
@@ -908,7 +1020,8 @@ class _TaskTileState extends State<_TaskTile> {
           text: dueTone?.label ?? _formatDue(task.dueAt!),
           color: dueTone?.color ?? const Color(0xFF8F99AD),
         ),
-      if (task.priority == TodoPriority.high || task.priority == TodoPriority.urgent)
+      if (task.priority == TodoPriority.high ||
+          task.priority == TodoPriority.urgent)
         _InlineMetaText(
           text: _priorityLabel(task.priority),
           color: _priorityColor(task.priority),
@@ -974,7 +1087,9 @@ class _TaskTileState extends State<_TaskTile> {
                             style: theme.textTheme.bodyMedium?.copyWith(
                               fontWeight: FontWeight.w700,
                               decoration:
-                                  task.isDone ? TextDecoration.lineThrough : null,
+                                  task.isDone
+                                      ? TextDecoration.lineThrough
+                                      : null,
                               color:
                                   task.isDone
                                       ? const Color(0xFF9BA4B5)
@@ -994,7 +1109,9 @@ class _TaskTileState extends State<_TaskTile> {
                     ),
                     const SizedBox(width: 8),
                     Icon(
-                      _expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+                      _expanded
+                          ? Icons.expand_less_rounded
+                          : Icons.expand_more_rounded,
                       size: 18,
                       color: const Color(0xFF9AA3B3),
                     ),
@@ -1003,9 +1120,10 @@ class _TaskTileState extends State<_TaskTile> {
               ),
               AnimatedCrossFade(
                 duration: const Duration(milliseconds: 180),
-                crossFadeState: _expanded
-                    ? CrossFadeState.showSecond
-                    : CrossFadeState.showFirst,
+                crossFadeState:
+                    _expanded
+                        ? CrossFadeState.showSecond
+                        : CrossFadeState.showFirst,
                 firstChild: const SizedBox.shrink(),
                 secondChild: Padding(
                   padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
@@ -1069,7 +1187,10 @@ class _TaskExpandedBody extends StatelessWidget {
       ),
       if (task.dueAt != null)
         _ExpandedMetaItem(
-          icon: dueTone != null ? Icons.timelapse_rounded : Icons.schedule_rounded,
+          icon:
+              dueTone != null
+                  ? Icons.timelapse_rounded
+                  : Icons.schedule_rounded,
           label: dueTone?.label ?? _formatDue(task.dueAt!),
           color: dueTone?.color ?? const Color(0xFF98A1B3),
           emphasized: dueTone != null,
@@ -1084,7 +1205,8 @@ class _TaskExpandedBody extends StatelessWidget {
         icon: _priorityIcon(task.priority),
         label: _priorityLabel(task.priority),
         color: _priorityColor(task.priority),
-        emphasized: task.priority == TodoPriority.high ||
+        emphasized:
+            task.priority == TodoPriority.high ||
             task.priority == TodoPriority.urgent,
       ),
     ];
@@ -1105,11 +1227,7 @@ class _TaskExpandedBody extends StatelessWidget {
               ),
             ),
           ),
-        Wrap(
-          spacing: 12,
-          runSpacing: 8,
-          children: metaItems,
-        ),
+        Wrap(spacing: 12, runSpacing: 8, children: metaItems),
         if (task.subtaskCount > 0) ...[
           const SizedBox(height: 12),
           Text(
@@ -1179,7 +1297,11 @@ class _ExpandedMetaItem extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 13, color: emphasized ? color : const Color(0xFF98A2B3)),
+        Icon(
+          icon,
+          size: 13,
+          color: emphasized ? color : const Color(0xFF98A2B3),
+        ),
         const SizedBox(width: 5),
         Text(
           label,
@@ -1205,11 +1327,10 @@ class _SubtaskLine extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
-        border: isLast
-            ? null
-            : const Border(
-                bottom: BorderSide(color: Color(0xFFF2F4F7)),
-              ),
+        border:
+            isLast
+                ? null
+                : const Border(bottom: BorderSide(color: Color(0xFFF2F4F7))),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1221,9 +1342,10 @@ class _SubtaskLine extends StatelessWidget {
                   ? Icons.check_circle_rounded
                   : Icons.radio_button_unchecked_rounded,
               size: 15,
-              color: item.isCompleted
-                  ? const Color(0xFF7C4DFF)
-                  : const Color(0xFFB0B7C6),
+              color:
+                  item.isCompleted
+                      ? const Color(0xFF7C4DFF)
+                      : const Color(0xFFB0B7C6),
             ),
           ),
           const SizedBox(width: 8),
@@ -1231,11 +1353,13 @@ class _SubtaskLine extends StatelessWidget {
             child: Text(
               item.title,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: item.isCompleted
-                    ? const Color(0xFF98A2B3)
-                    : const Color(0xFF475467),
+                color:
+                    item.isCompleted
+                        ? const Color(0xFF98A2B3)
+                        : const Color(0xFF475467),
                 height: 1.4,
-                decoration: item.isCompleted ? TextDecoration.lineThrough : null,
+                decoration:
+                    item.isCompleted ? TextDecoration.lineThrough : null,
               ),
             ),
           ),
@@ -1293,7 +1417,10 @@ class _ProjectManagementScreen extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               OutlinedButton.icon(
-                onPressed: store.archivedProjects.isNotEmpty ? onOpenArchivedProjects : null,
+                onPressed:
+                    store.archivedProjects.isNotEmpty
+                        ? onOpenArchivedProjects
+                        : null,
                 icon: const Icon(Icons.inventory_2_outlined),
                 label: const Text('归档'),
               ),
@@ -1301,17 +1428,16 @@ class _ProjectManagementScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           if (projects.isEmpty)
-            const _EmptyCard(
-              title: '还没有项目',
-              subtitle: '先建一个项目，把待办分门别类收好。',
-            )
+            const _EmptyCard(title: '还没有项目', subtitle: '先建一个项目，把待办分门别类收好。')
           else
             ...projects.asMap().entries.map((entry) {
               final index = entry.key;
               final project = entry.value;
               final color = Color(project.colorValue);
               return Padding(
-                padding: EdgeInsets.only(bottom: index == projects.length - 1 ? 0 : 12),
+                padding: EdgeInsets.only(
+                  bottom: index == projects.length - 1 ? 0 : 12,
+                ),
                 child: Material(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(22),
@@ -1513,78 +1639,84 @@ class _ArchivedProjectsScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('已归档项目')),
-      body: archivedProjects.isEmpty
-          ? const Padding(
-              padding: EdgeInsets.all(20),
-              child: _EmptyCard(
-                title: '这里还空着',
-                subtitle: '归档的项目会收在这里，想恢复随时都行。',
+      body:
+          archivedProjects.isEmpty
+              ? const Padding(
+                padding: EdgeInsets.all(20),
+                child: _EmptyCard(
+                  title: '这里还空着',
+                  subtitle: '归档的项目会收在这里，想恢复随时都行。',
+                ),
+              )
+              : ListView.separated(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+                itemCount: archivedProjects.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  final project = archivedProjects[index];
+                  final color = Color(project.colorValue);
+                  return Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x081F2430),
+                          blurRadius: 18,
+                          offset: Offset(0, 8),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: color.withValues(alpha: 0.16),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Icon(
+                            _projectIconFromCodePoint(project.iconCodePoint),
+                            color: color,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                project.name,
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w800),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                project.description.isEmpty
+                                    ? '这个项目先收起来了。'
+                                    : project.description,
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        OutlinedButton.icon(
+                          onPressed:
+                              () => store.archiveProject(
+                                project.id,
+                                archived: false,
+                              ),
+                          icon: const Icon(Icons.unarchive_outlined),
+                          label: const Text('恢复'),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
-            )
-          : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
-              itemCount: archivedProjects.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
-              itemBuilder: (context, index) {
-                final project = archivedProjects[index];
-                final color = Color(project.colorValue);
-                return Container(
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(24),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x081F2430),
-                        blurRadius: 18,
-                        offset: Offset(0, 8),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: color.withValues(alpha: 0.16),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Icon(
-                          _projectIconFromCodePoint(project.iconCodePoint),
-                          color: color,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              project.name,
-                              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              project.description.isEmpty ? '这个项目先收起来了。' : project.description,
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      OutlinedButton.icon(
-                        onPressed: () => store.archiveProject(project.id, archived: false),
-                        icon: const Icon(Icons.unarchive_outlined),
-                        label: const Text('恢复'),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
     );
   }
 }
@@ -1645,60 +1777,65 @@ class _EmptyCard extends StatelessWidget {
 }
 
 class _AddTaskFab extends StatelessWidget {
-  const _AddTaskFab({
-    required this.onTap,
-    this.compact = false,
-  });
+  const _AddTaskFab({required this.onTap, this.compact = false});
 
   final VoidCallback onTap;
   final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    final child = compact
-        ? Container(
-          width: 42,
-          height: 42,
-          decoration: const BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(
-              colors: [Color(0xFF8E73FF), Color(0xFFB08CFF)],
-            ),
-          ),
-          child: const Icon(Icons.add_rounded, color: Colors.white),
-        )
-        : Container(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF8E73FF), Color(0xFFB08CFF)],
-            ),
-            borderRadius: BorderRadius.circular(999),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x268E73FF),
-                blurRadius: 18,
-                offset: Offset(0, 10),
-              ),
-            ],
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.add_rounded, color: Colors.white),
-              SizedBox(width: 6),
-              Text(
-                '新建任务',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
+    final child =
+        compact
+            ? Container(
+              width: 42,
+              height: 42,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  colors: [Color(0xFF8E73FF), Color(0xFFB08CFF)],
                 ),
               ),
-            ],
-          ),
-        );
+              child: const Icon(Icons.add_rounded, color: Colors.white),
+            )
+            : Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF8E73FF), Color(0xFFB08CFF)],
+                ),
+                borderRadius: BorderRadius.circular(999),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x268E73FF),
+                    blurRadius: 18,
+                    offset: Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.add_rounded, color: Colors.white),
+                  SizedBox(width: 6),
+                  Text(
+                    '新建任务',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            );
 
-    return Material(color: Colors.transparent, child: InkWell(onTap: onTap, borderRadius: BorderRadius.circular(999), child: child));
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: child,
+      ),
+    );
   }
 }
 
@@ -1760,10 +1897,13 @@ class _ProjectEditorSheetState extends State<_ProjectEditorSheet> {
     super.initState();
     final project = widget.project;
     _nameController = TextEditingController(text: project?.name ?? '');
-    _descriptionController = TextEditingController(text: project?.description ?? '');
-    _iconData = project == null
-        ? _iconChoices.first
-        : _projectIconFromCodePoint(project.iconCodePoint);
+    _descriptionController = TextEditingController(
+      text: project?.description ?? '',
+    );
+    _iconData =
+        project == null
+            ? _iconChoices.first
+            : _projectIconFromCodePoint(project.iconCodePoint);
     _color = project == null ? _colorChoices[1] : Color(project.colorValue);
   }
 
@@ -1812,7 +1952,9 @@ class _ProjectEditorSheetState extends State<_ProjectEditorSheet> {
                 const SizedBox(height: 18),
                 TextField(
                   controller: _nameController,
-                  decoration: const InputDecoration(hintText: '比如：健康 / 出行 / 创作'),
+                  decoration: const InputDecoration(
+                    hintText: '比如：健康 / 出行 / 创作',
+                  ),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -1822,7 +1964,12 @@ class _ProjectEditorSheetState extends State<_ProjectEditorSheet> {
                   decoration: const InputDecoration(hintText: '给这个项目留一句说明。'),
                 ),
                 const SizedBox(height: 18),
-                Text('图标', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                Text(
+                  '图标',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 const SizedBox(height: 10),
                 Container(
                   padding: const EdgeInsets.all(14),
@@ -1845,7 +1992,12 @@ class _ProjectEditorSheetState extends State<_ProjectEditorSheet> {
                   ),
                 ),
                 const SizedBox(height: 18),
-                Text('颜色', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                Text(
+                  '颜色',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 const SizedBox(height: 10),
                 Container(
                   padding: const EdgeInsets.all(14),
@@ -1877,9 +2029,7 @@ class _ProjectEditorSheetState extends State<_ProjectEditorSheet> {
                             ? Icons.unarchive_outlined
                             : Icons.archive_outlined,
                       ),
-                      label: Text(
-                        widget.project!.archived ? '取消归档' : '归档项目',
-                      ),
+                      label: Text(widget.project!.archived ? '取消归档' : '归档项目'),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -1904,7 +2054,10 @@ class _ProjectEditorSheetState extends State<_ProjectEditorSheet> {
     if (project == null) return;
     Navigator.of(context).pop(
       _ProjectEditorResult(
-        name: _nameController.text.trim().isEmpty ? project.name : _nameController.text.trim(),
+        name:
+            _nameController.text.trim().isEmpty
+                ? project.name
+                : _nameController.text.trim(),
         description: _descriptionController.text.trim(),
         iconData: _iconData,
         color: _color,
@@ -1950,16 +2103,17 @@ class _SelectableIconChip extends StatelessWidget {
         width: 50,
         height: 50,
         decoration: BoxDecoration(
-          gradient: selected
-              ? LinearGradient(
-                  colors: [
-                    color.withValues(alpha: 0.24),
-                    color.withValues(alpha: 0.08),
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                )
-              : null,
+          gradient:
+              selected
+                  ? LinearGradient(
+                    colors: [
+                      color.withValues(alpha: 0.24),
+                      color.withValues(alpha: 0.08),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                  : null,
           color: selected ? null : Colors.white,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
@@ -2000,9 +2154,10 @@ class _SelectableColorDot extends StatelessWidget {
             width: 2,
           ),
         ),
-        child: selected
-            ? const Icon(Icons.check_rounded, size: 18, color: Colors.white)
-            : null,
+        child:
+            selected
+                ? const Icon(Icons.check_rounded, size: 18, color: Colors.white)
+                : null,
       ),
     );
   }
@@ -2019,49 +2174,52 @@ class _CompletedTasksScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF6F7FB),
-      appBar: AppBar(
-        title: const Text('已完成'),
-      ),
-      body: completed.isEmpty
-          ? Padding(
-              padding: const EdgeInsets.all(20),
-              child: _EmptyCard(
-                title: '还没有已完成任务',
-                subtitle: '等你点亮第一条完成记录。',
-              ),
-            )
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-              children: grouped.entries.map((entry) {
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 18),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Text(
-                          entry.key,
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: const Color(0xFF495163),
-                          ),
+      appBar: AppBar(title: const Text('已完成')),
+      body:
+          completed.isEmpty
+              ? Padding(
+                padding: const EdgeInsets.all(20),
+                child: _EmptyCard(title: '还没有已完成任务', subtitle: '等你点亮第一条完成记录。'),
+              )
+              : ListView(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                children: grouped.entries
+                    .map((entry) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 18),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: Text(
+                                entry.key,
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: const Color(0xFF495163),
+                                ),
+                              ),
+                            ),
+                            ...entry.value.map((task) {
+                              final project = store.projects.firstWhere(
+                                (item) => item.id == task.projectId,
+                              );
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: _CompletedTaskRow(
+                                  task: task,
+                                  project: project,
+                                ),
+                              );
+                            }),
+                          ],
                         ),
-                      ),
-                      ...entry.value.map((task) {
-                        final project = store.projects.firstWhere(
-                          (item) => item.id == task.projectId,
-                        );
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: _CompletedTaskRow(task: task, project: project),
-                        );
-                      }),
-                    ],
-                  ),
-                );
-              }).toList(growable: false),
-            ),
+                      );
+                    })
+                    .toList(growable: false),
+              ),
     );
   }
 }
@@ -2097,7 +2255,9 @@ class _CompletedTaskRow extends StatelessWidget {
             margin: const EdgeInsets.only(right: 10),
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.8),
-              borderRadius: const BorderRadius.horizontal(right: Radius.circular(4)),
+              borderRadius: const BorderRadius.horizontal(
+                right: Radius.circular(4),
+              ),
             ),
           ),
           const Icon(
@@ -2183,16 +2343,17 @@ class _ProjectDetailScreenState extends State<_ProjectDetailScreen> {
       orElse: () => project,
     );
     final tasks = store.tasksForProject(refreshedProject.id);
-    final today =
-        tasks
-            .where((item) => _isSameDay(item.dueAt, DateTime.now()) && !item.isDone)
-            .toList(growable: false);
-    final upcoming =
-        tasks
-            .where((item) => !item.isDone && !_isSameDay(item.dueAt, DateTime.now()))
-            .toList(growable: false);
-    final completed =
-        tasks.where((item) => item.isDone).toList(growable: false);
+    final today = tasks
+        .where((item) => _isSameDay(item.dueAt, DateTime.now()) && !item.isDone)
+        .toList(growable: false);
+    final upcoming = tasks
+        .where(
+          (item) => !item.isDone && !_isSameDay(item.dueAt, DateTime.now()),
+        )
+        .toList(growable: false);
+    final completed = tasks
+        .where((item) => item.isDone)
+        .toList(growable: false);
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -2205,10 +2366,11 @@ class _ProjectDetailScreenState extends State<_ProjectDetailScreen> {
             tooltip: '编辑项目',
           ),
           IconButton(
-            onPressed: () => store.archiveProject(
-              refreshedProject.id,
-              archived: !refreshedProject.archived,
-            ),
+            onPressed:
+                () => store.archiveProject(
+                  refreshedProject.id,
+                  archived: !refreshedProject.archived,
+                ),
             icon: Icon(
               refreshedProject.archived
                   ? Icons.unarchive_outlined
@@ -2247,7 +2409,9 @@ class _ProjectDetailScreenState extends State<_ProjectDetailScreen> {
                   width: 56,
                   height: 56,
                   decoration: BoxDecoration(
-                    color: Color(refreshedProject.colorValue).withValues(alpha: 0.16),
+                    color: Color(
+                      refreshedProject.colorValue,
+                    ).withValues(alpha: 0.16),
                     borderRadius: BorderRadius.circular(18),
                   ),
                   child: Icon(
@@ -2269,7 +2433,9 @@ class _ProjectDetailScreenState extends State<_ProjectDetailScreen> {
                       const SizedBox(height: 6),
                       Text(
                         refreshedProject.description,
-                        style: theme.textTheme.bodyMedium?.copyWith(height: 1.55),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          height: 1.55,
+                        ),
                       ),
                     ],
                   ),
@@ -2283,7 +2449,9 @@ class _ProjectDetailScreenState extends State<_ProjectDetailScreen> {
             tasks: today,
             project: refreshedProject,
             onToggle: (task, value) => store.toggleTask(task.id, value),
-            onEdit: (task) => _openEditor(task: task, projectId: refreshedProject.id),
+            onEdit:
+                (task) =>
+                    _openEditor(task: task, projectId: refreshedProject.id),
             onDelete: (task) => store.deleteTask(task.id),
           ),
           const SizedBox(height: 20),
@@ -2292,7 +2460,9 @@ class _ProjectDetailScreenState extends State<_ProjectDetailScreen> {
             tasks: upcoming,
             project: refreshedProject,
             onToggle: (task, value) => store.toggleTask(task.id, value),
-            onEdit: (task) => _openEditor(task: task, projectId: refreshedProject.id),
+            onEdit:
+                (task) =>
+                    _openEditor(task: task, projectId: refreshedProject.id),
             onDelete: (task) => store.deleteTask(task.id),
           ),
           const SizedBox(height: 20),
@@ -2301,7 +2471,9 @@ class _ProjectDetailScreenState extends State<_ProjectDetailScreen> {
             tasks: completed,
             project: refreshedProject,
             onToggle: (task, value) => store.toggleTask(task.id, value),
-            onEdit: (task) => _openEditor(task: task, projectId: refreshedProject.id),
+            onEdit:
+                (task) =>
+                    _openEditor(task: task, projectId: refreshedProject.id),
             onDelete: (task) => store.deleteTask(task.id),
           ),
         ],
@@ -2312,17 +2484,20 @@ class _ProjectDetailScreenState extends State<_ProjectDetailScreen> {
   Future<void> _openEditor({TodoTask? task, required String projectId}) async {
     final store = context.read<TodoStore>();
     final subtasks =
-        task == null ? const <TodoSubtask>[] : await store.subtasksForTask(task.id);
+        task == null
+            ? const <TodoSubtask>[]
+            : await store.subtasksForTask(task.id);
     if (!mounted) return;
     final result = await showModalBottomSheet<_TaskEditorResult>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => _TaskEditorSheet(
-        task: task,
-        initialProjectId: projectId,
-        initialSubtasks: subtasks,
-      ),
+      builder:
+          (context) => _TaskEditorSheet(
+            task: task,
+            initialProjectId: projectId,
+            initialSubtasks: subtasks,
+          ),
     );
     if (result == null) return;
     if (result.deleteTask && task != null) {
@@ -2333,7 +2508,8 @@ class _ProjectDetailScreenState extends State<_ProjectDetailScreen> {
     final completedSubtasks =
         result.subtasks.where((item) => item.isCompleted).length;
     final shouldAutoComplete =
-        result.subtasks.isNotEmpty && completedSubtasks == result.subtasks.length;
+        result.subtasks.isNotEmpty &&
+        completedSubtasks == result.subtasks.length;
     await store.saveTask(
       TodoTask(
         id: taskId,
@@ -2341,16 +2517,18 @@ class _ProjectDetailScreenState extends State<_ProjectDetailScreen> {
         title: result.title,
         description: result.description,
         priority: result.priority,
-        status: shouldAutoComplete
-            ? TodoStatus.done
-            : task?.status ?? TodoStatus.todo,
+        status:
+            shouldAutoComplete
+                ? TodoStatus.done
+                : task?.status ?? TodoStatus.todo,
         dueAt: result.dueAt,
         reminderAt: result.reminderAt,
         createdAt: task?.createdAt,
         updatedAt: task?.updatedAt,
-        completedAt: shouldAutoComplete
-            ? (task?.completedAt ?? DateTime.now())
-            : task?.completedAt,
+        completedAt:
+            shouldAutoComplete
+                ? (task?.completedAt ?? DateTime.now())
+                : task?.completedAt,
         subtaskCount: result.subtasks.length,
         completedSubtaskCount: completedSubtasks,
       ),
@@ -2443,7 +2621,9 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
     super.initState();
     final task = widget.task;
     _titleController = TextEditingController(text: task?.title ?? '');
-    _descriptionController = TextEditingController(text: task?.description ?? '');
+    _descriptionController = TextEditingController(
+      text: task?.description ?? '',
+    );
     _projectId = task?.projectId ?? widget.initialProjectId ?? 'work';
     _priority = task?.priority ?? TodoPriority.medium;
     _dueAt = task?.dueAt;
@@ -2518,7 +2698,12 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
                   decoration: const InputDecoration(hintText: '备注一点细节，会更从容。'),
                 ),
                 const SizedBox(height: 18),
-                Text('所属项目', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                Text(
+                  '所属项目',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 10,
@@ -2528,12 +2713,18 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
                       ChoiceChip(
                         label: Text(project.name),
                         selected: _projectId == project.id,
-                        onSelected: (_) => setState(() => _projectId = project.id),
+                        onSelected:
+                            (_) => setState(() => _projectId = project.id),
                       ),
                   ],
                 ),
                 const SizedBox(height: 18),
-                Text('优先级', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                Text(
+                  '优先级',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 10,
@@ -2547,26 +2738,41 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
                   ],
                 ),
                 const SizedBox(height: 18),
-                Text('时间', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                Text(
+                  '时间',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 const SizedBox(height: 10),
                 InkWell(
                   onTap: _pickDueAt,
                   borderRadius: BorderRadius.circular(18),
                   child: Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 16,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(18),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.schedule_rounded, color: Color(0xFF7C4DFF)),
+                        const Icon(
+                          Icons.schedule_rounded,
+                          color: Color(0xFF7C4DFF),
+                        ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            _dueAt == null ? '还没定时间' : _formatDue(_dueAt!, withDate: true),
-                            style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                            _dueAt == null
+                                ? '还没定时间'
+                                : _formatDue(_dueAt!, withDate: true),
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                         if (_dueAt != null)
@@ -2579,28 +2785,41 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
                   ),
                 ),
                 const SizedBox(height: 18),
-                Text('提醒', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                Text(
+                  '提醒',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 const SizedBox(height: 10),
                 InkWell(
                   onTap: _pickReminderAt,
                   borderRadius: BorderRadius.circular(18),
                   child: Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 16,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(18),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.notifications_active_outlined, color: Color(0xFF7C4DFF)),
+                        const Icon(
+                          Icons.notifications_active_outlined,
+                          color: Color(0xFF7C4DFF),
+                        ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
                             _reminderAt == null
                                 ? '暂时不提醒'
                                 : _formatDue(_reminderAt!, withDate: true),
-                            style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                         if (_reminderAt != null)
@@ -2620,12 +2839,14 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
                     _ReminderShortcutChip(
                       label: '截止前三天',
                       enabled: _dueAt != null,
-                      onTap: () => _applyReminderShortcut(const Duration(days: 3)),
+                      onTap:
+                          () => _applyReminderShortcut(const Duration(days: 3)),
                     ),
                     _ReminderShortcutChip(
                       label: '截止前一天',
                       enabled: _dueAt != null,
-                      onTap: () => _applyReminderShortcut(const Duration(days: 1)),
+                      onTap:
+                          () => _applyReminderShortcut(const Duration(days: 1)),
                     ),
                   ],
                 ),
@@ -2640,7 +2861,12 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
                   ),
                 ],
                 const SizedBox(height: 18),
-                Text('子任务', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                Text(
+                  '子任务',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 const SizedBox(height: 10),
                 Container(
                   padding: const EdgeInsets.all(16),
@@ -2652,11 +2878,16 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
                     children: [
                       for (var index = 0; index < _subtasks.length; index++)
                         Padding(
-                          padding: EdgeInsets.only(bottom: index == _subtasks.length - 1 ? 0 : 10),
+                          padding: EdgeInsets.only(
+                            bottom: index == _subtasks.length - 1 ? 0 : 10,
+                          ),
                           child: _SubtaskDraftTile(
                             draft: _subtasks[index],
-                            onChanged: (draft) => setState(() => _subtasks[index] = draft),
-                            onDelete: () => setState(() => _subtasks.removeAt(index)),
+                            onChanged:
+                                (draft) =>
+                                    setState(() => _subtasks[index] = draft),
+                            onDelete:
+                                () => setState(() => _subtasks.removeAt(index)),
                           ),
                         ),
                       Align(
@@ -2677,9 +2908,9 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
                       Expanded(
                         child: OutlinedButton(
                           onPressed: () {
-                            Navigator.of(context).pop(
-                              const _TaskEditorResult.delete(),
-                            );
+                            Navigator.of(
+                              context,
+                            ).pop(const _TaskEditorResult.delete());
                           },
                           child: const Text('删除'),
                         ),
@@ -2916,9 +3147,8 @@ class _SubtaskDraftTile extends StatelessWidget {
       children: [
         Checkbox(
           value: draft.isCompleted,
-          onChanged: (value) => onChanged(
-            draft.copyWith(isCompleted: value ?? false),
-          ),
+          onChanged:
+              (value) => onChanged(draft.copyWith(isCompleted: value ?? false)),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
         ),
         Expanded(
@@ -2933,10 +3163,7 @@ class _SubtaskDraftTile extends StatelessWidget {
             ),
           ),
         ),
-        IconButton(
-          onPressed: onDelete,
-          icon: const Icon(Icons.close_rounded),
-        ),
+        IconButton(onPressed: onDelete, icon: const Icon(Icons.close_rounded)),
       ],
     );
   }
@@ -3022,9 +3249,10 @@ Map<String, List<TodoTask>> _groupCompletedTasks(List<TodoTask> tasks) {
   final grouped = <String, List<TodoTask>>{};
   for (final task in tasks) {
     final completedAt = task.completedAt ?? task.updatedAt ?? now;
-    final key = _isSameDay(completedAt, now)
-        ? '今天'
-        : _isSameDay(completedAt, yesterday)
+    final key =
+        _isSameDay(completedAt, now)
+            ? '今天'
+            : _isSameDay(completedAt, yesterday)
             ? '昨天'
             : '更早';
     grouped.putIfAbsent(key, () => []).add(task);
