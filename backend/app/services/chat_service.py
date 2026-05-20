@@ -60,6 +60,35 @@ Rules:
 - Do not invent unsupported music actions.
 """.strip()
 
+_TODO_TOOL_GUIDANCE = """
+Todo reading and editing are available through tool calls.
+
+When the user asks to view current tasks, pending tasks, today's tasks, or tasks in a project, prefer `get_todo_snapshot` instead of guessing from chat history.
+
+When the user asks to create, update, complete, reopen, delete, or reorganize todo items, prefer `todo_action`.
+
+Available todo tools:
+- `get_todo_snapshot`: read the current todo snapshot, optionally filtered by scope or project
+- `todo_action`: create or update tasks/projects/subtasks in AliceChat
+
+Available `todo_action` types:
+- `create_task`
+- `update_task`
+- `complete_task`
+- `reopen_task`
+- `delete_task`
+- `create_project`
+- `update_project`
+- `archive_project`
+- `replace_subtasks`
+
+Rules:
+- For updates to an existing task or project, prefer reading with `get_todo_snapshot` first so you can use the right `taskId` or `projectId`.
+- If the user references an existing todo item ambiguously, ask a concise follow-up question instead of guessing.
+- If the user clearly wants a new task recorded, use `todo_action` directly.
+- Do not invent unsupported todo actions.
+""".strip()
+
 
 class ChatService:
     def __init__(self, *, sessions: SessionStore | None = None, messages: MessageStore | None = None):
@@ -113,6 +142,7 @@ class ChatService:
         extra_system_prompts: list[str] = []
         if provider_id == "alicechat-channel":
             extra_system_prompts.append(_MUSIC_TOOL_GUIDANCE)
+            extra_system_prompts.append(_TODO_TOOL_GUIDANCE)
 
         return ChatResolvedRequest(
             model_config=model_config,
