@@ -1059,8 +1059,13 @@ class _MusicHeroCard extends StatelessWidget {
     final cardRadius = BorderRadius.circular(36);
     final screenWidth = MediaQuery.sizeOf(context).width;
     final isCompact = screenWidth < 400;
-    final heroInfoWidth = isCompact ? 252.0 : 232.0;
-    final accentVisualWidth = isCompact ? 160.0 : 188.0;
+    final compactPrimaryLabel =
+        isCompact && buttonLabel == '播放歌单' ? '播放' : buttonLabel;
+    final compactDetailLabel = isCompact ? '详情' : '查看歌单';
+    final heroInfoWidth = isCompact ? 220.0 : 232.0;
+    final accentVisualWidth = isCompact ? 148.0 : 188.0;
+    final artworkFrameWidth = isCompact ? 160.0 : 176.0;
+    final artworkFrameHeight = isCompact ? 198.0 : 220.0;
     return Container(
       decoration: BoxDecoration(
         borderRadius: cardRadius,
@@ -1163,8 +1168,8 @@ class _MusicHeroCard extends StatelessWidget {
                         child: Transform.translate(
                           offset: const Offset(10, 0),
                           child: SizedBox(
-                            width: 176,
-                            height: 220,
+                            width: artworkFrameWidth,
+                            height: artworkFrameHeight,
                             child: Stack(
                               children: [
                                 Positioned.fill(
@@ -1266,7 +1271,12 @@ class _MusicHeroCard extends StatelessWidget {
                 borderRadius: cardRadius,
                 onTap: onDetailTap ?? onPlayTap,
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 20, 22, 20),
+                  padding: EdgeInsets.fromLTRB(
+                    isCompact ? 18 : 22,
+                    isCompact ? 18 : 20,
+                    isCompact ? 18 : 22,
+                    isCompact ? 18 : 20,
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1314,7 +1324,7 @@ class _MusicHeroCard extends StatelessWidget {
                             ),
                         ],
                       ),
-                      const SizedBox(height: 18),
+                      SizedBox(height: isCompact ? 14 : 18),
                       SizedBox(
                         width: heroInfoWidth,
                         child: Column(
@@ -1331,11 +1341,11 @@ class _MusicHeroCard extends StatelessWidget {
                             const SizedBox(height: 8),
                             Text(
                               headline,
-                              maxLines: 2,
+                              maxLines: isCompact ? 1 : 2,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.titleLarge?.copyWith(
                                 color: Colors.white,
-                                fontSize: isCompact ? 25 : 27,
+                                fontSize: isCompact ? 23 : 27,
                                 height: 1.06,
                                 fontWeight: FontWeight.w900,
                               ),
@@ -1355,11 +1365,11 @@ class _MusicHeroCard extends StatelessWidget {
                             const SizedBox(height: 10),
                             Text(
                               description,
-                              maxLines: isCompact ? 2 : 3,
+                              maxLines: isCompact ? 1 : 3,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 color: Colors.white.withValues(alpha: 0.84),
-                                height: 1.38,
+                                height: isCompact ? 1.24 : 1.38,
                               ),
                             ),
                           ],
@@ -1372,10 +1382,10 @@ class _MusicHeroCard extends StatelessWidget {
                           filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
                           child: Container(
                             padding: EdgeInsets.fromLTRB(
-                              isCompact ? 14 : 16,
-                              14,
-                              isCompact ? 14 : 16,
-                              14,
+                              isCompact ? 12 : 16,
+                              isCompact ? 12 : 14,
+                              isCompact ? 12 : 16,
+                              isCompact ? 12 : 14,
                             ),
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
@@ -1433,12 +1443,12 @@ class _MusicHeroCard extends StatelessWidget {
                                       const SizedBox(height: 3),
                                       Text(
                                         track.title,
-                                        maxLines: isCompact ? 2 : 1,
+                                        maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: theme.textTheme.titleMedium
                                             ?.copyWith(
                                               color: Colors.white,
-                                              fontSize: isCompact ? 16 : 18,
+                                              fontSize: isCompact ? 15 : 18,
                                               fontWeight: FontWeight.w800,
                                               height: 1.15,
                                             ),
@@ -1446,7 +1456,7 @@ class _MusicHeroCard extends StatelessWidget {
                                       const SizedBox(height: 3),
                                       Text(
                                         '${track.artist} · ${track.album}',
-                                        maxLines: isCompact ? 2 : 1,
+                                        maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: theme.textTheme.bodySmall
                                             ?.copyWith(
@@ -1461,7 +1471,7 @@ class _MusicHeroCard extends StatelessWidget {
                                 ),
                                 SizedBox(width: isCompact ? 8 : 12),
                                 SizedBox(
-                                  width: isCompact ? 122 : 148,
+                                  width: isCompact ? 98 : 128,
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.end,
                                     mainAxisSize: MainAxisSize.min,
@@ -1473,12 +1483,12 @@ class _MusicHeroCard extends StatelessWidget {
                                           foregroundColor:
                                               palette.gradient.first,
                                           padding: EdgeInsets.symmetric(
-                                            horizontal: isCompact ? 12 : 16,
-                                            vertical: isCompact ? 11 : 12,
+                                            horizontal: isCompact ? 8 : 12,
+                                            vertical: isCompact ? 10 : 11,
                                           ),
                                           minimumSize: Size(
-                                            isCompact ? 122 : 148,
-                                            isCompact ? 48 : 50,
+                                            isCompact ? 98 : 128,
+                                            isCompact ? 44 : 46,
                                           ),
                                           elevation: 0,
                                           shape: const StadiumBorder(),
@@ -1504,15 +1514,17 @@ class _MusicHeroCard extends StatelessWidget {
                                                   Icons.play_arrow_rounded,
                                                 ),
                                         label: Text(
-                                          isBusy ? '处理中...' : buttonLabel,
+                                          isBusy
+                                              ? '处理中...'
+                                              : compactPrimaryLabel,
                                           style: TextStyle(
                                             fontWeight: FontWeight.w800,
-                                            fontSize: isCompact ? 15 : 16,
+                                            fontSize: isCompact ? 14 : 15,
                                           ),
                                         ),
                                       ),
                                       if (onDetailTap != null) ...[
-                                        const SizedBox(height: 8),
+                                        const SizedBox(height: 6),
                                         Container(
                                           decoration: BoxDecoration(
                                             color: Colors.white.withValues(
@@ -1542,7 +1554,7 @@ class _MusicHeroCard extends StatelessWidget {
                                                 mainAxisSize: MainAxisSize.min,
                                                 children: [
                                                   Text(
-                                                    '查看歌单',
+                                                    compactDetailLabel,
                                                     style: theme
                                                         .textTheme
                                                         .bodySmall
@@ -1734,22 +1746,23 @@ class _FavoritePlaylistCard extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text(
                       '${playlist.trackCount} 首 · ${isPlaying ? '这一刻正从这里继续' : '想听的时候 随时都能回来'}',
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF616B7E),
-                        height: 1.25,
+                        fontSize: desktopAdjustedFontSize(11.5),
+                        height: 1.2,
                       ),
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 5),
                     Text(
                       '想接着听的话 就从《${currentTrack.title}》继续',
-                      maxLines: 2,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF8A93A5),
-                        fontSize: desktopAdjustedFontSize(11.5),
-                        height: 1.25,
+                        fontSize: desktopAdjustedFontSize(11),
+                        height: 1.2,
                       ),
                     ),
                   ],

@@ -130,6 +130,7 @@ class MusicStore extends ChangeNotifier {
   String? _error;
   bool _isPlaying = false;
   bool _isBuffering = false;
+  bool _hasLocalPauseOverride = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   late MusicTrack _currentTrack;
@@ -190,6 +191,9 @@ class MusicStore extends ChangeNotifier {
     final adapterState = _playbackAdapter.state;
     final hasTrackContext =
         _currentTrack.id.trim().isNotEmpty || _queue.isNotEmpty;
+    if (_hasLocalPauseOverride && hasTrackContext) {
+      return MusicPlaybackControlState.paused;
+    }
     if ((_isPreparingPlayback || _isBuffering || adapterState.isBuffering) &&
         !adapterState.completed) {
       return MusicPlaybackControlState.starting;
@@ -1909,6 +1913,7 @@ class MusicStore extends ChangeNotifier {
     final controlState = playbackControlState;
     if (controlState == MusicPlaybackControlState.playing &&
         hasLocalPlaybackControl) {
+      _hasLocalPauseOverride = true;
       _isPlaying = false;
       _isBuffering = false;
       _isPreparingPlayback = false;
@@ -1916,6 +1921,7 @@ class MusicStore extends ChangeNotifier {
       try {
         await _playbackAdapter.pause();
       } catch (_) {
+        _hasLocalPauseOverride = false;
         _isPlaying = true;
         notifyListeners();
         rethrow;
@@ -1949,6 +1955,7 @@ class MusicStore extends ChangeNotifier {
     if (adapterState.currentSource != null &&
         hasLocalPlaybackControl &&
         controlState == MusicPlaybackControlState.paused) {
+      _hasLocalPauseOverride = false;
       _isPlaying = true;
       _isPreparingPlayback = true;
       notifyListeners();
@@ -2398,6 +2405,7 @@ class MusicStore extends ChangeNotifier {
         }
         break;
       case MusicCommandType.pause:
+        _hasLocalPauseOverride = true;
         await _playbackAdapter.pause();
         _isPlaying = false;
         _isBuffering = false;
@@ -2408,6 +2416,7 @@ class MusicStore extends ChangeNotifier {
           await _restartCurrentTrackAfterCompletion();
           return;
         }
+        _hasLocalPauseOverride = false;
         _isPreparingPlayback = true;
         await _playbackAdapter.resume();
         _isPlaying = true;
@@ -2771,7 +2780,18 @@ class MusicStore extends ChangeNotifier {
       _position = _duration;
       return;
     }
-    _isPlaying = state.isPlaying && state.currentSource != null;
+    final adapterIsPlaying = state.isPlaying && state.currentSource != null;
+    if (_hasLocalPauseOverride && adapterIsPlaying) {
+      _isPlaying = false;
+      _isBuffering = false;
+      _isPreparingPlayback = false;
+      _position = state.position;
+      return;
+    }
+    if (_hasLocalPauseOverride && !adapterIsPlaying) {
+      _hasLocalPauseOverride = false;
+    }
+    _isPlaying = adapterIsPlaying;
     _isBuffering = state.isBuffering;
     _position = state.position;
   }
@@ -3918,6 +3938,7 @@ class MusicStore extends ChangeNotifier {
       }
     }
     _isPreparingPlayback = false;
+    _hasLocalPauseOverride = false;
     _isPlaying = true;
     if (resetPosition) {
       _position = Duration.zero;
