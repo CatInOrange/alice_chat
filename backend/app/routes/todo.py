@@ -78,10 +78,12 @@ def _subtasks_for_task(
     ]
 
 
-def _active_project_or_default(snapshot: dict[str, Any]) -> dict[str, Any]:
+def _inbox_project_or_default(snapshot: dict[str, Any]) -> dict[str, Any]:
     projects = snapshot["projects"]
     for project in projects:
-        if not bool(project.get("archived")):
+        if str(project.get("id") or "").strip() == "inbox":
+            return project
+        if str(project.get("name") or "").strip() == "收件箱":
             return project
     now_iso = _now_iso()
     project = {
@@ -107,7 +109,7 @@ def _resolve_project(snapshot: dict[str, Any], payload: dict[str, Any]) -> dict[
     )
     if index >= 0:
         return snapshot["projects"][index]
-    return _active_project_or_default(snapshot)
+    return _inbox_project_or_default(snapshot)
 
 
 def _normalize_priority(value: Any, fallback: str = "medium") -> str:

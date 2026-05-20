@@ -83,9 +83,13 @@ Available `todo_action` types:
 - `replace_subtasks`
 
 Rules:
+- When creating a new task and project placement matters, prefer calling `get_todo_snapshot` first so you can see the existing projects and choose the best matching one.
+- Prefer placing new tasks into an existing relevant project by passing `projectId` or `projectName` with `todo_action`.
+- Do not default new tasks to `工作` unless the task content clearly belongs there.
 - For updates to an existing task or project, prefer reading with `get_todo_snapshot` first so you can use the right `taskId` or `projectId`.
 - If the user references an existing todo item ambiguously, ask a concise follow-up question instead of guessing.
 - If the user clearly wants a new task recorded, use `todo_action` directly.
+- If there is no clearly suitable existing project, use the inbox-style fallback instead of forcing a weak guess.
 - Do not invent unsupported todo actions.
 """.strip()
 
