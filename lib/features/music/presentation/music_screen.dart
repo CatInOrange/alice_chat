@@ -161,6 +161,21 @@ class _MusicScreenState extends State<MusicScreen>
     return _pendingPlaylistActions.contains(playlistId);
   }
 
+  MusicTrack _artworkTrackForPlaylist(
+    MusicStore store,
+    MusicPlaylist playlist, {
+    MusicTrack? fallback,
+  }) {
+    final fallbackTrack = fallback ?? store.currentTrack;
+    final tracks = store.peekPlaylistTracks(playlist);
+    for (final track in tracks) {
+      if (effectiveArtworkUrl(track) != null) {
+        return track;
+      }
+    }
+    return fallbackTrack;
+  }
+
   Future<void> _playPlaylist(
     MusicStore store,
     MusicPlaylist playlist, {
@@ -476,6 +491,14 @@ class _MusicScreenState extends State<MusicScreen>
         final miniSubtitle = store.miniPlayerSubtitle;
         final currentPlaybackModeBadge = store.currentPlaybackModeBadge;
         final currentConfig = store.currentConfig;
+        final heroArtworkTrack =
+            latestAiPlaylist != null
+                ? _artworkTrackForPlaylist(
+                  store,
+                  latestAiPlaylist.asPlaylist,
+                  fallback: store.heroTrack,
+                )
+                : store.heroTrack;
         const fmPlaylist = MusicPlaylist(
           id: 'netease-fm',
           title: '私人 FM',
@@ -533,7 +556,7 @@ class _MusicScreenState extends State<MusicScreen>
                       ),
                       children: [
                         _MusicHeroCard(
-                          track: store.heroTrack,
+                          track: heroArtworkTrack,
                           backendBaseUrl: currentConfig.baseUrl,
                           appPassword: currentConfig.appPassword,
                           title:
@@ -602,6 +625,13 @@ class _MusicScreenState extends State<MusicScreen>
                             );
                             return _FavoritePlaylistCard(
                               playlist: likedPlaylist,
+                              artworkTrack: _artworkTrackForPlaylist(
+                                store,
+                                likedPlaylist,
+                                fallback: currentTrack,
+                              ),
+                              backendBaseUrl: currentConfig.baseUrl,
+                              appPassword: currentConfig.appPassword,
                               currentTrack:
                                   store.likedTracks.isNotEmpty
                                       ? store.likedTracks.first
@@ -650,6 +680,14 @@ class _MusicScreenState extends State<MusicScreen>
                         const SizedBox(height: 10),
                         _CompactPlaylistGrid(
                           playlists: displayedCustomPlaylists,
+                          artworkTrackForPlaylist:
+                              (playlist) => _artworkTrackForPlaylist(
+                                store,
+                                playlist,
+                                fallback: currentTrack,
+                              ),
+                          backendBaseUrl: currentConfig.baseUrl,
+                          appPassword: currentConfig.appPassword,
                           currentPlaylistId: store.currentPlaylistId,
                           onPlaylistTap: (playlist) {
                             if (playlist.id == 'netease-fm' ||
@@ -707,6 +745,13 @@ class _MusicScreenState extends State<MusicScreen>
                               padding: const EdgeInsets.only(bottom: 10),
                               child: _RecentPlaylistTile(
                                 playlist: playlist,
+                                artworkTrack: _artworkTrackForPlaylist(
+                                  store,
+                                  playlist,
+                                  fallback: currentTrack,
+                                ),
+                                backendBaseUrl: currentConfig.baseUrl,
+                                appPassword: currentConfig.appPassword,
                                 isActive: store.isPlaylistActive(playlist.id),
                                 isBusy: _isPlaylistActionPending(playlist.id),
                                 onTap:
@@ -734,6 +779,13 @@ class _MusicScreenState extends State<MusicScreen>
                               padding: const EdgeInsets.only(bottom: 10),
                               child: _RecentPlaylistTile(
                                 playlist: draft.asPlaylist,
+                                artworkTrack: _artworkTrackForPlaylist(
+                                  store,
+                                  draft.asPlaylist,
+                                  fallback: currentTrack,
+                                ),
+                                backendBaseUrl: currentConfig.baseUrl,
+                                appPassword: currentConfig.appPassword,
                                 isActive: store.isPlaylistActive(
                                   draft.asPlaylist.id,
                                 ),
@@ -811,6 +863,14 @@ class _MusicScreenState extends State<MusicScreen>
                                 (item) => item.asPlaylist,
                               ),
                             ],
+                            artworkTrackForPlaylist:
+                                (playlist) => _artworkTrackForPlaylist(
+                                  store,
+                                  playlist,
+                                  fallback: currentTrack,
+                                ),
+                            backendBaseUrl: currentConfig.baseUrl,
+                            appPassword: currentConfig.appPassword,
                             currentPlaylistId: store.currentPlaylistId,
                             isRefreshing: store.isRefreshingLibrary,
                             currentPlaybackSourceLabel:
@@ -1605,6 +1665,9 @@ class _MusicHeroCard extends StatelessWidget {
 class _FavoritePlaylistCard extends StatelessWidget {
   const _FavoritePlaylistCard({
     required this.playlist,
+    required this.artworkTrack,
+    required this.backendBaseUrl,
+    required this.appPassword,
     required this.currentTrack,
     required this.onTap,
     required this.onPlayTap,
@@ -1614,6 +1677,9 @@ class _FavoritePlaylistCard extends StatelessWidget {
   });
 
   final MusicPlaylist playlist;
+  final MusicTrack artworkTrack;
+  final String backendBaseUrl;
+  final String? appPassword;
   final MusicTrack currentTrack;
   final VoidCallback onTap;
   final VoidCallback? onPlayTap;
@@ -1658,7 +1724,6 @@ class _FavoritePlaylistCard extends StatelessWidget {
                 width: 64,
                 height: 64,
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: palette.gradient),
                   borderRadius: BorderRadius.circular(22),
                   border: Border.all(
                     color: Colors.white.withValues(alpha: 0.28),
@@ -1674,6 +1739,20 @@ class _FavoritePlaylistCard extends StatelessWidget {
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
+                    Positioned.fill(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(22),
+                        child: MusicArtwork(
+                          track: artworkTrack,
+                          size: 64,
+                          showMeta: false,
+                          showIconBadge: false,
+                          overlayStrength: 0.08,
+                          backendBaseUrl: backendBaseUrl,
+                          appPassword: appPassword,
+                        ),
+                      ),
+                    ),
                     Positioned(
                       top: 10,
                       right: 10,
@@ -1881,12 +1960,18 @@ class _SectionHeader extends StatelessWidget {
 class _CompactPlaylistGrid extends StatelessWidget {
   const _CompactPlaylistGrid({
     required this.playlists,
+    required this.artworkTrackForPlaylist,
+    required this.backendBaseUrl,
+    required this.appPassword,
     required this.currentPlaylistId,
     required this.onPlaylistTap,
     this.onPlaylistLongPress,
   });
 
   final List<MusicPlaylist> playlists;
+  final MusicTrack Function(MusicPlaylist playlist) artworkTrackForPlaylist;
+  final String backendBaseUrl;
+  final String? appPassword;
   final String? currentPlaylistId;
   final ValueChanged<MusicPlaylist> onPlaylistTap;
   final ValueChanged<MusicPlaylist>? onPlaylistLongPress;
@@ -1907,6 +1992,9 @@ class _CompactPlaylistGrid extends StatelessWidget {
             width: cardWidth,
             child: _PlaylistGridCard(
               playlist: playlist,
+              artworkTrack: artworkTrackForPlaylist(playlist),
+              backendBaseUrl: backendBaseUrl,
+              appPassword: appPassword,
               isActive: currentPlaylistId == playlist.id,
               onTap: () => onPlaylistTap(playlist),
               onLongPress:
@@ -1924,12 +2012,18 @@ class _CompactPlaylistGrid extends StatelessWidget {
 class _PlaylistGridCard extends StatelessWidget {
   const _PlaylistGridCard({
     required this.playlist,
+    required this.artworkTrack,
+    required this.backendBaseUrl,
+    required this.appPassword,
     required this.onTap,
     this.onLongPress,
     this.isActive = false,
   });
 
   final MusicPlaylist playlist;
+  final MusicTrack artworkTrack;
+  final String backendBaseUrl;
+  final String? appPassword;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
   final bool isActive;
@@ -1954,7 +2048,6 @@ class _PlaylistGridCard extends StatelessWidget {
                 width: 54,
                 height: 54,
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: palette.gradient),
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(
                     color: Colors.white.withValues(alpha: 0.3),
@@ -1971,12 +2064,17 @@ class _PlaylistGridCard extends StatelessWidget {
                           ]
                           : null,
                 ),
-                child: Icon(
-                  playlist.id == 'netease-fm' || playlist.id == 'netease-daily'
-                      ? Icons.radio_rounded
-                      : palette.icon,
-                  color: Colors.white,
-                  size: 22,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: MusicArtwork(
+                    track: artworkTrack,
+                    size: 54,
+                    showMeta: false,
+                    showIconBadge: false,
+                    overlayStrength: 0.08,
+                    backendBaseUrl: backendBaseUrl,
+                    appPassword: appPassword,
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
@@ -2050,6 +2148,9 @@ class _PlaylistGridCard extends StatelessWidget {
 class _RecentPlaylistTile extends StatelessWidget {
   const _RecentPlaylistTile({
     required this.playlist,
+    required this.artworkTrack,
+    required this.backendBaseUrl,
+    required this.appPassword,
     required this.onTap,
     required this.onPlayTap,
     this.isActive = false,
@@ -2058,6 +2159,9 @@ class _RecentPlaylistTile extends StatelessWidget {
   });
 
   final MusicPlaylist playlist;
+  final MusicTrack artworkTrack;
+  final String backendBaseUrl;
+  final String? appPassword;
   final VoidCallback onTap;
   final VoidCallback onPlayTap;
   final bool isActive;
@@ -2082,7 +2186,6 @@ class _RecentPlaylistTile extends StatelessWidget {
                 width: 48,
                 height: 48,
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: palette.gradient),
                   borderRadius: BorderRadius.circular(15),
                   border: Border.all(
                     color: Colors.white.withValues(alpha: 0.24),
@@ -2095,12 +2198,17 @@ class _RecentPlaylistTile extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: Icon(
-                  playlist.isAiGenerated
-                      ? Icons.auto_awesome_rounded
-                      : palette.icon,
-                  color: Colors.white,
-                  size: 21,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(15),
+                  child: MusicArtwork(
+                    track: artworkTrack,
+                    size: 48,
+                    showMeta: false,
+                    showIconBadge: false,
+                    overlayStrength: 0.08,
+                    backendBaseUrl: backendBaseUrl,
+                    appPassword: appPassword,
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
@@ -3705,6 +3813,9 @@ class _DesktopLibrarySidebar extends StatelessWidget {
     required this.displayedCustomPlaylists,
     required this.recentPlaylists,
     required this.aiPlaylists,
+    required this.artworkTrackForPlaylist,
+    required this.backendBaseUrl,
+    required this.appPassword,
     required this.currentPlaylistId,
     required this.isRefreshing,
     required this.currentPlaybackSourceLabel,
@@ -3720,6 +3831,9 @@ class _DesktopLibrarySidebar extends StatelessWidget {
   final List<MusicPlaylist> displayedCustomPlaylists;
   final List<MusicPlaylist> recentPlaylists;
   final List<MusicPlaylist> aiPlaylists;
+  final MusicTrack Function(MusicPlaylist playlist) artworkTrackForPlaylist;
+  final String backendBaseUrl;
+  final String? appPassword;
   final String? currentPlaylistId;
   final bool isRefreshing;
   final String currentPlaybackSourceLabel;
@@ -3821,6 +3935,9 @@ class _DesktopLibrarySidebar extends StatelessWidget {
                     padding: const EdgeInsets.only(bottom: 6),
                     child: _DesktopSidebarPlaylistTile(
                       playlist: playlist,
+                      artworkTrack: artworkTrackForPlaylist(playlist),
+                      backendBaseUrl: backendBaseUrl,
+                      appPassword: appPassword,
                       isActive: currentPlaylistId == playlist.id,
                       dense: true,
                       onTap: () => onOpenPlaylist(playlist),
@@ -3843,6 +3960,9 @@ class _DesktopLibrarySidebar extends StatelessWidget {
                           padding: const EdgeInsets.only(bottom: 6),
                           child: _DesktopSidebarPlaylistTile(
                             playlist: playlist,
+                            artworkTrack: artworkTrackForPlaylist(playlist),
+                            backendBaseUrl: backendBaseUrl,
+                            appPassword: appPassword,
                             isActive: currentPlaylistId == playlist.id,
                             dense: true,
                             onTap: () => onOpenPlaylist(playlist),
@@ -3862,6 +3982,9 @@ class _DesktopLibrarySidebar extends StatelessWidget {
                           padding: const EdgeInsets.only(bottom: 6),
                           child: _DesktopSidebarPlaylistTile(
                             playlist: playlist,
+                            artworkTrack: artworkTrackForPlaylist(playlist),
+                            backendBaseUrl: backendBaseUrl,
+                            appPassword: appPassword,
                             isActive: currentPlaylistId == playlist.id,
                             dense: true,
                             onTap: () => onOpenPlaylist(playlist),
@@ -3895,6 +4018,9 @@ class _DesktopLibrarySidebar extends StatelessWidget {
 class _DesktopSidebarPlaylistTile extends StatelessWidget {
   const _DesktopSidebarPlaylistTile({
     required this.playlist,
+    required this.artworkTrack,
+    required this.backendBaseUrl,
+    required this.appPassword,
     required this.isActive,
     required this.onTap,
     required this.onPlay,
@@ -3903,6 +4029,9 @@ class _DesktopSidebarPlaylistTile extends StatelessWidget {
   });
 
   final MusicPlaylist playlist;
+  final MusicTrack artworkTrack;
+  final String backendBaseUrl;
+  final String? appPassword;
   final bool isActive;
   final VoidCallback onTap;
   final VoidCallback onPlay;
@@ -3939,18 +4068,19 @@ class _DesktopSidebarPlaylistTile extends StatelessWidget {
                         width: dense ? 32 : 36,
                         height: dense ? 32 : 36,
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(colors: palette.gradient),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Icon(
-                          playlist.isAiGenerated
-                              ? Icons.auto_awesome_rounded
-                              : playlist.id == 'netease-fm' ||
-                                  playlist.id == 'netease-daily'
-                              ? Icons.radio_rounded
-                              : palette.icon,
-                          color: Colors.white,
-                          size: dense ? 16 : 18,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: MusicArtwork(
+                            track: artworkTrack,
+                            size: dense ? 32 : 36,
+                            showMeta: false,
+                            showIconBadge: false,
+                            overlayStrength: 0.08,
+                            backendBaseUrl: backendBaseUrl,
+                            appPassword: appPassword,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
