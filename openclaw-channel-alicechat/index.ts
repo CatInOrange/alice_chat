@@ -308,6 +308,90 @@ function playlistDraftToPlaylistRef(draft) {
   };
 }
 
+const TODO_PRIORITIES = ['low', 'medium', 'high', 'urgent'];
+const TODO_STATUSES = ['todo', 'doing', 'done', 'archived'];
+
+function normalizeTodoPriority(value, fallback = 'medium') {
+  const priority = String(value || '').trim().toLowerCase();
+  return TODO_PRIORITIES.includes(priority) ? priority : fallback;
+}
+
+function normalizeTodoStatus(value, fallback = 'todo') {
+  const status = String(value || '').trim().toLowerCase();
+  return TODO_STATUSES.includes(status) ? status : fallback;
+}
+
+function normalizeTodoSubtasks(rawSubtasks, fallbackIdPrefix) {
+  const subtasks = Array.isArray(rawSubtasks) ? rawSubtasks : [];
+  return subtasks
+    .map((item, index) => ({
+      id: String(item?.id || `${String(fallbackIdPrefix || 'todo-action')}:subtask:${index}`),
+      title: String(item?.title || '').trim(),
+      isCompleted: item?.isCompleted === true,
+    }))
+    .filter((item) => item.title);
+}
+
+function summarizeTodoSnapshot(snapshot, options = {}) {
+  const source: any = snapshot || {};
+  const opts: any = options || {};
+  const projects = Array.isArray(source.projects) ? source.projects : [];
+  const tasks = Array.isArray(source.tasks) ? source.tasks : [];
+  const subtasks = Array.isArray(source.subtasks) ? source.subtasks : [];
+  const includeArchived = opts.includeArchived === true;
+  const limit = Number.isFinite(Number(opts.limit)) ? Math.max(1, Number(opts.limit)) : 50;
+  const projectId = String(opts.projectId || '').trim();
+  const scope = String(opts.scope || 'all').trim();
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  const projectMap = new Map<string, any>(projects.map((project: any) => [String(project.id || ''), project]));
+
+  let filteredTasks = tasks.filter((task) => {
+    const project: any = projectMap.get(String(task.projectId || ''));
+    if (!includeArchived && project?.archived) return false;
+    if (projectId && String(task.projectId || '') !== projectId) return false;
+    if (scope === 'completed') return task.status === 'done';
+    if (scope === 'today') {
+      if (task.status === 'done') return false;
+      if (!task.dueAt) return false;
+      const dueAt = new Date(task.dueAt);
+      return dueAt >= startOfToday && dueAt <= endOfToday;
+    }
+    if (scope === 'upcoming') {
+      if (task.status === 'done') return false;
+      if (!task.dueAt) return false;
+      return new Date(task.dueAt) > endOfToday;
+    }
+    if (scope === 'pending') {
+      return task.status !== 'done' && task.status !== 'archived';
+    }
+    return true;
+  });
+
+  filteredTasks = filteredTasks.slice(0, limit);
+  const taskIds = new Set(filteredTasks.map((task) => String(task.id || '')));
+  const filteredSubtasks = subtasks.filter((subtask) => taskIds.has(String(subtask.taskId || '')));
+  const lines = filteredTasks.map((task) => {
+    const project: any = projectMap.get(String(task.projectId || ''));
+    const dueLabel = task.dueAt ? ` due=${task.dueAt}` : '';
+    const reminderLabel = task.reminderAt ? ` remind=${task.reminderAt}` : '';
+    const subtaskLabel = Number(task.subtaskCount || 0) > 0
+      ? ` subtasks=${Number(task.completedSubtaskCount || 0)}/${Number(task.subtaskCount || 0)}`
+      : '';
+    return `- [${String(task.status || 'todo')}] ${String(task.title || '')} (#${String(task.id || '')}) project=${String(project?.name || task.projectId || 'unknown')} priority=${String(task.priority || 'medium')}${dueLabel}${reminderLabel}${subtaskLabel}`;
+  });
+
+  return {
+    projects,
+    tasks: filteredTasks,
+    subtasks: filteredSubtasks,
+    summaryText: lines.length
+      ? lines.join('\n')
+      : `No todo tasks matched scope=${scope}.`,
+  };
+}
+
 function createBridgeServer(ctx) {
   const port = Number(ctx.account.websocketPort || 18791);
   const host = String(ctx.account.websocketHost || '127.0.0.1');
@@ -1151,6 +1235,180 @@ export function register(api) {
             text: `Saved latest AI playlist: ${payload.title} (${normalizedTracks.length} tracks).`,
           }],
           details: response,
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Error: ${error?.message || String(error)}` }],
+          details: { error: true },
+        };
+      }
+    },
+  });
+
+  api.registerTool({
+    name: 'todo_action',
+    label: 'Manage todo items',
+    description: 'Create or update AliceChat todo items with structured actions.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        type: {
+          type: 'string',
+          enum: [
+            'create_task',
+            'update_task',
+            'complete_task',
+            'reopen_task',
+            'delete_task',
+            'create_project',
+            'update_project',
+            'archive_project',
+            'replace_subtasks',
+          ],
+        },
+        requestId: { type: 'string' },
+        taskId: { type: 'string' },
+        projectId: { type: 'string' },
+        projectName: { type: 'string' },
+        title: { type: 'string' },
+        name: { type: 'string', description: 'Project name for create_project/update_project.' },
+        description: { type: 'string' },
+        priority: { type: 'string', enum: TODO_PRIORITIES },
+        status: { type: 'string', enum: TODO_STATUSES },
+        dueAt: { type: 'string', description: 'ISO datetime.' },
+        reminderAt: { type: 'string', description: 'ISO datetime.' },
+        archived: { type: 'boolean' },
+        subtasks: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              id: { type: 'string' },
+              title: { type: 'string' },
+              isCompleted: { type: 'boolean' },
+            },
+            required: ['title'],
+          },
+        },
+      },
+      required: ['type'],
+    },
+    async execute(_id, params) {
+      try {
+        const input: any = params || {};
+        const actionType = String(input.type || '').trim();
+        const requestId = String(input.requestId || '').trim() || undefined;
+        const payload: any = {};
+
+        if (String(input.taskId || '').trim()) payload.taskId = String(input.taskId).trim();
+        if (String(input.projectId || '').trim()) payload.projectId = String(input.projectId).trim();
+        if (String(input.projectName || '').trim()) payload.projectName = String(input.projectName).trim();
+        if (String(input.title || '').trim()) payload.title = String(input.title).trim();
+        if (String(input.name || '').trim()) payload.name = String(input.name).trim();
+        if (input.description !== undefined) payload.description = String(input.description || '').trim();
+        if (input.priority !== undefined) payload.priority = normalizeTodoPriority(input.priority);
+        if (input.status !== undefined) payload.status = normalizeTodoStatus(input.status);
+        if (input.dueAt !== undefined) payload.dueAt = input.dueAt ? String(input.dueAt).trim() : null;
+        if (input.reminderAt !== undefined) payload.reminderAt = input.reminderAt ? String(input.reminderAt).trim() : null;
+        if (input.archived !== undefined) payload.archived = input.archived === true;
+        if (input.subtasks !== undefined) {
+          payload.subtasks = normalizeTodoSubtasks(
+            input.subtasks,
+            requestId || actionType || 'todo-action',
+          );
+        }
+
+        if (actionType === 'create_task' && !payload.title) {
+          return {
+            content: [{ type: 'text', text: 'Error: create_task 需要 title。' }],
+            details: { error: true },
+          };
+        }
+        if (['update_task', 'complete_task', 'reopen_task', 'delete_task', 'replace_subtasks'].includes(actionType) && !payload.taskId) {
+          return {
+            content: [{ type: 'text', text: `Error: ${actionType} 需要 taskId。` }],
+            details: { error: true },
+          };
+        }
+        if (actionType === 'create_project' && !payload.name) {
+          return {
+            content: [{ type: 'text', text: 'Error: create_project 需要 name。' }],
+            details: { error: true },
+          };
+        }
+        if (['update_project', 'archive_project'].includes(actionType) && !payload.projectId && !payload.name) {
+          return {
+            content: [{ type: 'text', text: `Error: ${actionType} 至少需要 projectId 或 name。` }],
+            details: { error: true },
+          };
+        }
+
+        const response = await callAliceChatApi('POST', '/api/todo/actions', {
+          type: actionType,
+          source: 'chatAi',
+          ...(requestId ? { requestId } : {}),
+          payload,
+        });
+        return {
+          content: [{
+            type: 'text',
+            text: `Todo action accepted: ${actionType}.`,
+          }],
+          details: response,
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text', text: `Error: ${error?.message || String(error)}` }],
+          details: { error: true },
+        };
+      }
+    },
+  });
+
+  api.registerTool({
+    name: 'get_todo_snapshot',
+    label: 'Read todo snapshot',
+    description: 'Read current AliceChat todo projects and tasks, optionally filtered by scope or project.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        scope: {
+          type: 'string',
+          enum: ['all', 'pending', 'today', 'upcoming', 'completed'],
+        },
+        projectId: { type: 'string' },
+        includeArchived: { type: 'boolean' },
+        includeSubtasks: { type: 'boolean' },
+        limit: { type: 'number' },
+      },
+    },
+    async execute(_id, params) {
+      try {
+        const response = await callAliceChatApi('GET', '/api/todo', {});
+        if (!response?.exists || !response?.snapshot) {
+          return {
+            content: [{ type: 'text', text: 'No todo snapshot found.' }],
+            details: response,
+          };
+        }
+        const summarized = summarizeTodoSnapshot(response.snapshot, params || {});
+        const details = {
+          ...response,
+          snapshot: {
+            projects: summarized.projects,
+            tasks: summarized.tasks,
+            ...(params?.includeSubtasks === true ? { subtasks: summarized.subtasks } : {}),
+          },
+        };
+        return {
+          content: [{
+            type: 'text',
+            text: summarized.summaryText,
+          }],
+          details,
         };
       } catch (error) {
         return {

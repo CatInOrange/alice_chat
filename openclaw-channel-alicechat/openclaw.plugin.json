@@ -7,7 +7,7 @@
     "alicechat"
   ],
   "contracts": {
-    "tools": ["music_action", "save_latest_ai_playlist", "get_latest_ai_playlist"]
+    "tools": ["music_action", "todo_action", "get_todo_snapshot", "save_latest_ai_playlist", "get_latest_ai_playlist"]
   },
   "configSchema": {
     "type": "object",
