@@ -1057,6 +1057,10 @@ class _MusicHeroCard extends StatelessWidget {
     final theme = Theme.of(context);
     final palette = paletteForTone(track.artworkTone);
     final cardRadius = BorderRadius.circular(36);
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final isCompact = screenWidth < 400;
+    final heroInfoWidth = isCompact ? 244.0 : 224.0;
+    final accentVisualWidth = isCompact ? 172.0 : 196.0;
     return Container(
       decoration: BoxDecoration(
         borderRadius: cardRadius,
@@ -1130,7 +1134,7 @@ class _MusicHeroCard extends StatelessWidget {
               right: -18,
               top: 10,
               bottom: 10,
-              width: 196,
+              width: accentVisualWidth,
               child: IgnorePointer(
                 child: Stack(
                   clipBehavior: Clip.none,
@@ -1312,7 +1316,7 @@ class _MusicHeroCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 22),
                       SizedBox(
-                        width: 224,
+                        width: heroInfoWidth,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -1383,7 +1387,7 @@ class _MusicHeroCard extends StatelessWidget {
                               ),
                             ),
                             child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Container(
                                   width: 42,
@@ -1424,31 +1428,33 @@ class _MusicHeroCard extends StatelessWidget {
                                       const SizedBox(height: 4),
                                       Text(
                                         track.title,
-                                        maxLines: 1,
+                                        maxLines: isCompact ? 2 : 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: theme.textTheme.titleMedium
                                             ?.copyWith(
                                               color: Colors.white,
-                                              fontSize: 18,
+                                              fontSize: isCompact ? 17 : 18,
                                               fontWeight: FontWeight.w800,
+                                              height: 1.15,
                                             ),
                                       ),
                                       const SizedBox(height: 4),
                                       Text(
                                         '${track.artist} · ${track.album}',
-                                        maxLines: 1,
+                                        maxLines: isCompact ? 2 : 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: theme.textTheme.bodySmall
                                             ?.copyWith(
                                               color: Colors.white.withValues(
                                                 alpha: 0.78,
                                               ),
+                                              height: 1.25,
                                             ),
                                       ),
                                     ],
                                   ),
                                 ),
-                                const SizedBox(width: 14),
+                                SizedBox(width: isCompact ? 10 : 14),
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   mainAxisSize: MainAxisSize.min,
@@ -1459,8 +1465,8 @@ class _MusicHeroCard extends StatelessWidget {
                                         backgroundColor: Colors.white,
                                         foregroundColor: palette.gradient.first,
                                         padding: const EdgeInsets.symmetric(
-                                          horizontal: 18,
-                                          vertical: 13,
+                                          horizontal: 16,
+                                          vertical: 12,
                                         ),
                                         elevation: 0,
                                         shape: const StadiumBorder(),
@@ -1511,8 +1517,8 @@ class _MusicHeroCard extends StatelessWidget {
                                           ),
                                           child: Padding(
                                             padding: const EdgeInsets.symmetric(
-                                              horizontal: 4,
-                                              vertical: 2,
+                                              horizontal: 8,
+                                              vertical: 4,
                                             ),
                                             child: Row(
                                               mainAxisSize: MainAxisSize.min,
@@ -1707,20 +1713,22 @@ class _FavoritePlaylistCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       '${playlist.trackCount} 首 · ${isPlaying ? '这一刻正从这里继续' : '想听的时候 随时都能回来'}',
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF616B7E),
+                        height: 1.25,
                       ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       '想接着听的话 就从《${currentTrack.title}》继续',
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: const Color(0xFF8A93A5),
                         fontSize: desktopAdjustedFontSize(11.5),
+                        height: 1.25,
                       ),
                     ),
                   ],
