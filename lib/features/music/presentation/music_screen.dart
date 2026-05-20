@@ -1059,8 +1059,8 @@ class _MusicHeroCard extends StatelessWidget {
     final cardRadius = BorderRadius.circular(36);
     final screenWidth = MediaQuery.sizeOf(context).width;
     final isCompact = screenWidth < 400;
-    final heroInfoWidth = isCompact ? 244.0 : 224.0;
-    final accentVisualWidth = isCompact ? 172.0 : 196.0;
+    final heroInfoWidth = isCompact ? 252.0 : 232.0;
+    final accentVisualWidth = isCompact ? 160.0 : 188.0;
     return Container(
       decoration: BoxDecoration(
         borderRadius: cardRadius,
@@ -1266,7 +1266,7 @@ class _MusicHeroCard extends StatelessWidget {
                 borderRadius: cardRadius,
                 onTap: onDetailTap ?? onPlayTap,
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 22, 24, 22),
+                  padding: const EdgeInsets.fromLTRB(22, 20, 22, 20),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1314,7 +1314,7 @@ class _MusicHeroCard extends StatelessWidget {
                             ),
                         ],
                       ),
-                      const SizedBox(height: 22),
+                      const SizedBox(height: 18),
                       SizedBox(
                         width: heroInfoWidth,
                         child: Column(
@@ -1328,20 +1328,20 @@ class _MusicHeroCard extends StatelessWidget {
                                 letterSpacing: 0.32,
                               ),
                             ),
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 8),
                             Text(
                               headline,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.titleLarge?.copyWith(
                                 color: Colors.white,
-                                fontSize: 27,
-                                height: 1.08,
+                                fontSize: isCompact ? 25 : 27,
+                                height: 1.06,
                                 fontWeight: FontWeight.w900,
                               ),
                             ),
                             if ((subtitle ?? '').trim().isNotEmpty) ...[
-                              const SizedBox(height: 10),
+                              const SizedBox(height: 8),
                               Text(
                                 subtitle!,
                                 maxLines: 1,
@@ -1352,14 +1352,14 @@ class _MusicHeroCard extends StatelessWidget {
                                 ),
                               ),
                             ],
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 10),
                             Text(
                               description,
-                              maxLines: 3,
+                              maxLines: isCompact ? 2 : 3,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.bodyMedium?.copyWith(
                                 color: Colors.white.withValues(alpha: 0.84),
-                                height: 1.48,
+                                height: 1.38,
                               ),
                             ),
                           ],
@@ -1371,7 +1371,12 @@ class _MusicHeroCard extends StatelessWidget {
                         child: BackdropFilter(
                           filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
                           child: Container(
-                            padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                            padding: EdgeInsets.fromLTRB(
+                              isCompact ? 14 : 16,
+                              14,
+                              isCompact ? 14 : 16,
+                              14,
+                            ),
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 begin: Alignment.topLeft,
@@ -1390,8 +1395,8 @@ class _MusicHeroCard extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Container(
-                                  width: 42,
-                                  height: 42,
+                                  width: isCompact ? 38 : 42,
+                                  height: isCompact ? 38 : 42,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
                                     color: Colors.white.withValues(alpha: 0.1),
@@ -1404,10 +1409,10 @@ class _MusicHeroCard extends StatelessWidget {
                                   child: Icon(
                                     Icons.graphic_eq_rounded,
                                     color: Colors.white.withValues(alpha: 0.9),
-                                    size: 20,
+                                    size: isCompact ? 18 : 20,
                                   ),
                                 ),
-                                const SizedBox(width: 12),
+                                SizedBox(width: isCompact ? 10 : 12),
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment:
@@ -1425,7 +1430,7 @@ class _MusicHeroCard extends StatelessWidget {
                                               letterSpacing: 0.3,
                                             ),
                                       ),
-                                      const SizedBox(height: 4),
+                                      const SizedBox(height: 3),
                                       Text(
                                         track.title,
                                         maxLines: isCompact ? 2 : 1,
@@ -1433,12 +1438,12 @@ class _MusicHeroCard extends StatelessWidget {
                                         style: theme.textTheme.titleMedium
                                             ?.copyWith(
                                               color: Colors.white,
-                                              fontSize: isCompact ? 17 : 18,
+                                              fontSize: isCompact ? 16 : 18,
                                               fontWeight: FontWeight.w800,
                                               height: 1.15,
                                             ),
                                       ),
-                                      const SizedBox(height: 4),
+                                      const SizedBox(height: 3),
                                       Text(
                                         '${track.artist} · ${track.album}',
                                         maxLines: isCompact ? 2 : 1,
@@ -1454,103 +1459,119 @@ class _MusicHeroCard extends StatelessWidget {
                                     ],
                                   ),
                                 ),
-                                SizedBox(width: isCompact ? 10 : 14),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    FilledButton.tonalIcon(
-                                      onPressed: isBusy ? null : onPlayTap,
-                                      style: FilledButton.styleFrom(
-                                        backgroundColor: Colors.white,
-                                        foregroundColor: palette.gradient.first,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 16,
-                                          vertical: 12,
+                                SizedBox(width: isCompact ? 8 : 12),
+                                SizedBox(
+                                  width: isCompact ? 122 : 148,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.end,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      FilledButton.tonalIcon(
+                                        onPressed: isBusy ? null : onPlayTap,
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: Colors.white,
+                                          foregroundColor:
+                                              palette.gradient.first,
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: isCompact ? 12 : 16,
+                                            vertical: isCompact ? 11 : 12,
+                                          ),
+                                          minimumSize: Size(
+                                            isCompact ? 122 : 148,
+                                            isCompact ? 48 : 50,
+                                          ),
+                                          elevation: 0,
+                                          shape: const StadiumBorder(),
                                         ),
-                                        elevation: 0,
-                                        shape: const StadiumBorder(),
-                                      ),
-                                      icon:
-                                          isBusy
-                                              ? SizedBox(
-                                                width: 16,
-                                                height: 16,
-                                                child: CircularProgressIndicator(
-                                                  strokeWidth: 2,
-                                                  valueColor:
-                                                      AlwaysStoppedAnimation<
-                                                        Color
-                                                      >(palette.gradient.first),
+                                        icon:
+                                            isBusy
+                                                ? SizedBox(
+                                                  width: 16,
+                                                  height: 16,
+                                                  child: CircularProgressIndicator(
+                                                    strokeWidth: 2,
+                                                    valueColor:
+                                                        AlwaysStoppedAnimation<
+                                                          Color
+                                                        >(
+                                                          palette
+                                                              .gradient
+                                                              .first,
+                                                        ),
+                                                  ),
+                                                )
+                                                : const Icon(
+                                                  Icons.play_arrow_rounded,
                                                 ),
-                                              )
-                                              : const Icon(
-                                                Icons.play_arrow_rounded,
-                                              ),
-                                      label: Text(
-                                        isBusy ? '处理中...' : buttonLabel,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w800,
+                                        label: Text(
+                                          isBusy ? '处理中...' : buttonLabel,
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: isCompact ? 15 : 16,
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                    if (onDetailTap != null) ...[
-                                      const SizedBox(height: 8),
-                                      Container(
-                                        decoration: BoxDecoration(
-                                          color: Colors.white.withValues(
-                                            alpha: 0.12,
-                                          ),
-                                          borderRadius: BorderRadius.circular(
-                                            999,
-                                          ),
-                                          border: Border.all(
+                                      if (onDetailTap != null) ...[
+                                        const SizedBox(height: 8),
+                                        Container(
+                                          decoration: BoxDecoration(
                                             color: Colors.white.withValues(
-                                              alpha: 0.16,
+                                              alpha: 0.12,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              999,
+                                            ),
+                                            border: Border.all(
+                                              color: Colors.white.withValues(
+                                                alpha: 0.16,
+                                              ),
+                                            ),
+                                          ),
+                                          child: InkWell(
+                                            onTap: isBusy ? null : onDetailTap,
+                                            borderRadius: BorderRadius.circular(
+                                              999,
+                                            ),
+                                            child: Padding(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 8,
+                                                    vertical: 4,
+                                                  ),
+                                              child: Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Text(
+                                                    '查看歌单',
+                                                    style: theme
+                                                        .textTheme
+                                                        .bodySmall
+                                                        ?.copyWith(
+                                                          color: Colors.white
+                                                              .withValues(
+                                                                alpha: 0.96,
+                                                              ),
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                        ),
+                                                  ),
+                                                  const SizedBox(width: 3),
+                                                  Icon(
+                                                    Icons.arrow_forward_rounded,
+                                                    size: 16,
+                                                    color: Colors.white
+                                                        .withValues(
+                                                          alpha: 0.92,
+                                                        ),
+                                                  ),
+                                                ],
+                                              ),
                                             ),
                                           ),
                                         ),
-                                        child: InkWell(
-                                          onTap: isBusy ? null : onDetailTap,
-                                          borderRadius: BorderRadius.circular(
-                                            999,
-                                          ),
-                                          child: Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 4,
-                                            ),
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Text(
-                                                  '查看歌单',
-                                                  style: theme
-                                                      .textTheme
-                                                      .bodySmall
-                                                      ?.copyWith(
-                                                        color: Colors.white
-                                                            .withValues(
-                                                              alpha: 0.96,
-                                                            ),
-                                                        fontWeight:
-                                                            FontWeight.w700,
-                                                      ),
-                                                ),
-                                                const SizedBox(width: 3),
-                                                Icon(
-                                                  Icons.arrow_forward_rounded,
-                                                  size: 16,
-                                                  color: Colors.white
-                                                      .withValues(alpha: 0.92),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                      ),
+                                      ],
                                     ],
-                                  ],
+                                  ),
                                 ),
                               ],
                             ),
@@ -1599,7 +1620,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(28),
         onTap: isLoading ? null : onTap,
         child: Container(
-          padding: const EdgeInsets.fromLTRB(16, 16, 14, 16),
+          padding: const EdgeInsets.fromLTRB(15, 15, 12, 15),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(28),
             border: Border.all(color: Colors.white.withValues(alpha: 0.92)),
@@ -1622,11 +1643,11 @@ class _FavoritePlaylistCard extends StatelessWidget {
           child: Row(
             children: [
               Container(
-                width: 72,
-                height: 72,
+                width: 64,
+                height: 64,
                 decoration: BoxDecoration(
                   gradient: LinearGradient(colors: palette.gradient),
-                  borderRadius: BorderRadius.circular(24),
+                  borderRadius: BorderRadius.circular(22),
                   border: Border.all(
                     color: Colors.white.withValues(alpha: 0.28),
                   ),
@@ -1656,12 +1677,12 @@ class _FavoritePlaylistCard extends StatelessWidget {
                     const Icon(
                       Icons.favorite_rounded,
                       color: Colors.white,
-                      size: 28,
+                      size: 26,
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1706,11 +1727,11 @@ class _FavoritePlaylistCard extends StatelessWidget {
                     Text(
                       playlist.title,
                       style: theme.textTheme.titleMedium?.copyWith(
-                        fontSize: 19,
+                        fontSize: 18,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     Text(
                       '${playlist.trackCount} 首 · ${isPlaying ? '这一刻正从这里继续' : '想听的时候 随时都能回来'}',
                       maxLines: 2,
@@ -1720,7 +1741,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
                         height: 1.25,
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
                     Text(
                       '想接着听的话 就从《${currentTrack.title}》继续',
                       maxLines: 2,
@@ -1734,13 +1755,13 @@ class _FavoritePlaylistCard extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               FilledButton(
                 onPressed: onPlayTap,
                 style: FilledButton.styleFrom(
                   backgroundColor: palette.gradient.first,
                   foregroundColor: Colors.white,
-                  minimumSize: const Size(52, 52),
+                  minimumSize: const Size(48, 48),
                   shape: const CircleBorder(),
                   padding: EdgeInsets.zero,
                   elevation: 0,
@@ -1762,7 +1783,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
                           isPlaying
                               ? Icons.equalizer_rounded
                               : Icons.play_arrow_rounded,
-                          size: 22,
+                          size: 20,
                         ),
               ),
             ],
@@ -2041,15 +2062,15 @@ class _RecentPlaylistTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
             children: [
               Container(
-                width: 54,
-                height: 54,
+                width: 48,
+                height: 48,
                 decoration: BoxDecoration(
                   gradient: LinearGradient(colors: palette.gradient),
-                  borderRadius: BorderRadius.circular(17),
+                  borderRadius: BorderRadius.circular(15),
                   border: Border.all(
                     color: Colors.white.withValues(alpha: 0.24),
                   ),
@@ -2066,10 +2087,10 @@ class _RecentPlaylistTile extends StatelessWidget {
                       ? Icons.auto_awesome_rounded
                       : palette.icon,
                   color: Colors.white,
-                  size: 24,
+                  size: 21,
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -2081,10 +2102,10 @@ class _RecentPlaylistTile extends StatelessWidget {
                           child: Text(
                             playlist.title,
                             style: theme.textTheme.titleMedium?.copyWith(
-                              fontSize: 15,
+                              fontSize: 14.5,
                               fontWeight: FontWeight.w800,
                             ),
-                            maxLines: 1,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -2111,7 +2132,7 @@ class _RecentPlaylistTile extends StatelessWidget {
                           ),
                       ],
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(height: 2),
                     Text(
                       playlist.subtitle,
                       maxLines: 1,
@@ -2122,7 +2143,7 @@ class _RecentPlaylistTile extends StatelessWidget {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(height: 5),
+                    const SizedBox(height: 4),
                     Row(
                       children: [
                         Text(
@@ -2165,10 +2186,10 @@ class _RecentPlaylistTile extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               SizedBox(
-                width: 44,
-                height: 44,
+                width: 40,
+                height: 40,
                 child: Material(
                   color: Colors.transparent,
                   shape: const CircleBorder(),
@@ -2196,7 +2217,7 @@ class _RecentPlaylistTile extends StatelessWidget {
                               : const Icon(
                                 Icons.play_arrow_rounded,
                                 color: Colors.white,
-                                size: 22,
+                                size: 20,
                               ),
                     ),
                   ),
