@@ -1,4 +1,3 @@
-import '../application/music_store.dart';
 import '../domain/music_home_models.dart';
 import '../domain/music_models.dart';
 import '../domain/music_runtime_models.dart';
@@ -10,8 +9,6 @@ abstract class MusicRepository {
   Future<MusicLikedCacheBucket?> loadLikedCache();
 
   Future<void> saveLocalCache(MusicLocalCacheSnapshot snapshot);
-
-  Future<MusicStateSnapshot> loadMusicState();
 
   Future<MusicHomeBundle> loadMusicHome();
 
@@ -61,17 +58,4 @@ abstract class MusicRepository {
     String? fallbackPlaylistOpaqueId,
   });
 
-  Future<DateTime?> savePlaybackSnapshot({
-    MusicTrack? currentTrack,
-    List<PlaybackQueueItem>? queue,
-    String? currentPlaylistId,
-    bool? isPlaying,
-    Duration? position,
-    List<MusicTrack>? likedTracks,
-    List<MusicPlaylist>? recentPlaylists,
-    List<CustomMusicPlaylist>? customPlaylists,
-    String? neteaseLikedPlaylistId,
-    String? neteaseLikedPlaylistOpaqueId,
-    int? localRevision,
-  });
 }

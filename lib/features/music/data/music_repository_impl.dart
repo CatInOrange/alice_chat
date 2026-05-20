@@ -2,7 +2,6 @@ import 'dart:async';
 
 import '../../../core/debug/native_debug_bridge.dart';
 import '../../../core/openclaw/openclaw_client.dart';
-import '../application/music_store.dart';
 import '../domain/music_home_models.dart';
 import '../domain/music_models.dart';
 import '../domain/music_runtime_models.dart';
@@ -38,19 +37,6 @@ class MusicRepositoryImpl implements MusicRepository {
   @override
   Future<void> saveLocalCache(MusicLocalCacheSnapshot snapshot) {
     return _localCacheStore.save(snapshot);
-  }
-
-  @override
-  Future<MusicStateSnapshot> loadMusicState() async {
-    try {
-      final response = await _client.getMusicState();
-      return _parseMusicStateSnapshot(response);
-    } catch (error) {
-      await _debugLog('repository.loadMusicState.error', {
-        'error': error.toString(),
-      });
-      rethrow;
-    }
   }
 
   @override
@@ -275,30 +261,14 @@ class MusicRepositoryImpl implements MusicRepository {
 
   @override
   Future<List<MusicTrack>> loadLikedTracks() async {
-    final response = await _client.getMusicState();
-    final likedTracks = ((response['likedTracks'] as List<dynamic>?) ??
-            const [])
-        .whereType<Map>()
-        .map(
-          (item) => MusicTrack.fromMap(
-            Map<String, dynamic>.from(item.cast<String, dynamic>()),
-          ),
-        )
-        .toList(growable: false);
-    return likedTracks;
+    final home = await loadMusicHome();
+    return home.likedTracks;
   }
 
   @override
   Future<List<CustomMusicPlaylist>> loadCustomPlaylists() async {
-    final response = await _client.getMusicState();
-    return ((response['customPlaylists'] as List<dynamic>?) ?? const [])
-        .whereType<Map>()
-        .map(
-          (item) => CustomMusicPlaylist.fromMap(
-            Map<String, dynamic>.from(item.cast<String, dynamic>()),
-          ),
-        )
-        .toList(growable: false);
+    final home = await loadMusicHome();
+    return home.customPlaylists;
   }
 
   @override
@@ -576,62 +546,6 @@ class MusicRepositoryImpl implements MusicRepository {
     return tracks;
   }
 
-  @override
-  Future<DateTime?> savePlaybackSnapshot({
-    MusicTrack? currentTrack,
-    List<PlaybackQueueItem>? queue,
-    String? currentPlaylistId,
-    bool? isPlaying,
-    Duration? position,
-    List<MusicTrack>? likedTracks,
-    List<MusicPlaylist>? recentPlaylists,
-    List<CustomMusicPlaylist>? customPlaylists,
-    String? neteaseLikedPlaylistId,
-    String? neteaseLikedPlaylistOpaqueId,
-    int? localRevision,
-  }) async {
-    try {
-      final response = await _client.saveMusicState(
-        payload: {
-          'currentTrack': currentTrack?.toMap(),
-          if (queue != null)
-            'queue': queue.map((item) => item.toMap()).toList(),
-          'currentPlaylistId': currentPlaylistId,
-          if (isPlaying != null) 'isPlaying': isPlaying,
-          if (position != null) 'positionMs': position.inMilliseconds,
-          if (likedTracks != null)
-            'likedTracks': likedTracks.map((item) => item.toMap()).toList(),
-          if (recentPlaylists != null)
-            'recentPlaylists':
-                recentPlaylists.map((item) => item.toMap()).toList(),
-          if (customPlaylists != null)
-            'customPlaylists':
-                customPlaylists.map((item) => item.toMap()).toList(),
-          if (neteaseLikedPlaylistId != null)
-            'neteaseLikedPlaylistId': neteaseLikedPlaylistId,
-          if (neteaseLikedPlaylistOpaqueId != null)
-            'neteaseLikedPlaylistOpaqueId': neteaseLikedPlaylistOpaqueId,
-          if (localRevision != null) 'localRevision': localRevision,
-        },
-      );
-      final updatedAtRaw = response['updatedAt'];
-      if (updatedAtRaw is num) {
-        return DateTime.fromMillisecondsSinceEpoch(
-          (updatedAtRaw.toDouble() * 1000).round(),
-        );
-      }
-      final updatedAtSeconds = double.tryParse('${response['updatedAt']}');
-      if (updatedAtSeconds == null) {
-        return null;
-      }
-      return DateTime.fromMillisecondsSinceEpoch(
-        (updatedAtSeconds * 1000).round(),
-      );
-    } catch (_) {
-      return null;
-    }
-  }
-
   MusicSourceProvider? _providerForTrack(MusicTrack track) {
     final registry = (_resolver as MusicSourceResolverImpl).registry;
     final preferred = track.preferredSourceId?.trim();
@@ -718,129 +632,6 @@ class MusicRepositoryImpl implements MusicRepository {
     final direct = _normalizeArtworkUrl(track.artworkUrl);
     if (direct.isNotEmpty) return 'track.artworkUrl';
     return 'none';
-  }
-
-  MusicStateSnapshot _parseMusicStateSnapshot(Map<String, dynamic> response) {
-    final currentTrackMap =
-        (response['currentTrack'] as Map?)?.cast<String, dynamic>();
-    final queue = ((response['queue'] as List<dynamic>?) ?? const [])
-        .whereType<Map>()
-        .map(
-          (item) => PlaybackQueueItem.fromMap(
-            Map<String, dynamic>.from(item.cast<String, dynamic>()),
-          ),
-        )
-        .toList(growable: false);
-    final playlists = ((response['playlists'] as List<dynamic>?) ?? const [])
-        .whereType<Map>()
-        .map(
-          (item) => MusicPlaylist.fromMap(
-            Map<String, dynamic>.from(item.cast<String, dynamic>()),
-          ),
-        )
-        .toList(growable: false);
-    final recentTracks = ((response['recentTracks'] as List<dynamic>?) ??
-            const [])
-        .whereType<Map>()
-        .map(
-          (item) => MusicTrack.fromMap(
-            Map<String, dynamic>.from(item.cast<String, dynamic>()),
-          ),
-        )
-        .toList(growable: false);
-    final likedTracks = ((response['likedTracks'] as List<dynamic>?) ??
-            const [])
-        .whereType<Map>()
-        .map(
-          (item) => MusicTrack.fromMap(
-            Map<String, dynamic>.from(item.cast<String, dynamic>()),
-          ),
-        )
-        .toList(growable: false);
-    final recentPlaylists = ((response['recentPlaylists'] as List<dynamic>?) ??
-            const [])
-        .whereType<Map>()
-        .map(
-          (item) => MusicPlaylist.fromMap(
-            Map<String, dynamic>.from(item.cast<String, dynamic>()),
-          ),
-        )
-        .toList(growable: false);
-    final customPlaylists = ((response['customPlaylists'] as List<dynamic>?) ??
-            const [])
-        .whereType<Map>()
-        .map(
-          (item) => CustomMusicPlaylist.fromMap(
-            Map<String, dynamic>.from(item.cast<String, dynamic>()),
-          ),
-        )
-        .toList(growable: false);
-    final currentPlaylistId =
-        (response['currentPlaylistId'] ?? '').toString().trim();
-    final neteaseLikedPlaylistId =
-        (response['neteaseLikedPlaylistId'] ?? '').toString().trim();
-    final neteaseLikedPlaylistOpaqueId =
-        ((response['neteaseLikedPlaylistOpaqueId'] ??
-                    response['neteaseLikedPlaylistEncryptedId']) ??
-                '')
-            .toString()
-            .trim();
-    final latestAiPlaylistMap =
-        (response['latestAiPlaylist'] as Map?)?.cast<String, dynamic>();
-    final aiPlaylistHistory =
-        ((response['aiPlaylistHistory'] as List<dynamic>?) ?? const [])
-            .whereType<Map>()
-            .map(
-              (item) => MusicAiPlaylistDraft.fromMap(
-                Map<String, dynamic>.from(item.cast<String, dynamic>()),
-              ),
-            )
-            .toList(growable: false);
-    return MusicStateSnapshot(
-      currentTrack:
-          currentTrackMap == null ? null : MusicTrack.fromMap(currentTrackMap),
-      queue: queue,
-      playlists: playlists,
-      recentTracks: recentTracks,
-      likedTracks: likedTracks,
-      recentPlaylists: recentPlaylists,
-      customPlaylists: customPlaylists,
-      currentPlaylistId: currentPlaylistId.isEmpty ? null : currentPlaylistId,
-      neteaseLikedPlaylistId:
-          neteaseLikedPlaylistId.isEmpty ? null : neteaseLikedPlaylistId,
-      neteaseLikedPlaylistOpaqueId:
-          neteaseLikedPlaylistOpaqueId.isEmpty
-              ? null
-              : neteaseLikedPlaylistOpaqueId,
-      latestAiPlaylist:
-          latestAiPlaylistMap == null
-              ? null
-              : MusicAiPlaylistDraft.fromMap(latestAiPlaylistMap),
-      aiPlaylistHistory: aiPlaylistHistory,
-      serverUpdatedAt: _parseUpdatedAt(response['updatedAt']),
-      remoteRevision:
-          (response['localRevision'] is num)
-              ? (response['localRevision'] as num).toInt()
-              : int.tryParse('${response['localRevision']}') ?? 0,
-      isPlaying: response['isPlaying'] == true,
-      position: Duration(
-        milliseconds:
-            (response['positionMs'] is num)
-                ? (response['positionMs'] as num).toInt()
-                : int.tryParse('${response['positionMs']}') ?? 0,
-      ),
-    );
-  }
-
-  DateTime? _parseUpdatedAt(dynamic raw) {
-    if (raw is num) {
-      return DateTime.fromMillisecondsSinceEpoch(
-        (raw.toDouble() * 1000).round(),
-      );
-    }
-    final seconds = double.tryParse('$raw');
-    if (seconds == null) return null;
-    return DateTime.fromMillisecondsSinceEpoch((seconds * 1000).round());
   }
 
   MusicAiPlaylistDraft _parseLatestAiPlaylistDraft(
