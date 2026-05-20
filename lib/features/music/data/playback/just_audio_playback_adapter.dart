@@ -75,7 +75,7 @@ class JustAudioPlaybackAdapter implements PlaybackAdapter {
     );
     try {
       await _player.setAudioSource(audioSource);
-      await _player.play();
+      _startPlayback();
     } catch (error) {
       _setState(
         _state.copyWith(
@@ -96,7 +96,7 @@ class JustAudioPlaybackAdapter implements PlaybackAdapter {
     if (_player.processingState == ProcessingState.completed) {
       await _player.seek(Duration.zero);
     }
-    await _player.play();
+    _startPlayback();
   }
 
   @override
@@ -117,5 +117,19 @@ class JustAudioPlaybackAdapter implements PlaybackAdapter {
     if (!_stateController.isClosed) {
       _stateController.add(next);
     }
+  }
+
+  void _startPlayback() {
+    unawaited(
+      _player.play().catchError((Object error, StackTrace _) {
+        _setState(
+          _state.copyWith(
+            error: error.toString(),
+            isPlaying: false,
+            isBuffering: false,
+          ),
+        );
+      }),
+    );
   }
 }
