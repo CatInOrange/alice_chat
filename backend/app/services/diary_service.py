@@ -81,6 +81,7 @@ class DiaryService:
                 date=resolved_date,
                 prompt=prompt,
             )
+            content = self._normalize_generated_content(content)
             title = self._extract_title(content, resolved_date)
             return self.diary_store.upsert_entry(
                 agent_id=resolved_agent,
@@ -212,6 +213,7 @@ class DiaryService:
 - 可以表达亲密、依恋、反省和一点点小情绪，但不要编造上下文没有发生的事实。
 - 如果某类信息缺失，就自然地写“今天这部分记录不多/我没太看清”，不要硬编。
 - 输出 Markdown。第一行用一级标题作为日记标题。
+- 不要输出模型名称、渠道名称或方括号标签，例如 “[deepseek-v4-flash]”。
 - 篇幅控制在 600-1200 字。
 
 今天的可用上下文如下：
@@ -260,6 +262,12 @@ class DiaryService:
         if not reply:
             raise RuntimeError("diary generation returned empty reply")
         return reply
+
+    def _normalize_generated_content(self, content: str) -> str:
+        text = str(content or "").strip()
+        # Some providers prefix replies with the serving model, e.g.
+        # "[deepseek-v4-flash] # 2026年5月21日 晴".
+        return re.sub(r"^\[[A-Za-z0-9][A-Za-z0-9._:/ -]{0,80}\]\s*", "", text, count=1).strip()
 
     def _extract_title(self, content: str, fallback_date: str) -> str:
         for line in str(content or "").splitlines():
