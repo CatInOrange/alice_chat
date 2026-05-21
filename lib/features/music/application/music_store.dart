@@ -43,6 +43,7 @@ class MusicStore extends ChangeNotifier {
   static const int _neteaseFmBatchSize = 6;
   static const int _neteaseFmPrefetchThreshold = 5;
   static const int _neteaseFmPrefetchRetryLimit = 3;
+  static const Duration _musicPlayHistoryMinimum = Duration(seconds: 30);
   static const Duration _eventReconnectBaseDelay = Duration(seconds: 1);
   static const Duration _eventReconnectMaxDelay = Duration(seconds: 8);
 
@@ -134,6 +135,12 @@ class MusicStore extends ChangeNotifier {
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   late MusicTrack _currentTrack;
+  MusicTrack? _musicHistoryTrack;
+  String? _musicHistoryPlaylistId;
+  DateTime? _musicHistoryStartedAt;
+  Duration _musicHistoryAccumulated = Duration.zero;
+  Timer? _musicHistoryTimer;
+  bool _musicHistoryRecorded = false;
   List<PlaybackQueueItem> _queue = const [];
   final List<MusicTrack> _playbackHistory = <MusicTrack>[];
   List<MusicPlaylist> _playlists = const [];
@@ -1338,6 +1345,7 @@ class MusicStore extends ChangeNotifier {
     } catch (_) {
       // best effort: switching to a new playlist should still proceed
     }
+    _pauseMusicHistoryTracking(recordIfReady: true);
     _isPlaying = false;
     _isBuffering = false;
     _isPreparingPlayback = false;
@@ -1348,6 +1356,9 @@ class MusicStore extends ChangeNotifier {
       throw StateError('当前没有可播放的歌曲');
     }
     final previousTrackId = _currentTrack.id.trim();
+    if (queueItems.first.track.id.trim() != previousTrackId) {
+      _finishMusicHistoryTracking(reason: 'queue_replaced');
+    }
     _isPreparingPlayback = true;
     _isPlaying = false;
     _isBuffering = false;
@@ -1926,6 +1937,7 @@ class MusicStore extends ChangeNotifier {
         notifyListeners();
         rethrow;
       }
+      _pauseMusicHistoryTracking(recordIfReady: true);
       _markSnapshotDirty();
       return;
     }
@@ -1967,6 +1979,7 @@ class MusicStore extends ChangeNotifier {
         notifyListeners();
         rethrow;
       }
+      _resumeMusicHistoryTracking();
       _markSnapshotDirty();
       return;
     }
@@ -2407,6 +2420,7 @@ class MusicStore extends ChangeNotifier {
       case MusicCommandType.pause:
         _hasLocalPauseOverride = true;
         await _playbackAdapter.pause();
+        _pauseMusicHistoryTracking(recordIfReady: true);
         _isPlaying = false;
         _isBuffering = false;
         _isPreparingPlayback = false;
@@ -2420,6 +2434,7 @@ class MusicStore extends ChangeNotifier {
         _isPreparingPlayback = true;
         await _playbackAdapter.resume();
         _isPlaying = true;
+        _resumeMusicHistoryTracking();
         break;
       case MusicCommandType.next:
         await _advanceToNextTrack();
@@ -2758,6 +2773,11 @@ class MusicStore extends ChangeNotifier {
     }
     if (track != null) {
       final previousTrackId = _currentTrack.id;
+      if (previousTrackId.trim().isNotEmpty &&
+          track.id.trim().isNotEmpty &&
+          track.id != previousTrackId) {
+        _finishMusicHistoryTracking(reason: 'adapter_track_changed');
+      }
       _currentTrack = track.copyWith(isFavorite: isTrackLiked(track.id));
       if (_currentTrack.id != previousTrackId) {
         unawaited(_loadLyricsForTrack(_currentTrack, forceRefresh: false));
@@ -2774,6 +2794,7 @@ class MusicStore extends ChangeNotifier {
     }
     _duration = state.duration ?? _currentTrack.duration;
     if (state.completed) {
+      _finishMusicHistoryTracking(reason: 'completed');
       _isPlaying = false;
       _isBuffering = false;
       _isPreparingPlayback = false;
@@ -2786,6 +2807,7 @@ class MusicStore extends ChangeNotifier {
       _isBuffering = false;
       _isPreparingPlayback = false;
       _position = state.position;
+      _pauseMusicHistoryTracking(recordIfReady: true);
       return;
     }
     if (_hasLocalPauseOverride && !adapterIsPlaying) {
@@ -2794,6 +2816,11 @@ class MusicStore extends ChangeNotifier {
     _isPlaying = adapterIsPlaying;
     _isBuffering = state.isBuffering;
     _position = state.position;
+    if (adapterIsPlaying) {
+      _resumeMusicHistoryTracking();
+    } else {
+      _pauseMusicHistoryTracking(recordIfReady: true);
+    }
   }
 
   void _handlePlaybackCompletionIfNeeded(PlaybackAdapterState state) {
@@ -2808,11 +2835,103 @@ class MusicStore extends ChangeNotifier {
   }
 
   void _finishPlaybackSession() {
+    _finishMusicHistoryTracking(reason: 'session_finished');
     _isPlaying = false;
     _isBuffering = false;
     _isPreparingPlayback = false;
     _position = _duration;
     _markSnapshotDirty();
+  }
+
+  void _resumeMusicHistoryTracking({bool resetForCurrentTrack = false}) {
+    final trackId = _currentTrack.id.trim();
+    if (trackId.isEmpty) {
+      return;
+    }
+    final currentKey = _trackIdentityKey(_currentTrack).trim();
+    final trackedKey =
+        _musicHistoryTrack == null
+            ? ''
+            : _trackIdentityKey(_musicHistoryTrack!).trim();
+    if (resetForCurrentTrack || trackedKey != currentKey) {
+      _finishMusicHistoryTracking(reason: 'track_changed');
+      _musicHistoryTrack = _currentTrack;
+      _musicHistoryPlaylistId = _currentPlaylistId;
+      _musicHistoryAccumulated = Duration.zero;
+      _musicHistoryRecorded = false;
+    }
+    if (_musicHistoryRecorded || _musicHistoryStartedAt != null) {
+      return;
+    }
+    _musicHistoryStartedAt = DateTime.now();
+    _scheduleMusicHistoryTimer();
+  }
+
+  void _pauseMusicHistoryTracking({required bool recordIfReady}) {
+    final startedAt = _musicHistoryStartedAt;
+    if (startedAt == null) {
+      if (recordIfReady) {
+        _recordMusicHistoryIfReady(reason: 'paused');
+      }
+      return;
+    }
+    _musicHistoryAccumulated += DateTime.now().difference(startedAt);
+    _musicHistoryStartedAt = null;
+    _musicHistoryTimer?.cancel();
+    _musicHistoryTimer = null;
+    if (recordIfReady) {
+      _recordMusicHistoryIfReady(reason: 'paused');
+    }
+  }
+
+  void _finishMusicHistoryTracking({required String reason}) {
+    _pauseMusicHistoryTracking(recordIfReady: true);
+    _musicHistoryTrack = null;
+    _musicHistoryPlaylistId = null;
+    _musicHistoryAccumulated = Duration.zero;
+    _musicHistoryRecorded = false;
+    _musicHistoryTimer?.cancel();
+    _musicHistoryTimer = null;
+  }
+
+  void _scheduleMusicHistoryTimer() {
+    _musicHistoryTimer?.cancel();
+    if (_musicHistoryRecorded) {
+      return;
+    }
+    final remaining = _musicPlayHistoryMinimum - _musicHistoryAccumulated;
+    _musicHistoryTimer = Timer(
+      remaining.isNegative ? Duration.zero : remaining,
+      () => _recordMusicHistoryIfReady(reason: 'threshold_reached'),
+    );
+  }
+
+  void _recordMusicHistoryIfReady({required String reason}) {
+    if (_musicHistoryRecorded) {
+      return;
+    }
+    final track = _musicHistoryTrack;
+    if (track == null || track.id.trim().isEmpty) {
+      return;
+    }
+    var listened = _musicHistoryAccumulated;
+    final startedAt = _musicHistoryStartedAt;
+    if (startedAt != null) {
+      listened += DateTime.now().difference(startedAt);
+    }
+    if (listened < _musicPlayHistoryMinimum) {
+      return;
+    }
+    _musicHistoryRecorded = true;
+    _musicHistoryTimer?.cancel();
+    _musicHistoryTimer = null;
+    unawaited(
+      _repository.recordMusicPlay(
+        track: track,
+        playlistId: _musicHistoryPlaylistId,
+        position: listened,
+      ),
+    );
   }
 
   PlaybackAdapter _createPlaybackAdapter() {
@@ -3945,13 +4064,7 @@ class MusicStore extends ChangeNotifier {
     }
     _duration = _currentTrack.duration;
     _error = null;
-    unawaited(
-      _repository.recordMusicPlay(
-        track: _currentTrack,
-        playlistId: _currentPlaylistId,
-        position: _position,
-      ),
-    );
+    _resumeMusicHistoryTracking(resetForCurrentTrack: resetPosition);
     unawaited(_loadLyricsForTrack(_currentTrack, forceRefresh: false));
     unawaited(_warmUpcomingQueueTracks());
     if (_currentPlaylistId == 'netease-fm') {
@@ -4646,6 +4759,7 @@ class MusicStore extends ChangeNotifier {
     _aiPlaylistEnricher.cancel();
     _warmupCoordinator.cancel();
     _eventReconnectTimer?.cancel();
+    _musicHistoryTimer?.cancel();
     _eventsSub?.cancel();
     _playbackStateSub?.cancel();
     unawaited(_playbackAdapter.dispose());

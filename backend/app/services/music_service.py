@@ -60,7 +60,6 @@ class MusicService:
     def save_state(self, patch: MusicStatePatchDto) -> MusicStateResult:
         raw_patch = patch.model_dump(exclude_unset=True)
         saved = self.store.save_state(raw_patch)
-        self._record_play_from_patch(raw_patch)
         return MusicStateResult(
             payload=MusicStateDto.model_validate(saved)
         )
@@ -81,17 +80,6 @@ class MusicService:
 
     def list_play_history_day(self, *, date: str, limit: int = 200) -> list[dict]:
         return self.history_store.list_day(date=date, limit=limit)
-
-    def _record_play_from_patch(self, patch: dict) -> None:
-        track = patch.get('currentTrack') if isinstance(patch.get('currentTrack'), dict) else None
-        if not track or patch.get('isPlaying') is not True:
-            return
-        self.history_store.record_play(
-            track=track,
-            playlist_id=str(patch.get('currentPlaylistId') or ''),
-            source='state',
-            meta={'positionMs': patch.get('positionMs')},
-        )
 
     def load_latest_ai_playlist(self) -> MusicAiPlaylistResult:
         state = self.store.load_state()
