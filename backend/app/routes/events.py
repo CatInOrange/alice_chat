@@ -21,6 +21,15 @@ def _build_sse_payload(*, seq: int, event_type: str, ts: float, payload: dict, d
     }
 
 
+def _matches_session_filter(payload: dict, session_id: str | None) -> bool:
+    if not session_id:
+        return True
+    payload_session_id = str(payload.get('sessionId') or '')
+    if not payload_session_id:
+        return True
+    return payload_session_id == str(session_id)
+
+
 def create_events_router(context: AppContext) -> APIRouter:
     router = APIRouter(dependencies=[Depends(verify_app_password)])
 
@@ -30,7 +39,7 @@ def create_events_router(context: AppContext) -> APIRouter:
             if since is not None:
                 for event in context.events_bus.list_since(int(since)):
                     payload = event.get('payload') or {}
-                    if sessionId and str(payload.get('sessionId') or '') != str(sessionId):
+                    if not _matches_session_filter(payload, sessionId):
                         continue
                     sse_payload = _build_sse_payload(
                         seq=int(event.get('seq') or 0),
@@ -72,7 +81,7 @@ def create_events_router(context: AppContext) -> APIRouter:
                         yield ': keepalive\n\n'
                         continue
                     payload = event.payload or {}
-                    if sessionId and str(payload.get('sessionId') or '') != str(sessionId):
+                    if not _matches_session_filter(payload, sessionId):
                         continue
                     sse_payload = _build_sse_payload(
                         seq=int(event.seq),

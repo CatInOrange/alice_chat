@@ -39,7 +39,7 @@ class AliceChatApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => MusicStore()),
         ChangeNotifierProvider(create: (_) => MusicPlatformStore()),
         ChangeNotifierProvider(create: (_) => TavernStore()),
-        ChangeNotifierProvider(create: (_) => TodoStore()),
+        ChangeNotifierProvider(create: (_) => TodoStore(), lazy: false),
       ],
       child: MaterialApp(
         title: 'Alice Chat',

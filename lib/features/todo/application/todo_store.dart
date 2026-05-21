@@ -101,6 +101,10 @@ class TodoStore extends ChangeNotifier {
       final snapshot = await _loadRemoteSnapshot();
       if (snapshot == null) return;
       await _applySnapshot(snapshot, replaceLocal: true);
+      await NativeDebugBridge.instance.log(
+        'todo',
+        'refreshFromRemote applied force=$force revision=$_lastRemoteRevision tasks=${_tasks.length}',
+      );
       if (!_loaded) {
         _loaded = true;
       }
@@ -433,6 +437,10 @@ class TodoStore extends ChangeNotifier {
     }
     _client = OpenClawHttpClient(config);
     await _eventsSub?.cancel();
+    await NativeDebugBridge.instance.log(
+      'todo',
+      'events subscribe baseUrl=$baseUrl',
+    );
     _eventsSub = _client!.subscribeEvents().listen(
       _handleBackendEvent,
       onError: (Object error, StackTrace stackTrace) async {
@@ -534,11 +542,17 @@ class TodoStore extends ChangeNotifier {
       return;
     }
     final clientInstanceId = (event['clientInstanceId'] ?? '').toString();
+    final revisionValue = event['revision'];
+    final revision = revisionValue is num ? revisionValue.toInt() : 0;
+    unawaited(
+      NativeDebugBridge.instance.log(
+        'todo',
+        'event snapshot_changed revision=$revision last=$_lastRemoteRevision source=${event['source'] ?? ''} action=${event['action'] ?? ''} own=${clientInstanceId == _clientInstanceId}',
+      ),
+    );
     if (clientInstanceId == _clientInstanceId) {
       return;
     }
-    final revisionValue = event['revision'];
-    final revision = revisionValue is num ? revisionValue.toInt() : 0;
     if (revision <= _lastRemoteRevision) {
       return;
     }
