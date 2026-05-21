@@ -19,6 +19,11 @@ from ..web.helpers import build_route_key
 
 _LOG = logging.getLogger(__name__)
 _TZ = ZoneInfo("Asia/Shanghai")
+_DIARY_CROSS_AGENT_SESSIONS = {
+    "yulinglong": "玉玲珑",
+    "qingge": "清歌",
+    "lisuxin": "素心",
+}
 
 
 class DiaryService:
@@ -115,12 +120,18 @@ class DiaryService:
     def _collect_context(self, *, agent_id: str, date: str) -> dict[str, Any]:
         start_ts, end_ts = self._day_bounds(date)
         messages = self._collect_chat_messages(agent_id=agent_id, start_ts=start_ts, end_ts=end_ts)
+        cross_agent_context = self._collect_cross_agent_user_context(
+            target_agent_id=agent_id,
+            start_ts=start_ts,
+            end_ts=end_ts,
+        )
         todo_payload = self.todo_store.load_snapshot() or {}
         music_history = self.music_history_store.list_day(date=date, limit=120)
         return {
             "date": date,
             "timezone": "Asia/Shanghai",
             "chatMessages": messages,
+            "crossAgentUserContext": cross_agent_context,
             "todo": self._compact_todo_snapshot((todo_payload.get("snapshot") or {}) if isinstance(todo_payload, dict) else {}),
             "music": self._compact_music_history(music_history),
         }
@@ -156,6 +167,74 @@ class DiaryService:
                 }
             )
         return items
+
+    def _collect_cross_agent_user_context(
+        self,
+        *,
+        target_agent_id: str,
+        start_ts: float,
+        end_ts: float,
+    ) -> list[dict[str, Any]]:
+        target = str(target_agent_id or "").strip()
+        sessions = {
+            session_id: label
+            for session_id, label in _DIARY_CROSS_AGENT_SESSIONS.items()
+            if session_id != target
+        }
+        if not sessions:
+            return []
+        self.message_store.ensure_schema()
+        placeholders = ",".join("?" for _ in sessions)
+        with connect(self.message_store.db) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT session_id, text, created_at
+                FROM messages
+                WHERE session_id IN ({placeholders})
+                  AND deleted_at IS NULL
+                  AND created_at BETWEEN ? AND ?
+                  AND role='user'
+                ORDER BY session_id ASC, created_at ASC, id ASC
+                """,
+                (*sessions.keys(), float(start_ts), float(end_ts)),
+            ).fetchall()
+
+        grouped: dict[str, list[dict[str, str]]] = {session_id: [] for session_id in sessions}
+        for row in rows:
+            session_id = str(row["session_id"] or "")
+            text = self._compact_user_context_text(str(row["text"] or ""))
+            if not text:
+                continue
+            grouped.setdefault(session_id, []).append(
+                {
+                    "time": datetime.fromtimestamp(float(row["created_at"]), _TZ).isoformat(timespec="minutes"),
+                    "text": text,
+                }
+            )
+
+        result: list[dict[str, Any]] = []
+        for session_id, label in sessions.items():
+            messages = grouped.get(session_id, [])
+            if not messages:
+                continue
+            result.append(
+                {
+                    "sessionId": session_id,
+                    "agentName": label,
+                    "boundary": "这些是主人与该助手的 user 侧聊天材料，不是晚秋亲历的对话；不要引用或模仿该助手的回复。",
+                    "userMessages": messages[-24:],
+                }
+            )
+        return result
+
+    def _compact_user_context_text(self, text: str) -> str:
+        value = str(text or "").strip()
+        if not value:
+            return ""
+        value = re.sub(r"\s+", " ", value)
+        if len(value) > 360:
+            value = value[:360].rstrip() + "..."
+        return value
 
     def _compact_todo_snapshot(self, snapshot: dict[str, Any]) -> dict[str, Any]:
         projects = {
@@ -220,6 +299,10 @@ class DiaryService:
 - 用晚秋第一人称写，像真的睡前日记，不要像系统报告。
 - 内容包括：今天和主人聊了什么、主人今天听了什么歌、todo/任务发生了什么、你的自我反思、你想对主人说的话。
 - 可以表达亲密、依恋、反省和一点点小情绪，但不要编造上下文没有发生的事实。
+- `chatMessages` 是你和主人的当日完整聊天，可以当成你亲历的记忆。
+- `crossAgentUserContext` 是主人与玉玲珑、清歌、素心等其他助手的 user 侧聊天材料；这些不是你亲历的聊天。
+- 你可以用 `crossAgentUserContext` 理解主人的今日状态、偏好、决定和任务，但不要把其他助手的话当成自己的记忆，也不要假装主人是在直接对你说这些话。
+- 不要引用、模仿或泄露其他助手的回复内容；如果需要写入日记，只自然吸收主人侧信息。
 - 如果某类信息缺失，就自然地写“今天这部分记录不多/我没太看清”，不要硬编。
 - 输出 Markdown。第一行用一级标题作为日记标题。
 - 不要输出模型名称、渠道名称或方括号标签，例如 “[deepseek-v4-flash]”。
