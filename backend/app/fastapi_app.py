@@ -5,6 +5,9 @@ from contextlib import asynccontextmanager
 import asyncio
 import json
 import mimetypes
+import re
+import shutil
+import time
 import uuid
 from pathlib import Path
 
@@ -29,6 +32,14 @@ from .routes.todo import create_todo_router
 from .web.helpers import build_allowed_origins, build_protected_media_url, build_push_route_key, build_session_label
 
 
+_SAFE_ATTACHMENT_NAME_RE = re.compile(r'[^A-Za-z0-9._-]+')
+
+
+def _safe_attachment_stem(path: Path) -> str:
+    value = _SAFE_ATTACHMENT_NAME_RE.sub('_', path.stem).strip('._')
+    return value or 'attachment'
+
+
 def _infer_push_attachment_kind(*, explicit_kind: str, mime_type: str) -> str:
     kind = str(explicit_kind or '').strip().lower()
     normalized_mime = str(mime_type or '').strip().lower()
@@ -50,7 +61,22 @@ def _infer_push_attachment_kind(*, explicit_kind: str, mime_type: str) -> str:
     return inferred
 
 
-def _push_attachment_to_payload(item: object) -> dict | None:
+def _copy_push_attachment_to_uploads(context, *, raw_path: str, kind: str) -> tuple[str, int | None] | None:
+    source = Path(raw_path).expanduser().resolve()
+    if not source.is_file():
+        return None
+    bucket = 'media' if kind in {'image', 'audio', 'video'} else 'files'
+    year_month = time.strftime('%Y/%m')
+    target_dir = context.uploads_dir / bucket / year_month
+    target_dir.mkdir(parents=True, exist_ok=True)
+    suffix = source.suffix
+    stored_name = f'{_safe_attachment_stem(source)[:48]}_{uuid.uuid4().hex[:8]}{suffix}'
+    target = target_dir / stored_name
+    shutil.copyfile(source, target)
+    return f'/uploads/{bucket}/{year_month}/{stored_name}', source.stat().st_size
+
+
+def _push_attachment_to_payload(context, item: object) -> dict | None:
     if not isinstance(item, dict):
         return None
     explicit_kind = str(item.get('kind') or item.get('type') or '').strip().lower()
@@ -69,13 +95,22 @@ def _push_attachment_to_payload(item: object) -> dict | None:
     )
     raw_content = str(item.get('content') or item.get('data') or '').strip()
     url = raw_url
+    copied_size: int | None = None
     if raw_content:
         if raw_content.startswith('data:'):
             url = raw_content
         else:
             url = f'data:{mime_type};base64,{raw_content}'
     elif raw_path:
-        url = build_protected_media_url(str(Path(raw_path).expanduser()))
+        try:
+            copied = _copy_push_attachment_to_uploads(context, raw_path=raw_path, kind=kind)
+        except Exception as exc:  # noqa: BLE001
+            print(f'[push attachment] failed to copy {raw_path!r} into uploads: {exc}')
+            copied = None
+        if copied is not None:
+            url, copied_size = copied
+        else:
+            url = build_protected_media_url(str(Path(raw_path).expanduser()))
     if not url:
         return None
     payload = {
@@ -99,6 +134,8 @@ def _push_attachment_to_payload(item: object) -> dict | None:
     size = item.get('size')
     if isinstance(size, int) and size >= 0:
         payload['size'] = size
+    elif copied_size is not None:
+        payload['size'] = copied_size
     if item.get('audioAsVoice') is not None:
         payload['meta']['audioAsVoice'] = bool(item.get('audioAsVoice'))
     return payload
@@ -127,7 +164,7 @@ def _persist_push_message(context, frame: dict) -> None:
     attachments = [
         payload
         for payload in (
-            _push_attachment_to_payload(item)
+            _push_attachment_to_payload(context, item)
             for item in (frame.get('attachments') or [])
         )
         if payload is not None
