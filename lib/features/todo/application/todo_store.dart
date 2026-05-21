@@ -119,47 +119,43 @@ class TodoStore extends ChangeNotifier {
 
   List<TodoTask> tasksForProject(String projectId) {
     return _tasks
-        .where((item) => item.projectId == projectId)
-        .toList(growable: false)
-      ..sort(_taskSort);
+      .where((item) => item.projectId == projectId)
+      .toList(growable: false)..sort(_taskSort);
   }
 
   List<TodoTask> get todayTasks {
     final now = DateTime.now();
     return _tasks
-        .where(
-          (item) =>
-              !_isProjectArchived(item.projectId) &&
-              !item.isDone &&
-              _isSameDay(item.dueAt, now),
-        )
-        .toList(growable: false)
-      ..sort(_taskSort);
+      .where(
+        (item) =>
+            !_isProjectArchived(item.projectId) &&
+            !item.isDone &&
+            _isSameDay(item.dueAt, now),
+      )
+      .toList(growable: false)..sort(_taskSort);
   }
 
   List<TodoTask> get upcomingTasks {
     final now = DateTime.now();
     return _tasks
-        .where(
-          (item) =>
-              !_isProjectArchived(item.projectId) &&
-              !item.isDone &&
-              item.dueAt != null &&
-              item.dueAt!.isAfter(DateTime(now.year, now.month, now.day, 23, 59)),
-        )
-        .toList(growable: false)
-      ..sort(_taskSort);
+      .where(
+        (item) =>
+            !_isProjectArchived(item.projectId) &&
+            !item.isDone &&
+            item.dueAt != null &&
+            item.dueAt!.isAfter(DateTime(now.year, now.month, now.day, 23, 59)),
+      )
+      .toList(growable: false)..sort(_taskSort);
   }
 
   List<TodoTask> get completedTasks {
     return _tasks
-        .where((item) => !_isProjectArchived(item.projectId) && item.isDone)
-        .toList(growable: false)
-      ..sort((a, b) {
-        final aTime = a.completedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        final bTime = b.completedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        return bTime.compareTo(aTime);
-      });
+      .where((item) => !_isProjectArchived(item.projectId) && item.isDone)
+      .toList(growable: false)..sort((a, b) {
+      final aTime = a.completedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bTime = b.completedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bTime.compareTo(aTime);
+    });
   }
 
   int pendingCountForProject(String projectId) {
@@ -185,7 +181,10 @@ class TodoStore extends ChangeNotifier {
     final index = _projects.indexWhere((item) => item.id == projectId);
     if (index < 0) return;
     final mutable = _projects.toList(growable: true);
-    mutable[index] = mutable[index].copyWith(archived: archived, updatedAt: now);
+    mutable[index] = mutable[index].copyWith(
+      archived: archived,
+      updatedAt: now,
+    );
     _projects = mutable.toList(growable: false)
       ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
     notifyListeners();
@@ -200,9 +199,15 @@ class TodoStore extends ChangeNotifier {
     final now = DateTime.now();
     final existingIndex = _projects.indexWhere((item) => item.id == project.id);
     final normalized = project.copyWith(
-      createdAt: existingIndex >= 0 ? _projects[existingIndex].createdAt : project.createdAt,
+      createdAt:
+          existingIndex >= 0
+              ? _projects[existingIndex].createdAt
+              : project.createdAt,
       updatedAt: now,
-      sortOrder: existingIndex >= 0 ? _projects[existingIndex].sortOrder : _projects.length,
+      sortOrder:
+          existingIndex >= 0
+              ? _projects[existingIndex].sortOrder
+              : _projects.length,
     );
     final mutable = _projects.toList(growable: true);
     if (existingIndex >= 0) {
@@ -228,10 +233,7 @@ class TodoStore extends ChangeNotifier {
         .asMap()
         .entries
         .map(
-          (entry) => entry.value.copyWith(
-            sortOrder: entry.key,
-            updatedAt: now,
-          ),
+          (entry) => entry.value.copyWith(sortOrder: entry.key, updatedAt: now),
         )
         .toList(growable: false);
     notifyListeners();
@@ -240,15 +242,17 @@ class TodoStore extends ChangeNotifier {
 
   Future<void> toggleTask(String taskId, bool value) async {
     final now = DateTime.now();
-    _tasks = _tasks.map((item) {
-      if (item.id != taskId) return item;
-      return item.copyWith(
-        status: value ? TodoStatus.done : TodoStatus.todo,
-        completedAt: value ? now : null,
-        updatedAt: now,
-        completedSubtaskCount: value ? item.subtaskCount : 0,
-      );
-    }).toList(growable: false);
+    _tasks = _tasks
+        .map((item) {
+          if (item.id != taskId) return item;
+          return item.copyWith(
+            status: value ? TodoStatus.done : TodoStatus.todo,
+            completedAt: value ? now : null,
+            updatedAt: now,
+            completedSubtaskCount: value ? item.subtaskCount : 0,
+          );
+        })
+        .toList(growable: false);
     notifyListeners();
     final subtasks = await _localStore.listSubtasks(taskId);
     if (subtasks.isNotEmpty) {
@@ -268,46 +272,46 @@ class TodoStore extends ChangeNotifier {
     await _persistSnapshot();
   }
 
-  Future<void> saveTask(
-    TodoTask task, {
-    List<TodoSubtask>? subtasks,
-  }) async {
+  Future<void> saveTask(TodoTask task, {List<TodoSubtask>? subtasks}) async {
     final now = DateTime.now();
     final existingIndex = _tasks.indexWhere((item) => item.id == task.id);
-    final normalizedSubtasks =
-        subtasks
-            ?.asMap()
-            .entries
-            .map(
-              (entry) => entry.value.copyWith(
-                taskId: task.id,
-                sortOrder: entry.key,
-                updatedAt: now,
-                createdAt: entry.value.createdAt ?? now,
-              ),
-            )
-            .toList(growable: false);
+    final normalizedSubtasks = subtasks
+        ?.asMap()
+        .entries
+        .map(
+          (entry) => entry.value.copyWith(
+            taskId: task.id,
+            sortOrder: entry.key,
+            updatedAt: now,
+            createdAt: entry.value.createdAt ?? now,
+          ),
+        )
+        .toList(growable: false);
     final completedSubtaskCount =
         normalizedSubtasks?.where((item) => item.isCompleted).length ??
         task.completedSubtaskCount;
     final subtaskCount = normalizedSubtasks?.length ?? task.subtaskCount;
-    final shouldAutoComplete = subtaskCount > 0 && completedSubtaskCount == subtaskCount;
+    final shouldAutoComplete =
+        subtaskCount > 0 && completedSubtaskCount == subtaskCount;
     final normalized = task.copyWith(
       createdAt: task.createdAt ?? now,
       updatedAt: now,
-      status: shouldAutoComplete
-          ? TodoStatus.done
-          : (task.status == TodoStatus.done && completedSubtaskCount < subtaskCount)
+      status:
+          shouldAutoComplete
+              ? TodoStatus.done
+              : (task.status == TodoStatus.done &&
+                  completedSubtaskCount < subtaskCount)
               ? TodoStatus.todo
               : task.status,
       completedAt:
           shouldAutoComplete
               ? (task.completedAt ?? now)
-              : (task.status == TodoStatus.done && completedSubtaskCount < subtaskCount)
-                  ? null
-                  : task.isDone
-                      ? (task.completedAt ?? now)
-                      : null,
+              : (task.status == TodoStatus.done &&
+                  completedSubtaskCount < subtaskCount)
+              ? null
+              : task.isDone
+              ? (task.completedAt ?? now)
+              : null,
       reminderAt: task.reminderAt,
       subtaskCount: subtaskCount,
       completedSubtaskCount: completedSubtaskCount,
@@ -330,7 +334,41 @@ class TodoStore extends ChangeNotifier {
     _tasks = _tasks.where((item) => item.id != taskId).toList(growable: false);
     notifyListeners();
     await _localStore.deleteTask(taskId);
-    await _persistSnapshot();
+    final client = _client;
+    if (client == null) {
+      await _persistSnapshot();
+      return;
+    }
+    try {
+      final payload = await client.postJson('/api/todo/actions', {
+        'type': 'delete_task',
+        'source': 'app',
+        'clientInstanceId': _clientInstanceId,
+        'payload': {'taskId': taskId},
+      });
+      final revisionValue = payload['revision'];
+      if (revisionValue is num) {
+        _lastRemoteRevision = revisionValue.toInt();
+      }
+      final snapshotPayload = payload['snapshot'];
+      if (snapshotPayload is Map) {
+        await _applySnapshot(
+          TodoSnapshot.fromJson(
+            Map<String, dynamic>.from(snapshotPayload.cast<String, dynamic>()),
+          ),
+          replaceLocal: true,
+        );
+      }
+      _error = null;
+    } catch (error) {
+      _error = '待办已从本机移除，云端删除失败';
+      await NativeDebugBridge.instance.log(
+        'todo',
+        'deleteTask remote action failed taskId=$taskId error=$error',
+        level: 'WARN',
+      );
+    }
+    notifyListeners();
   }
 
   Future<void> replaceSubtasks(
@@ -338,43 +376,47 @@ class TodoStore extends ChangeNotifier {
     List<TodoSubtask> subtasks,
   ) async {
     final now = DateTime.now();
-    final normalizedSubtasks =
-        subtasks
-            .asMap()
-            .entries
-            .map(
-              (entry) => entry.value.copyWith(
-                taskId: taskId,
-                sortOrder: entry.key,
-                updatedAt: now,
-                createdAt: entry.value.createdAt ?? now,
-              ),
-            )
-            .toList(growable: false);
+    final normalizedSubtasks = subtasks
+        .asMap()
+        .entries
+        .map(
+          (entry) => entry.value.copyWith(
+            taskId: taskId,
+            sortOrder: entry.key,
+            updatedAt: now,
+            createdAt: entry.value.createdAt ?? now,
+          ),
+        )
+        .toList(growable: false);
     final completedCount =
         normalizedSubtasks.where((item) => item.isCompleted).length;
     final shouldAutoComplete =
-        normalizedSubtasks.isNotEmpty && completedCount == normalizedSubtasks.length;
-    _tasks =
-        _tasks.map((item) {
-          if (item.id != taskId) return item;
-          return item.copyWith(
-            updatedAt: now,
-            status: shouldAutoComplete
-                ? TodoStatus.done
-                : (item.status == TodoStatus.done && completedCount < normalizedSubtasks.length)
-                    ? TodoStatus.todo
-                    : item.status,
-            completedAt: shouldAutoComplete
-                ? (item.completedAt ?? now)
-                : (item.status == TodoStatus.done && completedCount < normalizedSubtasks.length)
-                    ? null
-                    : item.completedAt,
-            subtaskCount: normalizedSubtasks.length,
-            completedSubtaskCount: completedCount,
-          );
-        }).toList(growable: false)
-          ..sort(_taskSort);
+        normalizedSubtasks.isNotEmpty &&
+        completedCount == normalizedSubtasks.length;
+    _tasks = _tasks
+      .map((item) {
+        if (item.id != taskId) return item;
+        return item.copyWith(
+          updatedAt: now,
+          status:
+              shouldAutoComplete
+                  ? TodoStatus.done
+                  : (item.status == TodoStatus.done &&
+                      completedCount < normalizedSubtasks.length)
+                  ? TodoStatus.todo
+                  : item.status,
+          completedAt:
+              shouldAutoComplete
+                  ? (item.completedAt ?? now)
+                  : (item.status == TodoStatus.done &&
+                      completedCount < normalizedSubtasks.length)
+                  ? null
+                  : item.completedAt,
+          subtaskCount: normalizedSubtasks.length,
+          completedSubtaskCount: completedCount,
+        );
+      })
+      .toList(growable: false)..sort(_taskSort);
     notifyListeners();
     await _localStore.replaceSubtasks(taskId, normalizedSubtasks);
     await _persistSnapshot();
@@ -472,11 +514,7 @@ class TodoStore extends ChangeNotifier {
     for (final task in _tasks) {
       subtasks.addAll(await _localStore.listSubtasks(task.id));
     }
-    return TodoSnapshot(
-      projects: _projects,
-      tasks: _tasks,
-      subtasks: subtasks,
-    );
+    return TodoSnapshot(projects: _projects, tasks: _tasks, subtasks: subtasks);
   }
 
   Future<void> _applySnapshot(

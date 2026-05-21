@@ -8,9 +8,11 @@ During migration we keep message payload format identical to the legacy backend.
 """
 
 from dataclasses import dataclass, replace
+from datetime import datetime
 import json
 import logging
 import uuid
+from zoneinfo import ZoneInfo
 
 from ..agents import ChatRequest, create_agent_backend
 from ..config import get_chat_config, get_chat_provider
@@ -60,8 +62,13 @@ Rules:
 - Do not invent unsupported music actions.
 """.strip()
 
-_TODO_TOOL_GUIDANCE = """
+_TODO_TOOL_GUIDANCE_TEMPLATE = """
 Todo reading and editing are available through tool calls.
+
+Current todo time context:
+- Current datetime: {current_datetime}
+- Current date: {current_date}
+- Timezone: Asia/Shanghai (UTC+08:00)
 
 When the user asks to view current tasks, pending tasks, today's tasks, or tasks in a project, prefer `get_todo_snapshot` instead of guessing from chat history.
 
@@ -86,12 +93,22 @@ Rules:
 - When creating a new task and project placement matters, prefer calling `get_todo_snapshot` first so you can see the existing projects and choose the best matching one.
 - Prefer placing new tasks into an existing relevant project by passing `projectId` or `projectName` with `todo_action`.
 - Do not default new tasks to `工作` unless the task content clearly belongs there.
+- Resolve relative dates like today, tomorrow, this week, next Thursday, and tonight from the current todo time context above.
+- For `dueAt` and `reminderAt`, use ISO 8601 datetimes with the `+08:00` offset. If the user gives only a date, use a conservative end-of-day due time such as `23:59:59+08:00`.
 - For updates to an existing task or project, prefer reading with `get_todo_snapshot` first so you can use the right `taskId` or `projectId`.
 - If the user references an existing todo item ambiguously, ask a concise follow-up question instead of guessing.
 - If the user clearly wants a new task recorded, use `todo_action` directly.
 - If there is no clearly suitable existing project, use the inbox-style fallback instead of forcing a weak guess.
 - Do not invent unsupported todo actions.
 """.strip()
+
+
+def _build_todo_tool_guidance() -> str:
+    now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    return _TODO_TOOL_GUIDANCE_TEMPLATE.format(
+        current_datetime=now.isoformat(timespec="seconds"),
+        current_date=now.date().isoformat(),
+    )
 
 
 class ChatService:
@@ -146,7 +163,7 @@ class ChatService:
         extra_system_prompts: list[str] = []
         if provider_id == "alicechat-channel":
             extra_system_prompts.append(_MUSIC_TOOL_GUIDANCE)
-            extra_system_prompts.append(_TODO_TOOL_GUIDANCE)
+            extra_system_prompts.append(_build_todo_tool_guidance())
 
         return ChatResolvedRequest(
             model_config=model_config,
