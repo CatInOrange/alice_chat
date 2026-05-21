@@ -11,6 +11,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 import json
 import logging
+import mimetypes
 import uuid
 from zoneinfo import ZoneInfo
 
@@ -266,34 +267,59 @@ class ChatService:
         reply: str,
         raw_reply: str | None = None,
         images: list[dict] | None = None,
+        media: list[dict] | None = None,
         meta: str = "",
         source: str = "chat",
     ) -> list[dict]:
         """Persist assistant output.
 
-        Images and text are stored as separate assistant messages.
-        Image messages stay image-only. Text, when present, is persisted as its
-        own assistant text message.
+        Media and text are stored as separate assistant messages. Media messages
+        stay attachment-only. Text, when present, is persisted as its own
+        assistant text message.
         """
 
         from ..utils import strip_stage_directives
 
         visible_text = strip_stage_directives(str(reply or "")).strip()
         assistant_attachments = []
-        for img in images or []:
-            if isinstance(img, dict) and img.get("url"):
-                image_url = str(img.get("url") or "").strip()
-                stored_url = normalize_attachment_url(image_url)
+        media_items = media if media is not None else images
+        for item in media_items or []:
+            if isinstance(item, dict) and item.get("url"):
+                raw_url = str(item.get("url") or "").strip()
+                stored_url = normalize_attachment_url(raw_url)
+                kind = str(item.get("kind") or item.get("type") or "").strip().lower()
+                guessed_mime_type, _ = mimetypes.guess_type(raw_url.split("?", 1)[0])
+                mime_type = str(item.get("mimeType") or item.get("mime_type") or guessed_mime_type or "").strip()
+                if not kind:
+                    if mime_type.startswith("image/"):
+                        kind = "image"
+                    elif mime_type.startswith("audio/"):
+                        kind = "audio"
+                    elif mime_type.startswith("video/"):
+                        kind = "video"
+                    else:
+                        kind = "file"
+                if kind == "document":
+                    kind = "file"
+                if not mime_type:
+                    mime_type = {
+                        "image": "image/png",
+                        "audio": "audio/mpeg",
+                        "video": "video/mp4",
+                    }.get(kind, "application/octet-stream")
+                filename = str(item.get("name") or item.get("filename") or "").strip()
+                size = item.get("size")
                 assistant_attachments.append({
                     "id": f"att_{uuid.uuid4().hex[:12]}",
-                    "kind": "image",
-                    "mimeType": img.get("mimeType") or img.get("mime_type") or "image/png",
+                    "kind": kind if kind in {"image", "audio", "video", "file"} else "file",
+                    "mimeType": mime_type,
                     "url": stored_url,
-                    "filename": img.get("filename") or "",
-                    "name": img.get("filename") or "",
+                    "filename": filename,
+                    "name": filename,
+                    **({"size": size} if isinstance(size, int) and size >= 0 else {}),
                     "status": "ready",
                     "meta": {
-                        "rawUrl": image_url,
+                        "rawUrl": raw_url,
                     },
                 })
 

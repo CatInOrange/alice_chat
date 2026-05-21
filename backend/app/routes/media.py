@@ -32,6 +32,35 @@ _IMAGE_KIND_BY_IMGHDR = {
 _MAX_IMAGE_UPLOAD_BYTES = 20 * 1024 * 1024
 _MAX_FILE_UPLOAD_BYTES = 100 * 1024 * 1024
 
+_AUDIO_EXTENSIONS = {
+    '.aac',
+    '.aiff',
+    '.ape',
+    '.flac',
+    '.m4a',
+    '.mp3',
+    '.oga',
+    '.ogg',
+    '.opus',
+    '.wav',
+    '.weba',
+    '.wma',
+}
+
+_VIDEO_EXTENSIONS = {
+    '.3gp',
+    '.avi',
+    '.m4v',
+    '.mkv',
+    '.mov',
+    '.mp4',
+    '.mpeg',
+    '.mpg',
+    '.ogv',
+    '.webm',
+    '.wmv',
+}
+
 
 def _normalize_attachment(*, file_id: str, kind: str, url: str, filename: str, mime_type: str, size: int) -> dict:
     return {
@@ -57,6 +86,23 @@ def _sanitize_filename(name: str) -> str:
     value = value.replace('/', '_').replace('\\', '_')
     value = _SAFE_NAME_RE.sub('_', value).strip('._')
     return value or 'file'
+
+
+def _classify_attachment_kind(mime_type: str, filename: str) -> str:
+    normalized_mime = str(mime_type or '').strip().lower()
+    if normalized_mime.startswith('image/'):
+        return 'image'
+    if normalized_mime.startswith('audio/'):
+        return 'audio'
+    if normalized_mime.startswith('video/'):
+        return 'video'
+
+    ext = Path(str(filename or '')).suffix.lower()
+    if ext in _AUDIO_EXTENSIONS:
+        return 'audio'
+    if ext in _VIDEO_EXTENSIONS:
+        return 'video'
+    return 'file'
 
 
 def _is_within(path: Path, base: Path) -> bool:
@@ -120,16 +166,26 @@ def create_media_router(context: AppContext) -> APIRouter:
             target_dir = context.uploads_dir / 'media' / year_month
             url_prefix = '/uploads/media'
         else:
+            guessed_mime_type = mimetypes.guess_type(original_name)[0]
+            upload_mime_type = (file.content_type or '').strip()
+            mime_type = (
+                guessed_mime_type
+                if not upload_mime_type or upload_mime_type == 'application/octet-stream'
+                else upload_mime_type
+            ) or 'application/octet-stream'
+            kind = _classify_attachment_kind(mime_type, original_name)
             if len(raw) > _MAX_FILE_UPLOAD_BYTES:
-                raise HTTPException(status_code=413, detail='file too large')
-            kind = 'file'
-            mime_type = (file.content_type or '').strip() or (mimetypes.guess_type(original_name)[0] or 'application/octet-stream')
+                raise HTTPException(status_code=413, detail=f'{kind} too large')
             ext = Path(original_name).suffix.lower()
             if not ext:
                 guessed_ext = mimetypes.guess_extension(mime_type or '') or ''
                 ext = guessed_ext.lower()
-            target_dir = context.uploads_dir / 'files' / year_month
-            url_prefix = '/uploads/files'
+            if kind in {'audio', 'video'}:
+                target_dir = context.uploads_dir / 'media' / year_month
+                url_prefix = '/uploads/media'
+            else:
+                target_dir = context.uploads_dir / 'files' / year_month
+                url_prefix = '/uploads/files'
 
         target_dir.mkdir(parents=True, exist_ok=True)
         safe_base = _sanitize_filename(Path(original_name).stem if original_name else file_id)

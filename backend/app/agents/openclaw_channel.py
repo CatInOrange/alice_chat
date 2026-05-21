@@ -9,6 +9,7 @@ import threading
 import tempfile
 import time
 import uuid
+import mimetypes
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -193,13 +194,24 @@ def _classify_progress_kind(text: str, hint: str = "") -> str:
 
 def _classify_bridge_media(url: str, audio_as_voice: bool = False) -> str:
     value = str(url or "").strip()
+    lower = value.lower()
     if audio_as_voice:
         return "audio"
-    if value.lower().startswith("data:audio/"):
+    if lower.startswith("data:image/"):
+        return "image"
+    if lower.startswith("data:audio/"):
         return "audio"
-    if any(marker in value.lower() for marker in (".mp3", ".wav", ".ogg", ".m4a", ".aac", ".webm")):
+    if lower.startswith("data:video/"):
+        return "video"
+    mime_type, _ = mimetypes.guess_type(value.split("?", 1)[0])
+    normalized_mime = str(mime_type or "").lower()
+    if normalized_mime.startswith("image/"):
+        return "image"
+    if normalized_mime.startswith("audio/"):
         return "audio"
-    return "image"
+    if normalized_mime.startswith("video/"):
+        return "video"
+    return "file"
 
 
 def _extract_bridge_media_items(payload: dict | None) -> list[dict]:
@@ -347,8 +359,12 @@ def _prepare_bridge_attachments(attachments: list[ChatAttachment]) -> list[dict]
             if isinstance(getattr(att, "size", None), int):
                 payload["size"] = att.size
             if att.type == "url":
+                local_path = _local_upload_url_to_path(att.data)
+                if local_path is not None:
+                    payload["path"] = str(local_path)
                 payload["url"] = att.data
             elif att.type == "path":
+                payload["path"] = str(Path(att.data).expanduser().resolve())
                 payload["url"] = build_protected_media_url(att.data)
             elif att.type == "base64":
                 payload["content"] = _normalize_base64_payload(att.data)
@@ -424,8 +440,6 @@ def _build_bridge_agent_media_payload(attachments: list[dict]) -> dict:
         if not isinstance(item, dict):
             continue
         mime_type = str(item.get("mimeType") or item.get("mediaType") or item.get("media_type") or "").strip()
-        if not mime_type.startswith("image/"):
-            continue
         media_ref = str(item.get("path") or item.get("url") or "").strip()
         if not media_ref:
             continue
@@ -1103,11 +1117,13 @@ class OpenClawChannelAgentBackend(AgentBackend):
         )
         print(final_msg, flush=True)
         _LOG.warning(final_msg)
-        images = [m for m in final_media if isinstance(m, dict) and m.get("type") == "image" and m.get("url")]
-        audio = [m for m in final_media if isinstance(m, dict) and m.get("type") == "audio" and m.get("url")]
+        media = [m for m in final_media if isinstance(m, dict) and m.get("url")]
+        images = [m for m in media if m.get("type") == "image"]
+        audio = [m for m in media if m.get("type") == "audio"]
         return {
             "reply": reply,
             "rawReply": reply,
+            "media": media,
             "images": images,
             "audio": audio,
             "provider": self.provider_config.get("id") or "openclaw-channel",

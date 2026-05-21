@@ -12,6 +12,7 @@ import 'package:flutter_chat_core/flutter_chat_core.dart' show Builders;
 import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:markdown/markdown.dart' as md;
+import 'package:mime/mime.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -127,6 +128,8 @@ class _PendingAttachmentDraft {
   final String? mimeType;
 
   bool get isImage => kind == 'image';
+  bool get isVideo => kind == 'video';
+  bool get isAudio => kind == 'audio';
 }
 
 class _SlashSuggestionItem {
@@ -1470,20 +1473,15 @@ class _ChatScreenState extends State<ChatScreen> {
         _showSnackBar('文件不能超过 100MB');
         return;
       }
-      final lowerName = picked.name.toLowerCase();
-      final isImage =
-          lowerName.endsWith('.png') ||
-          lowerName.endsWith('.jpg') ||
-          lowerName.endsWith('.jpeg') ||
-          lowerName.endsWith('.gif') ||
-          lowerName.endsWith('.webp');
+      final mimeType = lookupMimeType(path, headerBytes: null);
+      final kind = _inferAttachmentKind(mimeType, picked.name);
       setState(() {
         _pendingAttachmentDraft = _PendingAttachmentDraft(
           filePath: path,
           fileName: picked.name,
           fileSize: fileSize,
-          kind: isImage ? 'image' : 'file',
-          mimeType: picked.extension,
+          kind: kind,
+          mimeType: mimeType,
         );
       });
       _composerFocusNode.requestFocus();
@@ -1491,6 +1489,26 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!mounted) return;
       _showSnackBar('选取文件失败：${_humanizeUiError(error)}');
     }
+  }
+
+  String _inferAttachmentKind(String? mimeType, String fileName) {
+    final normalizedMime = (mimeType ?? '').toLowerCase();
+    if (normalizedMime.startsWith('image/')) return 'image';
+    if (normalizedMime.startsWith('video/')) return 'video';
+    if (normalizedMime.startsWith('audio/')) return 'audio';
+
+    final lowerName = fileName.toLowerCase();
+    if (lowerName.endsWith('.m4v') ||
+        lowerName.endsWith('.mkv') ||
+        lowerName.endsWith('.wmv')) {
+      return 'video';
+    }
+    if (lowerName.endsWith('.m4a') ||
+        lowerName.endsWith('.flac') ||
+        lowerName.endsWith('.wma')) {
+      return 'audio';
+    }
+    return 'file';
   }
 
   String _formatFileSize(int bytes) {
@@ -1604,6 +1622,37 @@ class _ChatScreenState extends State<ChatScreen> {
         .toList(growable: false);
   }
 
+  IconData _attachmentIcon(String kind, String mimeType) {
+    final normalizedKind = kind.trim().toLowerCase();
+    final normalizedMime = mimeType.trim().toLowerCase();
+    if (normalizedKind == 'video' || normalizedMime.startsWith('video/')) {
+      return Icons.play_circle_outline_rounded;
+    }
+    if (normalizedKind == 'audio' || normalizedMime.startsWith('audio/')) {
+      return Icons.graphic_eq_rounded;
+    }
+    if (normalizedMime == 'application/pdf') {
+      return Icons.picture_as_pdf_outlined;
+    }
+    if (normalizedMime.contains('zip') ||
+        normalizedMime.contains('compressed')) {
+      return Icons.folder_zip_outlined;
+    }
+    return Icons.insert_drive_file_outlined;
+  }
+
+  String _attachmentKindLabel(String kind, String mimeType) {
+    final normalizedKind = kind.trim().toLowerCase();
+    final normalizedMime = mimeType.trim().toLowerCase();
+    if (normalizedKind == 'video' || normalizedMime.startsWith('video/')) {
+      return '视频';
+    }
+    if (normalizedKind == 'audio' || normalizedMime.startsWith('audio/')) {
+      return '音频';
+    }
+    return '文件';
+  }
+
   Future<void> _openAttachmentUrl(String rawUrl) async {
     final resolved = _resolveAttachmentUrl(rawUrl);
     if (resolved.isEmpty) return;
@@ -1633,6 +1682,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final size = attachment['size'];
     final url = (attachment['url'] ?? attachment['rawUrl'] ?? '').toString();
     final mimeType = (attachment['mimeType'] ?? '').toString();
+    final kind = (attachment['kind'] ?? '').toString();
+    final icon = _attachmentIcon(kind, mimeType);
+    final label = _attachmentKindLabel(kind, mimeType);
     return InkWell(
       onTap: url.trim().isEmpty ? null : () => _openAttachmentUrl(url),
       borderRadius: BorderRadius.circular(14),
@@ -1656,7 +1708,7 @@ class _ChatScreenState extends State<ChatScreen> {
         child: Row(
           children: [
             Icon(
-              Icons.insert_drive_file_outlined,
+              icon,
               color: sentByMe ? Colors.white : const Color(0xFF667085),
             ),
             const SizedBox(width: 10),
@@ -1676,6 +1728,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   const SizedBox(height: 2),
                   Text(
                     [
+                      label,
                       if (mimeType.trim().isNotEmpty) mimeType,
                       if (size is num) _formatFileSize(size.toInt()),
                     ].join(' · '),
@@ -2815,8 +2868,11 @@ class _ChatScreenState extends State<ChatScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 alignment: Alignment.center,
-                                child: const Icon(
-                                  Icons.insert_drive_file_outlined,
+                                child: Icon(
+                                  _attachmentIcon(
+                                    _pendingAttachmentDraft!.kind,
+                                    _pendingAttachmentDraft!.mimeType ?? '',
+                                  ),
                                 ),
                               ),
                           const SizedBox(width: 12),
@@ -2828,6 +2884,10 @@ class _ChatScreenState extends State<ChatScreen> {
                                 Text(
                                   _pendingAttachmentDraft!.isImage
                                       ? '准备发送图片'
+                                      : _pendingAttachmentDraft!.isVideo
+                                      ? '准备发送视频'
+                                      : _pendingAttachmentDraft!.isAudio
+                                      ? '准备发送音频'
                                       : '准备发送附件',
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     fontWeight: FontWeight.w700,

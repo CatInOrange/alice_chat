@@ -311,6 +311,7 @@ class ChatStreamingService:
             reply=assistant_visible,
             raw_reply=assistant_raw,
             images=result.get('images') or [],
+            media=result.get('media') or result.get('images') or [],
             meta=assistant_meta,
             source=resolved.message_source,
         )

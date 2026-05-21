@@ -29,14 +29,37 @@ from .routes.todo import create_todo_router
 from .web.helpers import build_allowed_origins, build_protected_media_url, build_push_route_key, build_session_label
 
 
+def _infer_push_attachment_kind(*, explicit_kind: str, mime_type: str) -> str:
+    kind = str(explicit_kind or '').strip().lower()
+    if kind in {'image', 'audio', 'video', 'file', 'document'}:
+        return 'file' if kind == 'document' else kind
+    normalized_mime = str(mime_type or '').strip().lower()
+    if normalized_mime.startswith('image/'):
+        return 'image'
+    if normalized_mime.startswith('audio/'):
+        return 'audio'
+    if normalized_mime.startswith('video/'):
+        return 'video'
+    return 'file'
+
+
 def _push_attachment_to_payload(item: object) -> dict | None:
     if not isinstance(item, dict):
         return None
-    kind = str(item.get('type') or item.get('kind') or 'file').strip().lower() or 'file'
+    explicit_kind = str(item.get('kind') or item.get('type') or '').strip().lower()
     raw_path = str(item.get('path') or '').strip()
     raw_url = str(item.get('url') or item.get('mediaUrl') or '').strip()
     guessed_mime_type, _ = mimetypes.guess_type(raw_path or raw_url)
-    mime_type = str(item.get('mimeType') or item.get('mime_type') or guessed_mime_type or 'application/octet-stream').strip() or 'application/octet-stream'
+    explicit_mime_type = str(item.get('mimeType') or item.get('mime_type') or '').strip()
+    mime_type = (
+        guessed_mime_type
+        if not explicit_mime_type or explicit_mime_type == 'application/octet-stream'
+        else explicit_mime_type
+    ) or 'application/octet-stream'
+    kind = _infer_push_attachment_kind(
+        explicit_kind=explicit_kind,
+        mime_type=mime_type,
+    )
     raw_content = str(item.get('content') or item.get('data') or '').strip()
     url = raw_url
     if raw_content:
@@ -58,6 +81,17 @@ def _push_attachment_to_payload(item: object) -> dict | None:
             **({'sourcePath': raw_path} if raw_path else {}),
         },
     }
+    filename = str(item.get('name') or item.get('filename') or '').strip()
+    if not filename and raw_path:
+        filename = Path(raw_path).name
+    if not filename and raw_url and not raw_url.startswith('data:'):
+        filename = Path(raw_url.split('?', 1)[0]).name
+    if filename:
+        payload['name'] = filename
+        payload['filename'] = filename
+    size = item.get('size')
+    if isinstance(size, int) and size >= 0:
+        payload['size'] = size
     if item.get('audioAsVoice') is not None:
         payload['meta']['audioAsVoice'] = bool(item.get('audioAsVoice'))
     return payload
