@@ -347,7 +347,17 @@ def _write_bridge_temp_image(*, encoded: str, media_type: str | None) -> str:
 def _prepare_bridge_attachments(attachments: list[ChatAttachment]) -> list[dict]:
     result: list[dict] = []
     for att in attachments:
-        att_kind = str(getattr(att, "kind", "image") or "image").strip().lower() or "image"
+        att_kind = str(getattr(att, "kind", "") or "").strip().lower()
+        if att_kind not in {"image", "audio", "video", "file"}:
+            media_type = str(getattr(att, "media_type", "") or "").strip().lower()
+            if media_type.startswith("image/"):
+                att_kind = "image"
+            elif media_type.startswith("audio/"):
+                att_kind = "audio"
+            elif media_type.startswith("video/"):
+                att_kind = "video"
+            else:
+                att_kind = "file"
         if att_kind != "image":
             payload = {
                 "kind": att_kind,

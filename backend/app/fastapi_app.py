@@ -31,16 +31,23 @@ from .web.helpers import build_allowed_origins, build_protected_media_url, build
 
 def _infer_push_attachment_kind(*, explicit_kind: str, mime_type: str) -> str:
     kind = str(explicit_kind or '').strip().lower()
-    if kind in {'image', 'audio', 'video', 'file', 'document'}:
-        return 'file' if kind == 'document' else kind
     normalized_mime = str(mime_type or '').strip().lower()
+    inferred = 'file'
     if normalized_mime.startswith('image/'):
-        return 'image'
-    if normalized_mime.startswith('audio/'):
-        return 'audio'
-    if normalized_mime.startswith('video/'):
-        return 'video'
-    return 'file'
+        inferred = 'image'
+    elif normalized_mime.startswith('audio/'):
+        inferred = 'audio'
+    elif normalized_mime.startswith('video/'):
+        inferred = 'video'
+    if kind == 'document':
+        return 'file'
+    if kind in {'image', 'audio', 'video'}:
+        # Some upstream channel/media APIs use "type=image" as a generic media
+        # envelope. Do not let that override a concrete non-image MIME type.
+        return kind if inferred == kind else inferred
+    if kind == 'file':
+        return inferred if inferred != 'file' else 'file'
+    return inferred
 
 
 def _push_attachment_to_payload(item: object) -> dict | None:

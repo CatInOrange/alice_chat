@@ -20,7 +20,7 @@ class ChatAttachment:
     type: str  # "url", "base64", "path"
     data: str  # URL, base64 string, or file path
     media_type: str | None = None  # e.g., "image/jpeg", "application/pdf"
-    kind: str = "image"  # image | file | audio | video
+    kind: str = "file"  # image | file | audio | video
     name: str | None = None
     size: int | None = None
 
