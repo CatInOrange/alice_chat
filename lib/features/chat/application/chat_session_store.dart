@@ -1053,14 +1053,16 @@ class ChatSessionStore extends ChangeNotifier {
         sessionId,
         limit: reconcileTailMessageLimit,
       );
+      var tailRemovedCount = 0;
       if (tailPage.messages.isNotEmpty) {
-        state.mergeMessages(tailPage.messages);
+        tailRemovedCount = state.reconcileTailMessages(tailPage.messages);
       }
 
       final page = await _loadMessagesPage(
         sessionId,
         limit: latestRefreshPageSize,
-        afterMessageId: reconcileWindow.newestMessageId,
+        afterMessageId:
+            state.newestLoadedMessageId ?? reconcileWindow.newestMessageId,
       );
       if (page.messages.isNotEmpty) {
         state.mergeMessages(page.messages);
@@ -1085,6 +1087,7 @@ class ChatSessionStore extends ChangeNotifier {
           'sessionId': sessionId,
           'afterMessageId': reconcileWindow.newestMessageId,
           'tailFetchedCount': tailPage.messages.length,
+          'tailRemovedCount': tailRemovedCount,
           'fetchedCount': page.messages.length,
         },
         force: true,
@@ -1348,7 +1351,8 @@ class ChatSessionStore extends ChangeNotifier {
                 limit: reconcileTailMessageLimit,
               );
               if (tail.messages.isNotEmpty) {
-                state.mergeMessages(tail.messages);
+                state.reconcileTailMessages(tail.messages);
+                currentAfterId = state.newestLoadedMessageId;
               }
             }
             page = await _loadMessagesPage(
@@ -1757,6 +1761,51 @@ class ChatViewState {
       oldestLoadedMessageId = messages.first.id;
       newestLoadedMessageId = messages.last.id;
     }
+  }
+
+  int reconcileTailMessages(List<core.Message> authoritativeTail) {
+    if (authoritativeTail.isEmpty) return 0;
+    final tail = [...authoritativeTail]
+      ..sort(_compareCoreMessagesChronologically);
+    final tailById = {for (final message in tail) message.id: message};
+    final tailStart = tail.first.createdAt;
+    final next = <core.Message>[];
+    var removedCount = 0;
+
+    for (final message in messages) {
+      if (tailById.containsKey(message.id)) {
+        continue;
+      }
+      final protectedLocalMessage =
+          pendingClientMessageIds.contains(message.id) ||
+          postedClientMessageIds.contains(message.id) ||
+          streamingMessageIds.contains(message.id) ||
+          message.id.startsWith('client_');
+      final inTailWindow =
+          tailStart != null &&
+          message.createdAt != null &&
+          !message.createdAt!.isBefore(tailStart);
+      if (!protectedLocalMessage && inTailWindow) {
+        removedCount += 1;
+        if (assistantProgressMessageId == message.id) {
+          clearAssistantProgress();
+        }
+        pendingClientMessageIds.remove(message.id);
+        postedClientMessageIds.remove(message.id);
+        streamingMessageIds.remove(message.id);
+        continue;
+      }
+      next.add(message);
+    }
+
+    next.addAll(tail);
+    next.sort(_compareCoreMessagesChronologically);
+    messages = List<core.Message>.unmodifiable(next);
+    if (messages.isNotEmpty) {
+      oldestLoadedMessageId = messages.first.id;
+      newestLoadedMessageId = messages.last.id;
+    }
+    return removedCount;
   }
 
   void replaceMessageId(String oldId, String newId) {
