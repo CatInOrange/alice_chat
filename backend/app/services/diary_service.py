@@ -116,14 +116,20 @@ class DiaryService:
             )
 
     async def run_daily_scheduler(self) -> None:
+        try:
+            await self.run_scheduler_catchup()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            _LOG.exception("[alicechat.diary.scheduler] catchup crashed")
         while True:
             next_run = self._next_scheduled_run()
             delay_seconds = max(1.0, (next_run - datetime.now(_TZ)).total_seconds())
-            _LOG.info("[alicechat.diary.scheduler] next_run=%s", next_run.isoformat(timespec="seconds"))
+            self._log_scheduler("next_run=%s", next_run.isoformat(timespec="seconds"))
             await asyncio.sleep(delay_seconds)
             run_date = next_run.date().isoformat()
             try:
-                _LOG.info("[alicechat.diary.scheduler] generating agent=alice date=%s", run_date)
+                self._log_scheduler("generating agent=alice date=%s", run_date)
                 await self.generate_entry(
                     agent_id="alice",
                     date=run_date,
@@ -136,12 +142,65 @@ class DiaryService:
             except Exception:  # noqa: BLE001
                 _LOG.exception("[alicechat.diary.scheduler] generate_failed date=%s", run_date)
 
+    async def run_scheduler_catchup(self) -> None:
+        """Generate the most recent scheduled diary if the backend missed it.
+
+        The backend can be restarted shortly after the 23:30 schedule. Without
+        this catch-up pass, the scheduler only waits for the next day's 23:30
+        and silently skips the intended diary.
+        """
+
+        now = datetime.now(_TZ)
+        target_today = datetime.combine(
+            now.date(),
+            dt_time(hour=23, minute=30),
+            tzinfo=_TZ,
+        )
+        latest_target = target_today if now >= target_today else target_today - timedelta(days=1)
+        if now - latest_target > timedelta(hours=12):
+            return
+
+        run_date = latest_target.date().isoformat()
+        existing = self.diary_store.get_entry(agent_id="alice", date=run_date)
+        generated_at = existing.get("generatedAt") if isinstance(existing, dict) else None
+        if (
+            isinstance(generated_at, (int, float))
+            and float(generated_at) >= latest_target.timestamp()
+            and str(existing.get("source") or "") == "scheduled_2330"
+        ):
+            self._log_scheduler("catchup_skip date=%s reason=already_scheduled", run_date)
+            return
+
+        try:
+            self._log_scheduler(
+                "catchup_generate date=%s missed_target=%s",
+                run_date,
+                latest_target.isoformat(timespec="seconds"),
+            )
+            await self.generate_entry(
+                agent_id="alice",
+                date=run_date,
+                source="scheduled_2330",
+                force=True,
+                reset_existing=True,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            _LOG.exception("[alicechat.diary.scheduler] catchup_failed date=%s", run_date)
+
     def _next_scheduled_run(self) -> datetime:
         now = datetime.now(_TZ)
         target = datetime.combine(now.date(), dt_time(hour=23, minute=30), tzinfo=_TZ)
         if now >= target:
             target = target + timedelta(days=1)
         return target
+
+    def _log_scheduler(self, message: str, *args: object) -> None:
+        formatted = message % args if args else message
+        line = f"[alicechat.diary.scheduler] {formatted}"
+        print(line, flush=True)
+        _LOG.warning(line)
 
     def _day_bounds(self, date: str) -> tuple[float, float]:
         day = datetime.fromisoformat(date).date()

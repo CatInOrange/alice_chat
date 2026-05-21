@@ -48,14 +48,20 @@ class _DiarySheetState extends State<DiarySheet> {
     });
     try {
       final entries = await _client.listDiaryEntries(agentId: 'alice');
-      final today = await _client.getDiaryEntry(
+      final latestDate =
+          entries.entries.isNotEmpty
+              ? '${entries.entries.first['date'] ?? ''}'
+              : _todayString();
+      final selectedDate = latestDate.isNotEmpty ? latestDate : _todayString();
+      final selected = await _client.getDiaryEntry(
         agentId: 'alice',
-        date: _selectedDate,
+        date: selectedDate,
       );
       if (!mounted) return;
       setState(() {
         _entries = entries.entries;
-        _entry = today.entry;
+        _selectedDate = selectedDate;
+        _entry = selected.entry;
         _loading = false;
       });
     } catch (error) {
@@ -124,7 +130,11 @@ class _DiarySheetState extends State<DiarySheet> {
       child: Container(
         height: height,
         decoration: const BoxDecoration(
-          color: Color(0xFFF7F5FB),
+          gradient: LinearGradient(
+            colors: [Color(0xFFFBF6FF), Color(0xFFF6F0FC), Color(0xFFF3EDF8)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
           borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
         ),
         child: Column(
@@ -147,16 +157,7 @@ class _DiarySheetState extends State<DiarySheet> {
                       ],
                     );
                   }
-                  return Column(
-                    children: [
-                      SizedBox(
-                        height: 136,
-                        child: _buildHistorySidebar(theme, isWide: false),
-                      ),
-                      const Divider(height: 1),
-                      Expanded(child: _buildContent(theme)),
-                    ],
-                  );
+                  return _buildDiaryFeed(theme);
                 },
               ),
             ),
@@ -167,49 +168,73 @@ class _DiarySheetState extends State<DiarySheet> {
   }
 
   Widget _buildHeader(ThemeData theme) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 14, 12, 10),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: const Color(0xFFEDE7FF),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Icon(
-              Icons.menu_book_rounded,
-              color: Color(0xFF7C4DFF),
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '晚秋日记',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Color(0xFFF7F0FF), Color(0xFFF5F0FA)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 14, 12, 10),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFD4B8FF), Color(0xFFC4A0FF)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-                Text(
-                  _entries.isEmpty ? '暂无历史日记' : '共 ${_entries.length} 篇，新的在前',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF667085),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFD4B8FF).withValues(alpha: 0.35),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
                   ),
-                ),
-              ],
+                ],
+              ),
+              child: const Icon(
+                Icons.menu_book_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
             ),
-          ),
-          IconButton(
-            onPressed: () => Navigator.of(context).maybePop(),
-            icon: const Icon(Icons.close_rounded),
-            tooltip: '关闭',
-          ),
-        ],
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '🌸 晚秋日记',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: const Color(0xFF5B3A8C),
+                    ),
+                  ),
+                  Text(
+                    _entries.isEmpty
+                        ? '还没有写过日记呢…'
+                        : '✨ 共 ${_entries.length} 篇，新的在前',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: const Color(0xFF8B6BAE),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              onPressed: () => Navigator.of(context).maybePop(),
+              icon: const Icon(Icons.close_rounded, color: Color(0xFF8B6BAE)),
+              tooltip: '关闭',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -224,14 +249,14 @@ class _DiarySheetState extends State<DiarySheet> {
             children: [
               Icon(
                 Icons.auto_stories_outlined,
-                size: 36,
-                color: theme.disabledColor,
+                size: 40,
+                color: const Color(0xFFC4B8D4),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
               Text(
-                '暂无历史日记',
+                '📖 暂无历史日记',
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFF7C8494),
+                  color: const Color(0xFF8B6BAE),
                 ),
               ),
             ],
@@ -242,7 +267,7 @@ class _DiarySheetState extends State<DiarySheet> {
 
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-      scrollDirection: isWide ? Axis.vertical : Axis.horizontal,
+      scrollDirection: Axis.vertical,
       itemCount: _entries.length,
       separatorBuilder: (_, __) => const SizedBox(width: 10, height: 8),
       itemBuilder: (context, index) {
@@ -255,7 +280,7 @@ class _DiarySheetState extends State<DiarySheet> {
         final displayTitle = title.isNotEmpty ? title : date;
 
         return SizedBox(
-          width: isWide ? double.infinity : 180,
+          width: double.infinity,
           child: Material(
             color: Colors.transparent,
             child: InkWell(
@@ -265,28 +290,33 @@ class _DiarySheetState extends State<DiarySheet> {
                 duration: const Duration(milliseconds: 200),
                 padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
                 decoration: BoxDecoration(
-                  color: selected ? const Color(0xFFEDE7FF) : Colors.white,
+                  color:
+                      selected
+                          ? const Color(0xFFF3EAFF)
+                          : const Color(0xFFFFFDFF),
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(
                     color:
                         selected
-                            ? const Color(0xFF7C4DFF).withValues(alpha: 0.35)
-                            : const Color(0xFFE8E4F2),
+                            ? const Color(0xFFC4A0FF).withValues(alpha: 0.45)
+                            : const Color(0xFFE8E0F5),
                   ),
                   boxShadow:
                       selected
                           ? [
                             BoxShadow(
                               color: const Color(
-                                0xFF7C4DFF,
-                              ).withValues(alpha: 0.10),
-                              blurRadius: 10,
+                                0xFFC4A0FF,
+                              ).withValues(alpha: 0.15),
+                              blurRadius: 12,
                               offset: const Offset(0, 3),
                             ),
                           ]
                           : [
                             BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.02),
+                              color: const Color(
+                                0xFFB8A0D0,
+                              ).withValues(alpha: 0.04),
                               blurRadius: 6,
                               offset: const Offset(0, 2),
                             ),
@@ -308,8 +338,8 @@ class _DiarySheetState extends State<DiarySheet> {
                               fontSize: 13,
                               color:
                                   selected
-                                      ? const Color(0xFF7C4DFF)
-                                      : const Color(0xFF2D3443),
+                                      ? const Color(0xFF8B5CF6)
+                                      : const Color(0xFF4A3A60),
                             ),
                           ),
                         ),
@@ -364,10 +394,7 @@ class _DiarySheetState extends State<DiarySheet> {
         Icon(
           icon,
           size: 12,
-          color:
-              selected
-                  ? const Color(0xFF7C4DFF).withValues(alpha: 0.7)
-                  : const Color(0xFFA0ABC0),
+          color: selected ? const Color(0xFFA78BFA) : const Color(0xFFB8A0D0),
         ),
         const SizedBox(width: 4),
         Flexible(
@@ -378,13 +405,252 @@ class _DiarySheetState extends State<DiarySheet> {
             style: TextStyle(
               fontSize: 11,
               color:
-                  selected
-                      ? const Color(0xFF7C4DFF).withValues(alpha: 0.8)
-                      : const Color(0xFFA0ABC0),
+                  selected ? const Color(0xFFA78BFA) : const Color(0xFFB8A0D0),
             ),
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildDiaryFeed(ThemeData theme) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null && _entries.isEmpty) {
+      return _buildEmptyState(
+        theme,
+        icon: Icons.error_outline,
+        message: _error!,
+      );
+    }
+    if (_entries.isEmpty) {
+      return _buildEmptyState(
+        theme,
+        icon: Icons.auto_stories_outlined,
+        message: '📖 还没有日记',
+        detail: '点右上角「立即生成」写下今天这一篇',
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 22),
+      itemCount: _entries.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 14),
+      itemBuilder: (context, index) {
+        final item = _entries[index];
+        final date = '${item['date'] ?? ''}';
+        final content = '${item['content'] ?? ''}'.trim();
+        final status = '${item['status'] ?? ''}';
+        final error = '${item['error'] ?? ''}'.trim();
+        final generatedAt = _parseDiaryTime(item['generatedAt']);
+        return _buildDiaryEntryCard(
+          theme: theme,
+          date: date,
+          content: content,
+          status: status,
+          error: error,
+          generatedAt: generatedAt,
+          latest: index == 0,
+          compact: index > 0,
+        );
+      },
+    );
+  }
+
+  Widget _buildEmptyState(
+    ThemeData theme, {
+    required IconData icon,
+    required String message,
+    String? detail,
+  }) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 44, color: const Color(0xFFD4B8D8)),
+            const SizedBox(height: 14),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: const Color(0xFF8B6BAE),
+              ),
+            ),
+            if (detail != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                detail,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: const Color(0xFFA78BFA),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDiaryEntryCard({
+    required ThemeData theme,
+    required String date,
+    required String content,
+    required String status,
+    required String error,
+    required DateTime? generatedAt,
+    required bool latest,
+    bool compact = false,
+  }) {
+    final hasContent = content.isNotEmpty;
+    final displayedContent =
+        compact && content.length > 900
+            ? '${content.substring(0, 900).trimRight()}…'
+            : content;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFCFD),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color:
+              latest
+                  ? const Color(0xFFE9B7D0).withValues(alpha: 0.85)
+                  : const Color(0xFFF0DDEA),
+          width: latest ? 1.4 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(
+              0xFFC77EA8,
+            ).withValues(alpha: latest ? 0.16 : 0.08),
+            blurRadius: latest ? 18 : 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: Stack(
+          children: [
+            Positioned.fill(child: CustomPaint(painter: _DiaryPaperPainter())),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFEEF6),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: const Color(0xFFF2C7DC)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.favorite_rounded,
+                              size: 13,
+                              color: Color(0xFFE58AB5),
+                            ),
+                            const SizedBox(width: 5),
+                            Text(
+                              latest ? '最新一篇' : date,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: const Color(0xFFAA5D86),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        date,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: const Color(0xFFA98FA1),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (generatedAt != null) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.lock_clock_rounded,
+                          size: 13,
+                          color: Color(0xFFC98FAF),
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          '写于 ${_formatDiaryTime(generatedAt)}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFFC98FAF),
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 14),
+                  if (error.isNotEmpty && !hasContent)
+                    Text(
+                      error,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF9B5D7C),
+                      ),
+                    )
+                  else if (!hasContent)
+                    Text(
+                      status == 'generating' ? '✍️ 日记生成中…' : '📖 这一天还没有写下内容',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: const Color(0xFF9B5D7C),
+                      ),
+                    )
+                  else
+                    MarkdownBody(
+                      data: displayedContent,
+                      selectable: true,
+                      styleSheet: _diaryMarkdownStyle(theme),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  MarkdownStyleSheet _diaryMarkdownStyle(ThemeData theme) {
+    return MarkdownStyleSheet.fromTheme(theme).copyWith(
+      h1: theme.textTheme.titleLarge?.copyWith(
+        fontWeight: FontWeight.w800,
+        color: const Color(0xFF6E3D59),
+      ),
+      h2: theme.textTheme.titleMedium?.copyWith(
+        fontWeight: FontWeight.w700,
+        color: const Color(0xFF8B4C73),
+      ),
+      p: theme.textTheme.bodyMedium?.copyWith(
+        height: 1.78,
+        color: const Color(0xFF4F3F4A),
+      ),
+      strong: const TextStyle(
+        color: Color(0xFF7C3E63),
+        fontWeight: FontWeight.w800,
+      ),
     );
   }
 
@@ -410,7 +676,7 @@ class _DiarySheetState extends State<DiarySheet> {
                       _selectedDate,
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w800,
-                        color: const Color(0xFF2D3443),
+                        color: const Color(0xFF5B3A8C),
                       ),
                     ),
                     if (generatedAt != null) ...[
@@ -421,13 +687,13 @@ class _DiarySheetState extends State<DiarySheet> {
                           const Icon(
                             Icons.schedule_outlined,
                             size: 13,
-                            color: Color(0xFF667085),
+                            color: Color(0xFFA78BFA),
                           ),
                           const SizedBox(width: 4),
                           Text(
                             '生成于 ${_formatDiaryTime(generatedAt)}',
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: const Color(0xFF667085),
+                              color: const Color(0xFFA78BFA),
                               fontSize: 12,
                             ),
                           ),
@@ -440,14 +706,14 @@ class _DiarySheetState extends State<DiarySheet> {
               FilledButton.icon(
                 onPressed: _generating ? null : _generateNow,
                 style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF7C4DFF),
+                  backgroundColor: const Color(0xFFA78BFA),
                   foregroundColor: Colors.white,
                   elevation: 0,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(14),
                   ),
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
+                    horizontal: 18,
                     vertical: 10,
                   ),
                 ),
@@ -480,14 +746,16 @@ class _DiarySheetState extends State<DiarySheet> {
                           children: [
                             const Icon(
                               Icons.error_outline,
-                              size: 40,
-                              color: Color(0xFFA0ABC0),
+                              size: 44,
+                              color: Color(0xFFD4B8D8),
                             ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 14),
                             Text(
                               error,
                               textAlign: TextAlign.center,
-                              style: theme.textTheme.bodyMedium,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: const Color(0xFF8B6BAE),
+                              ),
                             ),
                           ],
                         ),
@@ -502,22 +770,24 @@ class _DiarySheetState extends State<DiarySheet> {
                           children: [
                             const Icon(
                               Icons.auto_stories_outlined,
-                              size: 40,
-                              color: Color(0xFFA0ABC0),
+                              size: 44,
+                              color: Color(0xFFC4B8D4),
                             ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 14),
                             Text(
-                              status == 'generating' ? '日记生成中…' : '今天还没有日记',
+                              status == 'generating'
+                                  ? '✍️ 日记生成中…'
+                                  : '📖 今天还没有日记',
                               style: theme.textTheme.bodyMedium?.copyWith(
-                                color: const Color(0xFF7C8494),
+                                color: const Color(0xFF8B6BAE),
                               ),
                             ),
                             if (status != 'generating') ...[
                               const SizedBox(height: 8),
                               Text(
-                                '点击右上角「立即生成」来写一篇',
+                                '点击右上角「立即生成」来写一篇吧 ✨',
                                 style: theme.textTheme.bodySmall?.copyWith(
-                                  color: const Color(0xFFA0ABC0),
+                                  color: const Color(0xFFA78BFA),
                                 ),
                               ),
                             ],
@@ -525,36 +795,15 @@ class _DiarySheetState extends State<DiarySheet> {
                         ),
                       ),
                     )
-                    : DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: const Color(0xFFE8E4F2)),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.03),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Markdown(
-                        data: content,
-                        padding: const EdgeInsets.all(20),
-                        selectable: true,
-                        styleSheet: MarkdownStyleSheet.fromTheme(
-                          theme,
-                        ).copyWith(
-                          h1: theme.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: const Color(0xFF2D3443),
-                          ),
-                          h2: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: const Color(0xFF2D3443),
-                          ),
-                          p: theme.textTheme.bodyMedium?.copyWith(height: 1.7),
-                        ),
+                    : SingleChildScrollView(
+                      child: _buildDiaryEntryCard(
+                        theme: theme,
+                        date: _selectedDate,
+                        content: content,
+                        status: status,
+                        error: error,
+                        generatedAt: generatedAt,
+                        latest: true,
                       ),
                     ),
           ),
@@ -562,6 +811,28 @@ class _DiarySheetState extends State<DiarySheet> {
       ),
     );
   }
+}
+
+class _DiaryPaperPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final linePaint =
+        Paint()
+          ..color = const Color(0xFFF6DCE9).withValues(alpha: 0.55)
+          ..strokeWidth = 0.8;
+    for (double y = 78; y < size.height; y += 30) {
+      canvas.drawLine(Offset(18, y), Offset(size.width - 18, y), linePaint);
+    }
+
+    final marginPaint =
+        Paint()
+          ..color = const Color(0xFFEFAFCB).withValues(alpha: 0.32)
+          ..strokeWidth = 1;
+    canvas.drawLine(const Offset(42, 0), Offset(42, size.height), marginPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 String _todayString() {
