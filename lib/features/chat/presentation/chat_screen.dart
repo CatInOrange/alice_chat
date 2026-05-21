@@ -476,24 +476,11 @@ class _ChatScreenState extends State<ChatScreen> {
             if (widget.session.id == 'alice' && widget.onOpenCompanion != null)
               Padding(
                 padding: const EdgeInsets.only(right: 10),
-                child: InkWell(
-                  onTap: widget.onOpenCompanion,
-                  borderRadius: BorderRadius.circular(18),
-                  child: Ink(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF2ECFF),
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: const Icon(
-                      Icons.auto_awesome_rounded,
-                      color: Color(0xFF7C4DFF),
-                      size: 22,
-                    ),
-                  ),
+                child: IconButton(
+                  onPressed: widget.onOpenCompanion,
+                  icon: const Icon(Icons.face_retouching_natural_rounded),
+                  color: const Color(0xFF7C4DFF),
+                  tooltip: 'Live2D',
                 ),
               ),
           ],
