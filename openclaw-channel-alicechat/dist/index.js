@@ -53,6 +53,8 @@ function toReplyImage(att) {
     if (!att)
         return null;
     const mimeType = att.mimeType || att.mediaType || att.mime_type || 'image/png';
+    if (!String(mimeType).startsWith('image/'))
+        return null;
     if (att.content) {
         const data = String(att.content).replace(/^data:[^,]+,/, '').replace(/\s+/g, '');
         return { type: 'image', data, mimeType };
@@ -65,8 +67,6 @@ function materializeInboundMediaList(attachments) {
         if (!att)
             continue;
         const mimeType = String(att.mimeType || att.mediaType || att.mime_type || '');
-        if (!mimeType.startsWith('image/'))
-            continue;
         const localPath = String(att.path || '').trim();
         if (localPath && path.isAbsolute(localPath)) {
             list.push({ path: localPath, contentType: mimeType || undefined });
@@ -92,19 +92,45 @@ function buildAgentMediaPayload(mediaList) {
     };
 }
 function classifyMedia(url, audioAsVoice) {
+    const raw = String(url || '').trim();
+    const lower = raw.toLowerCase();
     if (audioAsVoice)
         return 'audio';
-    if (/\.(mp3|wav|ogg|m4a|aac|webm)(\?|$)/i.test(String(url || '')))
+    if (lower.startsWith('data:image/'))
+        return 'image';
+    if (lower.startsWith('data:audio/'))
         return 'audio';
-    return 'image';
+    if (lower.startsWith('data:video/'))
+        return 'video';
+    if (/\.(png|jpe?g|gif|webp|bmp|heic|heif|avif)(\?|$)/i.test(raw))
+        return 'image';
+    if (/\.(mp3|wav|ogg|oga|m4a|aac|flac|opus|weba|wma)(\?|$)/i.test(raw))
+        return 'audio';
+    if (/\.(mp4|mov|m4v|webm|mkv|avi|wmv|mpeg|mpg|3gp|ogv)(\?|$)/i.test(raw))
+        return 'video';
+    return 'file';
 }
 function toPushAttachmentRef(mediaUrl, audioAsVoice) {
     const raw = String(mediaUrl || '').trim();
     if (!raw)
         return null;
+    const inferredName = (() => {
+        try {
+            if (/^data:/i.test(raw))
+                return '';
+            const parsed = /^file:/i.test(raw) || /^https?:/i.test(raw)
+                ? new URL(raw).pathname
+                : raw;
+            return path.basename(decodeURIComponent(parsed.split('?', 1)[0] || '')).trim();
+        }
+        catch {
+            return '';
+        }
+    })();
     const attachment = {
         type: classifyMedia(raw, audioAsVoice),
         audioAsVoice: !!audioAsVoice,
+        ...(inferredName ? { name: inferredName, filename: inferredName } : {}),
     };
     if (/^data:/i.test(raw)) {
         return { ...attachment, url: raw };
@@ -731,8 +757,8 @@ const alicechatPlugin = {
         media: {
             images: { send: true, receive: true },
             audio: { send: true, receive: true },
-            video: { send: false, receive: false },
-            documents: { send: false, receive: false },
+            video: { send: true, receive: true },
+            documents: { send: true, receive: true },
         },
         reactions: { supported: false },
         editing: { supported: false },
