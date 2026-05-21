@@ -14,13 +14,6 @@ def _message_to_event_payload(message: dict) -> dict:
     return payload
 
 
-def _latest_visible_role(page: dict) -> str:
-    messages = page.get('messages')
-    if not isinstance(messages, list) or not messages:
-        return ''
-    return str(messages[-1].get('role') or '').strip()
-
-
 def create_sessions_router(context: AppContext) -> APIRouter:
     router = APIRouter(dependencies=[Depends(verify_app_password)])
 
@@ -112,26 +105,6 @@ def create_sessions_router(context: AppContext) -> APIRouter:
                     limit=limit,
                     before_message_id=str(before or '').strip() or None,
                     after_message_id=str(after or '').strip() or None,
-                )
-        if not str(before or '').strip() and not str(after or '').strip():
-            if _latest_visible_role(page) == 'user':
-                imported = context.recovery_service.recover_missing_after_latest_user(
-                    session_id,
-                    limit=limit,
-                )
-                if imported > 0:
-                    page = context.message_store.list_session_messages_page(
-                        session_id,
-                        limit=limit,
-                    )
-            recovered = await context.recovery_service.recover_session_once(
-                session_id,
-                min_age_seconds=context.recovery_service.recovery_timeout_seconds,
-            )
-            if recovered:
-                page = context.message_store.list_session_messages_page(
-                    session_id,
-                    limit=limit,
                 )
         messages = page['messages']
         if not includeRaw:
