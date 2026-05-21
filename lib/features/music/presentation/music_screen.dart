@@ -173,6 +173,9 @@ class _MusicScreenState extends State<MusicScreen>
         return track;
       }
     }
+    if (tracks.isNotEmpty) {
+      return tracks.first;
+    }
     return fallbackTrack;
   }
 
