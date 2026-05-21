@@ -116,6 +116,32 @@ def create_sessions_router(context: AppContext) -> APIRouter:
             'paging': page['paging'],
         }
 
+    @router.post('/api/sessions/{session_id}/reconcile-tail')
+    async def session_reconcile_tail(session_id: str, body: dict | None = None) -> dict:
+        session_id = require_existing_session(context.session_store, session_id)
+        payload = body or {}
+        limit = int(payload.get('limit') or 5)
+        result = await context.recovery_service.reconcile_session_tail(
+            session_id,
+            tail_limit=limit,
+        )
+        page = context.message_store.list_session_messages_page(
+            session_id,
+            limit=limit,
+        )
+        messages = page['messages']
+        for message in messages:
+            message.pop('rawText', None)
+        return {
+            'ok': result.get('ok', True),
+            'sessionId': session_id,
+            'changed': bool(result.get('changed')),
+            'reason': str(result.get('reason') or ''),
+            'actions': list(result.get('actions') or []),
+            'messages': messages,
+            'paging': page['paging'],
+        }
+
     @router.post('/api/sessions/{session_id}/messages')
     async def session_messages_create(session_id: str, body: CreateSessionMessageBody) -> dict:
         session_id = require_existing_session(context.session_store, session_id)

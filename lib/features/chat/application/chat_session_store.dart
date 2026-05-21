@@ -1049,7 +1049,7 @@ class ChatSessionStore extends ChangeNotifier {
     }
     final reconcileWindow = window ?? _snapshotMessageWindow(state);
     try {
-      final tailPage = await _loadMessagesPage(
+      final tailPage = await _reconcileTailMessagesPage(
         sessionId,
         limit: reconcileTailMessageLimit,
       );
@@ -1346,7 +1346,7 @@ class ChatSessionStore extends ChangeNotifier {
 
           while (hasMore && totalFetched < maxMessagesAfterReconnect) {
             if (totalFetched == 0) {
-              final tail = await _loadMessagesPage(
+              final tail = await _reconcileTailMessagesPage(
                 sessionId,
                 limit: reconcileTailMessageLimit,
               );
@@ -1478,6 +1478,46 @@ class ChatSessionStore extends ChangeNotifier {
     );
   }
 
+  Future<MessageLoadResult> _reconcileTailMessagesPage(
+    String sessionId, {
+    int? limit,
+  }) async {
+    final page = await _client.reconcileTailMessages(sessionId, limit: limit);
+    final mappedMessages =
+        page.messages.map(domain.ChatMessage.fromBackend).toList();
+    final filteredOutMessages = mappedMessages
+        .where((message) => !message.hasVisibleContent)
+        .toList(growable: false);
+    final messages =
+        mappedMessages.where((message) => message.hasVisibleContent).toList()
+          ..sort(_compareDomainMessagesChronologically);
+
+    _debugBackendLoad(
+      sessionId,
+      mappedMessages,
+      filteredOutMessages,
+      limit: limit,
+      paging: page.paging,
+      tag: 'reconcileTail.result',
+    );
+
+    final chatMessages = messages.map(_toCoreMessage).toList(growable: false);
+    final paging = page.paging;
+    return MessageLoadResult(
+      messages: chatMessages,
+      hasMoreBefore: paging['hasMoreBefore'] == true,
+      hasMoreAfter: paging['hasMoreAfter'] == true,
+      oldestMessageId:
+          (paging['oldestMessageId'] ??
+                  (chatMessages.isNotEmpty ? chatMessages.first.id : null))
+              ?.toString(),
+      newestMessageId:
+          (paging['newestMessageId'] ??
+                  (chatMessages.isNotEmpty ? chatMessages.last.id : null))
+              ?.toString(),
+    );
+  }
+
   void _debugBackendLoad(
     String sessionId,
     List<domain.ChatMessage> mappedMessages,
@@ -1486,6 +1526,7 @@ class ChatSessionStore extends ChangeNotifier {
     String? beforeMessageId,
     String? afterMessageId,
     Map<String, dynamic>? paging,
+    String tag = 'loadMessages.result',
   }) {
     final assistantMessages = mappedMessages
         .where((message) => message.authorId == 'assistant')
@@ -1504,7 +1545,7 @@ class ChatSessionStore extends ChangeNotifier {
         })
         .toList(growable: false);
     final payload = {
-      'tag': 'loadMessages.result',
+      'tag': tag,
       'ts': DateTime.now().toIso8601String(),
       'sessionId': sessionId,
       'rawCount': mappedMessages.length,

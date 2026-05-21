@@ -60,6 +60,11 @@ abstract class OpenClawClient {
     String? afterMessageId,
   });
 
+  Future<MessagePageResult> reconcileTailMessages(
+    String sessionId, {
+    int? limit,
+  });
+
   Future<SendMessageResult> sendMessage({
     required String sessionId,
     required String text,

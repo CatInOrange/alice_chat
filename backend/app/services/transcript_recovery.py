@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -103,6 +104,198 @@ class TranscriptRecoveryService:
             if await self._recover_candidate(candidate):
                 recovered = True
         return recovered
+
+    async def reconcile_session_tail(
+        self,
+        session_id: str,
+        *,
+        tail_limit: int = 5,
+        min_age_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        resolved_session_id = str(session_id or '').strip()
+        if not resolved_session_id:
+            return {'ok': False, 'changed': False, 'reason': 'missing_session_id', 'actions': []}
+
+        page_limit = max(3, min(int(tail_limit or 5), 20))
+        local_tail = self.messages.list_session_messages_page(
+            resolved_session_id,
+            limit=page_limit,
+        )['messages']
+        user_message = self._latest_user_in_messages(local_tail)
+        if user_message is None:
+            return {'ok': True, 'changed': False, 'reason': 'no_tail_user', 'actions': []}
+
+        user_created_at = float(user_message.get('createdAt') or 0)
+        age_seconds = (
+            self.recovery_timeout_seconds
+            if min_age_seconds is None
+            else max(0.0, float(min_age_seconds))
+        )
+        if user_created_at > 0 and time.time() - user_created_at < age_seconds:
+            return {'ok': True, 'changed': False, 'reason': 'latest_user_too_young', 'actions': []}
+
+        client_message_id = self._client_message_id_for_user(user_message)
+        if client_message_id and self.request_deduper is not None:
+            record = await self.request_deduper.get(resolved_session_id, client_message_id)
+            if record is not None and record.status == 'running':
+                return {'ok': True, 'changed': False, 'reason': 'request_running', 'actions': []}
+
+        session = self.sessions.get_session(resolved_session_id)
+        session_key = self._extract_session_key(getattr(session, 'route_key', '') if session else '')
+        if not session_key:
+            return {'ok': True, 'changed': False, 'reason': 'missing_session_key', 'actions': []}
+        transcript_path = self._resolve_transcript_path(session_key)
+        if transcript_path is None:
+            return {'ok': True, 'changed': False, 'reason': 'missing_transcript', 'actions': []}
+        transcript_messages = self._load_transcript_messages(transcript_path)
+        if not transcript_messages:
+            return {'ok': True, 'changed': False, 'reason': 'empty_transcript', 'actions': []}
+
+        user_index = self._find_latest_user_index_in_transcript(
+            transcript_messages,
+            role='user',
+            text=str(user_message.get('text') or ''),
+            created_at=user_created_at,
+        )
+        if user_index < 0:
+            return {'ok': True, 'changed': False, 'reason': 'user_not_matched', 'actions': []}
+
+        recovered_body = self._build_recovery_body_from_transcript_messages(
+            transcript_messages,
+            anchor_index=user_index,
+        )
+        if not recovered_body:
+            return {'ok': True, 'changed': False, 'reason': 'no_transcript_assistant_after_user', 'actions': []}
+
+        existing_assistants = self._assistant_messages_after_user(
+            resolved_session_id,
+            user_created_at,
+            limit=6,
+        )
+        equivalent = next(
+            (
+                item
+                for item in existing_assistants
+                if self._normalize_compare_text(str(item.get('text') or ''))
+                == self._normalize_compare_text(recovered_body)
+            ),
+            None,
+        )
+        if equivalent is not None:
+            deleted = self._soft_delete_duplicate_assistants(
+                existing_assistants,
+                keep_message_id=str(equivalent.get('id') or ''),
+            )
+            return {
+                'ok': True,
+                'changed': bool(deleted),
+                'reason': 'assistant_already_present',
+                'actions': deleted,
+            }
+
+        replace_target = next(
+            (item for item in existing_assistants if self._is_reconcile_replaceable_assistant(item)),
+            None,
+        )
+        actions: list[dict[str, Any]] = []
+        recovery_key = self._build_tail_reconcile_key(
+            session_id=resolved_session_id,
+            user_message=user_message,
+            transcript_item=transcript_messages[user_index + 1],
+            recovered_body=recovered_body,
+        )
+        previous_recovery = self.recoveries.get(recovery_key)
+        if previous_recovery and str(previous_recovery.get('status') or '') == 'recovered':
+            return {'ok': True, 'changed': False, 'reason': 'already_recovered', 'actions': []}
+
+        meta = {
+            'recovered': True,
+            'recoverySource': _RECOVERY_SOURCE,
+            'recoveryMode': 'tail_reconcile',
+            'recoveryKey': recovery_key,
+            'recoveryUserMessageId': str(user_message.get('id') or ''),
+            'transcriptPath': str(transcript_path),
+        }
+
+        if replace_target is not None:
+            original_text = str(replace_target.get('text') or '')
+            updated_meta = parse_message_meta(replace_target.get('meta'))
+            updated_meta['transcriptRecovery'] = {
+                **meta,
+                'replacedMessageId': str(replace_target.get('id') or ''),
+                'originalText': original_text,
+            }
+            updated = self.chat_service.update_message_content(
+                message_id=str(replace_target.get('id') or ''),
+                text=recovered_body,
+                raw_text=recovered_body,
+                meta=updated_meta,
+            )
+            if updated is None:
+                return {'ok': True, 'changed': False, 'reason': 'replace_failed', 'actions': []}
+            self.recoveries.mark(
+                recovery_key=recovery_key,
+                session_id=resolved_session_id,
+                client_message_id=client_message_id,
+                user_message_id=str(user_message.get('id') or ''),
+                source=_RECOVERY_SOURCE,
+                status='recovered',
+                reason='tail_reconcile_replace',
+                message_id=str(updated.get('id') or ''),
+                meta=updated_meta,
+            )
+            actions.append({'type': 'replace_assistant', 'messageId': str(updated.get('id') or '')})
+            actions.extend(
+                self._soft_delete_duplicate_assistants(
+                    existing_assistants,
+                    keep_message_id=str(updated.get('id') or ''),
+                )
+            )
+            self.sessions.touch(resolved_session_id)
+            return {'ok': True, 'changed': True, 'reason': 'replaced_assistant', 'actions': actions}
+
+        if existing_assistants:
+            return {'ok': True, 'changed': False, 'reason': 'non_replaceable_assistant_exists', 'actions': []}
+
+        message_id = self._build_transcript_backfill_message_id(
+            session_id=resolved_session_id,
+            transcript_item=transcript_messages[user_index + 1],
+        )
+        if self.messages.get_message(message_id) is not None:
+            return {'ok': True, 'changed': False, 'reason': 'message_id_already_exists', 'actions': []}
+        created = self._first_assistant_created_at_after_user(
+            transcript_messages,
+            anchor_index=user_index,
+        )
+        persisted = self.messages.create_message(
+            session_id=resolved_session_id,
+            role='assistant',
+            text=recovered_body,
+            raw_text=recovered_body,
+            attachments=[],
+            source='transcript_reconcile',
+            meta=json.dumps(meta, ensure_ascii=False),
+            message_id=message_id,
+            created_at=created or None,
+        )
+        self.recoveries.mark(
+            recovery_key=recovery_key,
+            session_id=resolved_session_id,
+            client_message_id=client_message_id,
+            user_message_id=str(user_message.get('id') or ''),
+            source=_RECOVERY_SOURCE,
+            status='recovered',
+            reason='tail_reconcile_insert',
+            message_id=str(persisted.get('id') or ''),
+            meta=meta,
+        )
+        self.sessions.touch(resolved_session_id)
+        return {
+            'ok': True,
+            'changed': True,
+            'reason': 'inserted_assistant',
+            'actions': [{'type': 'insert_assistant', 'messageId': str(persisted.get('id') or '')}],
+        }
 
     def backfill_session_before(
         self,
@@ -387,9 +580,132 @@ class TranscriptRecoveryService:
             body = body[:12000].rstrip() + '\n\n[恢复内容已截断]'
         return body
 
+    def _latest_user_in_messages(self, messages: list[dict]) -> dict | None:
+        for item in reversed(messages or []):
+            if str(item.get('role') or '').strip() == 'user':
+                return item
+        return None
+
+    def _client_message_id_for_user(self, user_message: dict) -> str:
+        meta = parse_message_meta(user_message.get('meta'))
+        return str(meta.get('clientMessageId') or '').strip()
+
+    def _assistant_messages_after_user(
+        self,
+        session_id: str,
+        user_created_at: float,
+        *,
+        limit: int = 6,
+    ) -> list[dict]:
+        if user_created_at <= 0:
+            return []
+        self.messages.ensure_schema()
+        with connect(self.messages.db) as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM messages
+                WHERE session_id=?
+                  AND deleted_at IS NULL
+                  AND role='assistant'
+                  AND created_at > ?
+                ORDER BY created_at ASC, id ASC
+                LIMIT ?
+                """,
+                (str(session_id), float(user_created_at), int(max(1, limit))),
+            ).fetchall()
+            return [self.messages._row_to_message(row) for row in rows]
+
+    def _is_reconcile_replaceable_assistant(self, message: dict) -> bool:
+        text = str(message.get('text') or '').strip()
+        source = str(message.get('source') or '').strip()
+        meta = parse_message_meta(message.get('meta'))
+        if source in {'recovery', 'transcript_backfill', 'transcript_reconcile'}:
+            return True
+        if text.startswith('[恢复消息]'):
+            return True
+        if text.startswith('❌ 回复失败') or text.startswith('回复失败'):
+            return True
+        if self._detect_existing_suspicious_reason(message):
+            return True
+        transcript_recovery = meta.get('transcriptRecovery')
+        if isinstance(transcript_recovery, dict) and transcript_recovery.get('recoverySucceeded') is False:
+            return True
+        suspicious = meta.get('suspiciousFinal')
+        return isinstance(suspicious, dict) and bool(suspicious.get('flagged'))
+
+    def _soft_delete_duplicate_assistants(
+        self,
+        candidates: list[dict],
+        *,
+        keep_message_id: str,
+    ) -> list[dict[str, Any]]:
+        keep_id = str(keep_message_id or '').strip()
+        actions: list[dict[str, Any]] = []
+        if not keep_id:
+            return actions
+        seen_texts: set[str] = set()
+        keep_message = next((item for item in candidates if str(item.get('id') or '') == keep_id), None)
+        if keep_message is not None:
+            seen_texts.add(self._normalize_compare_text(str(keep_message.get('text') or '')))
+        for item in candidates:
+            message_id = str(item.get('id') or '').strip()
+            if not message_id or message_id == keep_id:
+                continue
+            normalized = self._normalize_compare_text(str(item.get('text') or ''))
+            duplicate_text = normalized and normalized in seen_texts
+            replaceable = self._is_reconcile_replaceable_assistant(item)
+            if not duplicate_text and not replaceable:
+                continue
+            deleted = self.messages.soft_delete_message(
+                message_id,
+                deleted_by='tail_reconcile_duplicate',
+            )
+            if deleted is not None:
+                actions.append({'type': 'delete_duplicate', 'messageId': message_id})
+            if normalized:
+                seen_texts.add(normalized)
+        return actions
+
+    def _build_tail_reconcile_key(
+        self,
+        *,
+        session_id: str,
+        user_message: dict,
+        transcript_item: dict[str, Any],
+        recovered_body: str,
+    ) -> str:
+        raw = '|'.join(
+            [
+                'tail_reconcile',
+                str(session_id or '').strip(),
+                str(user_message.get('id') or '').strip(),
+                str(transcript_item.get('recordId') or '').strip(),
+                str(transcript_item.get('transcriptMessageId') or '').strip(),
+                str(transcript_item.get('transcriptIndex') or ''),
+                self._normalize_compare_text(recovered_body),
+            ]
+        )
+        return hashlib.sha1(raw.encode('utf-8')).hexdigest()
+
+    def _first_assistant_created_at_after_user(
+        self,
+        transcript_messages: list[dict[str, Any]],
+        *,
+        anchor_index: int,
+    ) -> float:
+        if anchor_index < 0:
+            return 0.0
+        for item in transcript_messages[anchor_index + 1 :]:
+            role = str(item.get('role') or '')
+            if role == 'user':
+                return 0.0
+            if role == 'assistant':
+                return float(item.get('createdAt') or 0)
+        return 0.0
+
     def _list_candidates(self, *, min_age_seconds: float | None = None) -> list[dict]:
         self.ensure_schema()
-        import time
 
         age_seconds = self.recovery_timeout_seconds if min_age_seconds is None else max(0.0, float(min_age_seconds))
         older_than = time.time() - age_seconds

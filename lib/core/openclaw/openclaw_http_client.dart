@@ -91,6 +91,29 @@ class OpenClawHttpClient implements OpenClawClient {
   }
 
   @override
+  Future<MessagePageResult> reconcileTailMessages(
+    String sessionId, {
+    int? limit,
+  }) async {
+    final response = await _httpClient.post(
+      _uri('/api/sessions/$sessionId/reconcile-tail'),
+      headers: _headers,
+      body: jsonEncode({if (limit != null) 'limit': limit}),
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('对账消息失败', response);
+    }
+
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    return MessagePageResult(
+      messages:
+          (json['messages'] as List<dynamic>? ?? const [])
+              .cast<Map<String, dynamic>>(),
+      paging: (json['paging'] as Map<String, dynamic>? ?? const {}),
+    );
+  }
+
+  @override
   Future<SendMessageResult> sendMessage({
     required String sessionId,
     required String text,
