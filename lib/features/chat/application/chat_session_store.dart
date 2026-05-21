@@ -654,6 +654,14 @@ class ChatSessionStore extends ChangeNotifier {
     state.isRefreshingLatest = true;
     notifyListeners();
     try {
+      final tailPage = await _reconcileTailMessagesPage(
+        sessionId,
+        limit: reconcileTailMessageLimit,
+      );
+      var tailRemovedCount = 0;
+      if (tailPage.messages.isNotEmpty) {
+        tailRemovedCount = state.reconcileTailMessages(tailPage.messages);
+      }
       final afterMessageId = state.newestLoadedMessageId;
       MessageLoadResult page;
       int totalFetched = 0;
@@ -679,8 +687,19 @@ class ChatSessionStore extends ChangeNotifier {
         state.newestLoadedMessageId = state.messages.last.id;
       }
       state.error = null;
+      _debugState(
+        'refreshLatest.reconcile',
+        state,
+        extra: {
+          'sessionId': sessionId,
+          'tailFetchedCount': tailPage.messages.length,
+          'tailRemovedCount': tailRemovedCount,
+          'fetchedCount': totalFetched,
+        },
+        force: true,
+      );
       unawaited(_persistStateCache(session, state));
-      return totalFetched > 0;
+      return totalFetched > 0 || tailPage.messages.isNotEmpty;
     } catch (error) {
       state.error = _humanizeError(error);
       return false;
