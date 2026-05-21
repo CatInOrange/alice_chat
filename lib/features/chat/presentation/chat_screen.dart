@@ -11,13 +11,18 @@ import 'package:image_picker/image_picker.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart' show Builders;
 import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:http/http.dart' as http;
 import 'package:markdown/markdown.dart' as md;
 import 'package:mime/mime.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/theme.dart';
 import '../../../core/debug/native_debug_bridge.dart';
+import '../../../core/openclaw/openclaw_settings.dart';
 import '../../diary/presentation/diary_sheet.dart';
 import '../application/chat_session_store.dart';
 import '../domain/chat_session.dart';
@@ -1653,12 +1658,117 @@ class _ChatScreenState extends State<ChatScreen> {
     return '文件';
   }
 
-  Future<void> _openAttachmentUrl(String rawUrl) async {
+  Future<void> _openAttachment(Map<String, dynamic> attachment) async {
+    final rawUrl = (attachment['url'] ?? attachment['rawUrl'] ?? '').toString();
     final resolved = _resolveAttachmentUrl(rawUrl);
     if (resolved.isEmpty) return;
-    final uri = Uri.tryParse(resolved);
-    if (uri == null) return;
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final mimeType = (attachment['mimeType'] ?? '').toString().trim();
+    final name =
+        (attachment['name'] ?? attachment['filename'] ?? '').toString();
+    try {
+      final localPath = await _materializeAttachmentForOpen(
+        resolvedUrl: resolved,
+        fileName: name,
+        mimeType: mimeType,
+        attachmentId: (attachment['id'] ?? '').toString(),
+      );
+      final result = await OpenFilex.open(
+        localPath,
+        type: mimeType.isEmpty ? null : mimeType,
+      );
+      if (!mounted || result.type == ResultType.done) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result.message.isEmpty ? '没有可用应用打开该文件' : result.message,
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('打开附件失败: $error')));
+    }
+  }
+
+  Future<String> _materializeAttachmentForOpen({
+    required String resolvedUrl,
+    required String fileName,
+    required String mimeType,
+    required String attachmentId,
+  }) async {
+    final directFilePath = _directLocalAttachmentPath(resolvedUrl);
+    if (directFilePath != null) return directFilePath;
+
+    final bytes = await _loadAttachmentBytes(resolvedUrl);
+    final tempDir = await getTemporaryDirectory();
+    final attachmentDir = Directory(
+      p.join(tempDir.path, 'alicechat_attachments'),
+    );
+    await attachmentDir.create(recursive: true);
+    final safeName = _safeAttachmentFileName(
+      preferredName: fileName,
+      mimeType: mimeType,
+      fallbackId: attachmentId,
+    );
+    final file = File(p.join(attachmentDir.path, safeName));
+    await file.writeAsBytes(bytes, flush: true);
+    return file.path;
+  }
+
+  String? _directLocalAttachmentPath(String resolvedUrl) {
+    final uri = Uri.tryParse(resolvedUrl);
+    if (uri != null && uri.scheme == 'file' && uri.path.trim().isNotEmpty) {
+      return uri.toFilePath();
+    }
+    if (resolvedUrl.startsWith('/') && File(resolvedUrl).existsSync()) {
+      return resolvedUrl;
+    }
+    return null;
+  }
+
+  Future<List<int>> _loadAttachmentBytes(String resolvedUrl) async {
+    if (resolvedUrl.startsWith('data:')) {
+      return UriData.parse(resolvedUrl).contentAsBytes();
+    }
+    final uri = Uri.tryParse(resolvedUrl);
+    if (uri == null) {
+      throw Exception('附件地址无效');
+    }
+    final config = await OpenClawSettingsStore.load();
+    final headers = <String, String>{'Accept': '*/*'};
+    final password = config.appPassword?.trim();
+    if (password != null && password.isNotEmpty) {
+      headers['X-AliceChat-Password'] = password;
+    }
+    final response = await http.get(uri, headers: headers);
+    if (response.statusCode >= 400) {
+      throw Exception('下载失败 ${response.statusCode}');
+    }
+    return response.bodyBytes;
+  }
+
+  String _safeAttachmentFileName({
+    required String preferredName,
+    required String mimeType,
+    required String fallbackId,
+  }) {
+    final rawName =
+        preferredName.trim().isEmpty ? fallbackId.trim() : preferredName.trim();
+    final cleaned =
+        rawName
+            .replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]+'), '_')
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim();
+    var name = cleaned.isEmpty ? 'attachment' : cleaned;
+    if (!p.basename(name).contains('.')) {
+      final extension = extensionFromMime(mimeType);
+      if (extension != null && extension.isNotEmpty) {
+        name = '$name.$extension';
+      }
+    }
+    return name;
   }
 
   String _resolveAttachmentUrl(String rawUrl) {
@@ -1686,7 +1796,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final icon = _attachmentIcon(kind, mimeType);
     final label = _attachmentKindLabel(kind, mimeType);
     return InkWell(
-      onTap: url.trim().isEmpty ? null : () => _openAttachmentUrl(url),
+      onTap: url.trim().isEmpty ? null : () => _openAttachment(attachment),
       borderRadius: BorderRadius.circular(14),
       child: Container(
         width: double.infinity,
