@@ -93,6 +93,16 @@ class DiaryStore:
             ).fetchone()
             return self._row_to_entry(row) if row is not None else None
 
+    def delete_entry(self, *, agent_id: str, date: str) -> bool:
+        self.ensure_schema()
+        with connect(self.db) as conn:
+            cursor = conn.execute(
+                "DELETE FROM diary_entries WHERE agent_id=? AND date=?",
+                (str(agent_id or "alice"), str(date or "")),
+            )
+            conn.commit()
+            return int(cursor.rowcount or 0) > 0
+
     def upsert_entry(
         self,
         *,

@@ -140,6 +140,7 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         recovery_task: asyncio.Task | None = None
+        diary_scheduler_task: asyncio.Task | None = None
         context.session_store.ensure_schema()
         context.message_store.ensure_schema()
         context.music_store.ensure_schema()
@@ -154,6 +155,7 @@ def create_app() -> FastAPI:
         context.events_bus.bind_loop(asyncio.get_running_loop())
         set_push_callback(lambda frame: _persist_push_message(context, frame))
         recovery_task = asyncio.create_task(context.recovery_service.run_loop())
+        diary_scheduler_task = asyncio.create_task(context.diary_service.run_daily_scheduler())
         try:
             for provider in get_chat_providers():
                 if str(provider.get('type') or '').strip() == 'openclaw-channel':
@@ -168,6 +170,12 @@ def create_app() -> FastAPI:
                 recovery_task.cancel()
                 try:
                     await recovery_task
+                except asyncio.CancelledError:
+                    pass
+            if diary_scheduler_task is not None:
+                diary_scheduler_task.cancel()
+                try:
+                    await diary_scheduler_task
                 except asyncio.CancelledError:
                     pass
             set_push_callback(None)

@@ -5,7 +5,7 @@ import json
 import logging
 import re
 import time
-from datetime import datetime, time as dt_time
+from datetime import datetime, time as dt_time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -59,10 +59,14 @@ class DiaryService:
         date: str = "",
         source: str = "manual",
         force: bool = False,
+        reset_existing: bool = False,
     ) -> dict:
         resolved_agent = str(agent_id or "alice").strip() or "alice"
         resolved_date = str(date or self.today()).strip()
         existing = self.diary_store.get_entry(agent_id=resolved_agent, date=resolved_date)
+        if existing and reset_existing:
+            self.diary_store.delete_entry(agent_id=resolved_agent, date=resolved_date)
+            existing = None
         if existing and existing.get("status") == "generated" and not force:
             return existing
         previous_summary = existing.get("summary") if isinstance(existing, dict) else {}
@@ -110,6 +114,34 @@ class DiaryService:
                 summary=previous_summary,
                 error=str(exc),
             )
+
+    async def run_daily_scheduler(self) -> None:
+        while True:
+            next_run = self._next_scheduled_run()
+            delay_seconds = max(1.0, (next_run - datetime.now(_TZ)).total_seconds())
+            _LOG.info("[alicechat.diary.scheduler] next_run=%s", next_run.isoformat(timespec="seconds"))
+            await asyncio.sleep(delay_seconds)
+            run_date = next_run.date().isoformat()
+            try:
+                _LOG.info("[alicechat.diary.scheduler] generating agent=alice date=%s", run_date)
+                await self.generate_entry(
+                    agent_id="alice",
+                    date=run_date,
+                    source="scheduled_2330",
+                    force=True,
+                    reset_existing=True,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                _LOG.exception("[alicechat.diary.scheduler] generate_failed date=%s", run_date)
+
+    def _next_scheduled_run(self) -> datetime:
+        now = datetime.now(_TZ)
+        target = datetime.combine(now.date(), dt_time(hour=23, minute=30), tzinfo=_TZ)
+        if now >= target:
+            target = target + timedelta(days=1)
+        return target
 
     def _day_bounds(self, date: str) -> tuple[float, float]:
         day = datetime.fromisoformat(date).date()
