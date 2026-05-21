@@ -4,9 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .config import load_config
-from .services import ChatService, EventsBus, MusicService, PushService, RequestDeduper, TranscriptRecoveryService
+from .services import ChatService, DiaryService, EventsBus, MusicService, PushService, RequestDeduper, TranscriptRecoveryService
 from .services.tavern import TavernService, TavernStreamingService
-from .store import MessageStore, MusicStore, PushDeviceStore, RecoveryStore, SessionStore, TodoStore
+from .store import DiaryStore, MessageStore, MusicStore, PushDeviceStore, RecoveryStore, SessionStore, TodoStore
 from .store.tavern import TavernStore
 
 
@@ -15,10 +15,12 @@ class AppContext:
     session_store: SessionStore
     message_store: MessageStore
     music_store: MusicStore
+    diary_store: DiaryStore
     recovery_store: RecoveryStore
     events_bus: EventsBus
     chat_service: ChatService
     recovery_service: TranscriptRecoveryService
+    diary_service: DiaryService
     music_service: MusicService
     request_deduper: RequestDeduper
     push_device_store: PushDeviceStore
@@ -35,6 +37,8 @@ def create_app_context(*, uploads_dir: Path) -> AppContext:
     session_store = SessionStore()
     message_store = MessageStore()
     music_store = MusicStore()
+    diary_store = DiaryStore()
+    todo_store = TodoStore()
     recovery_store = RecoveryStore()
     events_bus = EventsBus()
     chat_service = ChatService(sessions=session_store, messages=message_store)
@@ -47,9 +51,15 @@ def create_app_context(*, uploads_dir: Path) -> AppContext:
         recoveries=recovery_store,
         request_deduper=request_deduper,
     )
+    diary_service = DiaryService(
+        diary_store=diary_store,
+        message_store=message_store,
+        music_store=music_store,
+        todo_store=todo_store,
+        chat_service=chat_service,
+    )
     music_service = MusicService(store=music_store, config=load_config())
     push_device_store = PushDeviceStore()
-    todo_store = TodoStore()
     tavern_store = TavernStore()
     tavern_service = TavernService(store=tavern_store, uploads_dir=uploads_dir)
     tavern_streaming_service = TavernStreamingService(tavern_service)
@@ -61,10 +71,12 @@ def create_app_context(*, uploads_dir: Path) -> AppContext:
         session_store=session_store,
         message_store=message_store,
         music_store=music_store,
+        diary_store=diary_store,
         recovery_store=recovery_store,
         events_bus=events_bus,
         chat_service=chat_service,
         recovery_service=recovery_service,
+        diary_service=diary_service,
         music_service=music_service,
         request_deduper=request_deduper,
         push_device_store=push_device_store,

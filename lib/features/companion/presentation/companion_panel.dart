@@ -11,6 +11,7 @@ class CompanionPanel extends StatelessWidget {
     this.compact = false,
     this.live2dVisible = false,
     this.onOpenLive2d,
+    this.onOpenDiary,
     this.onOpenMusic,
   });
 
@@ -19,6 +20,7 @@ class CompanionPanel extends StatelessWidget {
   final bool compact;
   final bool live2dVisible;
   final VoidCallback? onOpenLive2d;
+  final VoidCallback? onOpenDiary;
   final VoidCallback? onOpenMusic;
 
   @override
@@ -82,6 +84,12 @@ class CompanionPanel extends StatelessWidget {
                     label: '音乐',
                     onTap: onOpenMusic,
                   ),
+                  if (currentSession?.id == 'alice')
+                    _QuickActionChip(
+                      icon: Icons.menu_book_outlined,
+                      label: '日记',
+                      onTap: onOpenDiary,
+                    ),
                   _QuickActionChip(
                     icon: Icons.chat_bubble_outline_rounded,
                     label: '新话题',

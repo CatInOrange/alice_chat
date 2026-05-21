@@ -17,6 +17,7 @@ from .app_context import create_app_context
 from .config import UPLOADS_DIR, get_chat_providers
 from .routes.chat import create_chat_router
 from .routes.debug import create_debug_router
+from .routes.diary import create_diary_router
 from .routes.events import create_events_router
 from .routes.push import create_push_router
 from .routes.media import create_media_router
@@ -142,6 +143,7 @@ def create_app() -> FastAPI:
         context.session_store.ensure_schema()
         context.message_store.ensure_schema()
         context.music_store.ensure_schema()
+        context.diary_store.ensure_schema()
         context.recovery_store.ensure_schema()
         context.events_bus.store.ensure_schema()
         context.push_device_store.ensure_schema()
@@ -197,6 +199,7 @@ def create_app() -> FastAPI:
     app.include_router(create_media_router(context))
     app.include_router(create_music_router(context))
     app.include_router(create_todo_router(context))
+    app.include_router(create_diary_router(context))
     app.include_router(create_tavern_router(context))
     app.include_router(create_debug_router(context))
 

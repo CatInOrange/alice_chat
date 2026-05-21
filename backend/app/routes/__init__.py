@@ -1,4 +1,5 @@
 from .chat import create_chat_router
+from .diary import create_diary_router
 from .events import create_events_router
 from .music import create_music_router
 from .push import create_push_router
@@ -7,6 +8,7 @@ from .tavern import create_tavern_router
 
 __all__ = [
     "create_chat_router",
+    "create_diary_router",
     "create_events_router",
     "create_music_router",
     "create_push_router",

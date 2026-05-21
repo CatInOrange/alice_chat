@@ -12,6 +12,7 @@ import '../features/chat/application/chat_session_store.dart';
 import '../features/chat/domain/chat_session.dart';
 import '../features/chat/presentation/chat_screen.dart';
 import '../core/debug/native_debug_bridge.dart';
+import '../features/diary/presentation/diary_sheet.dart';
 import '../features/notifications/application/background_connection_service.dart';
 import '../features/notifications/application/notification_service.dart';
 import '../features/settings/presentation/settings_screen.dart';
@@ -429,6 +430,11 @@ class _MainScaffoldState extends State<_MainScaffold>
     );
   }
 
+  Future<void> _openDiarySheet() async {
+    final config = context.read<ChatSessionStore>().currentConfig;
+    await showDiarySheet(context, config: config);
+  }
+
   @override
   Widget build(BuildContext context) {
     final chatStore = context.watch<ChatSessionStore>();
@@ -529,6 +535,7 @@ class _MainScaffoldState extends State<_MainScaffold>
       compact: !isDesktop,
       live2dVisible: _desktopLive2dVisible,
       onOpenLive2d: () => _toggleDesktopLive2d(reason: 'companionPanelToggle'),
+      onOpenDiary: _activeChatSession?.id == 'alice' ? _openDiarySheet : null,
       onOpenMusic: () {
         setState(() => _currentIndex = 2);
       },

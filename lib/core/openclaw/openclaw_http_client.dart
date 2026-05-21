@@ -324,6 +324,77 @@ class OpenClawHttpClient implements OpenClawClient {
   }
 
   @override
+  Future<DiaryEntriesResult> listDiaryEntries({
+    String agentId = 'alice',
+    int limit = 30,
+  }) async {
+    final response = await _httpClient.get(
+      _uri(
+        '/api/diary/entries',
+        queryParameters: {'agentId': agentId, 'limit': '$limit'},
+      ),
+      headers: _headers,
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('加载日记失败', response);
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    return DiaryEntriesResult(
+      entries:
+          (json['entries'] as List<dynamic>? ?? const [])
+              .cast<Map<String, dynamic>>(),
+    );
+  }
+
+  @override
+  Future<DiaryEntryResult> getDiaryEntry({
+    String agentId = 'alice',
+    required String date,
+  }) async {
+    final response = await _httpClient.get(
+      _uri('/api/diary/entries/$date', queryParameters: {'agentId': agentId}),
+      headers: _headers,
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('加载日记失败', response);
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    return DiaryEntryResult(
+      entry:
+          json['entry'] is Map
+              ? Map<String, dynamic>.from(json['entry'] as Map)
+              : null,
+    );
+  }
+
+  @override
+  Future<DiaryEntryResult> generateDiaryEntry({
+    String agentId = 'alice',
+    required String date,
+    bool force = false,
+  }) async {
+    final response = await _httpClient.post(
+      _uri('/api/diary/entries/$date/generate'),
+      headers: _headers,
+      body: jsonEncode({
+        'agentId': agentId,
+        'source': 'manual',
+        'force': force,
+      }),
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('生成日记失败', response);
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    return DiaryEntryResult(
+      entry:
+          json['entry'] is Map
+              ? Map<String, dynamic>.from(json['entry'] as Map)
+              : null,
+    );
+  }
+
+  @override
   Future<Map<String, dynamic>> loadLatestClientDebugLogs({
     int limit = 5,
   }) async {

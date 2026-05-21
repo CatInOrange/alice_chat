@@ -47,6 +47,18 @@ class UploadMediaResult {
   final Map<String, dynamic> attachment;
 }
 
+class DiaryEntryResult {
+  const DiaryEntryResult({required this.entry});
+
+  final Map<String, dynamic>? entry;
+}
+
+class DiaryEntriesResult {
+  const DiaryEntriesResult({required this.entries});
+
+  final List<Map<String, dynamic>> entries;
+}
+
 abstract class OpenClawClient {
   Future<String> ensureSession({
     required String sessionId,
@@ -87,6 +99,22 @@ abstract class OpenClawClient {
   Stream<Map<String, dynamic>> subscribeEvents({String? sessionId, int? since});
 
   Future<Map<String, dynamic>> sendClientDebugLog(Map<String, dynamic> payload);
+
+  Future<DiaryEntriesResult> listDiaryEntries({
+    String agentId = 'alice',
+    int limit = 30,
+  });
+
+  Future<DiaryEntryResult> getDiaryEntry({
+    String agentId = 'alice',
+    required String date,
+  });
+
+  Future<DiaryEntryResult> generateDiaryEntry({
+    String agentId = 'alice',
+    required String date,
+    bool force = false,
+  });
 
   Future<Map<String, dynamic>> loadLatestClientDebugLogs({int limit = 5});
 

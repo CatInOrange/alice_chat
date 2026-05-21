@@ -17,6 +17,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/theme.dart';
 import '../../../core/debug/native_debug_bridge.dart';
+import '../../diary/presentation/diary_sheet.dart';
 import '../application/chat_session_store.dart';
 import '../domain/chat_session.dart';
 
@@ -464,6 +465,16 @@ class _ChatScreenState extends State<ChatScreen> {
           actions: [
             if (widget.session.id == 'alice' && widget.onOpenCompanion != null)
               Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: IconButton(
+                  onPressed: _openDiarySheet,
+                  icon: const Icon(Icons.menu_book_rounded),
+                  color: const Color(0xFF7C4DFF),
+                  tooltip: '晚秋日记',
+                ),
+              ),
+            if (widget.session.id == 'alice' && widget.onOpenCompanion != null)
+              Padding(
                 padding: const EdgeInsets.only(right: 10),
                 child: InkWell(
                   onTap: widget.onOpenCompanion,
@@ -497,6 +508,11 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _openDiarySheet() async {
+    final config = context.read<ChatSessionStore>().currentConfig;
+    await showDiarySheet(context, config: config);
   }
 
   Widget _buildBody(ChatViewState state) {
@@ -1305,13 +1321,18 @@ class _ChatScreenState extends State<ChatScreen> {
       // 第一层：选择 provider
       if (query.isEmpty || slashIndex == -1) {
         return _slashModelProviders
-            .where((provider) =>
-                lowerQuery.isEmpty || provider.toLowerCase().contains(lowerQuery))
-            .map((provider) => _SlashSuggestionItem(
-                  insertText: '/model $provider/',
-                  label: provider,
-                  subtitle: 'provider',
-                ))
+            .where(
+              (provider) =>
+                  lowerQuery.isEmpty ||
+                  provider.toLowerCase().contains(lowerQuery),
+            )
+            .map(
+              (provider) => _SlashSuggestionItem(
+                insertText: '/model $provider/',
+                label: provider,
+                subtitle: 'provider',
+              ),
+            )
             .toList(growable: false);
       }
 
@@ -1320,28 +1341,35 @@ class _ChatScreenState extends State<ChatScreen> {
       final modelQuery = query.substring(slashIndex + 1).toLowerCase();
       if (_slashModelProviders.contains(provider)) {
         return _allowedSlashModels
-            .where((model) =>
-                model.commandValue.startsWith('$provider/') &&
-                (modelQuery.isEmpty ||
-                    model.commandValue.toLowerCase().contains(modelQuery) ||
-                    model.label.toLowerCase().contains(modelQuery) ||
-                    (model.subtitle?.toLowerCase().contains(modelQuery) ?? false)))
-            .map((model) => _SlashSuggestionItem(
-                  insertText: '/model ${model.commandValue}',
-                  label: model.label,
-                  subtitle: model.subtitle,
-                ))
+            .where(
+              (model) =>
+                  model.commandValue.startsWith('$provider/') &&
+                  (modelQuery.isEmpty ||
+                      model.commandValue.toLowerCase().contains(modelQuery) ||
+                      model.label.toLowerCase().contains(modelQuery) ||
+                      (model.subtitle?.toLowerCase().contains(modelQuery) ??
+                          false)),
+            )
+            .map(
+              (model) => _SlashSuggestionItem(
+                insertText: '/model ${model.commandValue}',
+                label: model.label,
+                subtitle: model.subtitle,
+              ),
+            )
             .toList(growable: false);
       }
 
       // provider 不匹配时，回退到 provider 搜索
       return _slashModelProviders
           .where((provider) => provider.toLowerCase().contains(lowerQuery))
-          .map((provider) => _SlashSuggestionItem(
-                insertText: '/model $provider/',
-                label: provider,
-                subtitle: 'provider',
-              ))
+          .map(
+            (provider) => _SlashSuggestionItem(
+              insertText: '/model $provider/',
+              label: provider,
+              subtitle: 'provider',
+            ),
+          )
           .toList(growable: false);
     }
 
