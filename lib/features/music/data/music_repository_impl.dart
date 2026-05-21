@@ -40,6 +40,23 @@ class MusicRepositoryImpl implements MusicRepository {
   }
 
   @override
+  Future<void> recordMusicPlay({
+    required MusicTrack track,
+    String? playlistId,
+    Duration position = Duration.zero,
+  }) async {
+    await _client.recordMusicPlay(
+      payload: {
+        'track': track.toMap(),
+        'playlistId': playlistId ?? '',
+        'positionMs': position.inMilliseconds,
+        'playedAt': DateTime.now().millisecondsSinceEpoch / 1000.0,
+        'source': 'client',
+      },
+    );
+  }
+
+  @override
   Future<MusicHomeBundle> loadMusicHome() async {
     final response = await _client.getMusicHome();
     final latestAiPlaylistMap =

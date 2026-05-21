@@ -143,6 +143,7 @@ def create_app() -> FastAPI:
         context.session_store.ensure_schema()
         context.message_store.ensure_schema()
         context.music_store.ensure_schema()
+        context.music_history_store.ensure_schema()
         context.diary_store.ensure_schema()
         context.recovery_store.ensure_schema()
         context.events_bus.store.ensure_schema()

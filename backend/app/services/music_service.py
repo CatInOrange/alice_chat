@@ -16,7 +16,7 @@ from ..music_api_models import (
     MusicStateDto,
     MusicStatePatchDto,
 )
-from ..store import MusicStore
+from ..store import MusicHistoryStore, MusicStore
 from .netease_openapi_service import NeteaseOpenApiError, NeteaseOpenApiResult, NeteaseOpenApiService
 
 _LOG = logging.getLogger(__name__)
@@ -43,18 +43,54 @@ class MusicHomeResult:
 
 
 class MusicService:
-    def __init__(self, *, store: MusicStore | None = None, config: dict | None = None):
+    def __init__(
+        self,
+        *,
+        store: MusicStore | None = None,
+        history_store: MusicHistoryStore | None = None,
+        config: dict | None = None,
+    ):
         self.store = store or MusicStore()
+        self.history_store = history_store or MusicHistoryStore()
         self.netease_openapi = NeteaseOpenApiService(config or {})
 
     def load_state(self) -> MusicStateResult:
         return MusicStateResult(payload=MusicStateDto.model_validate(self.store.load_state()))
 
     def save_state(self, patch: MusicStatePatchDto) -> MusicStateResult:
+        raw_patch = patch.model_dump(exclude_unset=True)
+        saved = self.store.save_state(raw_patch)
+        self._record_play_from_patch(raw_patch)
         return MusicStateResult(
-            payload=MusicStateDto.model_validate(
-                self.store.save_state(patch.model_dump(exclude_unset=True))
-            )
+            payload=MusicStateDto.model_validate(saved)
+        )
+
+    def record_play(self, payload: dict) -> dict | None:
+        track = payload.get('track') if isinstance(payload.get('track'), dict) else None
+        if not track:
+            return None
+        played_at_raw = payload.get('playedAt')
+        played_at = float(played_at_raw) if isinstance(played_at_raw, (int, float)) else None
+        return self.history_store.record_play(
+            track=track,
+            played_at=played_at,
+            playlist_id=str(payload.get('playlistId') or ''),
+            source=str(payload.get('source') or 'client'),
+            meta={'positionMs': payload.get('positionMs')},
+        )
+
+    def list_play_history_day(self, *, date: str, limit: int = 200) -> list[dict]:
+        return self.history_store.list_day(date=date, limit=limit)
+
+    def _record_play_from_patch(self, patch: dict) -> None:
+        track = patch.get('currentTrack') if isinstance(patch.get('currentTrack'), dict) else None
+        if not track or patch.get('isPlaying') is not True:
+            return
+        self.history_store.record_play(
+            track=track,
+            playlist_id=str(patch.get('currentPlaylistId') or ''),
+            source='state',
+            meta={'positionMs': patch.get('positionMs')},
         )
 
     def load_latest_ai_playlist(self) -> MusicAiPlaylistResult:

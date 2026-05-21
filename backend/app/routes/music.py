@@ -74,6 +74,22 @@ def create_music_router(context: AppContext) -> APIRouter:
             **payload,
         }
 
+    @router.get('/api/music/history/daily')
+    async def get_music_history_day(date: str, limit: int = 200) -> dict:
+        return {
+            'ok': True,
+            'date': date,
+            'plays': context.music_service.list_play_history_day(date=date, limit=limit),
+        }
+
+    @router.post('/api/music/history/plays')
+    async def record_music_play(body: dict) -> dict:
+        item = context.music_service.record_play(body)
+        return {
+            'ok': item is not None,
+            'play': item,
+        }
+
     @router.get('/api/music/artwork')
     async def proxy_music_artwork(url: str = Query(..., min_length=1)):
         raw_url = url.strip()

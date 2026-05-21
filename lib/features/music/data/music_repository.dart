@@ -10,6 +10,12 @@ abstract class MusicRepository {
 
   Future<void> saveLocalCache(MusicLocalCacheSnapshot snapshot);
 
+  Future<void> recordMusicPlay({
+    required MusicTrack track,
+    String? playlistId,
+    Duration position = Duration.zero,
+  });
+
   Future<MusicHomeBundle> loadMusicHome();
 
   Future<PlaybackQueueItem> resolveTrack(
@@ -57,5 +63,4 @@ abstract class MusicRepository {
     MusicTrack? startTrack,
     String? fallbackPlaylistOpaqueId,
   });
-
 }

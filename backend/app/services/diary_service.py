@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from ..config import get_chat_config
 from ..services.chat_service import ChatService
 from ..services.routing import resolve_routing
-from ..store import DiaryStore, MessageStore, MusicStore, TodoStore
+from ..store import DiaryStore, MessageStore, MusicHistoryStore, TodoStore
 from ..store.db import connect
 from ..web.helpers import build_route_key
 
@@ -27,13 +27,13 @@ class DiaryService:
         *,
         diary_store: DiaryStore,
         message_store: MessageStore,
-        music_store: MusicStore,
+        music_history_store: MusicHistoryStore,
         todo_store: TodoStore,
         chat_service: ChatService,
     ) -> None:
         self.diary_store = diary_store
         self.message_store = message_store
-        self.music_store = music_store
+        self.music_history_store = music_history_store
         self.todo_store = todo_store
         self.chat_service = chat_service
 
@@ -116,13 +116,13 @@ class DiaryService:
         start_ts, end_ts = self._day_bounds(date)
         messages = self._collect_chat_messages(agent_id=agent_id, start_ts=start_ts, end_ts=end_ts)
         todo_payload = self.todo_store.load_snapshot() or {}
-        music_state = self.music_store.load_state()
+        music_history = self.music_history_store.list_day(date=date, limit=120)
         return {
             "date": date,
             "timezone": "Asia/Shanghai",
             "chatMessages": messages,
             "todo": self._compact_todo_snapshot((todo_payload.get("snapshot") or {}) if isinstance(todo_payload, dict) else {}),
-            "music": self._compact_music_state(music_state),
+            "music": self._compact_music_history(music_history),
         }
 
     def _collect_chat_messages(self, *, agent_id: str, start_ts: float, end_ts: float) -> list[dict[str, Any]]:
@@ -182,21 +182,30 @@ class DiaryService:
             "tasks": tasks[-80:],
         }
 
-    def _compact_music_state(self, state: dict[str, Any]) -> dict[str, Any]:
-        keys = [
-            "currentTrack",
-            "currentPlaylist",
-            "queue",
-            "likedTracks",
-            "recentTracks",
-            "playback",
-            "updatedAt",
-        ]
-        compact = {key: state.get(key) for key in keys if key in state}
-        raw = json.dumps(compact, ensure_ascii=False)
-        if len(raw) > 6000:
-            return {"preview": raw[:6000] + "..."}
-        return compact
+    def _compact_music_history(self, plays: list[dict[str, Any]]) -> dict[str, Any]:
+        items: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in plays:
+            key = str(item.get("trackId") or item.get("title") or "").strip()
+            if key in seen:
+                continue
+            seen.add(key)
+            played_at = float(item.get("playedAt") or 0)
+            items.append(
+                {
+                    "time": datetime.fromtimestamp(played_at, _TZ).isoformat(timespec="minutes") if played_at > 0 else "",
+                    "title": str(item.get("title") or ""),
+                    "artist": str(item.get("artist") or ""),
+                    "album": str(item.get("album") or ""),
+                    "providerId": str(item.get("providerId") or ""),
+                    "playlistId": str(item.get("playlistId") or ""),
+                }
+            )
+        return {
+            "playCount": len(plays),
+            "uniqueTrackCount": len(items),
+            "plays": items[-80:],
+        }
 
     def _build_prompt(self, *, agent_id: str, date: str, context: dict[str, Any]) -> str:
         context_json = json.dumps(context, ensure_ascii=False, indent=2)

@@ -6,7 +6,7 @@ from pathlib import Path
 from .config import load_config
 from .services import ChatService, DiaryService, EventsBus, MusicService, PushService, RequestDeduper, TranscriptRecoveryService
 from .services.tavern import TavernService, TavernStreamingService
-from .store import DiaryStore, MessageStore, MusicStore, PushDeviceStore, RecoveryStore, SessionStore, TodoStore
+from .store import DiaryStore, MessageStore, MusicHistoryStore, MusicStore, PushDeviceStore, RecoveryStore, SessionStore, TodoStore
 from .store.tavern import TavernStore
 
 
@@ -15,6 +15,7 @@ class AppContext:
     session_store: SessionStore
     message_store: MessageStore
     music_store: MusicStore
+    music_history_store: MusicHistoryStore
     diary_store: DiaryStore
     recovery_store: RecoveryStore
     events_bus: EventsBus
@@ -37,6 +38,7 @@ def create_app_context(*, uploads_dir: Path) -> AppContext:
     session_store = SessionStore()
     message_store = MessageStore()
     music_store = MusicStore()
+    music_history_store = MusicHistoryStore()
     diary_store = DiaryStore()
     todo_store = TodoStore()
     recovery_store = RecoveryStore()
@@ -54,11 +56,11 @@ def create_app_context(*, uploads_dir: Path) -> AppContext:
     diary_service = DiaryService(
         diary_store=diary_store,
         message_store=message_store,
-        music_store=music_store,
+        music_history_store=music_history_store,
         todo_store=todo_store,
         chat_service=chat_service,
     )
-    music_service = MusicService(store=music_store, config=load_config())
+    music_service = MusicService(store=music_store, history_store=music_history_store, config=load_config())
     push_device_store = PushDeviceStore()
     tavern_store = TavernStore()
     tavern_service = TavernService(store=tavern_store, uploads_dir=uploads_dir)
@@ -71,6 +73,7 @@ def create_app_context(*, uploads_dir: Path) -> AppContext:
         session_store=session_store,
         message_store=message_store,
         music_store=music_store,
+        music_history_store=music_history_store,
         diary_store=diary_store,
         recovery_store=recovery_store,
         events_bus=events_bus,

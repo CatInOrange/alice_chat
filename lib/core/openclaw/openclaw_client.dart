@@ -126,6 +126,15 @@ abstract class OpenClawClient {
 
   Future<Map<String, dynamic>> getMusicState();
 
+  Future<Map<String, dynamic>> getMusicHistoryDay({
+    required String date,
+    int limit = 200,
+  });
+
+  Future<Map<String, dynamic>> recordMusicPlay({
+    required Map<String, dynamic> payload,
+  });
+
   Future<Map<String, dynamic>> getMusicHome();
 
   Future<Map<String, dynamic>> getMusicProviders();

@@ -3945,6 +3945,13 @@ class MusicStore extends ChangeNotifier {
     }
     _duration = _currentTrack.duration;
     _error = null;
+    unawaited(
+      _repository.recordMusicPlay(
+        track: _currentTrack,
+        playlistId: _currentPlaylistId,
+        position: _position,
+      ),
+    );
     unawaited(_loadLyricsForTrack(_currentTrack, forceRefresh: false));
     unawaited(_warmUpcomingQueueTracks());
     if (_currentPlaylistId == 'netease-fm') {

@@ -481,6 +481,39 @@ class OpenClawHttpClient implements OpenClawClient {
   }
 
   @override
+  Future<Map<String, dynamic>> getMusicHistoryDay({
+    required String date,
+    int limit = 200,
+  }) async {
+    final response = await _httpClient.get(
+      _uri(
+        '/api/music/history/daily',
+        queryParameters: {'date': date, 'limit': '$limit'},
+      ),
+      headers: _headers,
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('加载听歌记录失败', response);
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  @override
+  Future<Map<String, dynamic>> recordMusicPlay({
+    required Map<String, dynamic> payload,
+  }) async {
+    final response = await _httpClient.post(
+      _uri('/api/music/history/plays'),
+      headers: _headers,
+      body: jsonEncode(payload),
+    );
+    if (response.statusCode >= 400) {
+      throw _buildRequestException('记录听歌失败', response);
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
+  @override
   Future<Map<String, dynamic>> getMusicHome() async {
     final response = await _httpClient.get(
       _uri('/api/music/home'),
