@@ -42,6 +42,7 @@ class ChatSessionStore extends ChangeNotifier {
   static const int initialMessageLimit = 20;
   static const int olderMessagePageSize = 5;
   static const int latestRefreshPageSize = 20;
+  static const int reconcileTailMessageLimit = 3;
   static const int maxMessagesAfterReconnect = 200;
   static const Duration sendPostReconcileDelay = Duration(seconds: 1);
   static const Duration replyStuckTimeout = Duration(seconds: 25);
@@ -1048,6 +1049,14 @@ class ChatSessionStore extends ChangeNotifier {
     }
     final reconcileWindow = window ?? _snapshotMessageWindow(state);
     try {
+      final tailPage = await _loadMessagesPage(
+        sessionId,
+        limit: reconcileTailMessageLimit,
+      );
+      if (tailPage.messages.isNotEmpty) {
+        state.mergeMessages(tailPage.messages);
+      }
+
       final page = await _loadMessagesPage(
         sessionId,
         limit: latestRefreshPageSize,
@@ -1075,6 +1084,7 @@ class ChatSessionStore extends ChangeNotifier {
         extra: {
           'sessionId': sessionId,
           'afterMessageId': reconcileWindow.newestMessageId,
+          'tailFetchedCount': tailPage.messages.length,
           'fetchedCount': page.messages.length,
         },
         force: true,
@@ -1332,6 +1342,15 @@ class ChatSessionStore extends ChangeNotifier {
           bool hasMore = true;
 
           while (hasMore && totalFetched < maxMessagesAfterReconnect) {
+            if (totalFetched == 0) {
+              final tail = await _loadMessagesPage(
+                sessionId,
+                limit: reconcileTailMessageLimit,
+              );
+              if (tail.messages.isNotEmpty) {
+                state.mergeMessages(tail.messages);
+              }
+            }
             page = await _loadMessagesPage(
               sessionId,
               limit: latestRefreshPageSize,
