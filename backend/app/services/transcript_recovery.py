@@ -1099,7 +1099,7 @@ class TranscriptRecoveryService:
         if anchor_index < 0:
             trajectory_path = transcript_path.with_suffix('.trajectory.jsonl')
             if self._trajectory_mentions_user(trajectory_path, user_needle):
-                return self._extract_tail_assistant_text(records)
+                return self._extract_tail_assistant_text(records, user_created_at=user_created_at)
             return self._extract_tail_assistant_text(records, user_created_at=user_created_at)
         transcript_messages = self._load_transcript_messages(transcript_path)
         return self._build_recovery_body_from_transcript_messages(
@@ -1140,7 +1140,7 @@ class TranscriptRecoveryService:
         if not assistant_texts:
             return ''
         body, body_ts = assistant_texts[-1]
-        if user_created_at and body_ts and body_ts < float(user_created_at):
+        if user_created_at and body_ts and body_ts <= float(user_created_at):
             return ''
         body = body.strip()
         if len(body) > 12000:
