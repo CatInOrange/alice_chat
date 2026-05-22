@@ -391,6 +391,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _voiceWakeTestStatus = '正在启动监听…';
       _voiceWakeTestLogs.insert(0, '启动测试监听');
     });
+    _notifyDetailPages();
     try {
       await OpenClawSettingsStore.saveVoiceSettings(_currentVoiceSettings());
       final settings = _currentVoiceWakeWordSettings();
@@ -406,6 +407,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             '下载：${SherpaWakeWordService.modelDownloadUrl}',
           );
         });
+        _notifyDetailPages();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('KWS 模型未就绪：${status.missingFiles.first}')),
+        );
         return;
       }
       final session = await _voiceWakeWordService.startTest(settings);
@@ -422,6 +427,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _voiceWakeTestLogs.removeRange(8, _voiceWakeTestLogs.length);
             }
           });
+          _notifyDetailPages();
         },
         onError: (Object error) {
           if (!mounted) return;
@@ -430,6 +436,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _voiceWakeTestStatus = '测试失败：$error';
             _voiceWakeTestLogs.insert(0, '测试失败：$error');
           });
+          _notifyDetailPages();
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('唤醒测试失败：$error')));
         },
       );
       if (!mounted) return;
@@ -437,6 +447,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _voiceWakeTestStatus = '正在监听，说出已配置的角色唤醒词';
         _voiceWakeTestLogs.insert(0, '模型已就绪：${status.directory}');
       });
+      _notifyDetailPages();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -444,6 +455,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _voiceWakeTestStatus = '测试失败：$error';
         _voiceWakeTestLogs.insert(0, '测试失败：$error');
       });
+      _notifyDetailPages();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('唤醒测试失败：$error')));
     }
   }
 
@@ -459,6 +474,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _voiceWakeTestStatus = '已停止监听';
       _voiceWakeTestLogs.insert(0, '停止测试监听');
     });
+    _notifyDetailPages();
   }
 
   String _formatClock(DateTime time) {
