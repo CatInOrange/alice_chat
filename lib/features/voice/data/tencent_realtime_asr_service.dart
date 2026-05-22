@@ -1,11 +1,6 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:math';
-import 'dart:typed_data';
 
-import 'package:crypto/crypto.dart';
-import 'package:uuid/uuid.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:asr_plugin/asr_plugin.dart';
 
 import '../domain/voice_settings.dart';
 
@@ -25,52 +20,38 @@ class TencentRealtimeAsrEvent {
 
 class TencentRealtimeAsrSession {
   TencentRealtimeAsrSession._({
-    required WebSocketChannel channel,
+    required ASRController controller,
     required StreamController<TencentRealtimeAsrEvent> eventsController,
-    required StreamSubscription<dynamic> socketSubscription,
-  }) : _channel = channel,
+    required StreamSubscription<ASRData> recognitionSubscription,
+  }) : _controller = controller,
        _eventsController = eventsController,
-       _socketSubscription = socketSubscription;
+       _recognitionSubscription = recognitionSubscription;
 
-  final WebSocketChannel _channel;
+  final ASRController _controller;
   final StreamController<TencentRealtimeAsrEvent> _eventsController;
-  final StreamSubscription<dynamic> _socketSubscription;
+  final StreamSubscription<ASRData> _recognitionSubscription;
   bool _closed = false;
   bool _ended = false;
 
   Stream<TencentRealtimeAsrEvent> get events => _eventsController.stream;
 
-  void sendAudio(Uint8List bytes) {
-    if (_closed || _ended || bytes.isEmpty) return;
-    _channel.sink.add(bytes);
-  }
-
   Future<void> finish() async {
     if (_closed || _ended) return;
     _ended = true;
-    _channel.sink.add(jsonEncode({'type': 'end'}));
+    await _controller.stop();
   }
 
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
-    await _socketSubscription.cancel();
-    await _channel.sink.close();
+    await _recognitionSubscription.cancel();
+    await _controller.stop();
+    await _controller.release();
     await _eventsController.close();
   }
 }
 
 class TencentRealtimeAsrService {
-  TencentRealtimeAsrService({Uuid? uuid, Random? random})
-    : _uuid = uuid ?? const Uuid(),
-      _random = random ?? Random.secure();
-
-  static const _host = 'asr.cloud.tencent.com';
-  static const _pathPrefix = '/asr/v2';
-
-  final Uuid _uuid;
-  final Random _random;
-
   Future<TencentRealtimeAsrSession> start({
     required VoiceSettings settings,
   }) async {
@@ -80,23 +61,35 @@ class TencentRealtimeAsrService {
     if (appId.isEmpty || secretId.isEmpty || secretKey.isEmpty) {
       throw Exception('请先在设置的“语音”中配置腾讯云 AppID、SecretID 和 SecretKey');
     }
+    final numericAppId = int.tryParse(appId);
+    if (numericAppId == null || numericAppId <= 0) {
+      throw Exception('腾讯云 AppID 必须是数字');
+    }
 
-    final uri = _buildUri(
-      appId: appId,
-      secretId: secretId,
-      secretKey: secretKey,
-      engineModelType:
-          settings.tencentEngineModelType.trim().isEmpty
-              ? '16k_zh'
-              : settings.tencentEngineModelType.trim(),
-    );
-    final channel = WebSocketChannel.connect(uri);
+    final config =
+        ASRControllerConfig()
+          ..appID = numericAppId
+          ..secretID = secretId
+          ..secretKey = secretKey
+          ..token =
+              settings.tencentToken.trim().isEmpty
+                  ? null
+                  : settings.tencentToken.trim()
+          ..engine_model_type =
+              settings.tencentEngineModelType.trim().isEmpty
+                  ? '16k_zh'
+                  : settings.tencentEngineModelType.trim()
+          ..convert_num_mode = 1
+          ..filter_dirty = 0
+          ..filter_modal = 0
+          ..filter_punc = 0
+          ..needvad = 1
+          ..is_compress = true
+          ..silence_detect = false;
+    final controller = await config.build();
     final eventsController = StreamController<TencentRealtimeAsrEvent>();
-    late final TencentRealtimeAsrSession session;
-    final socketSubscription = channel.stream.listen(
-      (message) {
-        _handleSocketMessage(message, eventsController);
-      },
+    final recognitionSubscription = controller.recognize().listen(
+      (data) => _handleAsrData(data, eventsController),
       onError: (Object error, StackTrace stackTrace) {
         if (!eventsController.isClosed) {
           eventsController.addError(error, stackTrace);
@@ -109,88 +102,48 @@ class TencentRealtimeAsrService {
       },
       cancelOnError: false,
     );
-    session = TencentRealtimeAsrSession._(
-      channel: channel,
+    return TencentRealtimeAsrSession._(
+      controller: controller,
       eventsController: eventsController,
-      socketSubscription: socketSubscription,
-    );
-    return session;
-  }
-
-  Uri _buildUri({
-    required String appId,
-    required String secretId,
-    required String secretKey,
-    required String engineModelType,
-  }) {
-    final now = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
-    final params = <String, String>{
-      'convert_num_mode': '1',
-      'engine_model_type': engineModelType,
-      'expired': (now + 24 * 60 * 60).toString(),
-      'filter_dirty': '0',
-      'filter_modal': '0',
-      'filter_punc': '0',
-      'needvad': '1',
-      'nonce': (_random.nextInt(899999999) + 100000000).toString(),
-      'secretid': secretId,
-      'timestamp': now.toString(),
-      'voice_format': '1',
-      'voice_id': _uuid.v4(),
-    };
-    final sortedKeys = params.keys.toList()..sort();
-    final canonicalQuery = sortedKeys
-        .map((key) => '$key=${params[key]}')
-        .join('&');
-    final signText = '$_host$_pathPrefix/$appId?$canonicalQuery';
-    final signature = base64Encode(
-      Hmac(sha1, utf8.encode(secretKey)).convert(utf8.encode(signText)).bytes,
-    );
-    return Uri(
-      scheme: 'wss',
-      host: _host,
-      path: '$_pathPrefix/$appId',
-      queryParameters: {...params, 'signature': signature},
+      recognitionSubscription: recognitionSubscription,
     );
   }
 
-  void _handleSocketMessage(
-    dynamic message,
+  void _handleAsrData(
+    ASRData data,
     StreamController<TencentRealtimeAsrEvent> eventsController,
   ) {
-    if (message is! String || eventsController.isClosed) return;
-    final decoded = jsonDecode(message) as Map<String, dynamic>;
-    final code = decoded['code'] as int? ?? 0;
-    if (code != 0) {
-      final errorMessage = (decoded['message'] ?? '腾讯云实时 ASR 失败').toString();
-      eventsController.addError(Exception('$code: $errorMessage'));
-      eventsController.close();
-      return;
+    if (eventsController.isClosed) return;
+    switch (data.type) {
+      case ASRDataType.SLICE:
+      case ASRDataType.SEGMENT:
+        final text = data.res ?? '';
+        if (text.isEmpty) return;
+        eventsController.add(
+          TencentRealtimeAsrEvent(
+            index: data.id ?? 0,
+            text: text,
+            isStable: data.type == ASRDataType.SEGMENT,
+            isFinal: false,
+          ),
+        );
+        break;
+      case ASRDataType.SUCCESS:
+        final text = data.result ?? '';
+        if (text.isNotEmpty) {
+          eventsController.add(
+            TencentRealtimeAsrEvent(
+              index: 0,
+              text: text,
+              isStable: true,
+              isFinal: false,
+            ),
+          );
+        }
+        eventsController.close();
+        break;
+      case ASRDataType.NOTIFY:
+        break;
     }
-    if (decoded['final'] == 1) {
-      eventsController.add(
-        const TencentRealtimeAsrEvent(
-          index: -1,
-          text: '',
-          isStable: true,
-          isFinal: true,
-        ),
-      );
-      eventsController.close();
-      return;
-    }
-    final result = (decoded['result'] as Map?)?.cast<String, dynamic>();
-    if (result == null) return;
-    final text = (result['voice_text_str'] ?? '').toString();
-    if (text.isEmpty) return;
-    final sliceType = result['slice_type'] as int? ?? 1;
-    eventsController.add(
-      TencentRealtimeAsrEvent(
-        index: result['index'] as int? ?? 0,
-        text: text,
-        isStable: sliceType == 2,
-        isFinal: false,
-      ),
-    );
   }
 }

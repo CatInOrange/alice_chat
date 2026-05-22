@@ -19,7 +19,6 @@ import 'package:open_filex/open_filex.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
-import 'package:record/record.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/theme.dart';
@@ -333,9 +332,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final _imagePicker = ImagePicker();
   final _chatListController = ScrollController();
   final _chatController = core.InMemoryChatController();
-  final _voiceRecorder = AudioRecorder();
   final _voiceAsrService = TencentRealtimeAsrService();
-  StreamSubscription<Uint8List>? _voiceAudioSubscription;
   StreamSubscription<TencentRealtimeAsrEvent>? _voiceAsrSubscription;
   TencentRealtimeAsrSession? _voiceAsrSession;
   Timer? _streamingHintPulseTimer;
@@ -1267,34 +1264,16 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     try {
-      final hasPermission = await _voiceRecorder.hasPermission();
-      if (!hasPermission) {
-        _showSnackBar('没有麦克风权限');
-        return;
-      }
-
       await _disposeVoiceAsrSession(closeSession: true);
       _voiceTextBeforeRecording = _composerController.text;
       _voiceRealtimeSegments.clear();
       final session = await _voiceAsrService.start(settings: _voiceSettings);
-      final audioStream = await _voiceRecorder.startStream(
-        const RecordConfig(
-          encoder: AudioEncoder.pcm16bits,
-          sampleRate: 16000,
-          numChannels: 1,
-          streamBufferSize: 6400,
-        ),
-      );
 
       _voiceAsrSession = session;
       _voiceAsrSubscription = session.events.listen(
         _handleVoiceAsrEvent,
         onError: _handleVoiceAsrError,
         onDone: () => unawaited(_handleVoiceAsrDone()),
-      );
-      _voiceAudioSubscription = audioStream.listen(
-        (bytes) => session.sendAudio(bytes),
-        onError: _handleVoiceAsrError,
       );
       if (!mounted) return;
       setState(() {
@@ -1307,9 +1286,6 @@ class _ChatScreenState extends State<ChatScreen> {
       HapticFeedback.lightImpact();
     } catch (error) {
       await _disposeVoiceAsrSession(closeSession: true);
-      try {
-        await _voiceRecorder.stop();
-      } catch (_) {}
       if (!mounted) return;
       _showSnackBar('启动录音失败：${_humanizeUiError(error)}');
     }
@@ -1331,13 +1307,6 @@ class _ChatScreenState extends State<ChatScreen> {
     final startedAt = _voiceRecordStartedAt;
     final shouldCancel = cancel || _isVoiceCancelArmed;
     final session = _voiceAsrSession;
-    try {
-      await _voiceAudioSubscription?.cancel();
-      _voiceAudioSubscription = null;
-      await _voiceRecorder.stop();
-    } catch (_) {
-      // The recorder may already be stopped by the platform.
-    }
     if (!mounted) return;
     setState(() {
       _isVoiceRecording = false;
@@ -1396,7 +1365,6 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _handleVoiceAsrError(Object error, [StackTrace? stackTrace]) {
     unawaited(_disposeVoiceAsrSession(closeSession: true));
-    unawaited(_voiceRecorder.stop().then((_) {}).catchError((_) {}));
     if (!mounted) return;
     setState(() {
       _isVoiceRecording = false;
@@ -1457,8 +1425,6 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _disposeVoiceAsrSession({required bool closeSession}) async {
-    await _voiceAudioSubscription?.cancel();
-    _voiceAudioSubscription = null;
     await _voiceAsrSubscription?.cancel();
     _voiceAsrSubscription = null;
     final session = _voiceAsrSession;
@@ -3724,7 +3690,6 @@ class _ChatScreenState extends State<ChatScreen> {
     _composerController.dispose();
     _composerFocusNode.dispose();
     unawaited(_disposeVoiceAsrSession(closeSession: true));
-    _voiceRecorder.dispose();
     super.dispose();
   }
 }
