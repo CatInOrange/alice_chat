@@ -50,6 +50,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _voiceMinimaxYulinglongVoiceController = TextEditingController();
   final _voiceMinimaxLisuxinVoiceController = TextEditingController();
   final _voiceMinimaxGuqinggeVoiceController = TextEditingController();
+  final _voiceWakeModelController = TextEditingController(
+    text: VoiceWakeWordSettings.defaultModelId,
+  );
+  final _voiceWakeModelAssetPathController = TextEditingController(
+    text: VoiceWakeWordSettings.defaultModelAssetPath,
+  );
+  final _voiceWakeKeywordsScoreController = TextEditingController(text: '1');
+  final _voiceWakeKeywordsThresholdController = TextEditingController(
+    text: '0.25',
+  );
+  final _voiceWakeMaxActivePathsController = TextEditingController(text: '4');
+  final _voiceWakeNumTrailingBlanksController = TextEditingController(
+    text: '1',
+  );
+  final _voiceWakeNumThreadsController = TextEditingController(text: '1');
+  final Map<String, TextEditingController> _voiceWakeKeywordControllers = {
+    for (final target in VoiceWakeWordSettings.defaultTargets)
+      target.sessionId: TextEditingController(),
+  };
+  final Map<String, TextEditingController> _voiceWakeThresholdControllers = {
+    for (final target in VoiceWakeWordSettings.defaultTargets)
+      target.sessionId: TextEditingController(),
+  };
   final ValueNotifier<int> _detailRefreshTick = ValueNotifier<int>(0);
   bool _obscurePassword = true;
   bool _obscureVoiceSecretKey = true;
@@ -59,6 +82,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _voiceAutoSendAfterRecognition = false;
   bool _voiceOutputEnabled = false;
   bool _voiceOutputAutoPlayAfterVoiceInput = true;
+  bool _voiceWakeWordEnabled = false;
+  List<VoiceWakeWordTargetSettings> _voiceWakeTargets =
+      VoiceWakeWordSettings.defaultTargets;
   bool _isSaving = false;
   bool _isRestartingBackend = false;
   bool _isRestartingGateway = false;
@@ -112,6 +138,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
         voiceSettings.minimaxVoiceBySession['lisuxin'] ?? '';
     _voiceMinimaxGuqinggeVoiceController.text =
         voiceSettings.minimaxVoiceBySession['guqingge'] ?? '';
+    _voiceWakeWordEnabled = voiceSettings.wakeWord.enabled;
+    _voiceWakeModelController.text = voiceSettings.wakeWord.modelId;
+    _voiceWakeModelAssetPathController.text =
+        voiceSettings.wakeWord.modelAssetPath;
+    _voiceWakeKeywordsScoreController.text = _formatVoiceNumber(
+      voiceSettings.wakeWord.keywordsScore,
+    );
+    _voiceWakeKeywordsThresholdController.text = _formatVoiceNumber(
+      voiceSettings.wakeWord.keywordsThreshold,
+    );
+    _voiceWakeMaxActivePathsController.text =
+        voiceSettings.wakeWord.maxActivePaths.toString();
+    _voiceWakeNumTrailingBlanksController.text =
+        voiceSettings.wakeWord.numTrailingBlanks.toString();
+    _voiceWakeNumThreadsController.text =
+        voiceSettings.wakeWord.numThreads.toString();
+    _voiceWakeTargets = voiceSettings.wakeWord.targets;
+    _syncVoiceWakeTargetControllers();
     setState(() {});
     _notifyDetailPages();
   }
@@ -133,6 +177,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _voiceMinimaxYulinglongVoiceController.dispose();
     _voiceMinimaxLisuxinVoiceController.dispose();
     _voiceMinimaxGuqinggeVoiceController.dispose();
+    _voiceWakeModelController.dispose();
+    _voiceWakeModelAssetPathController.dispose();
+    _voiceWakeKeywordsScoreController.dispose();
+    _voiceWakeKeywordsThresholdController.dispose();
+    _voiceWakeMaxActivePathsController.dispose();
+    _voiceWakeNumTrailingBlanksController.dispose();
+    _voiceWakeNumThreadsController.dispose();
+    for (final controller in _voiceWakeKeywordControllers.values) {
+      controller.dispose();
+    }
+    for (final controller in _voiceWakeThresholdControllers.values) {
+      controller.dispose();
+    }
     _detailRefreshTick.dispose();
     super.dispose();
   }
@@ -213,7 +270,94 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ? 'wumei_yujie'
               : _voiceMinimaxDefaultVoiceController.text.trim(),
       minimaxVoiceBySession: voiceBySession,
+      wakeWord: _currentVoiceWakeWordSettings(),
     );
+  }
+
+  VoiceWakeWordSettings _currentVoiceWakeWordSettings() {
+    return VoiceWakeWordSettings(
+      enabled: _voiceWakeWordEnabled,
+      modelId:
+          _voiceWakeModelController.text.trim().isEmpty
+              ? VoiceWakeWordSettings.defaultModelId
+              : _voiceWakeModelController.text.trim(),
+      modelAssetPath:
+          _voiceWakeModelAssetPathController.text.trim().isEmpty
+              ? VoiceWakeWordSettings.defaultModelAssetPath
+              : _voiceWakeModelAssetPathController.text.trim(),
+      keywordsScore: _parseVoiceDouble(
+        _voiceWakeKeywordsScoreController.text,
+        1,
+      ),
+      keywordsThreshold: _parseVoiceDouble(
+        _voiceWakeKeywordsThresholdController.text,
+        0.25,
+      ),
+      maxActivePaths: _parseVoiceInt(
+        _voiceWakeMaxActivePathsController.text,
+        4,
+      ),
+      numTrailingBlanks: _parseVoiceInt(
+        _voiceWakeNumTrailingBlanksController.text,
+        1,
+      ),
+      numThreads: _parseVoiceInt(_voiceWakeNumThreadsController.text, 1),
+      targets:
+          _voiceWakeTargets.map((target) {
+            final keywords =
+                (_voiceWakeKeywordControllers[target.sessionId]?.text ?? '')
+                    .split(RegExp(r'[\n,，]'))
+                    .map((item) => item.trim())
+                    .where((item) => item.isNotEmpty)
+                    .toList();
+            final thresholdText =
+                _voiceWakeThresholdControllers[target.sessionId]?.text.trim() ??
+                '';
+            return VoiceWakeWordTargetSettings(
+              sessionId: target.sessionId,
+              label: target.label,
+              enabled: target.enabled,
+              keywords: keywords.isEmpty ? target.keywords : keywords,
+              thresholdOverride:
+                  thresholdText.isEmpty ? null : double.tryParse(thresholdText),
+              navigateToChat: target.navigateToChat,
+              startVoiceInput: target.startVoiceInput,
+              autoSendAfterRecognition: target.autoSendAfterRecognition,
+              autoPlayReply: target.autoPlayReply,
+            );
+          }).toList(),
+    );
+  }
+
+  void _syncVoiceWakeTargetControllers() {
+    for (final target in _voiceWakeTargets) {
+      final keywordController = _voiceWakeKeywordControllers.putIfAbsent(
+        target.sessionId,
+        TextEditingController.new,
+      );
+      keywordController.text = target.keywords.join('\n');
+      final thresholdController = _voiceWakeThresholdControllers.putIfAbsent(
+        target.sessionId,
+        TextEditingController.new,
+      );
+      thresholdController.text =
+          target.thresholdOverride == null
+              ? ''
+              : _formatVoiceNumber(target.thresholdOverride!);
+    }
+  }
+
+  String _formatVoiceNumber(num value) {
+    final text = value.toStringAsFixed(3);
+    return text.replaceFirst(RegExp(r'\.?0+$'), '');
+  }
+
+  double _parseVoiceDouble(String value, double fallback) {
+    return double.tryParse(value.trim()) ?? fallback;
+  }
+
+  int _parseVoiceInt(String value, int fallback) {
+    return int.tryParse(value.trim()) ?? fallback;
   }
 
   Future<void> _saveVoiceSettingsOnly() async {
@@ -772,6 +916,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final engine = _voiceTencentEngineController.text.trim();
     return [
       _voiceInputEnabled ? '输入已启用' : '输入未启用',
+      _voiceWakeWordEnabled ? '前台唤醒已启用' : '前台唤醒未启用',
       hasSecret ? '腾讯云已配置' : '腾讯云未配置',
       _voiceOutputEnabled ? '输出已启用' : '输出未启用',
       hasMiniMax ? 'MiniMax 已配置' : 'MiniMax 未配置',
@@ -1018,6 +1163,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         const SizedBox(height: 16),
         _SettingsSectionCard(
+          title: '前台唤醒',
+          subtitle: '使用 sherpa-onnx 本地关键词检测；仅 App 前台监听，不上传唤醒阶段音频。',
+          icon: Icons.record_voice_over_rounded,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('启用前台语音唤醒'),
+                subtitle: const Text('命中角色关键词后，后续可跳转聊天并进入语音输入'),
+                value: _voiceWakeWordEnabled,
+                onChanged: (value) {
+                  setState(() => _voiceWakeWordEnabled = value);
+                  _notifyDetailPages();
+                },
+              ),
+              const SizedBox(height: 8),
+              const Text('模型'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _voiceWakeModelController,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: VoiceWakeWordSettings.defaultModelId,
+                  helperText: '默认使用中文 WenetSpeech 3.3M KWS 模型',
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('模型资源路径'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _voiceWakeModelAssetPathController,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: VoiceWakeWordSettings.defaultModelAssetPath,
+                  helperText: '后续监听服务会从这里读取 encoder、decoder、joiner 和 tokens',
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildVoiceWakeNumberGrid(),
+              const SizedBox(height: 16),
+              const Text('角色唤醒词'),
+              const SizedBox(height: 8),
+              ..._voiceWakeTargets.map(_buildVoiceWakeTargetCard),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _SettingsSectionCard(
           title: '腾讯云 ASR',
           subtitle: '密钥仅保存在本机，适合个人使用；公共分发版本建议改用服务端临时凭证。',
           icon: Icons.cloud_queue_rounded,
@@ -1217,6 +1411,249 @@ class _SettingsScreenState extends State<SettingsScreen> {
         hintText: '留空则使用默认音色',
       ),
     );
+  }
+
+  Widget _buildVoiceWakeNumberGrid() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 560;
+        final fields = [
+          _buildVoiceWakeNumberField(
+            'keywordsScore',
+            _voiceWakeKeywordsScoreController,
+            '默认 1',
+          ),
+          _buildVoiceWakeNumberField(
+            'keywordsThreshold',
+            _voiceWakeKeywordsThresholdController,
+            '默认 0.25',
+          ),
+          _buildVoiceWakeNumberField(
+            'maxActivePaths',
+            _voiceWakeMaxActivePathsController,
+            '默认 4',
+            integerOnly: true,
+          ),
+          _buildVoiceWakeNumberField(
+            'numTrailingBlanks',
+            _voiceWakeNumTrailingBlanksController,
+            '默认 1',
+            integerOnly: true,
+          ),
+          _buildVoiceWakeNumberField(
+            'numThreads',
+            _voiceWakeNumThreadsController,
+            '默认 1',
+            integerOnly: true,
+          ),
+        ];
+        if (!isWide) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children:
+                fields
+                    .map(
+                      (field) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: field,
+                      ),
+                    )
+                    .toList(),
+          );
+        }
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children:
+              fields
+                  .map(
+                    (field) => SizedBox(
+                      width: (constraints.maxWidth - 12) / 2,
+                      child: field,
+                    ),
+                  )
+                  .toList(),
+        );
+      },
+    );
+  }
+
+  Widget _buildVoiceWakeNumberField(
+    String label,
+    TextEditingController controller,
+    String hint, {
+    bool integerOnly = false,
+  }) {
+    return TextField(
+      controller: controller,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration: InputDecoration(
+        border: const OutlineInputBorder(),
+        labelText: label,
+        hintText: hint,
+        helperText: integerOnly ? '整数' : '可填小数',
+      ),
+    );
+  }
+
+  Widget _buildVoiceWakeTargetCard(VoiceWakeWordTargetSettings target) {
+    final keywordController = _voiceWakeKeywordControllers.putIfAbsent(
+      target.sessionId,
+      TextEditingController.new,
+    );
+    final thresholdController = _voiceWakeThresholdControllers.putIfAbsent(
+      target.sessionId,
+      TextEditingController.new,
+    );
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  target.label,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Switch(
+                value: target.enabled,
+                onChanged: (value) {
+                  _updateVoiceWakeTarget(
+                    target.sessionId,
+                    (current) => VoiceWakeWordTargetSettings(
+                      sessionId: current.sessionId,
+                      label: current.label,
+                      enabled: value,
+                      keywords: current.keywords,
+                      thresholdOverride: current.thresholdOverride,
+                      navigateToChat: current.navigateToChat,
+                      startVoiceInput: current.startVoiceInput,
+                      autoSendAfterRecognition:
+                          current.autoSendAfterRecognition,
+                      autoPlayReply: current.autoPlayReply,
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: keywordController,
+            minLines: 2,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              labelText: '唤醒词',
+              helperText: '每行一个，也支持用逗号分隔；建议使用重复词降低误唤醒',
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: thresholdController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              border: OutlineInputBorder(),
+              labelText: '单独阈值覆盖',
+              hintText: '留空则使用全局 keywordsThreshold',
+            ),
+          ),
+          const SizedBox(height: 8),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('命中后跳转到聊天页'),
+            value: target.navigateToChat,
+            onChanged: (value) {
+              _updateVoiceWakeTarget(
+                target.sessionId,
+                (current) => VoiceWakeWordTargetSettings(
+                  sessionId: current.sessionId,
+                  label: current.label,
+                  enabled: current.enabled,
+                  keywords: current.keywords,
+                  thresholdOverride: current.thresholdOverride,
+                  navigateToChat: value ?? true,
+                  startVoiceInput: current.startVoiceInput,
+                  autoSendAfterRecognition: current.autoSendAfterRecognition,
+                  autoPlayReply: current.autoPlayReply,
+                ),
+              );
+            },
+          ),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('命中后进入语音输入'),
+            value: target.startVoiceInput,
+            onChanged: (value) {
+              _updateVoiceWakeTarget(
+                target.sessionId,
+                (current) => VoiceWakeWordTargetSettings(
+                  sessionId: current.sessionId,
+                  label: current.label,
+                  enabled: current.enabled,
+                  keywords: current.keywords,
+                  thresholdOverride: current.thresholdOverride,
+                  navigateToChat: current.navigateToChat,
+                  startVoiceInput: value ?? true,
+                  autoSendAfterRecognition: current.autoSendAfterRecognition,
+                  autoPlayReply: current.autoPlayReply,
+                ),
+              );
+            },
+          ),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('AI 回复后自动朗读'),
+            value: target.autoPlayReply,
+            onChanged: (value) {
+              _updateVoiceWakeTarget(
+                target.sessionId,
+                (current) => VoiceWakeWordTargetSettings(
+                  sessionId: current.sessionId,
+                  label: current.label,
+                  enabled: current.enabled,
+                  keywords: current.keywords,
+                  thresholdOverride: current.thresholdOverride,
+                  navigateToChat: current.navigateToChat,
+                  startVoiceInput: current.startVoiceInput,
+                  autoSendAfterRecognition: current.autoSendAfterRecognition,
+                  autoPlayReply: value ?? true,
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _updateVoiceWakeTarget(
+    String sessionId,
+    VoiceWakeWordTargetSettings Function(VoiceWakeWordTargetSettings current)
+    update,
+  ) {
+    setState(() {
+      _voiceWakeTargets =
+          _voiceWakeTargets
+              .map(
+                (target) =>
+                    target.sessionId == sessionId ? update(target) : target,
+              )
+              .toList();
+    });
+    _notifyDetailPages();
   }
 
   Widget _buildServiceManagementContent(BuildContext context) {

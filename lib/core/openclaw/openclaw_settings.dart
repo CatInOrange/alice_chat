@@ -4,6 +4,221 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'openclaw_config.dart';
 
+class VoiceWakeWordTargetSettings {
+  const VoiceWakeWordTargetSettings({
+    required this.sessionId,
+    required this.label,
+    this.enabled = true,
+    this.keywords = const [],
+    this.thresholdOverride,
+    this.navigateToChat = true,
+    this.startVoiceInput = true,
+    this.autoSendAfterRecognition,
+    this.autoPlayReply = true,
+  });
+
+  final String sessionId;
+  final String label;
+  final bool enabled;
+  final List<String> keywords;
+  final double? thresholdOverride;
+  final bool navigateToChat;
+  final bool startVoiceInput;
+  final bool? autoSendAfterRecognition;
+  final bool autoPlayReply;
+
+  Map<String, Object?> toJson() {
+    return {
+      'sessionId': sessionId,
+      'label': label,
+      'enabled': enabled,
+      'keywords': keywords,
+      'thresholdOverride': thresholdOverride,
+      'navigateToChat': navigateToChat,
+      'startVoiceInput': startVoiceInput,
+      'autoSendAfterRecognition': autoSendAfterRecognition,
+      'autoPlayReply': autoPlayReply,
+    };
+  }
+
+  factory VoiceWakeWordTargetSettings.fromJson(
+    Map<dynamic, dynamic> json,
+    VoiceWakeWordTargetSettings fallback,
+  ) {
+    final keywords = <String>[];
+    final rawKeywords = json['keywords'];
+    if (rawKeywords is List) {
+      for (final item in rawKeywords) {
+        final keyword = item.toString().trim();
+        if (keyword.isNotEmpty) keywords.add(keyword);
+      }
+    }
+    return VoiceWakeWordTargetSettings(
+      sessionId: (json['sessionId'] ?? fallback.sessionId).toString().trim(),
+      label: (json['label'] ?? fallback.label).toString().trim(),
+      enabled:
+          json['enabled'] is bool ? json['enabled'] as bool : fallback.enabled,
+      keywords: keywords.isEmpty ? fallback.keywords : keywords,
+      thresholdOverride: _parseNullableDouble(json['thresholdOverride']),
+      navigateToChat:
+          json['navigateToChat'] is bool
+              ? json['navigateToChat'] as bool
+              : fallback.navigateToChat,
+      startVoiceInput:
+          json['startVoiceInput'] is bool
+              ? json['startVoiceInput'] as bool
+              : fallback.startVoiceInput,
+      autoSendAfterRecognition:
+          json['autoSendAfterRecognition'] is bool
+              ? json['autoSendAfterRecognition'] as bool
+              : fallback.autoSendAfterRecognition,
+      autoPlayReply:
+          json['autoPlayReply'] is bool
+              ? json['autoPlayReply'] as bool
+              : fallback.autoPlayReply,
+    );
+  }
+
+  static double? _parseNullableDouble(Object? value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    final parsed = double.tryParse(value.toString().trim());
+    return parsed;
+  }
+}
+
+class VoiceWakeWordSettings {
+  const VoiceWakeWordSettings({
+    this.enabled = false,
+    this.modelId = defaultModelId,
+    this.modelAssetPath = defaultModelAssetPath,
+    this.keywordsScore = 1,
+    this.keywordsThreshold = 0.25,
+    this.maxActivePaths = 4,
+    this.numTrailingBlanks = 1,
+    this.numThreads = 1,
+    this.targets = defaultTargets,
+  });
+
+  static const defaultModelId =
+      'sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01';
+  static const defaultModelAssetPath = 'assets/sherpa_onnx/kws_zh_3.3m';
+  static const defaultTargets = [
+    VoiceWakeWordTargetSettings(
+      sessionId: 'alice',
+      label: '晚秋',
+      keywords: ['晚秋晚秋', '苏晚秋'],
+    ),
+    VoiceWakeWordTargetSettings(
+      sessionId: 'yulinglong',
+      label: '玲珑',
+      keywords: ['玲珑玲珑', '玉玲珑'],
+    ),
+    VoiceWakeWordTargetSettings(
+      sessionId: 'lisuxin',
+      label: '素心',
+      keywords: ['素心素心', '李素心'],
+    ),
+    VoiceWakeWordTargetSettings(
+      sessionId: 'guqingge',
+      label: '清歌',
+      keywords: ['清歌清歌', '顾清歌'],
+    ),
+  ];
+
+  final bool enabled;
+  final String modelId;
+  final String modelAssetPath;
+  final double keywordsScore;
+  final double keywordsThreshold;
+  final int maxActivePaths;
+  final int numTrailingBlanks;
+  final int numThreads;
+  final List<VoiceWakeWordTargetSettings> targets;
+
+  Map<String, Object?> toJson() {
+    return {
+      'enabled': enabled,
+      'modelId': modelId,
+      'modelAssetPath': modelAssetPath,
+      'keywordsScore': keywordsScore,
+      'keywordsThreshold': keywordsThreshold,
+      'maxActivePaths': maxActivePaths,
+      'numTrailingBlanks': numTrailingBlanks,
+      'numThreads': numThreads,
+      'targets': targets.map((target) => target.toJson()).toList(),
+    };
+  }
+
+  factory VoiceWakeWordSettings.fromJson(String? raw) {
+    final value = raw?.trim();
+    if (value == null || value.isEmpty) {
+      return const VoiceWakeWordSettings();
+    }
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is! Map) return const VoiceWakeWordSettings();
+      final fallbackBySession = {
+        for (final target in defaultTargets) target.sessionId: target,
+      };
+      final targets = <VoiceWakeWordTargetSettings>[];
+      final rawTargets = decoded['targets'];
+      if (rawTargets is List) {
+        for (final item in rawTargets) {
+          if (item is! Map) continue;
+          final sessionId = item['sessionId']?.toString().trim();
+          final fallback =
+              fallbackBySession[sessionId] ??
+              const VoiceWakeWordTargetSettings(
+                sessionId: '',
+                label: '',
+                keywords: [],
+              );
+          final target = VoiceWakeWordTargetSettings.fromJson(item, fallback);
+          if (target.sessionId.isNotEmpty && target.label.isNotEmpty) {
+            targets.add(target);
+          }
+        }
+      }
+      for (final fallback in defaultTargets) {
+        if (!targets.any((target) => target.sessionId == fallback.sessionId)) {
+          targets.add(fallback);
+        }
+      }
+      return VoiceWakeWordSettings(
+        enabled:
+            decoded['enabled'] is bool ? decoded['enabled'] as bool : false,
+        modelId:
+            (decoded['modelId']?.toString().trim().isNotEmpty == true)
+                ? decoded['modelId'].toString().trim()
+                : defaultModelId,
+        modelAssetPath:
+            (decoded['modelAssetPath']?.toString().trim().isNotEmpty == true)
+                ? decoded['modelAssetPath'].toString().trim()
+                : defaultModelAssetPath,
+        keywordsScore: _parseDouble(decoded['keywordsScore'], 1),
+        keywordsThreshold: _parseDouble(decoded['keywordsThreshold'], 0.25),
+        maxActivePaths: _parseInt(decoded['maxActivePaths'], 4),
+        numTrailingBlanks: _parseInt(decoded['numTrailingBlanks'], 1),
+        numThreads: _parseInt(decoded['numThreads'], 1),
+        targets: targets,
+      );
+    } catch (_) {
+      return const VoiceWakeWordSettings();
+    }
+  }
+
+  static double _parseDouble(Object? value, double fallback) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString().trim() ?? '') ?? fallback;
+  }
+
+  static int _parseInt(Object? value, int fallback) {
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString().trim() ?? '') ?? fallback;
+  }
+}
+
 class VoiceSettings {
   const VoiceSettings({
     this.inputEnabled = false,
@@ -20,6 +235,7 @@ class VoiceSettings {
     this.minimaxModel = 'speech-2.8-hd',
     this.minimaxDefaultVoice = 'wumei_yujie',
     this.minimaxVoiceBySession = const {},
+    this.wakeWord = const VoiceWakeWordSettings(),
   });
 
   final bool inputEnabled;
@@ -36,6 +252,7 @@ class VoiceSettings {
   final String minimaxModel;
   final String minimaxDefaultVoice;
   final Map<String, String> minimaxVoiceBySession;
+  final VoiceWakeWordSettings wakeWord;
 
   bool get hasTencentCredentials =>
       tencentAppId.trim().isNotEmpty &&
@@ -68,6 +285,7 @@ class VoiceSettings {
     String? minimaxModel,
     String? minimaxDefaultVoice,
     Map<String, String>? minimaxVoiceBySession,
+    VoiceWakeWordSettings? wakeWord,
   }) {
     return VoiceSettings(
       inputEnabled: inputEnabled ?? this.inputEnabled,
@@ -88,6 +306,7 @@ class VoiceSettings {
       minimaxDefaultVoice: minimaxDefaultVoice ?? this.minimaxDefaultVoice,
       minimaxVoiceBySession:
           minimaxVoiceBySession ?? this.minimaxVoiceBySession,
+      wakeWord: wakeWord ?? this.wakeWord,
     );
   }
 }
@@ -120,6 +339,7 @@ class OpenClawSettingsStore {
       'alicechat.voice.minimax.defaultVoice';
   static const _voiceMinimaxVoiceBySessionKey =
       'alicechat.voice.minimax.voiceBySession';
+  static const _voiceWakeWordSettingsKey = 'alicechat.voice.wakeWord';
   static const _musicProviderCookiePrefix = 'music.provider.cookie.';
   static const _tavernQuickRepliesKey = 'alicechat.tavern.quickReplies';
 
@@ -244,6 +464,9 @@ class OpenClawSettingsStore {
       minimaxVoiceBySession: _decodeStringMap(
         prefs.getString(_voiceMinimaxVoiceBySessionKey),
       ),
+      wakeWord: VoiceWakeWordSettings.fromJson(
+        prefs.getString(_voiceWakeWordSettingsKey),
+      ),
     );
   }
 
@@ -294,6 +517,10 @@ class OpenClawSettingsStore {
     await prefs.setString(
       _voiceMinimaxVoiceBySessionKey,
       jsonEncode(settings.minimaxVoiceBySession),
+    );
+    await prefs.setString(
+      _voiceWakeWordSettingsKey,
+      jsonEncode(settings.wakeWord.toJson()),
     );
   }
 
