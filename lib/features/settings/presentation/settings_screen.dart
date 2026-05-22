@@ -1316,6 +1316,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
+                dense: true,
                 title: const Text('启用前台语音唤醒'),
                 subtitle: const Text('命中角色关键词后，后续可跳转聊天并进入语音输入'),
                 value: _voiceWakeWordEnabled,
@@ -1324,35 +1325,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _notifyDetailPages();
                 },
               ),
-              const SizedBox(height: 8),
-              const Text('模型'),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _voiceWakeModelController,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  hintText: VoiceWakeWordSettings.defaultModelId,
-                  helperText: '默认使用中文 WenetSpeech 3.3M KWS 模型',
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text('模型资源路径'),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _voiceWakeModelAssetPathController,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  hintText: VoiceWakeWordSettings.defaultModelAssetPath,
-                  helperText: '后续监听服务会从这里读取 encoder、decoder、joiner 和 tokens',
-                ),
-              ),
-              const SizedBox(height: 16),
-              _buildVoiceWakeNumberGrid(),
-              const SizedBox(height: 16),
-              const Text('角色唤醒词'),
-              const SizedBox(height: 8),
-              ..._voiceWakeTargets.map(_buildVoiceWakeTargetCard),
+              const SizedBox(height: 10),
+              _buildVoiceWakeModelFields(),
               const SizedBox(height: 12),
+              _buildVoiceWakeNumberGrid(),
+              const SizedBox(height: 12),
+              ..._voiceWakeTargets.map(_buildVoiceWakeTargetCard),
+              const SizedBox(height: 4),
               _buildVoiceWakeTestPanel(),
             ],
           ),
@@ -1560,6 +1539,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  InputDecoration _denseVoiceInputDecoration({
+    required String label,
+    required String hint,
+    String? helper,
+  }) {
+    return InputDecoration(
+      border: const OutlineInputBorder(),
+      isDense: true,
+      labelText: label,
+      hintText: hint,
+      helperText: helper,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+    );
+  }
+
+  Widget _buildVoiceWakeModelFields() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final fields = [
+          TextField(
+            controller: _voiceWakeModelController,
+            decoration: _denseVoiceInputDecoration(
+              label: '模型',
+              hint: VoiceWakeWordSettings.defaultModelId,
+            ),
+          ),
+          TextField(
+            controller: _voiceWakeModelAssetPathController,
+            decoration: _denseVoiceInputDecoration(
+              label: '资源路径',
+              hint: VoiceWakeWordSettings.defaultModelAssetPath,
+            ),
+          ),
+        ];
+        if (constraints.maxWidth < 560) {
+          return Column(
+            children: [fields[0], const SizedBox(height: 8), fields[1]],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: fields[0]),
+            const SizedBox(width: 8),
+            Expanded(child: fields[1]),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _buildVoiceWakeNumberGrid() {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1579,19 +1608,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             'maxActivePaths',
             _voiceWakeMaxActivePathsController,
             '默认 4',
-            integerOnly: true,
           ),
           _buildVoiceWakeNumberField(
             'numTrailingBlanks',
             _voiceWakeNumTrailingBlanksController,
             '默认 1',
-            integerOnly: true,
           ),
           _buildVoiceWakeNumberField(
             'numThreads',
             _voiceWakeNumThreadsController,
             '默认 1',
-            integerOnly: true,
           ),
         ];
         if (!isWide) {
@@ -1601,7 +1627,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 fields
                     .map(
                       (field) => Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.only(bottom: 8),
                         child: field,
                       ),
                     )
@@ -1609,13 +1635,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           );
         }
         return Wrap(
-          spacing: 12,
-          runSpacing: 12,
+          spacing: 8,
+          runSpacing: 8,
           children:
               fields
                   .map(
                     (field) => SizedBox(
-                      width: (constraints.maxWidth - 12) / 2,
+                      width: (constraints.maxWidth - 16) / 3,
                       child: field,
                     ),
                   )
@@ -1628,18 +1654,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildVoiceWakeNumberField(
     String label,
     TextEditingController controller,
-    String hint, {
-    bool integerOnly = false,
-  }) {
+    String hint,
+  ) {
     return TextField(
       controller: controller,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      decoration: InputDecoration(
-        border: const OutlineInputBorder(),
-        labelText: label,
-        hintText: hint,
-        helperText: integerOnly ? '整数' : '可填小数',
-      ),
+      decoration: _denseVoiceInputDecoration(label: label, hint: hint),
     );
   }
 
@@ -1653,8 +1673,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       TextEditingController.new,
     );
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
       decoration: BoxDecoration(
         color: const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(8),
@@ -1666,15 +1686,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  target.label,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
+                child: Row(
+                  children: [
+                    Text(
+                      target.label,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      target.sessionId,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              Switch(
+              Switch.adaptive(
                 value: target.enabled,
                 onChanged: (value) {
                   _updateVoiceWakeTarget(
@@ -1697,91 +1729,124 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
           const SizedBox(height: 8),
-          TextField(
-            controller: keywordController,
-            minLines: 2,
-            maxLines: 4,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              labelText: '唤醒词',
-              helperText: '每行一个，也支持用逗号分隔；建议使用重复词降低误唤醒',
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: thresholdController,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              labelText: '单独阈值覆盖',
-              hintText: '留空则使用全局 keywordsThreshold',
-            ),
-          ),
-          const SizedBox(height: 8),
-          CheckboxListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('命中后跳转到聊天页'),
-            value: target.navigateToChat,
-            onChanged: (value) {
-              _updateVoiceWakeTarget(
-                target.sessionId,
-                (current) => VoiceWakeWordTargetSettings(
-                  sessionId: current.sessionId,
-                  label: current.label,
-                  enabled: current.enabled,
-                  keywords: current.keywords,
-                  thresholdOverride: current.thresholdOverride,
-                  navigateToChat: value ?? true,
-                  startVoiceInput: current.startVoiceInput,
-                  autoSendAfterRecognition: current.autoSendAfterRecognition,
-                  autoPlayReply: current.autoPlayReply,
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final keywordField = TextField(
+                controller: keywordController,
+                minLines: 1,
+                maxLines: 3,
+                decoration: _denseVoiceInputDecoration(
+                  label: '唤醒词',
+                  hint: '每行一个，内置词自动转 token',
                 ),
+              );
+              final thresholdField = TextField(
+                controller: thresholdController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: _denseVoiceInputDecoration(label: '阈值', hint: '全局'),
+              );
+              if (constraints.maxWidth < 520) {
+                return Column(
+                  children: [
+                    keywordField,
+                    const SizedBox(height: 8),
+                    thresholdField,
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(flex: 3, child: keywordField),
+                  const SizedBox(width: 8),
+                  Expanded(child: thresholdField),
+                ],
               );
             },
           ),
-          CheckboxListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('命中后进入语音输入'),
-            value: target.startVoiceInput,
-            onChanged: (value) {
-              _updateVoiceWakeTarget(
-                target.sessionId,
-                (current) => VoiceWakeWordTargetSettings(
-                  sessionId: current.sessionId,
-                  label: current.label,
-                  enabled: current.enabled,
-                  keywords: current.keywords,
-                  thresholdOverride: current.thresholdOverride,
-                  navigateToChat: current.navigateToChat,
-                  startVoiceInput: value ?? true,
-                  autoSendAfterRecognition: current.autoSendAfterRecognition,
-                  autoPlayReply: current.autoPlayReply,
-                ),
-              );
-            },
-          ),
-          CheckboxListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('AI 回复后自动朗读'),
-            value: target.autoPlayReply,
-            onChanged: (value) {
-              _updateVoiceWakeTarget(
-                target.sessionId,
-                (current) => VoiceWakeWordTargetSettings(
-                  sessionId: current.sessionId,
-                  label: current.label,
-                  enabled: current.enabled,
-                  keywords: current.keywords,
-                  thresholdOverride: current.thresholdOverride,
-                  navigateToChat: current.navigateToChat,
-                  startVoiceInput: current.startVoiceInput,
-                  autoSendAfterRecognition: current.autoSendAfterRecognition,
-                  autoPlayReply: value ?? true,
-                ),
-              );
-            },
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 4,
+            runSpacing: 0,
+            children: [
+              _buildVoiceWakeCheck('跳转聊天', target.navigateToChat, (value) {
+                _updateVoiceWakeTarget(
+                  target.sessionId,
+                  (current) => VoiceWakeWordTargetSettings(
+                    sessionId: current.sessionId,
+                    label: current.label,
+                    enabled: current.enabled,
+                    keywords: current.keywords,
+                    thresholdOverride: current.thresholdOverride,
+                    navigateToChat: value,
+                    startVoiceInput: current.startVoiceInput,
+                    autoSendAfterRecognition: current.autoSendAfterRecognition,
+                    autoPlayReply: current.autoPlayReply,
+                  ),
+                );
+              }),
+              _buildVoiceWakeCheck('进入输入', target.startVoiceInput, (value) {
+                _updateVoiceWakeTarget(
+                  target.sessionId,
+                  (current) => VoiceWakeWordTargetSettings(
+                    sessionId: current.sessionId,
+                    label: current.label,
+                    enabled: current.enabled,
+                    keywords: current.keywords,
+                    thresholdOverride: current.thresholdOverride,
+                    navigateToChat: current.navigateToChat,
+                    startVoiceInput: value,
+                    autoSendAfterRecognition: current.autoSendAfterRecognition,
+                    autoPlayReply: current.autoPlayReply,
+                  ),
+                );
+              }),
+              _buildVoiceWakeCheck('自动朗读', target.autoPlayReply, (value) {
+                _updateVoiceWakeTarget(
+                  target.sessionId,
+                  (current) => VoiceWakeWordTargetSettings(
+                    sessionId: current.sessionId,
+                    label: current.label,
+                    enabled: current.enabled,
+                    keywords: current.keywords,
+                    thresholdOverride: current.thresholdOverride,
+                    navigateToChat: current.navigateToChat,
+                    startVoiceInput: current.startVoiceInput,
+                    autoSendAfterRecognition: current.autoSendAfterRecognition,
+                    autoPlayReply: value,
+                  ),
+                );
+              }),
+            ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildVoiceWakeCheck(
+    String label,
+    bool value,
+    ValueChanged<bool> onChanged,
+  ) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(6),
+      onTap: () => onChanged(!value),
+      child: Padding(
+        padding: const EdgeInsets.only(right: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Checkbox(
+              value: value,
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              onChanged: (next) => onChanged(next ?? value),
+            ),
+            Text(label, style: const TextStyle(fontSize: 13)),
+          ],
+        ),
       ),
     );
   }

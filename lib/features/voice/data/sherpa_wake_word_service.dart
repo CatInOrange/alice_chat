@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -132,7 +133,7 @@ class SherpaWakeWordService {
     _initBindings();
 
     final spotter = _createSpotter(settings, status.directory);
-    final stream = spotter.createStream(keywords: _buildKeywords(settings));
+    final stream = spotter.createStream();
     final hits = StreamController<SherpaWakeWordHit>.broadcast();
     final audioStream = await _recorder.startStream(
       const RecordConfig(
@@ -210,6 +211,10 @@ class SherpaWakeWordService {
     VoiceWakeWordSettings settings,
     String modelDir,
   ) {
+    final keywords = _buildKeywords(settings);
+    if (keywords.isEmpty) {
+      throw Exception('没有可用的唤醒词，请至少启用一个角色并填写唤醒词');
+    }
     return sherpa.KeywordSpotter(
       sherpa.KeywordSpotterConfig(
         model: sherpa.OnlineModelConfig(
@@ -236,6 +241,8 @@ class SherpaWakeWordService {
         numTrailingBlanks: settings.numTrailingBlanks,
         keywordsScore: settings.keywordsScore,
         keywordsThreshold: settings.keywordsThreshold,
+        keywordsBuf: keywords,
+        keywordsBufSize: utf8.encode(keywords).length,
       ),
     );
   }
@@ -258,7 +265,7 @@ class SherpaWakeWordService {
     final lines = <String>[];
     for (final target in settings.targets.where((target) => target.enabled)) {
       for (final keyword in target.keywords) {
-        final line = _keywordToTokenLine(keyword);
+        final line = _keywordToTokenLine(settings, target, keyword);
         if (line.isNotEmpty) lines.add(line);
       }
     }
@@ -270,18 +277,43 @@ class SherpaWakeWordService {
     String keyword,
   ) {
     for (final target in settings.targets.where((target) => target.enabled)) {
-      if (target.keywords.any((item) => item.trim() == keyword)) {
+      if (target.keywords.any(
+        (item) => _originalKeywordForMatch(item.trim()) == keyword,
+      )) {
         return target;
       }
     }
     return null;
   }
 
-  String _keywordToTokenLine(String keyword) {
+  String _keywordToTokenLine(
+    VoiceWakeWordSettings settings,
+    VoiceWakeWordTargetSettings target,
+    String keyword,
+  ) {
     final trimmed = keyword.trim();
     if (trimmed.isEmpty) return '';
     if (trimmed.contains('@')) return trimmed;
-    return _knownChineseKeywordTokens[trimmed] ?? '';
+    final tokens = _knownChineseKeywordTokens[trimmed];
+    if (tokens == null) return '';
+    final threshold = target.thresholdOverride ?? settings.keywordsThreshold;
+    return '$tokens '
+        ':${_formatConfigNumber(settings.keywordsScore)} '
+        '#${_formatConfigNumber(threshold)} '
+        '@$trimmed';
+  }
+
+  String _originalKeywordForMatch(String keyword) {
+    final at = keyword.lastIndexOf('@');
+    if (at >= 0 && at + 1 < keyword.length) {
+      return keyword.substring(at + 1).trim();
+    }
+    return keyword;
+  }
+
+  String _formatConfigNumber(num value) {
+    final text = value.toStringAsFixed(3);
+    return text.replaceFirst(RegExp(r'\.?0+$'), '');
   }
 
   Float32List _pcm16ToFloat32(Uint8List bytes) {
@@ -302,12 +334,12 @@ const _expectedModelFiles = [
 ];
 
 const _knownChineseKeywordTokens = {
-  '晚秋晚秋': 'w ǎn q iū w ǎn q iū @晚秋晚秋',
-  '苏晚秋': 's ū w ǎn q iū @苏晚秋',
-  '玲珑玲珑': 'l íng l óng l íng l óng @玲珑玲珑',
-  '玉玲珑': 'y ù l íng l óng @玉玲珑',
-  '素心素心': 's ù x īn s ù x īn @素心素心',
-  '李素心': 'l ǐ s ù x īn @李素心',
-  '清歌清歌': 'q īng g ē q īng g ē @清歌清歌',
-  '顾清歌': 'g ù q īng g ē @顾清歌',
+  '晚秋晚秋': 'w ǎn q iū w ǎn q iū',
+  '苏晚秋': 's ū w ǎn q iū',
+  '玲珑玲珑': 'l íng l óng l íng l óng',
+  '玉玲珑': 'y ù l íng l óng',
+  '素心素心': 's ù x īn s ù x īn',
+  '李素心': 'l ǐ s ù x īn',
+  '清歌清歌': 'q īng g ē q īng g ē',
+  '顾清歌': 'g ù q īng g ē',
 };
