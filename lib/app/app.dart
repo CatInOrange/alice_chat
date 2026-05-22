@@ -277,11 +277,11 @@ class _MainScaffoldState extends State<_MainScaffold>
     if (contact == null) return;
     _wakeWordPausedForVoiceInput = true;
     await _stopWakeWordListening(reason: 'wake_hit');
-    await _playWakeReply(hit);
-    if (!mounted) return;
     if (hit.navigateToChat) {
       _navigateToChat(contact);
     }
+    await _playWakeReply(hit);
+    if (!mounted) return;
     if (hit.startVoiceInput) {
       await _triggerWakeVoiceInput(hit);
       return;
@@ -331,7 +331,7 @@ class _MainScaffoldState extends State<_MainScaffold>
     await _stopWakeWordListening(reason: 'wake_hit_voice_input');
     if (!mounted) return;
     setState(() {
-      _wakeAutoSendAfterRecognition = hit.autoSendAfterRecognition;
+      _wakeAutoSendAfterRecognition = hit.autoSendAfterRecognition ?? true;
       _wakeVoiceInputTrigger += 1;
     });
   }

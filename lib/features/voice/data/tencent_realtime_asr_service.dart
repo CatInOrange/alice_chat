@@ -84,8 +84,10 @@ class TencentRealtimeAsrService {
           ..filter_modal = 0
           ..filter_punc = 0
           ..needvad = 1
+          ..vad_silence_time = 3000
           ..is_compress = true
-          ..silence_detect = false;
+          ..silence_detect = true
+          ..silence_detect_duration = 3000;
     final controller = await config.build();
     final eventsController = StreamController<TencentRealtimeAsrEvent>();
     final recognitionSubscription = controller.recognize().listen(

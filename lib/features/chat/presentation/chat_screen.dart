@@ -348,12 +348,14 @@ class _ChatScreenState extends State<ChatScreen> {
   StreamSubscription<TencentRealtimeAsrEvent>? _voiceAsrSubscription;
   TencentRealtimeAsrSession? _voiceAsrSession;
   Timer? _streamingHintPulseTimer;
+  Timer? _voiceSilenceTimer;
   int _fallbackStreamingHintIndex = 0;
 
   static const double _pullTriggerDistance = 72;
   static const double _pullMaxVisualDistance = 108;
   static const double _edgeHintHeight = 52;
   static const double _edgeHintCardHeight = 64;
+  static const Duration _voiceSilenceTimeout = Duration(seconds: 3);
 
   double _lastSavedOffset = -1;
   bool _lastSavedStickToBottom = true;
@@ -1368,6 +1370,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _isVoiceRecognizing = false;
         _voiceStatusText = '正在实时识别，松手结束';
       });
+      _restartVoiceSilenceTimer();
       HapticFeedback.lightImpact();
     } catch (error) {
       await _disposeVoiceAsrSession(closeSession: true);
@@ -1390,6 +1393,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _finishVoiceRecording({required bool cancel}) async {
     if (!_isVoiceRecording) return;
+    _cancelVoiceSilenceTimer();
     final startedAt = _voiceRecordStartedAt;
     final shouldCancel = cancel || _isVoiceCancelArmed;
     final session = _voiceAsrSession;
@@ -1445,6 +1449,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _handleVoiceAsrEvent(TencentRealtimeAsrEvent event) {
     if (!mounted || event.isFinal) return;
+    _restartVoiceSilenceTimer();
     _voiceRealtimeSegments[event.index] = event.text;
     _replaceRecognizedVoiceText(_currentVoiceRealtimeText);
     setState(() {
@@ -1453,6 +1458,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _handleVoiceAsrError(Object error, [StackTrace? stackTrace]) {
+    _cancelVoiceSilenceTimer();
     unawaited(_disposeVoiceAsrSession(closeSession: true));
     if (!mounted) return;
     setState(() {
@@ -1467,6 +1473,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _handleVoiceAsrDone() async {
+    _cancelVoiceSilenceTimer();
     final text = _currentVoiceRealtimeText.trim();
     await _disposeVoiceAsrSession(closeSession: true);
     if (!mounted) return;
@@ -1493,6 +1500,21 @@ class _ChatScreenState extends State<ChatScreen> {
   void _notifyVoiceInputFinished() {
     _voiceAutoSendOverride = null;
     widget.onVoiceInputFinished?.call();
+  }
+
+  void _restartVoiceSilenceTimer() {
+    _voiceSilenceTimer?.cancel();
+    if (!_isVoiceRecording) return;
+    _voiceSilenceTimer = Timer(_voiceSilenceTimeout, () {
+      if (!mounted || !_isVoiceRecording) return;
+      setState(() => _voiceStatusText = '检测到停顿，正在收尾…');
+      unawaited(_finishVoiceRecording(cancel: false));
+    });
+  }
+
+  void _cancelVoiceSilenceTimer() {
+    _voiceSilenceTimer?.cancel();
+    _voiceSilenceTimer = null;
   }
 
   String get _currentVoiceRealtimeText {
@@ -1526,6 +1548,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _disposeVoiceAsrSession({required bool closeSession}) async {
+    _cancelVoiceSilenceTimer();
     await _voiceAsrSubscription?.cancel();
     _voiceAsrSubscription = null;
     final session = _voiceAsrSession;
@@ -3875,6 +3898,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final store = context.read<ChatSessionStore>();
     store.removeListener(_handleStoreChanged);
     _streamingHintPulseTimer?.cancel();
+    _cancelVoiceSilenceTimer();
     _chatListController.removeListener(_handleScroll);
     _chatListController.dispose();
     _composerController.removeListener(_handleComposerTextChanged);
