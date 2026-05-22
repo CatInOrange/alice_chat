@@ -18,6 +18,32 @@ class TencentRealtimeAsrEvent {
   final bool isFinal;
 }
 
+class TencentRealtimeAsrException implements Exception {
+  const TencentRealtimeAsrException({
+    required this.code,
+    required this.message,
+    this.response,
+  });
+
+  final int code;
+  final String message;
+  final String? response;
+
+  @override
+  String toString() {
+    final buffer = StringBuffer('腾讯 ASR 错误 $code');
+    final normalizedMessage = message.trim();
+    if (normalizedMessage.isNotEmpty) {
+      buffer.write('：$normalizedMessage');
+    }
+    final normalizedResponse = response?.trim();
+    if (normalizedResponse != null && normalizedResponse.isNotEmpty) {
+      buffer.write('（$normalizedResponse）');
+    }
+    return buffer.toString();
+  }
+}
+
 class TencentRealtimeAsrSession {
   TencentRealtimeAsrSession._({
     required ASRController controller,
@@ -94,7 +120,7 @@ class TencentRealtimeAsrService {
       (data) => _handleAsrData(data, eventsController),
       onError: (Object error, StackTrace stackTrace) {
         if (!eventsController.isClosed) {
-          eventsController.addError(error, stackTrace);
+          eventsController.addError(_normalizeAsrError(error), stackTrace);
         }
       },
       onDone: () {
@@ -109,6 +135,17 @@ class TencentRealtimeAsrService {
       eventsController: eventsController,
       recognitionSubscription: recognitionSubscription,
     );
+  }
+
+  Object _normalizeAsrError(Object error) {
+    if (error is ASRError) {
+      return TencentRealtimeAsrException(
+        code: error.code,
+        message: error.message,
+        response: error.resp,
+      );
+    }
+    return error;
   }
 
   void _handleAsrData(

@@ -1460,6 +1460,13 @@ class _ChatScreenState extends State<ChatScreen> {
   void _handleVoiceAsrError(Object error, [StackTrace? stackTrace]) {
     _cancelVoiceSilenceTimer();
     unawaited(_disposeVoiceAsrSession(closeSession: true));
+    unawaited(
+      NativeDebugBridge.instance.log(
+        'voice_asr',
+        'asr error ${_humanizeUiError(error)}',
+        level: 'WARN',
+      ),
+    );
     if (!mounted) return;
     setState(() {
       _isVoiceRecording = false;
