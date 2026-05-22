@@ -24,7 +24,9 @@ class VoiceSettings {
   final bool autoSendAfterRecognition;
 
   bool get hasTencentCredentials =>
-      tencentSecretId.trim().isNotEmpty && tencentSecretKey.trim().isNotEmpty;
+      tencentAppId.trim().isNotEmpty &&
+      tencentSecretId.trim().isNotEmpty &&
+      tencentSecretKey.trim().isNotEmpty;
 
   bool get canUseInput => inputEnabled && hasTencentCredentials;
 

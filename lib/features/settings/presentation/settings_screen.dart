@@ -696,6 +696,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _voiceSummary() {
     if (!_voiceInputEnabled) return '语音输入未启用 · 语音输出待接入';
     final hasSecret =
+        _voiceTencentAppIdController.text.trim().isNotEmpty &&
         _voiceTencentSecretIdController.text.trim().isNotEmpty &&
         _voiceTencentSecretKeyController.text.trim().isNotEmpty;
     final engine = _voiceTencentEngineController.text.trim();
@@ -916,7 +917,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       children: [
         _SettingsSectionCard(
           title: '语音输入',
-          subtitle: '长按聊天输入栏的麦克风，把语音转成文字。第一版使用腾讯云一句话识别。',
+          subtitle: '长按聊天输入栏的麦克风，实时把语音转成文字。',
           icon: Icons.mic_rounded,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -959,7 +960,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
-                  hintText: '腾讯云 AppID（为后续实时 SDK 预留）',
+                  hintText: '腾讯云 AppID，实时识别必填',
                 ),
               ),
               const SizedBox(height: 16),
@@ -1003,7 +1004,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 controller: _voiceTencentTokenController,
                 decoration: const InputDecoration(
                   border: OutlineInputBorder(),
-                  hintText: '临时密钥 token，没有可留空',
+                  hintText: '当前实时 WebSocket 直连可留空',
                 ),
               ),
               const SizedBox(height: 16),

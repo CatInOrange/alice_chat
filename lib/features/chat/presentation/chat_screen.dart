@@ -26,7 +26,7 @@ import '../../../app/theme.dart';
 import '../../../core/debug/native_debug_bridge.dart';
 import '../../../core/openclaw/openclaw_settings.dart';
 import '../../diary/presentation/diary_sheet.dart';
-import '../../voice/data/tencent_sentence_asr_service.dart';
+import '../../voice/data/tencent_realtime_asr_service.dart';
 import '../application/chat_session_store.dart';
 import '../domain/chat_session.dart';
 
@@ -334,7 +334,10 @@ class _ChatScreenState extends State<ChatScreen> {
   final _chatListController = ScrollController();
   final _chatController = core.InMemoryChatController();
   final _voiceRecorder = AudioRecorder();
-  final _voiceAsrService = TencentSentenceAsrService();
+  final _voiceAsrService = TencentRealtimeAsrService();
+  StreamSubscription<Uint8List>? _voiceAudioSubscription;
+  StreamSubscription<TencentRealtimeAsrEvent>? _voiceAsrSubscription;
+  TencentRealtimeAsrSession? _voiceAsrSession;
   Timer? _streamingHintPulseTimer;
   int _fallbackStreamingHintIndex = 0;
 
@@ -365,6 +368,8 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _isVoiceCancelArmed = false;
   DateTime? _voiceRecordStartedAt;
   String? _voiceStatusText;
+  String _voiceTextBeforeRecording = '';
+  final Map<int, String> _voiceRealtimeSegments = {};
 
   // Composer height tracking for relative positioning of floating elements
   static const double _composerPaddingVertical = 20.0; // 8 + 12
@@ -1247,7 +1252,7 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     if (!_voiceSettings.hasTencentCredentials) {
-      _showSnackBar('请先在设置的“语音”中配置腾讯云 SecretID 和 SecretKey');
+      _showSnackBar('请先在设置的“语音”中配置腾讯云 AppID、SecretID 和 SecretKey');
       return;
     }
     _showSnackBar('长按麦克风开始说话');
@@ -1268,29 +1273,43 @@ class _ChatScreenState extends State<ChatScreen> {
         return;
       }
 
-      final tempDir = await getTemporaryDirectory();
-      final path = p.join(
-        tempDir.path,
-        'alicechat_voice_${DateTime.now().millisecondsSinceEpoch}.wav',
-      );
-
-      await _voiceRecorder.start(
+      await _disposeVoiceAsrSession(closeSession: true);
+      _voiceTextBeforeRecording = _composerController.text;
+      _voiceRealtimeSegments.clear();
+      final session = await _voiceAsrService.start(settings: _voiceSettings);
+      final audioStream = await _voiceRecorder.startStream(
         const RecordConfig(
-          encoder: AudioEncoder.wav,
+          encoder: AudioEncoder.pcm16bits,
           sampleRate: 16000,
           numChannels: 1,
+          streamBufferSize: 6400,
         ),
-        path: path,
+      );
+
+      _voiceAsrSession = session;
+      _voiceAsrSubscription = session.events.listen(
+        _handleVoiceAsrEvent,
+        onError: _handleVoiceAsrError,
+        onDone: () => unawaited(_handleVoiceAsrDone()),
+      );
+      _voiceAudioSubscription = audioStream.listen(
+        (bytes) => session.sendAudio(bytes),
+        onError: _handleVoiceAsrError,
       );
       if (!mounted) return;
       setState(() {
         _isVoiceRecording = true;
         _isVoiceCancelArmed = false;
         _voiceRecordStartedAt = DateTime.now();
-        _voiceStatusText = '正在录音，松手转文字';
+        _isVoiceRecognizing = false;
+        _voiceStatusText = '正在实时识别，松手结束';
       });
       HapticFeedback.lightImpact();
     } catch (error) {
+      await _disposeVoiceAsrSession(closeSession: true);
+      try {
+        await _voiceRecorder.stop();
+      } catch (_) {}
       if (!mounted) return;
       _showSnackBar('启动录音失败：${_humanizeUiError(error)}');
     }
@@ -1302,7 +1321,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (shouldCancel == _isVoiceCancelArmed) return;
     setState(() {
       _isVoiceCancelArmed = shouldCancel;
-      _voiceStatusText = shouldCancel ? '松手取消' : '正在录音，松手转文字';
+      _voiceStatusText = shouldCancel ? '松手取消' : '正在实时识别，松手结束';
     });
     HapticFeedback.selectionClick();
   }
@@ -1311,24 +1330,26 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!_isVoiceRecording) return;
     final startedAt = _voiceRecordStartedAt;
     final shouldCancel = cancel || _isVoiceCancelArmed;
-    String? path;
+    final session = _voiceAsrSession;
     try {
-      path = await _voiceRecorder.stop();
+      await _voiceAudioSubscription?.cancel();
+      _voiceAudioSubscription = null;
+      await _voiceRecorder.stop();
     } catch (_) {
-      path = null;
+      // The recorder may already be stopped by the platform.
     }
     if (!mounted) return;
     setState(() {
       _isVoiceRecording = false;
       _isVoiceCancelArmed = false;
       _voiceRecordStartedAt = null;
-      _voiceStatusText = shouldCancel ? '已取消' : '正在识别…';
+      _isVoiceRecognizing = !shouldCancel;
+      _voiceStatusText = shouldCancel ? '已取消' : '正在收尾…';
     });
 
     if (shouldCancel) {
-      if (path != null) {
-        unawaited(File(path).delete().then((_) {}).catchError((_) {}));
-      }
+      await _disposeVoiceAsrSession(closeSession: true);
+      _restoreVoiceTextBeforeRecording();
       Future<void>.delayed(const Duration(milliseconds: 600), () {
         if (mounted && !_isVoiceRecording && !_isVoiceRecognizing) {
           setState(() => _voiceStatusText = null);
@@ -1337,69 +1358,114 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
 
-    if (path == null || path.trim().isEmpty) {
-      setState(() => _voiceStatusText = null);
-      _showSnackBar('录音失败');
-      return;
-    }
-
     final duration =
         startedAt == null
             ? Duration.zero
             : DateTime.now().difference(startedAt);
     if (duration < const Duration(milliseconds: 500)) {
-      unawaited(File(path).delete().then((_) {}).catchError((_) {}));
-      setState(() => _voiceStatusText = null);
+      await _disposeVoiceAsrSession(closeSession: true);
+      _restoreVoiceTextBeforeRecording();
+      setState(() {
+        _isVoiceRecognizing = false;
+        _voiceStatusText = null;
+      });
       _showSnackBar('说话时间太短');
       return;
     }
 
-    await _recognizeVoiceFile(File(path));
+    if (session == null) {
+      setState(() {
+        _isVoiceRecognizing = false;
+        _voiceStatusText = null;
+      });
+      _showSnackBar('实时识别连接未建立');
+      return;
+    }
+
+    await session.finish();
   }
 
-  Future<void> _recognizeVoiceFile(File file) async {
+  void _handleVoiceAsrEvent(TencentRealtimeAsrEvent event) {
+    if (!mounted || event.isFinal) return;
+    _voiceRealtimeSegments[event.index] = event.text;
+    _replaceRecognizedVoiceText(_currentVoiceRealtimeText);
     setState(() {
-      _isVoiceRecognizing = true;
-      _voiceStatusText = '正在识别…';
+      _voiceStatusText = event.isStable ? '已识别，继续说话或松手结束' : '正在实时识别，松手结束';
     });
-    try {
-      final result = await _voiceAsrService.recognizeFile(
-        file: file,
-        settings: _voiceSettings,
-      );
-      final text = result.text.trim();
-      if (text.isEmpty) {
-        _showSnackBar('没有识别到文字');
-        return;
-      }
-      _insertRecognizedVoiceText(text);
-      if (_voiceSettings.autoSendAfterRecognition && text.trim().isNotEmpty) {
-        await _handleSend(_composerController.text);
-      }
-    } catch (error) {
-      if (!mounted) return;
-      _showSnackBar('语音识别失败：${_humanizeUiError(error)}');
-    } finally {
-      unawaited(file.delete().then((_) {}).catchError((_) {}));
-      if (mounted) {
-        setState(() {
-          _isVoiceRecognizing = false;
-          _voiceStatusText = null;
-        });
-      }
+  }
+
+  void _handleVoiceAsrError(Object error, [StackTrace? stackTrace]) {
+    unawaited(_disposeVoiceAsrSession(closeSession: true));
+    unawaited(_voiceRecorder.stop().then((_) {}).catchError((_) {}));
+    if (!mounted) return;
+    setState(() {
+      _isVoiceRecording = false;
+      _isVoiceRecognizing = false;
+      _isVoiceCancelArmed = false;
+      _voiceRecordStartedAt = null;
+      _voiceStatusText = null;
+    });
+    _showSnackBar('实时语音识别失败：${_humanizeUiError(error)}');
+  }
+
+  Future<void> _handleVoiceAsrDone() async {
+    final text = _currentVoiceRealtimeText.trim();
+    await _disposeVoiceAsrSession(closeSession: true);
+    if (!mounted) return;
+    setState(() {
+      _isVoiceRecognizing = false;
+      _voiceStatusText = null;
+    });
+    if (text.isEmpty) {
+      _restoreVoiceTextBeforeRecording();
+      _showSnackBar('没有识别到文字');
+      return;
+    }
+    _replaceRecognizedVoiceText(text);
+    if (_voiceSettings.autoSendAfterRecognition && text.isNotEmpty) {
+      await _handleSend(_composerController.text);
     }
   }
 
-  void _insertRecognizedVoiceText(String text) {
-    final current = _composerController.text;
+  String get _currentVoiceRealtimeText {
+    final entries =
+        _voiceRealtimeSegments.entries.toList()
+          ..sort((a, b) => a.key.compareTo(b.key));
+    return entries.map((entry) => entry.value).join();
+  }
+
+  void _replaceRecognizedVoiceText(String text) {
+    final current = _voiceTextBeforeRecording;
     final separator =
         current.trim().isEmpty || RegExp(r'\s$').hasMatch(current) ? '' : ' ';
-    final next = '$current$separator$text';
+    final next = text.trim().isEmpty ? current : '$current$separator$text';
     _composerController.value = TextEditingValue(
       text: next,
       selection: TextSelection.collapsed(offset: next.length),
     );
     _composerFocusNode.requestFocus();
+  }
+
+  void _restoreVoiceTextBeforeRecording() {
+    _composerController.value = TextEditingValue(
+      text: _voiceTextBeforeRecording,
+      selection: TextSelection.collapsed(
+        offset: _voiceTextBeforeRecording.length,
+      ),
+    );
+    _voiceRealtimeSegments.clear();
+  }
+
+  Future<void> _disposeVoiceAsrSession({required bool closeSession}) async {
+    await _voiceAudioSubscription?.cancel();
+    _voiceAudioSubscription = null;
+    await _voiceAsrSubscription?.cancel();
+    _voiceAsrSubscription = null;
+    final session = _voiceAsrSession;
+    _voiceAsrSession = null;
+    if (closeSession) {
+      await session?.close();
+    }
   }
 
   void _handleComposerTextChanged() {
@@ -3657,6 +3723,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _composerController.removeListener(_handleComposerTextChanged);
     _composerController.dispose();
     _composerFocusNode.dispose();
+    unawaited(_disposeVoiceAsrSession(closeSession: true));
     _voiceRecorder.dispose();
     super.dispose();
   }
