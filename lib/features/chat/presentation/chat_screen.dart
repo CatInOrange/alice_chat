@@ -374,6 +374,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _composerHasVoiceInputDraft = false;
   bool _shouldPlayNextAssistantReply = false;
   String? _lastVoiceOutputMessageId;
+  Set<String> _voiceReplyBaselineAssistantIds = const {};
 
   // Composer height tracking for relative positioning of floating elements
   static const double _composerPaddingVertical = 20.0; // 8 + 12
@@ -825,6 +826,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final message = state.messages.cast<core.Message?>().lastWhere(
       (message) =>
           message?.authorId == 'assistant' &&
+          !_voiceReplyBaselineAssistantIds.contains(message?.id) &&
           !state.streamingMessageIds.contains(message?.id),
       orElse: () => null,
     );
@@ -832,6 +834,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final text = _extractPlainMessageText(message).trim();
     if (text.isEmpty) return;
     _shouldPlayNextAssistantReply = false;
+    _voiceReplyBaselineAssistantIds = const {};
     _lastVoiceOutputMessageId = message.id;
     unawaited(_speakText(text, manual: false));
   }
@@ -1205,9 +1208,18 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!mounted) return;
     final store = context.read<ChatSessionStore>();
     final quoteDraft = _quotedMessageDraft;
+    final sentFromVoiceInput = _composerHasVoiceInputDraft;
     final shouldPlayReplyForVoiceInput =
-        _composerHasVoiceInputDraft &&
-        _voiceSettings.outputAutoPlayAfterVoiceInput;
+        sentFromVoiceInput && _voiceSettings.outputAutoPlayAfterVoiceInput;
+    final voiceReplyBaselineAssistantIds =
+        shouldPlayReplyForVoiceInput
+            ? store
+                .stateFor(widget.session)
+                .messages
+                .where((message) => message.authorId == 'assistant')
+                .map((message) => message.id)
+                .toSet()
+            : const <String>{};
     final payload =
         quoteDraft == null
             ? trimmed
@@ -1218,6 +1230,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _composerHasVoiceInputDraft = false;
       if (shouldPlayReplyForVoiceInput) {
         _shouldPlayNextAssistantReply = true;
+        _voiceReplyBaselineAssistantIds = voiceReplyBaselineAssistantIds;
       }
       if (pendingAttachment != null) {
         _pendingAttachmentDraft = null;
@@ -1234,13 +1247,18 @@ class _ChatScreenState extends State<ChatScreen> {
           caption: payload,
         );
       } else {
-        await store.sendMessage(widget.session, payload);
+        await store.sendMessage(
+          widget.session,
+          payload,
+          fromVoiceInput: sentFromVoiceInput,
+        );
       }
     } catch (error) {
       if (!mounted) return;
       setState(() {
         if (shouldPlayReplyForVoiceInput) {
           _shouldPlayNextAssistantReply = false;
+          _voiceReplyBaselineAssistantIds = const {};
         }
         if (pendingAttachment != null) {
           _pendingAttachmentDraft = pendingAttachment;
@@ -2139,6 +2157,10 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  bool _isVoiceInputMessage(core.Message message) {
+    return message.metadata?['voiceInput'] == true;
+  }
+
   Widget _buildUserTextBubble(
     BuildContext context, {
     required core.TextMessage message,
@@ -2149,6 +2171,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }) {
     final theme = Theme.of(context);
     final text = message.text.trim();
+    final fromVoiceInput = _isVoiceInputMessage(message);
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onLongPress:
@@ -2169,12 +2192,31 @@ class _ChatScreenState extends State<ChatScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (text.isNotEmpty)
-                Text(
-                  text,
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w500,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        text,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    if (fromVoiceInput) ...[
+                      const SizedBox(width: 6),
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 1),
+                        child: Icon(
+                          Icons.volume_up_rounded,
+                          size: 15,
+                          color: Color(0xFFEDE7FF),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               for (final attachment in fileAttachments)
                 _buildFileAttachmentCard(

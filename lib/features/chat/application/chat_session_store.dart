@@ -324,8 +324,17 @@ class ChatSessionStore extends ChangeNotifier {
     _ensureEventSubscription(session, sessionId);
   }
 
-  Future<void> sendMessage(ChatSession session, String text) async {
-    await _sendMessageInternal(session, text: text, attachments: const []);
+  Future<void> sendMessage(
+    ChatSession session,
+    String text, {
+    bool fromVoiceInput = false,
+  }) async {
+    await _sendMessageInternal(
+      session,
+      text: text,
+      attachments: const [],
+      fromVoiceInput: fromVoiceInput,
+    );
   }
 
   Future<void> sendAttachmentMessage(
@@ -350,6 +359,7 @@ class ChatSessionStore extends ChangeNotifier {
     ChatSession session, {
     required String text,
     required List<Map<String, dynamic>> attachments,
+    bool fromVoiceInput = false,
   }) async {
     await _ensureConfigReady();
     final state = stateFor(session);
@@ -373,7 +383,10 @@ class ChatSessionStore extends ChangeNotifier {
               createdAt: DateTime.now(),
               source: (firstAttachment['url'] ?? '').toString(),
               text: trimmed.isEmpty ? null : trimmed,
-              metadata: {'attachments': attachments},
+              metadata: {
+                'attachments': attachments,
+                if (fromVoiceInput) 'voiceInput': true,
+              },
             )
             : core.TextMessage(
               id: clientMessageId,
@@ -381,7 +394,12 @@ class ChatSessionStore extends ChangeNotifier {
               createdAt: DateTime.now(),
               text: trimmed,
               metadata:
-                  attachments.isEmpty ? null : {'attachments': attachments},
+                  attachments.isEmpty && !fromVoiceInput
+                      ? null
+                      : {
+                        if (attachments.isNotEmpty) 'attachments': attachments,
+                        if (fromVoiceInput) 'voiceInput': true,
+                      },
             );
 
     state
