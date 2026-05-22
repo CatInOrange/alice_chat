@@ -13,6 +13,7 @@ import 'package:flutter_chat_core/flutter_chat_core.dart' show Builders;
 import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:http/http.dart' as http;
+import 'package:just_audio/just_audio.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:mime/mime.dart';
 import 'package:open_filex/open_filex.dart';
@@ -25,6 +26,7 @@ import '../../../app/theme.dart';
 import '../../../core/debug/native_debug_bridge.dart';
 import '../../../core/openclaw/openclaw_settings.dart';
 import '../../diary/presentation/diary_sheet.dart';
+import '../../voice/data/minimax_tts_service.dart';
 import '../../voice/data/tencent_realtime_asr_service.dart';
 import '../application/chat_session_store.dart';
 import '../domain/chat_session.dart';
@@ -333,6 +335,8 @@ class _ChatScreenState extends State<ChatScreen> {
   final _chatListController = ScrollController();
   final _chatController = core.InMemoryChatController();
   final _voiceAsrService = TencentRealtimeAsrService();
+  final _voiceTtsService = MiniMaxTtsService();
+  final _voiceOutputPlayer = AudioPlayer();
   StreamSubscription<TencentRealtimeAsrEvent>? _voiceAsrSubscription;
   TencentRealtimeAsrSession? _voiceAsrSession;
   Timer? _streamingHintPulseTimer;
@@ -367,6 +371,9 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _voiceStatusText;
   String _voiceTextBeforeRecording = '';
   final Map<int, String> _voiceRealtimeSegments = {};
+  bool _composerHasVoiceInputDraft = false;
+  bool _shouldPlayNextAssistantReply = false;
+  String? _lastVoiceOutputMessageId;
 
   // Composer height tracking for relative positioning of floating elements
   static const double _composerPaddingVertical = 20.0; // 8 + 12
@@ -808,8 +815,25 @@ class _ChatScreenState extends State<ChatScreen> {
       '[alicechat.screen] ${jsonEncode({'tag': 'handleStoreChanged', 'sessionId': state.backendSessionId, 'sessionLocalId': widget.session.id, 'isSubmitting': state.isSubmitting, 'isAssistantStreaming': state.isAssistantStreaming, 'pendingCount': state.pendingClientMessageIds.length, 'streamingCount': state.streamingMessageIds.length, 'messageCount': state.messages.length, 'lastEventSeq': state.lastEventSeq, 'assistantProgressSequence': state.assistantProgressSequence})}',
     );
     _applyMessagesIncrementally(state.messages);
+    _maybePlayNextAssistantReply(state);
     _syncStreamingHintState(state);
     setState(() {});
+  }
+
+  void _maybePlayNextAssistantReply(ChatViewState state) {
+    if (!_shouldPlayNextAssistantReply || state.isAssistantStreaming) return;
+    final message = state.messages.cast<core.Message?>().lastWhere(
+      (message) =>
+          message?.authorId == 'assistant' &&
+          !state.streamingMessageIds.contains(message?.id),
+      orElse: () => null,
+    );
+    if (message == null || message.id == _lastVoiceOutputMessageId) return;
+    final text = _extractPlainMessageText(message).trim();
+    if (text.isEmpty) return;
+    _shouldPlayNextAssistantReply = false;
+    _lastVoiceOutputMessageId = message.id;
+    unawaited(_speakText(text, manual: false));
   }
 
   void _applyMessagesIncrementally(List<core.Message> messages) {
@@ -1177,8 +1201,13 @@ class _ChatScreenState extends State<ChatScreen> {
     final trimmed = text.trim();
     final pendingAttachment = _pendingAttachmentDraft;
     if (trimmed.isEmpty && pendingAttachment == null) return;
+    await _loadVoiceSettings();
+    if (!mounted) return;
     final store = context.read<ChatSessionStore>();
     final quoteDraft = _quotedMessageDraft;
+    final shouldPlayReplyForVoiceInput =
+        _composerHasVoiceInputDraft &&
+        _voiceSettings.outputAutoPlayAfterVoiceInput;
     final payload =
         quoteDraft == null
             ? trimmed
@@ -1186,6 +1215,10 @@ class _ChatScreenState extends State<ChatScreen> {
     _composerController.clear();
     setState(() {
       _quotedMessageDraft = null;
+      _composerHasVoiceInputDraft = false;
+      if (shouldPlayReplyForVoiceInput) {
+        _shouldPlayNextAssistantReply = true;
+      }
       if (pendingAttachment != null) {
         _pendingAttachmentDraft = null;
         _isSendingAttachment = true;
@@ -1206,6 +1239,9 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (error) {
       if (!mounted) return;
       setState(() {
+        if (shouldPlayReplyForVoiceInput) {
+          _shouldPlayNextAssistantReply = false;
+        }
         if (pendingAttachment != null) {
           _pendingAttachmentDraft = pendingAttachment;
           _isSendingAttachment = false;
@@ -1390,6 +1426,7 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     _replaceRecognizedVoiceText(text);
+    _composerHasVoiceInputDraft = true;
     if (_voiceSettings.autoSendAfterRecognition && text.isNotEmpty) {
       await _handleSend(_composerController.text);
     }
@@ -1422,6 +1459,7 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     );
     _voiceRealtimeSegments.clear();
+    _composerHasVoiceInputDraft = false;
   }
 
   Future<void> _disposeVoiceAsrSession({required bool closeSession}) async {
@@ -2477,6 +2515,19 @@ class _ChatScreenState extends State<ChatScreen> {
                     Expanded(
                       child: _buildMessageActionButton(
                         context: sheetContext,
+                        icon: Icons.volume_up_rounded,
+                        label: '朗读',
+                        enabled: plainText.isNotEmpty,
+                        onTap:
+                            plainText.isNotEmpty
+                                ? () => Navigator.of(sheetContext).pop('speak')
+                                : null,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildMessageActionButton(
+                        context: sheetContext,
                         icon: Icons.format_quote_rounded,
                         label: '引用',
                         onTap: () => Navigator.of(sheetContext).pop('quote'),
@@ -2537,11 +2588,40 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         );
         return;
+      case 'speak':
+        if (plainText.isEmpty) return;
+        await _speakText(plainText, manual: true);
+        return;
       case 'delete':
         _confirmDeleteMessage(message);
         return;
       default:
         return;
+    }
+  }
+
+  Future<void> _speakText(String text, {required bool manual}) async {
+    await _loadVoiceSettings();
+    if (!_voiceSettings.canUseOutput) {
+      if (manual) {
+        _showSnackBar('请先在设置的“语音”中启用语音输出并配置 MiniMax API Key');
+      }
+      return;
+    }
+    try {
+      await _voiceOutputPlayer.stop();
+      final result = await _voiceTtsService.synthesizeToFile(
+        text: text,
+        settings: _voiceSettings,
+        sessionId: widget.session.id,
+      );
+      await _voiceOutputPlayer.setFilePath(result.filePath);
+      await _voiceOutputPlayer.play();
+    } catch (error) {
+      if (!mounted) return;
+      if (manual) {
+        _showSnackBar('语音播放失败：${_humanizeUiError(error)}');
+      }
     }
   }
 
@@ -3714,6 +3794,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _composerController.dispose();
     _composerFocusNode.dispose();
     unawaited(_disposeVoiceAsrSession(closeSession: true));
+    unawaited(_voiceOutputPlayer.dispose());
     super.dispose();
   }
 }

@@ -13,6 +13,13 @@ class VoiceSettings {
     this.tencentToken = '',
     this.tencentEngineModelType = '16k_zh',
     this.autoSendAfterRecognition = false,
+    this.outputEnabled = false,
+    this.outputAutoPlayAfterVoiceInput = true,
+    this.minimaxApiKey = '',
+    this.minimaxBaseUrl = 'https://api.minimaxi.com',
+    this.minimaxModel = 'speech-2.8-hd',
+    this.minimaxDefaultVoice = 'wumei_yujie',
+    this.minimaxVoiceBySession = const {},
   });
 
   final bool inputEnabled;
@@ -22,6 +29,13 @@ class VoiceSettings {
   final String tencentToken;
   final String tencentEngineModelType;
   final bool autoSendAfterRecognition;
+  final bool outputEnabled;
+  final bool outputAutoPlayAfterVoiceInput;
+  final String minimaxApiKey;
+  final String minimaxBaseUrl;
+  final String minimaxModel;
+  final String minimaxDefaultVoice;
+  final Map<String, String> minimaxVoiceBySession;
 
   bool get hasTencentCredentials =>
       tencentAppId.trim().isNotEmpty &&
@@ -29,6 +43,15 @@ class VoiceSettings {
       tencentSecretKey.trim().isNotEmpty;
 
   bool get canUseInput => inputEnabled && hasTencentCredentials;
+
+  bool get canUseOutput => outputEnabled && minimaxApiKey.trim().isNotEmpty;
+
+  String voiceForSession(String sessionId) {
+    final specific = (minimaxVoiceBySession[sessionId] ?? '').trim();
+    if (specific.isNotEmpty) return specific;
+    final fallback = minimaxDefaultVoice.trim();
+    return fallback.isEmpty ? 'wumei_yujie' : fallback;
+  }
 
   VoiceSettings copyWith({
     bool? inputEnabled,
@@ -38,6 +61,13 @@ class VoiceSettings {
     String? tencentToken,
     String? tencentEngineModelType,
     bool? autoSendAfterRecognition,
+    bool? outputEnabled,
+    bool? outputAutoPlayAfterVoiceInput,
+    String? minimaxApiKey,
+    String? minimaxBaseUrl,
+    String? minimaxModel,
+    String? minimaxDefaultVoice,
+    Map<String, String>? minimaxVoiceBySession,
   }) {
     return VoiceSettings(
       inputEnabled: inputEnabled ?? this.inputEnabled,
@@ -49,6 +79,15 @@ class VoiceSettings {
           tencentEngineModelType ?? this.tencentEngineModelType,
       autoSendAfterRecognition:
           autoSendAfterRecognition ?? this.autoSendAfterRecognition,
+      outputEnabled: outputEnabled ?? this.outputEnabled,
+      outputAutoPlayAfterVoiceInput:
+          outputAutoPlayAfterVoiceInput ?? this.outputAutoPlayAfterVoiceInput,
+      minimaxApiKey: minimaxApiKey ?? this.minimaxApiKey,
+      minimaxBaseUrl: minimaxBaseUrl ?? this.minimaxBaseUrl,
+      minimaxModel: minimaxModel ?? this.minimaxModel,
+      minimaxDefaultVoice: minimaxDefaultVoice ?? this.minimaxDefaultVoice,
+      minimaxVoiceBySession:
+          minimaxVoiceBySession ?? this.minimaxVoiceBySession,
     );
   }
 }
@@ -71,6 +110,16 @@ class OpenClawSettingsStore {
       'alicechat.voice.tencent.engineModelType';
   static const _voiceAutoSendAfterRecognitionKey =
       'alicechat.voice.autoSendAfterRecognition';
+  static const _voiceOutputEnabledKey = 'alicechat.voice.outputEnabled';
+  static const _voiceOutputAutoPlayAfterVoiceInputKey =
+      'alicechat.voice.outputAutoPlayAfterVoiceInput';
+  static const _voiceMinimaxApiKeyKey = 'alicechat.voice.minimax.apiKey';
+  static const _voiceMinimaxBaseUrlKey = 'alicechat.voice.minimax.baseUrl';
+  static const _voiceMinimaxModelKey = 'alicechat.voice.minimax.model';
+  static const _voiceMinimaxDefaultVoiceKey =
+      'alicechat.voice.minimax.defaultVoice';
+  static const _voiceMinimaxVoiceBySessionKey =
+      'alicechat.voice.minimax.voiceBySession';
   static const _musicProviderCookiePrefix = 'music.provider.cookie.';
   static const _tavernQuickRepliesKey = 'alicechat.tavern.quickReplies';
 
@@ -169,6 +218,11 @@ class OpenClawSettingsStore {
     final prefs = await SharedPreferences.getInstance();
     final engine =
         prefs.getString(_voiceTencentEngineModelTypeKey)?.trim() ?? '';
+    final minimaxBaseUrl =
+        prefs.getString(_voiceMinimaxBaseUrlKey)?.trim() ?? '';
+    final minimaxModel = prefs.getString(_voiceMinimaxModelKey)?.trim() ?? '';
+    final minimaxDefaultVoice =
+        prefs.getString(_voiceMinimaxDefaultVoiceKey)?.trim() ?? '';
     return VoiceSettings(
       inputEnabled: prefs.getBool(_voiceInputEnabledKey) ?? false,
       tencentAppId: prefs.getString(_voiceTencentAppIdKey)?.trim() ?? '',
@@ -178,6 +232,18 @@ class OpenClawSettingsStore {
       tencentEngineModelType: engine.isEmpty ? '16k_zh' : engine,
       autoSendAfterRecognition:
           prefs.getBool(_voiceAutoSendAfterRecognitionKey) ?? false,
+      outputEnabled: prefs.getBool(_voiceOutputEnabledKey) ?? false,
+      outputAutoPlayAfterVoiceInput:
+          prefs.getBool(_voiceOutputAutoPlayAfterVoiceInputKey) ?? true,
+      minimaxApiKey: prefs.getString(_voiceMinimaxApiKeyKey) ?? '',
+      minimaxBaseUrl:
+          minimaxBaseUrl.isEmpty ? 'https://api.minimaxi.com' : minimaxBaseUrl,
+      minimaxModel: minimaxModel.isEmpty ? 'speech-2.8-hd' : minimaxModel,
+      minimaxDefaultVoice:
+          minimaxDefaultVoice.isEmpty ? 'wumei_yujie' : minimaxDefaultVoice,
+      minimaxVoiceBySession: _decodeStringMap(
+        prefs.getString(_voiceMinimaxVoiceBySessionKey),
+      ),
     );
   }
 
@@ -201,6 +267,54 @@ class OpenClawSettingsStore {
       _voiceAutoSendAfterRecognitionKey,
       settings.autoSendAfterRecognition,
     );
+    await prefs.setBool(_voiceOutputEnabledKey, settings.outputEnabled);
+    await prefs.setBool(
+      _voiceOutputAutoPlayAfterVoiceInputKey,
+      settings.outputAutoPlayAfterVoiceInput,
+    );
+    await prefs.setString(_voiceMinimaxApiKeyKey, settings.minimaxApiKey);
+    await prefs.setString(
+      _voiceMinimaxBaseUrlKey,
+      settings.minimaxBaseUrl.trim().isEmpty
+          ? 'https://api.minimaxi.com'
+          : settings.minimaxBaseUrl.trim(),
+    );
+    await prefs.setString(
+      _voiceMinimaxModelKey,
+      settings.minimaxModel.trim().isEmpty
+          ? 'speech-2.8-hd'
+          : settings.minimaxModel.trim(),
+    );
+    await prefs.setString(
+      _voiceMinimaxDefaultVoiceKey,
+      settings.minimaxDefaultVoice.trim().isEmpty
+          ? 'wumei_yujie'
+          : settings.minimaxDefaultVoice.trim(),
+    );
+    await prefs.setString(
+      _voiceMinimaxVoiceBySessionKey,
+      jsonEncode(settings.minimaxVoiceBySession),
+    );
+  }
+
+  static Map<String, String> _decodeStringMap(String? raw) {
+    final value = raw?.trim();
+    if (value == null || value.isEmpty) return const {};
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is! Map) return const {};
+      final result = <String, String>{};
+      decoded.forEach((key, value) {
+        final normalizedKey = key.toString().trim();
+        final normalizedValue = value.toString().trim();
+        if (normalizedKey.isNotEmpty && normalizedValue.isNotEmpty) {
+          result[normalizedKey] = normalizedValue;
+        }
+      });
+      return result;
+    } catch (_) {
+      return const {};
+    }
   }
 
   static Future<String?> loadMusicProviderCookie(String providerId) async {

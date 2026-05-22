@@ -36,12 +36,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _voiceTencentSecretKeyController = TextEditingController();
   final _voiceTencentTokenController = TextEditingController();
   final _voiceTencentEngineController = TextEditingController(text: '16k_zh');
+  final _voiceMinimaxApiKeyController = TextEditingController();
+  final _voiceMinimaxBaseUrlController = TextEditingController(
+    text: 'https://api.minimaxi.com',
+  );
+  final _voiceMinimaxModelController = TextEditingController(
+    text: 'speech-2.8-hd',
+  );
+  final _voiceMinimaxDefaultVoiceController = TextEditingController(
+    text: 'wumei_yujie',
+  );
+  final _voiceMinimaxAliceVoiceController = TextEditingController();
+  final _voiceMinimaxYulinglongVoiceController = TextEditingController();
+  final _voiceMinimaxLisuxinVoiceController = TextEditingController();
+  final _voiceMinimaxGuqinggeVoiceController = TextEditingController();
   final ValueNotifier<int> _detailRefreshTick = ValueNotifier<int>(0);
   bool _obscurePassword = true;
   bool _obscureVoiceSecretKey = true;
+  bool _obscureVoiceMinimaxApiKey = true;
   bool _backgroundServiceEnabled = true;
   bool _voiceInputEnabled = false;
   bool _voiceAutoSendAfterRecognition = false;
+  bool _voiceOutputEnabled = false;
+  bool _voiceOutputAutoPlayAfterVoiceInput = true;
   bool _isSaving = false;
   bool _isRestartingBackend = false;
   bool _isRestartingGateway = false;
@@ -79,6 +96,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _voiceTencentSecretKeyController.text = voiceSettings.tencentSecretKey;
     _voiceTencentTokenController.text = voiceSettings.tencentToken;
     _voiceTencentEngineController.text = voiceSettings.tencentEngineModelType;
+    _voiceOutputEnabled = voiceSettings.outputEnabled;
+    _voiceOutputAutoPlayAfterVoiceInput =
+        voiceSettings.outputAutoPlayAfterVoiceInput;
+    _voiceMinimaxApiKeyController.text = voiceSettings.minimaxApiKey;
+    _voiceMinimaxBaseUrlController.text = voiceSettings.minimaxBaseUrl;
+    _voiceMinimaxModelController.text = voiceSettings.minimaxModel;
+    _voiceMinimaxDefaultVoiceController.text =
+        voiceSettings.minimaxDefaultVoice;
+    _voiceMinimaxAliceVoiceController.text =
+        voiceSettings.minimaxVoiceBySession['alice'] ?? '';
+    _voiceMinimaxYulinglongVoiceController.text =
+        voiceSettings.minimaxVoiceBySession['yulinglong'] ?? '';
+    _voiceMinimaxLisuxinVoiceController.text =
+        voiceSettings.minimaxVoiceBySession['lisuxin'] ?? '';
+    _voiceMinimaxGuqinggeVoiceController.text =
+        voiceSettings.minimaxVoiceBySession['guqingge'] ?? '';
     setState(() {});
     _notifyDetailPages();
   }
@@ -92,6 +125,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _voiceTencentSecretKeyController.dispose();
     _voiceTencentTokenController.dispose();
     _voiceTencentEngineController.dispose();
+    _voiceMinimaxApiKeyController.dispose();
+    _voiceMinimaxBaseUrlController.dispose();
+    _voiceMinimaxModelController.dispose();
+    _voiceMinimaxDefaultVoiceController.dispose();
+    _voiceMinimaxAliceVoiceController.dispose();
+    _voiceMinimaxYulinglongVoiceController.dispose();
+    _voiceMinimaxLisuxinVoiceController.dispose();
+    _voiceMinimaxGuqinggeVoiceController.dispose();
     _detailRefreshTick.dispose();
     super.dispose();
   }
@@ -138,6 +179,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   VoiceSettings _currentVoiceSettings() {
     final engine = _voiceTencentEngineController.text.trim();
+    final voiceBySession = <String, String>{
+      if (_voiceMinimaxAliceVoiceController.text.trim().isNotEmpty)
+        'alice': _voiceMinimaxAliceVoiceController.text.trim(),
+      if (_voiceMinimaxYulinglongVoiceController.text.trim().isNotEmpty)
+        'yulinglong': _voiceMinimaxYulinglongVoiceController.text.trim(),
+      if (_voiceMinimaxLisuxinVoiceController.text.trim().isNotEmpty)
+        'lisuxin': _voiceMinimaxLisuxinVoiceController.text.trim(),
+      if (_voiceMinimaxGuqinggeVoiceController.text.trim().isNotEmpty)
+        'guqingge': _voiceMinimaxGuqinggeVoiceController.text.trim(),
+    };
     return VoiceSettings(
       inputEnabled: _voiceInputEnabled,
       tencentAppId: _voiceTencentAppIdController.text.trim(),
@@ -146,6 +197,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
       tencentToken: _voiceTencentTokenController.text.trim(),
       tencentEngineModelType: engine.isEmpty ? '16k_zh' : engine,
       autoSendAfterRecognition: _voiceAutoSendAfterRecognition,
+      outputEnabled: _voiceOutputEnabled,
+      outputAutoPlayAfterVoiceInput: _voiceOutputAutoPlayAfterVoiceInput,
+      minimaxApiKey: _voiceMinimaxApiKeyController.text,
+      minimaxBaseUrl:
+          _voiceMinimaxBaseUrlController.text.trim().isEmpty
+              ? 'https://api.minimaxi.com'
+              : _voiceMinimaxBaseUrlController.text.trim(),
+      minimaxModel:
+          _voiceMinimaxModelController.text.trim().isEmpty
+              ? 'speech-2.8-hd'
+              : _voiceMinimaxModelController.text.trim(),
+      minimaxDefaultVoice:
+          _voiceMinimaxDefaultVoiceController.text.trim().isEmpty
+              ? 'wumei_yujie'
+              : _voiceMinimaxDefaultVoiceController.text.trim(),
+      minimaxVoiceBySession: voiceBySession,
     );
   }
 
@@ -694,18 +761,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   String _voiceSummary() {
-    if (!_voiceInputEnabled) return '语音输入未启用 · 语音输出待接入';
+    if (!_voiceInputEnabled && !_voiceOutputEnabled) {
+      return '语音输入未启用 · 语音输出未启用';
+    }
     final hasSecret =
         _voiceTencentAppIdController.text.trim().isNotEmpty &&
         _voiceTencentSecretIdController.text.trim().isNotEmpty &&
         _voiceTencentSecretKeyController.text.trim().isNotEmpty;
+    final hasMiniMax = _voiceMinimaxApiKeyController.text.trim().isNotEmpty;
     final engine = _voiceTencentEngineController.text.trim();
     return [
-      '语音输入已启用',
+      _voiceInputEnabled ? '输入已启用' : '输入未启用',
       hasSecret ? '腾讯云已配置' : '腾讯云未配置',
-      engine.isEmpty ? '16k_zh' : engine,
-      _voiceAutoSendAfterRecognition ? '松手自动发送' : '转文字后编辑',
-    ].join(' · ');
+      _voiceOutputEnabled ? '输出已启用' : '输出未启用',
+      hasMiniMax ? 'MiniMax 已配置' : 'MiniMax 未配置',
+      _voiceInputEnabled ? (engine.isEmpty ? '16k_zh' : engine) : '',
+    ].where((item) => item.isNotEmpty).join(' · ');
   }
 
   String _serviceSummary() {
@@ -1024,9 +1095,98 @@ class _SettingsScreenState extends State<SettingsScreen> {
         const SizedBox(height: 16),
         _SettingsSectionCard(
           title: '语音输出',
-          subtitle: '后续接入 TTS、角色语音和自动朗读时会放在这里。',
+          subtitle: '使用 MiniMax 直接在前端生成语音。语音输入发送后，可自动朗读下一条回复。',
           icon: Icons.volume_up_rounded,
-          child: const Text('暂未启用'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('启用语音输出'),
+                subtitle: const Text('长按消息可朗读；语音输入触发的下一条回复也可自动播放'),
+                value: _voiceOutputEnabled,
+                onChanged: (value) {
+                  setState(() => _voiceOutputEnabled = value);
+                  _notifyDetailPages();
+                },
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('语音输入后自动朗读回复'),
+                subtitle: const Text('只有上一条消息来自语音输入时，才自动播放下一条 AI 回复'),
+                value: _voiceOutputAutoPlayAfterVoiceInput,
+                onChanged: (value) {
+                  setState(() => _voiceOutputAutoPlayAfterVoiceInput = value);
+                  _notifyDetailPages();
+                },
+              ),
+              const SizedBox(height: 12),
+              const Text('MiniMax API Key'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _voiceMinimaxApiKeyController,
+                obscureText: _obscureVoiceMinimaxApiKey,
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
+                  hintText: 'MiniMax API Key，仅保存在本机',
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscureVoiceMinimaxApiKey
+                          ? Icons.visibility_off
+                          : Icons.visibility,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _obscureVoiceMinimaxApiKey =
+                            !_obscureVoiceMinimaxApiKey;
+                      });
+                      _notifyDetailPages();
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('Base URL'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _voiceMinimaxBaseUrlController,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: 'https://api.minimaxi.com',
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('模型'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _voiceMinimaxModelController,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: 'speech-2.8-hd',
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('默认音色'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _voiceMinimaxDefaultVoiceController,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: 'wumei_yujie',
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('角色音色'),
+              const SizedBox(height: 8),
+              _buildVoiceIdField('晚秋', _voiceMinimaxAliceVoiceController),
+              const SizedBox(height: 10),
+              _buildVoiceIdField('玲珑', _voiceMinimaxYulinglongVoiceController),
+              const SizedBox(height: 10),
+              _buildVoiceIdField('素心', _voiceMinimaxLisuxinVoiceController),
+              const SizedBox(height: 10),
+              _buildVoiceIdField('清歌', _voiceMinimaxGuqinggeVoiceController),
+            ],
+          ),
         ),
         const SizedBox(height: 16),
         SizedBox(
@@ -1045,6 +1205,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildVoiceIdField(String label, TextEditingController controller) {
+    return TextField(
+      controller: controller,
+      decoration: InputDecoration(
+        border: const OutlineInputBorder(),
+        labelText: label,
+        hintText: '留空则使用默认音色',
+      ),
     );
   }
 
