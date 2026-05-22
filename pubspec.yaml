@@ -32,6 +32,7 @@ dependencies:
   just_audio_windows: ^0.2.1
   url_launcher: ^6.3.1
   uuid: ^4.5.1
+  record: ^6.1.2
   window_manager: ^0.5.1
   webview_flutter: ^4.10.0
   webview_flutter_android: ^4.10.1

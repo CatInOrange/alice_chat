@@ -18,6 +18,7 @@ import '../../music/application/music_platform_store.dart';
 import '../../notifications/application/notification_service.dart';
 import '../../tavern/presentation/tavern_screen.dart';
 import '../../todo/presentation/todo_screen.dart';
+import '../../voice/data/sherpa_wake_word_service.dart';
 import 'debug_logs_panel.dart';
 import '../../../app/theme.dart';
 
@@ -31,6 +32,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final _urlController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _voiceWakeWordService = SherpaWakeWordService();
   final _voiceTencentAppIdController = TextEditingController();
   final _voiceTencentSecretIdController = TextEditingController();
   final _voiceTencentSecretKeyController = TextEditingController();
@@ -85,6 +87,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _voiceWakeWordEnabled = false;
   List<VoiceWakeWordTargetSettings> _voiceWakeTargets =
       VoiceWakeWordSettings.defaultTargets;
+  SherpaWakeWordTestSession? _voiceWakeTestSession;
+  StreamSubscription<SherpaWakeWordHit>? _voiceWakeHitSubscription;
+  bool _isVoiceWakeTesting = false;
+  String _voiceWakeTestStatus = '尚未测试';
+  final List<String> _voiceWakeTestLogs = [];
   bool _isSaving = false;
   bool _isRestartingBackend = false;
   bool _isRestartingGateway = false;
@@ -164,6 +171,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     _urlController.dispose();
     _passwordController.dispose();
+    unawaited(_stopVoiceWakeTest(silent: true));
+    unawaited(_voiceWakeWordService.dispose());
     _voiceTencentAppIdController.dispose();
     _voiceTencentSecretIdController.dispose();
     _voiceTencentSecretKeyController.dispose();
@@ -374,6 +383,87 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _notifyDetailPages();
       }
     }
+  }
+
+  Future<void> _startVoiceWakeTest() async {
+    setState(() {
+      _isVoiceWakeTesting = true;
+      _voiceWakeTestStatus = '正在启动监听…';
+      _voiceWakeTestLogs.insert(0, '启动测试监听');
+    });
+    try {
+      await OpenClawSettingsStore.saveVoiceSettings(_currentVoiceSettings());
+      final settings = _currentVoiceWakeWordSettings();
+      final status = await _voiceWakeWordService.modelStatus(settings);
+      if (!mounted) return;
+      if (!status.ready) {
+        setState(() {
+          _isVoiceWakeTesting = false;
+          _voiceWakeTestStatus = '模型未就绪：${status.missingFiles.join(', ')}';
+          _voiceWakeTestLogs.insert(0, '模型目录：${status.directory}');
+          _voiceWakeTestLogs.insert(
+            0,
+            '下载：${SherpaWakeWordService.modelDownloadUrl}',
+          );
+        });
+        return;
+      }
+      final session = await _voiceWakeWordService.startTest(settings);
+      await _voiceWakeHitSubscription?.cancel();
+      _voiceWakeTestSession = session;
+      _voiceWakeHitSubscription = session.hits.listen(
+        (hit) {
+          if (!mounted) return;
+          final line = '${_formatClock(hit.at)} 命中 ${hit.label}：${hit.keyword}';
+          setState(() {
+            _voiceWakeTestStatus = line;
+            _voiceWakeTestLogs.insert(0, line);
+            if (_voiceWakeTestLogs.length > 8) {
+              _voiceWakeTestLogs.removeRange(8, _voiceWakeTestLogs.length);
+            }
+          });
+        },
+        onError: (Object error) {
+          if (!mounted) return;
+          setState(() {
+            _isVoiceWakeTesting = false;
+            _voiceWakeTestStatus = '测试失败：$error';
+            _voiceWakeTestLogs.insert(0, '测试失败：$error');
+          });
+        },
+      );
+      if (!mounted) return;
+      setState(() {
+        _voiceWakeTestStatus = '正在监听，说出已配置的角色唤醒词';
+        _voiceWakeTestLogs.insert(0, '模型已就绪：${status.directory}');
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isVoiceWakeTesting = false;
+        _voiceWakeTestStatus = '测试失败：$error';
+        _voiceWakeTestLogs.insert(0, '测试失败：$error');
+      });
+    }
+  }
+
+  Future<void> _stopVoiceWakeTest({bool silent = false}) async {
+    await _voiceWakeHitSubscription?.cancel();
+    _voiceWakeHitSubscription = null;
+    final session = _voiceWakeTestSession;
+    _voiceWakeTestSession = null;
+    await session?.stop();
+    if (!mounted || silent) return;
+    setState(() {
+      _isVoiceWakeTesting = false;
+      _voiceWakeTestStatus = '已停止监听';
+      _voiceWakeTestLogs.insert(0, '停止测试监听');
+    });
+  }
+
+  String _formatClock(DateTime time) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${two(time.hour)}:${two(time.minute)}:${two(time.second)}';
   }
 
   Future<bool> _confirmAdminAction({
@@ -1207,6 +1297,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const Text('角色唤醒词'),
               const SizedBox(height: 8),
               ..._voiceWakeTargets.map(_buildVoiceWakeTargetCard),
+              const SizedBox(height: 12),
+              _buildVoiceWakeTestPanel(),
             ],
           ),
         ),
@@ -1633,6 +1725,86 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               );
             },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVoiceWakeTestPanel() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '测试监听',
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          Text(_voiceWakeTestStatus),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                onPressed:
+                    _isVoiceWakeTesting ? null : () => _startVoiceWakeTest(),
+                icon:
+                    _isVoiceWakeTesting
+                        ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                        : const Icon(Icons.play_arrow_rounded),
+                label: const Text('开始测试监听'),
+              ),
+              OutlinedButton.icon(
+                onPressed:
+                    _voiceWakeTestSession == null
+                        ? null
+                        : () => _stopVoiceWakeTest(),
+                icon: const Icon(Icons.stop_rounded),
+                label: const Text('停止'),
+              ),
+              OutlinedButton.icon(
+                onPressed:
+                    () => launchUrl(
+                      Uri.parse(SherpaWakeWordService.modelDownloadUrl),
+                      mode: LaunchMode.externalApplication,
+                    ),
+                icon: const Icon(Icons.download_rounded),
+                label: const Text('打开模型下载'),
+              ),
+            ],
+          ),
+          if (_voiceWakeTestLogs.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ..._voiceWakeTestLogs.map(
+              (line) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  line,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF475569),
+                  ),
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 6),
+          const Text(
+            '自定义中文词暂时需要填入 tokenized 行，例如 “l íng l óng @玲珑”；默认角色词已内置。',
+            style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
           ),
         ],
       ),
