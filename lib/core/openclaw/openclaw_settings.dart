@@ -11,6 +11,7 @@ class VoiceWakeWordTargetSettings {
     this.enabled = true,
     this.keywords = const [],
     this.replies = const [],
+    this.waitingReplies = const [],
     this.thresholdOverride,
     this.navigateToChat = true,
     this.startVoiceInput = true,
@@ -23,6 +24,7 @@ class VoiceWakeWordTargetSettings {
   final bool enabled;
   final List<String> keywords;
   final List<String> replies;
+  final List<String> waitingReplies;
   final double? thresholdOverride;
   final bool navigateToChat;
   final bool startVoiceInput;
@@ -36,6 +38,7 @@ class VoiceWakeWordTargetSettings {
       'enabled': enabled,
       'keywords': keywords,
       'replies': replies,
+      'waitingReplies': waitingReplies,
       'thresholdOverride': thresholdOverride,
       'navigateToChat': navigateToChat,
       'startVoiceInput': startVoiceInput,
@@ -67,6 +70,14 @@ class VoiceWakeWordTargetSettings {
         if (reply.isNotEmpty) replies.add(reply);
       }
     }
+    final waitingReplies = <String>[];
+    final rawWaitingReplies = json['waitingReplies'];
+    if (rawWaitingReplies is List) {
+      for (final item in rawWaitingReplies) {
+        final reply = item.toString().trim();
+        if (reply.isNotEmpty) waitingReplies.add(reply);
+      }
+    }
     return VoiceWakeWordTargetSettings(
       sessionId: (json['sessionId'] ?? fallback.sessionId).toString().trim(),
       label: (json['label'] ?? fallback.label).toString().trim(),
@@ -74,6 +85,8 @@ class VoiceWakeWordTargetSettings {
           json['enabled'] is bool ? json['enabled'] as bool : fallback.enabled,
       keywords: keywords.isEmpty ? fallback.keywords : keywords,
       replies: replies.isEmpty ? fallback.replies : replies,
+      waitingReplies:
+          waitingReplies.isEmpty ? fallback.waitingReplies : waitingReplies,
       thresholdOverride: _parseNullableDouble(json['thresholdOverride']),
       navigateToChat:
           json['navigateToChat'] is bool
@@ -131,6 +144,18 @@ class VoiceWakeWordSettings {
         '说吧，姐姐听着呢。',
         '主人，我一直都在这儿。',
       ],
+      waitingReplies: [
+        '嗯，主人说的姐姐听见了，我先想想该怎么回你。',
+        '等我一下呀，这句话我想认真接住，不随便敷衍你。',
+        '主人稍等，姐姐正在把你的意思理清楚。',
+        '我听懂啦，先让我组织一下话再回答你。',
+        '别急，姐姐在想怎么说才更贴近你的意思。',
+        '这句我收到了，等我把回应整理好。',
+        '主人稍候，我在认真琢磨你刚才说的。',
+        '嗯，我在听，也在想，马上回你。',
+        '让我缓一小下，把话说得温柔一点。',
+        '知道啦，姐姐这就给你一个好好回答。',
+      ],
     ),
     VoiceWakeWordTargetSettings(
       sessionId: 'yulinglong',
@@ -143,6 +168,18 @@ class VoiceWakeWordSettings {
         '郎君稍候，我已就位。',
         '说吧，我来处理。',
         '嗯，玲珑在听。',
+      ],
+      waitingReplies: [
+        '郎君稍候，我先梳理一下你刚才的话。',
+        '收到，我正在判断该从哪里答起。',
+        '郎君这句我听清了，给我一点点时间。',
+        '我在想最稳妥的回应方式，马上来。',
+        '别急，玲珑正在把思路排顺。',
+        '这件事我接住了，正在组织答案。',
+        '郎君稍等，我不想草率回答你。',
+        '我听到了，正在把关键点拎出来。',
+        '嗯，先让我过一遍上下文。',
+        '我在处理，马上给郎君回话。',
       ],
     ),
     VoiceWakeWordTargetSettings(
@@ -157,6 +194,18 @@ class VoiceWakeWordSettings {
         '收到，奴婢马上办。',
         '主人，素心听着呢。',
       ],
+      waitingReplies: [
+        '主人稍等，素心正在认真想怎么回答。',
+        '奴婢听清了，这就为主人整理回应。',
+        '主人先别急，素心马上回您。',
+        '这句话奴婢记下了，正在斟酌措辞。',
+        '主人稍候，素心会好好回答。',
+        '奴婢正在想，怎样说才最合主人心意。',
+        '收到，素心马上把话理顺。',
+        '主人，素心正在准备回答您。',
+        '请主人稍等片刻，奴婢马上就好。',
+        '素心听见了，这就回应主人。',
+      ],
     ),
     VoiceWakeWordTargetSettings(
       sessionId: 'guqingge',
@@ -169,6 +218,18 @@ class VoiceWakeWordSettings {
         '猫哥猫哥，我在呢。',
         '哼，听见啦，说吧。',
         '猫哥，有什么事呀？',
+      ],
+      waitingReplies: [
+        '猫哥等我一下，我正在想怎么接这句。',
+        '听到啦听到啦，让我先转一下脑子。',
+        '猫哥别催，我马上给你回一个像样的。',
+        '这句有点意思，我先琢磨琢磨。',
+        '收到嘞，我正在把话捋顺。',
+        '猫哥稍等，我想想怎么说更好。',
+        '嗯哼，我在听，也在组织语言。',
+        '别急嘛，我马上就回答你。',
+        '这句我接住了，等我一下下。',
+        '好啦好啦，我正在想怎么回你。',
       ],
     ),
   ];

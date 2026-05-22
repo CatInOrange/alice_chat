@@ -28,6 +28,7 @@ import '../../../core/openclaw/openclaw_settings.dart';
 import '../../diary/presentation/diary_sheet.dart';
 import '../../voice/data/minimax_tts_service.dart';
 import '../../voice/data/tencent_realtime_asr_service.dart';
+import '../../voice/data/wake_reply_audio_cache_service.dart';
 import '../application/chat_session_store.dart';
 import '../domain/chat_session.dart';
 
@@ -344,6 +345,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final _chatController = core.InMemoryChatController();
   final _voiceAsrService = TencentRealtimeAsrService();
   final _voiceTtsService = MiniMaxTtsService();
+  final _wakeReplyAudioCacheService = WakeReplyAudioCacheService();
   final _voiceOutputPlayer = AudioPlayer();
   StreamSubscription<TencentRealtimeAsrEvent>? _voiceAsrSubscription;
   TencentRealtimeAsrSession? _voiceAsrSession;
@@ -1319,6 +1321,9 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!mounted) return;
     if (pendingAttachment != null) {
       setState(() => _isSendingAttachment = false);
+    }
+    if (sentFromVoiceInput && shouldPlayReplyForVoiceInput) {
+      unawaited(_playVoiceWaitingReply());
     }
     if (sentFromVoiceInput && !shouldPlayReplyForVoiceInput) {
       _endVoiceConversation(reason: 'auto_tts_disabled');
@@ -2831,6 +2836,37 @@ class _ChatScreenState extends State<ChatScreen> {
         _endVoiceConversation(reason: 'tts_failed');
         _notifyVoiceInputFinished();
       }
+    }
+  }
+
+  Future<void> _playVoiceWaitingReply() async {
+    await _loadVoiceSettings();
+    if (!_voiceSettings.canUseOutput) return;
+    final generation = _voiceConversationGeneration;
+    try {
+      final filePath = await _wakeReplyAudioCacheService
+          .randomWaitingCachedOrGenerate(
+            settings: _voiceSettings,
+            sessionId: widget.session.id,
+          );
+      if (!mounted ||
+          filePath == null ||
+          !_voiceConversationActive ||
+          generation != _voiceConversationGeneration ||
+          !_shouldPlayNextAssistantReply) {
+        return;
+      }
+      await _voiceOutputPlayer.stop();
+      await _voiceOutputPlayer.setFilePath(filePath);
+      await _voiceOutputPlayer.play();
+    } catch (error) {
+      unawaited(
+        NativeDebugBridge.instance.log(
+          'voice_conversation',
+          'waiting reply failed session=${widget.session.id}: $error',
+          level: 'WARN',
+        ),
+      );
     }
   }
 
