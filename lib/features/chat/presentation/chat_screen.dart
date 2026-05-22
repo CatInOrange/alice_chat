@@ -812,6 +812,8 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     if (oldWidget.session.id == widget.session.id) return;
 
+    unawaited(_disposeVoiceAsrSession(closeSession: true));
+    _notifyVoiceInputFinished();
     _lastSavedOffset = -1;
     _lastSavedStickToBottom = true;
     _appliedMessageIds.clear();
@@ -3933,6 +3935,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _composerController.dispose();
     _composerFocusNode.dispose();
     unawaited(_disposeVoiceAsrSession(closeSession: true));
+    _notifyVoiceInputFinished();
     unawaited(_voiceOutputPlayer.dispose());
     super.dispose();
   }

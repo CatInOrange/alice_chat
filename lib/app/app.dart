@@ -84,6 +84,7 @@ class _MainScaffoldState extends State<_MainScaffold>
   bool _isWakeWordStarting = false;
   bool _wakeWordPausedForVoiceInput = false;
   int _wakeVoiceInputTrigger = 0;
+  int _wakeSceneGeneration = 0;
   bool? _wakeAutoSendAfterRecognition;
 
   // Single source of truth for contacts
@@ -276,12 +277,18 @@ class _MainScaffoldState extends State<_MainScaffold>
     final contact = _findContactBySessionId(hit.sessionId);
     if (contact == null) return;
     _wakeWordPausedForVoiceInput = true;
+    _wakeSceneGeneration += 1;
+    final generation = _wakeSceneGeneration;
     await _stopWakeWordListening(reason: 'wake_hit');
     if (hit.navigateToChat) {
       _navigateToChat(contact);
     }
     await _playWakeReply(hit);
     if (!mounted) return;
+    if (generation != _wakeSceneGeneration ||
+        _activeChatSession?.id != contact.id) {
+      return;
+    }
     if (hit.startVoiceInput) {
       await _triggerWakeVoiceInput(hit);
       return;
@@ -344,6 +351,7 @@ class _MainScaffoldState extends State<_MainScaffold>
   void _handleChatVoiceInputFinished() {
     if (!_wakeWordPausedForVoiceInput) return;
     _wakeWordPausedForVoiceInput = false;
+    _wakeAutoSendAfterRecognition = null;
     unawaited(
       Future<void>.delayed(const Duration(milliseconds: 800), () {
         if (mounted) {
@@ -351,6 +359,36 @@ class _MainScaffoldState extends State<_MainScaffold>
         }
       }),
     );
+  }
+
+  void _clearWakeVoiceInputScene({required String reason}) {
+    final hadScene = _resetWakeVoiceInputSceneFields();
+    unawaited(_wakeReplyPlayer.stop());
+    unawaited(
+      NativeDebugBridge.instance.log(
+        'wake_word',
+        'clear wake voice scene reason=$reason hadScene=$hadScene',
+      ),
+    );
+    unawaited(
+      Future<void>.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          return _startWakeWordListening(reason: 'clear_scene_$reason');
+        }
+      }),
+    );
+  }
+
+  bool _resetWakeVoiceInputSceneFields() {
+    final hadScene =
+        _wakeWordPausedForVoiceInput ||
+        _wakeAutoSendAfterRecognition != null ||
+        _wakeVoiceInputTrigger != 0;
+    _wakeWordPausedForVoiceInput = false;
+    _wakeAutoSendAfterRecognition = null;
+    _wakeVoiceInputTrigger = 0;
+    _wakeSceneGeneration += 1;
+    return hadScene;
   }
 
   void _navigateToChat(Contact contact) {
@@ -531,6 +569,7 @@ class _MainScaffoldState extends State<_MainScaffold>
     setState(() {
       _activeChatSession = null;
     });
+    _clearWakeVoiceInputScene(reason: 'closeChat');
     context.read<ChatSessionStore>().setActiveSession(null);
     _webviewHostController.refreshRetention(reason: 'closeChat');
     unawaited(
@@ -760,6 +799,11 @@ class _MainScaffoldState extends State<_MainScaffold>
                                 _activeChatSession = null;
                               }
                             });
+                            if (index != 0) {
+                              _clearWakeVoiceInputScene(
+                                reason: 'desktopNavAway',
+                              );
+                            }
                           },
                           onToggleLive2d:
                               () =>
