@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -12,6 +13,7 @@ import '../features/chat/application/chat_session_store.dart';
 import '../features/chat/domain/chat_session.dart';
 import '../features/chat/presentation/chat_screen.dart';
 import '../features/voice/data/sherpa_wake_word_service.dart';
+import '../features/voice/data/wake_reply_audio_cache_service.dart';
 import '../core/openclaw/openclaw_settings.dart';
 import '../core/debug/native_debug_bridge.dart';
 import '../features/diary/presentation/diary_sheet.dart';
@@ -74,6 +76,9 @@ class _MainScaffoldState extends State<_MainScaffold>
   StreamSubscription<SherpaWakeWordHit>? _wakeWordHitSub;
   SherpaWakeWordTestSession? _wakeWordSession;
   final SherpaWakeWordService _wakeWordService = SherpaWakeWordService();
+  final WakeReplyAudioCacheService _wakeReplyAudioCacheService =
+      WakeReplyAudioCacheService();
+  final AudioPlayer _wakeReplyPlayer = AudioPlayer();
   String _lastConsumedNotificationKey = '';
   late final WebviewHostController _webviewHostController;
   bool _isWakeWordStarting = false;
@@ -254,9 +259,14 @@ class _MainScaffoldState extends State<_MainScaffold>
   Future<void> _disposeWakeWordListener() async {
     await _stopWakeWordListening(reason: 'dispose');
     await _wakeWordService.dispose();
+    await _wakeReplyPlayer.dispose();
   }
 
   void _handleWakeWordHit(SherpaWakeWordHit hit) {
+    unawaited(_handleWakeWordHitAsync(hit));
+  }
+
+  Future<void> _handleWakeWordHitAsync(SherpaWakeWordHit hit) async {
     unawaited(
       NativeDebugBridge.instance.log(
         'wake_word',
@@ -265,11 +275,55 @@ class _MainScaffoldState extends State<_MainScaffold>
     );
     final contact = _findContactBySessionId(hit.sessionId);
     if (contact == null) return;
+    _wakeWordPausedForVoiceInput = true;
+    await _stopWakeWordListening(reason: 'wake_hit');
+    await _playWakeReply(hit);
+    if (!mounted) return;
     if (hit.navigateToChat) {
       _navigateToChat(contact);
     }
-    if (!hit.startVoiceInput) return;
-    unawaited(_triggerWakeVoiceInput(hit));
+    if (hit.startVoiceInput) {
+      await _triggerWakeVoiceInput(hit);
+      return;
+    }
+    _wakeWordPausedForVoiceInput = false;
+    unawaited(
+      Future<void>.delayed(const Duration(milliseconds: 800), () {
+        if (mounted) {
+          return _startWakeWordListening(reason: 'wake_hit_finished');
+        }
+      }),
+    );
+  }
+
+  Future<void> _playWakeReply(SherpaWakeWordHit hit) async {
+    try {
+      final voiceSettings = await OpenClawSettingsStore.loadVoiceSettings();
+      VoiceWakeWordTargetSettings? target;
+      for (final item in voiceSettings.wakeWord.targets) {
+        if (item.sessionId == hit.sessionId) {
+          target = item;
+          break;
+        }
+      }
+      if (target == null) return;
+      final path = await _wakeReplyAudioCacheService.randomCachedOrGenerate(
+        settings: voiceSettings,
+        target: target,
+      );
+      if (path == null || path.isEmpty) return;
+      await _wakeReplyPlayer.stop();
+      await _wakeReplyPlayer.setFilePath(path);
+      await _wakeReplyPlayer.play();
+    } catch (error) {
+      unawaited(
+        NativeDebugBridge.instance.log(
+          'wake_word',
+          'wake reply playback failed session=${hit.sessionId} error=$error',
+          level: 'WARN',
+        ),
+      );
+    }
   }
 
   Future<void> _triggerWakeVoiceInput(SherpaWakeWordHit hit) async {

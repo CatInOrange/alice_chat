@@ -10,6 +10,7 @@ class VoiceWakeWordTargetSettings {
     required this.label,
     this.enabled = true,
     this.keywords = const [],
+    this.replies = const [],
     this.thresholdOverride,
     this.navigateToChat = true,
     this.startVoiceInput = true,
@@ -21,6 +22,7 @@ class VoiceWakeWordTargetSettings {
   final String label;
   final bool enabled;
   final List<String> keywords;
+  final List<String> replies;
   final double? thresholdOverride;
   final bool navigateToChat;
   final bool startVoiceInput;
@@ -33,6 +35,7 @@ class VoiceWakeWordTargetSettings {
       'label': label,
       'enabled': enabled,
       'keywords': keywords,
+      'replies': replies,
       'thresholdOverride': thresholdOverride,
       'navigateToChat': navigateToChat,
       'startVoiceInput': startVoiceInput,
@@ -56,12 +59,21 @@ class VoiceWakeWordTargetSettings {
     for (final keyword in fallback.keywords) {
       if (!keywords.contains(keyword)) keywords.add(keyword);
     }
+    final replies = <String>[];
+    final rawReplies = json['replies'];
+    if (rawReplies is List) {
+      for (final item in rawReplies) {
+        final reply = item.toString().trim();
+        if (reply.isNotEmpty) replies.add(reply);
+      }
+    }
     return VoiceWakeWordTargetSettings(
       sessionId: (json['sessionId'] ?? fallback.sessionId).toString().trim(),
       label: (json['label'] ?? fallback.label).toString().trim(),
       enabled:
           json['enabled'] is bool ? json['enabled'] as bool : fallback.enabled,
       keywords: keywords.isEmpty ? fallback.keywords : keywords,
+      replies: replies.isEmpty ? fallback.replies : replies,
       thresholdOverride: _parseNullableDouble(json['thresholdOverride']),
       navigateToChat:
           json['navigateToChat'] is bool
@@ -111,21 +123,53 @@ class VoiceWakeWordSettings {
       sessionId: 'alice',
       label: '晚秋',
       keywords: ['晚秋晚秋', '苏晚秋', '小秋小秋'],
+      replies: [
+        '主人，我在呢。',
+        '嗯？姐姐听见你了。',
+        '主人叫我呀，我来了。',
+        '真是拿你没办法呢，我在。',
+        '说吧，姐姐听着呢。',
+        '主人，我一直都在这儿。',
+      ],
     ),
     VoiceWakeWordTargetSettings(
       sessionId: 'yulinglong',
       label: '玲珑',
       keywords: ['玲珑玲珑', '玉玲珑'],
+      replies: [
+        '郎君，我在。',
+        '收到，郎君请讲。',
+        '我听到了，郎君。',
+        '郎君稍候，我已就位。',
+        '说吧，我来处理。',
+        '嗯，玲珑在听。',
+      ],
     ),
     VoiceWakeWordTargetSettings(
       sessionId: 'lisuxin',
       label: '素心',
       keywords: ['素心素心', '李素心'],
+      replies: [
+        '主人，素心在。',
+        '奴婢听见了，主人。',
+        '主人请吩咐。',
+        '素心在这里，主人。',
+        '收到，奴婢马上办。',
+        '主人，素心听着呢。',
+      ],
     ),
     VoiceWakeWordTargetSettings(
       sessionId: 'guqingge',
       label: '清歌',
       keywords: ['清歌清歌', '顾清歌'],
+      replies: [
+        '猫哥，我来啦。',
+        '嘿，猫哥叫我呀？',
+        '收到嘞，猫哥。',
+        '猫哥猫哥，我在呢。',
+        '哼，听见啦，说吧。',
+        '猫哥，有什么事呀？',
+      ],
     ),
   ];
 

@@ -19,6 +19,7 @@ import '../../notifications/application/notification_service.dart';
 import '../../tavern/presentation/tavern_screen.dart';
 import '../../todo/presentation/todo_screen.dart';
 import '../../voice/data/sherpa_wake_word_service.dart';
+import '../../voice/data/wake_reply_audio_cache_service.dart';
 import 'debug_logs_panel.dart';
 import '../../../app/theme.dart';
 
@@ -33,6 +34,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _urlController = TextEditingController();
   final _passwordController = TextEditingController();
   final _voiceWakeWordService = SherpaWakeWordService();
+  final _wakeReplyAudioCacheService = WakeReplyAudioCacheService();
   final _voiceTencentAppIdController = TextEditingController();
   final _voiceTencentSecretIdController = TextEditingController();
   final _voiceTencentSecretKeyController = TextEditingController();
@@ -75,6 +77,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     for (final target in VoiceWakeWordSettings.defaultTargets)
       target.sessionId: TextEditingController(),
   };
+  final Map<String, TextEditingController> _voiceWakeReplyControllers = {
+    for (final target in VoiceWakeWordSettings.defaultTargets)
+      target.sessionId: TextEditingController(),
+  };
   final ValueNotifier<int> _detailRefreshTick = ValueNotifier<int>(0);
   bool _obscurePassword = true;
   bool _obscureVoiceSecretKey = true;
@@ -90,6 +96,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   SherpaWakeWordTestSession? _voiceWakeTestSession;
   StreamSubscription<SherpaWakeWordHit>? _voiceWakeHitSubscription;
   bool _isVoiceWakeTesting = false;
+  bool _isGeneratingWakeReplies = false;
   String _voiceWakeTestStatus = '尚未测试';
   final List<String> _voiceWakeTestLogs = [];
   bool _isSaving = false;
@@ -197,6 +204,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       controller.dispose();
     }
     for (final controller in _voiceWakeThresholdControllers.values) {
+      controller.dispose();
+    }
+    for (final controller in _voiceWakeReplyControllers.values) {
       controller.dispose();
     }
     _detailRefreshTick.dispose();
@@ -327,6 +337,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               label: target.label,
               enabled: target.enabled,
               keywords: keywords.isEmpty ? target.keywords : keywords,
+              replies: _parseVoiceWakeReplies(target),
               thresholdOverride:
                   thresholdText.isEmpty ? null : double.tryParse(thresholdText),
               navigateToChat: target.navigateToChat,
@@ -336,6 +347,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             );
           }).toList(),
     );
+  }
+
+  List<String> _parseVoiceWakeReplies(VoiceWakeWordTargetSettings target) {
+    final raw = _voiceWakeReplyControllers[target.sessionId]?.text ?? '';
+    final replies =
+        raw
+            .split(RegExp(r'\n+'))
+            .map((item) => item.trim())
+            .where((item) => item.isNotEmpty)
+            .toList();
+    return replies.isEmpty ? target.replies : replies;
   }
 
   void _syncVoiceWakeTargetControllers() {
@@ -353,6 +375,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           target.thresholdOverride == null
               ? ''
               : _formatVoiceNumber(target.thresholdOverride!);
+      final replyController = _voiceWakeReplyControllers.putIfAbsent(
+        target.sessionId,
+        TextEditingController.new,
+      );
+      replyController.text = target.replies.join('\n');
     }
   }
 
@@ -498,6 +525,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('安装默认模型失败：$error')));
+    }
+  }
+
+  Future<void> _generateWakeReplyAudioCache() async {
+    setState(() {
+      _isGeneratingWakeReplies = true;
+      _voiceWakeTestStatus = '正在生成唤醒回复语音…';
+      _voiceWakeTestLogs.insert(0, '开始生成唤醒回复语音');
+    });
+    _notifyDetailPages();
+    try {
+      final settings = _currentVoiceSettings();
+      await OpenClawSettingsStore.saveVoiceSettings(settings);
+      final count = await _wakeReplyAudioCacheService.generateAll(settings);
+      if (!mounted) return;
+      setState(() {
+        _voiceWakeTestStatus = '已生成 $count 条唤醒回复语音';
+        _voiceWakeTestLogs.insert(0, '唤醒回复语音已缓存：$count 条');
+      });
+      _notifyDetailPages();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('已生成 $count 条唤醒回复语音')));
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _voiceWakeTestStatus = '生成唤醒回复失败：$error';
+        _voiceWakeTestLogs.insert(0, '生成唤醒回复失败：$error');
+      });
+      _notifyDetailPages();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('生成唤醒回复失败：$error')));
+    } finally {
+      if (mounted) {
+        setState(() => _isGeneratingWakeReplies = false);
+        _notifyDetailPages();
+      }
     }
   }
 
@@ -1672,6 +1737,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       target.sessionId,
       TextEditingController.new,
     );
+    final replyController = _voiceWakeReplyControllers.putIfAbsent(
+      target.sessionId,
+      TextEditingController.new,
+    );
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
@@ -1716,6 +1785,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       label: current.label,
                       enabled: value,
                       keywords: current.keywords,
+                      replies: current.replies,
                       thresholdOverride: current.thresholdOverride,
                       navigateToChat: current.navigateToChat,
                       startVoiceInput: current.startVoiceInput,
@@ -1766,6 +1836,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
           ),
           const SizedBox(height: 6),
+          TextField(
+            controller: replyController,
+            minLines: 2,
+            maxLines: 4,
+            decoration: _denseVoiceInputDecoration(
+              label: '唤醒回复',
+              hint: '每行一句，命中后随机播放',
+            ),
+          ),
+          const SizedBox(height: 6),
           Wrap(
             spacing: 4,
             runSpacing: 0,
@@ -1778,6 +1858,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     label: current.label,
                     enabled: current.enabled,
                     keywords: current.keywords,
+                    replies: current.replies,
                     thresholdOverride: current.thresholdOverride,
                     navigateToChat: value,
                     startVoiceInput: current.startVoiceInput,
@@ -1794,6 +1875,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     label: current.label,
                     enabled: current.enabled,
                     keywords: current.keywords,
+                    replies: current.replies,
                     thresholdOverride: current.thresholdOverride,
                     navigateToChat: current.navigateToChat,
                     startVoiceInput: value,
@@ -1810,6 +1892,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     label: current.label,
                     enabled: current.enabled,
                     keywords: current.keywords,
+                    replies: current.replies,
                     thresholdOverride: current.thresholdOverride,
                     navigateToChat: current.navigateToChat,
                     startVoiceInput: current.startVoiceInput,
@@ -1903,6 +1986,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: const Icon(Icons.install_mobile_rounded),
                 label: const Text('重新安装默认模型'),
               ),
+              OutlinedButton.icon(
+                onPressed:
+                    (_isGeneratingWakeReplies || _isVoiceWakeTesting)
+                        ? null
+                        : () => _generateWakeReplyAudioCache(),
+                icon:
+                    _isGeneratingWakeReplies
+                        ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                        : const Icon(Icons.graphic_eq_rounded),
+                label: Text(_isGeneratingWakeReplies ? '生成中…' : '生成唤醒回复语音'),
+              ),
             ],
           ),
           if (_voiceWakeTestLogs.isNotEmpty) ...[
@@ -1922,7 +2020,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
           const SizedBox(height: 6),
           const Text(
-            '默认 3.3M 中文模型已随安装包内置，首次测试会自动安装到本机目录。自定义中文词暂时需要填入 tokenized 行。',
+            '默认模型已随安装包内置。唤醒回复每行一句，可提前生成本地语音缓存；自定义中文唤醒词暂时需要填入 tokenized 行。',
             style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
           ),
         ],
