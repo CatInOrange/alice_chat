@@ -70,8 +70,8 @@ class TencentRealtimeAsrSession {
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    await _controller.cancel();
     await _recognitionSubscription.cancel();
-    await _controller.stop();
     await _controller.release();
     await _eventsController.close();
   }

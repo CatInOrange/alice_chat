@@ -1514,7 +1514,11 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!_isVoiceRecording) return;
     _voiceSilenceTimer = Timer(_voiceSilenceTimeout, () {
       if (!mounted || !_isVoiceRecording) return;
-      setState(() => _voiceStatusText = '检测到停顿，正在收尾…');
+      if (_currentVoiceRealtimeText.trim().isEmpty) {
+        unawaited(_abortVoiceRecordingWithoutText());
+        return;
+      }
+      setState(() => _voiceStatusText = '检测到停顿，正在发送…');
       unawaited(_finishVoiceRecording(cancel: false));
     });
   }
@@ -1522,6 +1526,23 @@ class _ChatScreenState extends State<ChatScreen> {
   void _cancelVoiceSilenceTimer() {
     _voiceSilenceTimer?.cancel();
     _voiceSilenceTimer = null;
+  }
+
+  Future<void> _abortVoiceRecordingWithoutText() async {
+    if (!_isVoiceRecording) return;
+    _cancelVoiceSilenceTimer();
+    if (!mounted) return;
+    setState(() {
+      _isVoiceRecording = false;
+      _isVoiceRecognizing = false;
+      _isVoiceCancelArmed = false;
+      _voiceRecordStartedAt = null;
+      _voiceStatusText = null;
+    });
+    await _disposeVoiceAsrSession(closeSession: true);
+    _restoreVoiceTextBeforeRecording();
+    _showSnackBar('没有检测到语音，已结束');
+    _notifyVoiceInputFinished();
   }
 
   String get _currentVoiceRealtimeText {

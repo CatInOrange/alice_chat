@@ -27,7 +27,7 @@ class _Inner {
         int sen_id = call.arguments["sentence_id"];
         String sen_text = call.arguments["sentence_text"];
         String voice_id = call.arguments["voice_id"];
-        print("voice_id:"+voice_id);
+        print("voice_id:" + voice_id);
         obj.onSliceSuccess(sen_id, sen_text);
       } else if (call.method == "onSegmentSuccess") {
         int sen_id = call.arguments["sentence_id"];
@@ -124,7 +124,7 @@ class _ASRDataSource {
   Future<Uint8List> read(int size) async {
     if (_data.isNotEmpty) {
       Uint8List data = _data.removeAt(0);
-      if(_data.length > 2) {
+      if (_data.length > 2) {
         _data.clear();
       }
       return data;
@@ -219,8 +219,8 @@ class ASRControllerConfig {
       "audio_file_path": audio_file_path,
       "customParams": _customParams,
     };
-    final id = await _Inner.instance.methodChannel.invokeMethod("ASRController.new", params);
-
+    final id = await _Inner.instance.methodChannel
+        .invokeMethod("ASRController.new", params);
 
     if (id == null) {
       throw Exception("");
@@ -270,6 +270,11 @@ class ASRController {
   stop() async {
     await _Inner.instance.methodChannel
         .invokeMethod("ASRController.stop", {"id": _id});
+  }
+
+  cancel() async {
+    await _Inner.instance.methodChannel
+        .invokeMethod("ASRController.cancel", {"id": _id});
   }
 
   release() async {
