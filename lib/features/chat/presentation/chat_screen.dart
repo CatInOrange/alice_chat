@@ -3437,38 +3437,6 @@ class _ChatScreenState extends State<ChatScreen> {
                           tooltip: '附件',
                         ),
                       ),
-                      if (_canShowVoiceButton) ...[
-                        const SizedBox(width: 6),
-                        GestureDetector(
-                          onTap: _handleVoiceTap,
-                          onLongPressStart: (_) => _startVoiceRecording(),
-                          onLongPressMoveUpdate: _updateVoiceCancelState,
-                          onLongPressEnd:
-                              (_) => _finishVoiceRecording(cancel: false),
-                          onLongPressCancel:
-                              () => _finishVoiceRecording(cancel: true),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 140),
-                            width: 34,
-                            height: 34,
-                            decoration: BoxDecoration(
-                              color:
-                                  _isVoiceRecording
-                                      ? theme.colorScheme.primary
-                                      : Colors.white,
-                              borderRadius: BorderRadius.circular(17),
-                            ),
-                            child: Icon(
-                              Icons.mic_rounded,
-                              size: 18,
-                              color:
-                                  _isVoiceRecording
-                                      ? Colors.white
-                                      : theme.colorScheme.primary,
-                            ),
-                          ),
-                        ),
-                      ],
                       const SizedBox(width: 6),
                       Expanded(
                         child: Container(
@@ -3489,9 +3457,65 @@ class _ChatScreenState extends State<ChatScreen> {
                             minLines: 1,
                             maxLines: 5,
                             textInputAction: TextInputAction.send,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               hintText: '发消息…',
                               isDense: true,
+                              suffixIcon:
+                                  _canShowVoiceButton
+                                      ? Padding(
+                                        padding: const EdgeInsets.only(
+                                          right: 8,
+                                        ),
+                                        child: GestureDetector(
+                                          behavior: HitTestBehavior.opaque,
+                                          onTap: _handleVoiceTap,
+                                          onLongPressStart:
+                                              (_) => _startVoiceRecording(),
+                                          onLongPressMoveUpdate:
+                                              _updateVoiceCancelState,
+                                          onLongPressEnd:
+                                              (_) => _finishVoiceRecording(
+                                                cancel: false,
+                                              ),
+                                          onLongPressCancel:
+                                              () => _finishVoiceRecording(
+                                                cancel: true,
+                                              ),
+                                          child: AnimatedContainer(
+                                            duration: const Duration(
+                                              milliseconds: 140,
+                                            ),
+                                            width: 30,
+                                            height: 30,
+                                            decoration: BoxDecoration(
+                                              color:
+                                                  _isVoiceRecording
+                                                      ? theme
+                                                          .colorScheme
+                                                          .primary
+                                                      : const Color(0xFFF3F5FA),
+                                              borderRadius:
+                                                  BorderRadius.circular(15),
+                                            ),
+                                            alignment: Alignment.center,
+                                            child: Icon(
+                                              Icons.mic_rounded,
+                                              size: 17,
+                                              color:
+                                                  _isVoiceRecording
+                                                      ? Colors.white
+                                                      : theme
+                                                          .colorScheme
+                                                          .primary,
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                      : null,
+                              suffixIconConstraints: const BoxConstraints(
+                                minWidth: 44,
+                                minHeight: 40,
+                              ),
                             ),
                             onSubmitted: (value) {
                               if ((value.trim().isNotEmpty ||
