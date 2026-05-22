@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
@@ -18,12 +19,14 @@ import 'package:open_filex/open_filex.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:record/record.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/theme.dart';
 import '../../../core/debug/native_debug_bridge.dart';
 import '../../../core/openclaw/openclaw_settings.dart';
 import '../../diary/presentation/diary_sheet.dart';
+import '../../voice/data/tencent_sentence_asr_service.dart';
 import '../application/chat_session_store.dart';
 import '../domain/chat_session.dart';
 
@@ -330,6 +333,8 @@ class _ChatScreenState extends State<ChatScreen> {
   final _imagePicker = ImagePicker();
   final _chatListController = ScrollController();
   final _chatController = core.InMemoryChatController();
+  final _voiceRecorder = AudioRecorder();
+  final _voiceAsrService = TencentSentenceAsrService();
   Timer? _streamingHintPulseTimer;
   int _fallbackStreamingHintIndex = 0;
 
@@ -354,6 +359,12 @@ class _ChatScreenState extends State<ChatScreen> {
   _PendingAttachmentDraft? _pendingAttachmentDraft;
   bool _isSendingAttachment = false;
   List<_SlashSuggestionItem> _slashSuggestions = const [];
+  VoiceSettings _voiceSettings = const VoiceSettings();
+  bool _isVoiceRecording = false;
+  bool _isVoiceRecognizing = false;
+  bool _isVoiceCancelArmed = false;
+  DateTime? _voiceRecordStartedAt;
+  String? _voiceStatusText;
 
   // Composer height tracking for relative positioning of floating elements
   static const double _composerPaddingVertical = 20.0; // 8 + 12
@@ -399,6 +410,7 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     _chatListController.addListener(_handleScroll);
     _composerController.addListener(_handleComposerTextChanged);
+    unawaited(_loadVoiceSettings());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final store = context.read<ChatSessionStore>();
@@ -406,6 +418,12 @@ class _ChatScreenState extends State<ChatScreen> {
       _handleStoreChanged();
       store.ensureReady(widget.session);
     });
+  }
+
+  Future<void> _loadVoiceSettings() async {
+    final settings = await OpenClawSettingsStore.loadVoiceSettings();
+    if (!mounted) return;
+    setState(() => _voiceSettings = settings);
   }
 
   @override
@@ -1199,6 +1217,189 @@ class _ChatScreenState extends State<ChatScreen> {
     if (pendingAttachment != null) {
       setState(() => _isSendingAttachment = false);
     }
+  }
+
+  bool get _isVoicePlatformSupported {
+    if (kIsWeb) return false;
+    return Platform.isAndroid || Platform.isIOS;
+  }
+
+  bool get _canShowVoiceButton {
+    return _isVoicePlatformSupported;
+  }
+
+  bool get _isComposerBusy {
+    final state = context.read<ChatSessionStore>().stateFor(widget.session);
+    return state.isSubmitting ||
+        _isSendingAttachment ||
+        _isVoiceRecording ||
+        _isVoiceRecognizing;
+  }
+
+  Future<void> _handleVoiceTap() async {
+    await _loadVoiceSettings();
+    if (!_isVoicePlatformSupported) {
+      _showSnackBar('当前平台暂不支持语音');
+      return;
+    }
+    if (!_voiceSettings.inputEnabled) {
+      _showSnackBar('请先在设置的“语音”中启用语音输入');
+      return;
+    }
+    if (!_voiceSettings.hasTencentCredentials) {
+      _showSnackBar('请先在设置的“语音”中配置腾讯云 SecretID 和 SecretKey');
+      return;
+    }
+    _showSnackBar('长按麦克风开始说话');
+  }
+
+  Future<void> _startVoiceRecording() async {
+    if (_isComposerBusy) return;
+    await _loadVoiceSettings();
+    if (!_isVoicePlatformSupported || !_voiceSettings.canUseInput) {
+      await _handleVoiceTap();
+      return;
+    }
+
+    try {
+      final hasPermission = await _voiceRecorder.hasPermission();
+      if (!hasPermission) {
+        _showSnackBar('没有麦克风权限');
+        return;
+      }
+
+      final tempDir = await getTemporaryDirectory();
+      final path = p.join(
+        tempDir.path,
+        'alicechat_voice_${DateTime.now().millisecondsSinceEpoch}.wav',
+      );
+
+      await _voiceRecorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.wav,
+          sampleRate: 16000,
+          numChannels: 1,
+        ),
+        path: path,
+      );
+      if (!mounted) return;
+      setState(() {
+        _isVoiceRecording = true;
+        _isVoiceCancelArmed = false;
+        _voiceRecordStartedAt = DateTime.now();
+        _voiceStatusText = '正在录音，松手转文字';
+      });
+      HapticFeedback.lightImpact();
+    } catch (error) {
+      if (!mounted) return;
+      _showSnackBar('启动录音失败：${_humanizeUiError(error)}');
+    }
+  }
+
+  void _updateVoiceCancelState(LongPressMoveUpdateDetails details) {
+    if (!_isVoiceRecording) return;
+    final shouldCancel = details.offsetFromOrigin.dy < -64;
+    if (shouldCancel == _isVoiceCancelArmed) return;
+    setState(() {
+      _isVoiceCancelArmed = shouldCancel;
+      _voiceStatusText = shouldCancel ? '松手取消' : '正在录音，松手转文字';
+    });
+    HapticFeedback.selectionClick();
+  }
+
+  Future<void> _finishVoiceRecording({required bool cancel}) async {
+    if (!_isVoiceRecording) return;
+    final startedAt = _voiceRecordStartedAt;
+    final shouldCancel = cancel || _isVoiceCancelArmed;
+    String? path;
+    try {
+      path = await _voiceRecorder.stop();
+    } catch (_) {
+      path = null;
+    }
+    if (!mounted) return;
+    setState(() {
+      _isVoiceRecording = false;
+      _isVoiceCancelArmed = false;
+      _voiceRecordStartedAt = null;
+      _voiceStatusText = shouldCancel ? '已取消' : '正在识别…';
+    });
+
+    if (shouldCancel) {
+      if (path != null) {
+        unawaited(File(path).delete().then((_) {}).catchError((_) {}));
+      }
+      Future<void>.delayed(const Duration(milliseconds: 600), () {
+        if (mounted && !_isVoiceRecording && !_isVoiceRecognizing) {
+          setState(() => _voiceStatusText = null);
+        }
+      });
+      return;
+    }
+
+    if (path == null || path.trim().isEmpty) {
+      setState(() => _voiceStatusText = null);
+      _showSnackBar('录音失败');
+      return;
+    }
+
+    final duration =
+        startedAt == null
+            ? Duration.zero
+            : DateTime.now().difference(startedAt);
+    if (duration < const Duration(milliseconds: 500)) {
+      unawaited(File(path).delete().then((_) {}).catchError((_) {}));
+      setState(() => _voiceStatusText = null);
+      _showSnackBar('说话时间太短');
+      return;
+    }
+
+    await _recognizeVoiceFile(File(path));
+  }
+
+  Future<void> _recognizeVoiceFile(File file) async {
+    setState(() {
+      _isVoiceRecognizing = true;
+      _voiceStatusText = '正在识别…';
+    });
+    try {
+      final result = await _voiceAsrService.recognizeFile(
+        file: file,
+        settings: _voiceSettings,
+      );
+      final text = result.text.trim();
+      if (text.isEmpty) {
+        _showSnackBar('没有识别到文字');
+        return;
+      }
+      _insertRecognizedVoiceText(text);
+      if (_voiceSettings.autoSendAfterRecognition && text.trim().isNotEmpty) {
+        await _handleSend(_composerController.text);
+      }
+    } catch (error) {
+      if (!mounted) return;
+      _showSnackBar('语音识别失败：${_humanizeUiError(error)}');
+    } finally {
+      unawaited(file.delete().then((_) {}).catchError((_) {}));
+      if (mounted) {
+        setState(() {
+          _isVoiceRecognizing = false;
+          _voiceStatusText = null;
+        });
+      }
+    }
+  }
+
+  void _insertRecognizedVoiceText(String text) {
+    final current = _composerController.text;
+    final separator =
+        current.trim().isEmpty || RegExp(r'\s$').hasMatch(current) ? '' : ' ';
+    final next = '$current$separator$text';
+    _composerController.value = TextEditingValue(
+      text: next,
+      selection: TextSelection.collapsed(offset: next.length),
+    );
+    _composerFocusNode.requestFocus();
   }
 
   void _handleComposerTextChanged() {
@@ -2961,6 +3162,11 @@ class _ChatScreenState extends State<ChatScreen> {
                   if (mounted) setState(() => _composerHeight = measured);
                 });
               }
+              final composerBusy =
+                  state.isSubmitting ||
+                  _isSendingAttachment ||
+                  _isVoiceRecording ||
+                  _isVoiceRecognizing;
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -3111,7 +3317,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           ),
                           IconButton(
                             onPressed:
-                                _isSendingAttachment
+                                (_isSendingAttachment || _isVoiceRecording)
                                     ? null
                                     : () => setState(
                                       () => _pendingAttachmentDraft = null,
@@ -3124,19 +3330,71 @@ class _ChatScreenState extends State<ChatScreen> {
                         ],
                       ),
                     ),
+                  if ((_voiceStatusText ?? '').isNotEmpty)
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color:
+                            _isVoiceCancelArmed
+                                ? const Color(0xFFFFF1F2)
+                                : const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color:
+                              _isVoiceCancelArmed
+                                  ? const Color(0xFFFFCDD5)
+                                  : const Color(0xFFBFDBFE),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _isVoiceCancelArmed
+                                ? Icons.keyboard_arrow_up_rounded
+                                : Icons.graphic_eq_rounded,
+                            size: 18,
+                            color:
+                                _isVoiceCancelArmed
+                                    ? const Color(0xFFE11D48)
+                                    : const Color(0xFF2563EB),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _voiceStatusText!,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color:
+                                    _isVoiceCancelArmed
+                                        ? const Color(0xFFE11D48)
+                                        : const Color(0xFF1D4ED8),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Container(
-                        width: 40,
-                        height: 40,
+                        width: 34,
+                        height: 34,
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          borderRadius: BorderRadius.circular(20),
+                          borderRadius: BorderRadius.circular(17),
                         ),
                         child: IconButton(
+                          padding: EdgeInsets.zero,
+                          iconSize: 20,
                           onPressed:
-                              (state.isSubmitting || _isSendingAttachment)
+                              composerBusy
                                   ? null
                                   : () => _showAttachmentMenu(state),
                           icon: const Icon(Icons.add_rounded),
@@ -3147,12 +3405,44 @@ class _ChatScreenState extends State<ChatScreen> {
                           tooltip: '附件',
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      if (_canShowVoiceButton) ...[
+                        const SizedBox(width: 6),
+                        GestureDetector(
+                          onTap: _handleVoiceTap,
+                          onLongPressStart: (_) => _startVoiceRecording(),
+                          onLongPressMoveUpdate: _updateVoiceCancelState,
+                          onLongPressEnd:
+                              (_) => _finishVoiceRecording(cancel: false),
+                          onLongPressCancel:
+                              () => _finishVoiceRecording(cancel: true),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 140),
+                            width: 34,
+                            height: 34,
+                            decoration: BoxDecoration(
+                              color:
+                                  _isVoiceRecording
+                                      ? theme.colorScheme.primary
+                                      : Colors.white,
+                              borderRadius: BorderRadius.circular(17),
+                            ),
+                            child: Icon(
+                              Icons.mic_rounded,
+                              size: 18,
+                              color:
+                                  _isVoiceRecording
+                                      ? Colors.white
+                                      : theme.colorScheme.primary,
+                            ),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(width: 6),
                       Expanded(
                         child: Container(
                           decoration: BoxDecoration(
                             color: Colors.white,
-                            borderRadius: BorderRadius.circular(24),
+                            borderRadius: BorderRadius.circular(20),
                             boxShadow: const [
                               BoxShadow(
                                 color: Color(0x0A1F2430),
@@ -3174,25 +3464,24 @@ class _ChatScreenState extends State<ChatScreen> {
                             onSubmitted: (value) {
                               if ((value.trim().isNotEmpty ||
                                       _pendingAttachmentDraft != null) &&
-                                  !state.isSubmitting &&
-                                  !_isSendingAttachment) {
+                                  !composerBusy) {
                                 _handleSend(value);
                               }
                             },
                           ),
                         ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 6),
                       AnimatedContainer(
                         duration: const Duration(milliseconds: 180),
-                        width: 44,
-                        height: 44,
+                        width: 36,
+                        height: 36,
                         decoration: BoxDecoration(
                           color:
-                              (state.isSubmitting || _isSendingAttachment)
+                              composerBusy
                                   ? const Color(0xFFD7CCFF)
                                   : theme.colorScheme.primary,
-                          borderRadius: BorderRadius.circular(22),
+                          borderRadius: BorderRadius.circular(18),
                           boxShadow: const [
                             BoxShadow(
                               color: Color(0x1A7C4DFF),
@@ -3202,8 +3491,10 @@ class _ChatScreenState extends State<ChatScreen> {
                           ],
                         ),
                         child: IconButton(
+                          padding: EdgeInsets.zero,
+                          iconSize: 19,
                           onPressed:
-                              (state.isSubmitting || _isSendingAttachment)
+                              composerBusy
                                   ? null
                                   : () {
                                     final text = _composerController.text;
@@ -3213,7 +3504,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                     }
                                   },
                           icon:
-                              (state.isSubmitting || _isSendingAttachment)
+                              composerBusy
                                   ? const SizedBox(
                                     width: 18,
                                     height: 18,
@@ -3366,6 +3657,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _composerController.removeListener(_handleComposerTextChanged);
     _composerController.dispose();
     _composerFocusNode.dispose();
+    _voiceRecorder.dispose();
     super.dispose();
   }
 }

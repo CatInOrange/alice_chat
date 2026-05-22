@@ -31,9 +31,17 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final _urlController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _voiceTencentAppIdController = TextEditingController();
+  final _voiceTencentSecretIdController = TextEditingController();
+  final _voiceTencentSecretKeyController = TextEditingController();
+  final _voiceTencentTokenController = TextEditingController();
+  final _voiceTencentEngineController = TextEditingController(text: '16k_zh');
   final ValueNotifier<int> _detailRefreshTick = ValueNotifier<int>(0);
   bool _obscurePassword = true;
+  bool _obscureVoiceSecretKey = true;
   bool _backgroundServiceEnabled = true;
+  bool _voiceInputEnabled = false;
+  bool _voiceAutoSendAfterRecognition = false;
   bool _isSaving = false;
   bool _isRestartingBackend = false;
   bool _isRestartingGateway = false;
@@ -63,6 +71,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _passwordController.text = config.appPassword ?? '';
     _backgroundServiceEnabled =
         await OpenClawSettingsStore.loadBackgroundServiceEnabled();
+    final voiceSettings = await OpenClawSettingsStore.loadVoiceSettings();
+    _voiceInputEnabled = voiceSettings.inputEnabled;
+    _voiceAutoSendAfterRecognition = voiceSettings.autoSendAfterRecognition;
+    _voiceTencentAppIdController.text = voiceSettings.tencentAppId;
+    _voiceTencentSecretIdController.text = voiceSettings.tencentSecretId;
+    _voiceTencentSecretKeyController.text = voiceSettings.tencentSecretKey;
+    _voiceTencentTokenController.text = voiceSettings.tencentToken;
+    _voiceTencentEngineController.text = voiceSettings.tencentEngineModelType;
     setState(() {});
     _notifyDetailPages();
   }
@@ -71,6 +87,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     _urlController.dispose();
     _passwordController.dispose();
+    _voiceTencentAppIdController.dispose();
+    _voiceTencentSecretIdController.dispose();
+    _voiceTencentSecretKeyController.dispose();
+    _voiceTencentTokenController.dispose();
+    _voiceTencentEngineController.dispose();
     _detailRefreshTick.dispose();
     super.dispose();
   }
@@ -91,6 +112,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await OpenClawSettingsStore.saveBackgroundServiceEnabled(
         _backgroundServiceEnabled,
       );
+      await OpenClawSettingsStore.saveVoiceSettings(_currentVoiceSettings());
       if (!mounted) return;
       final chatStore = context.read<ChatSessionStore>();
       final musicPlatformStore = context.read<MusicPlatformStore>();
@@ -106,6 +128,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('设置已保存，通知注册也会同步刷新')));
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+        _notifyDetailPages();
+      }
+    }
+  }
+
+  VoiceSettings _currentVoiceSettings() {
+    final engine = _voiceTencentEngineController.text.trim();
+    return VoiceSettings(
+      inputEnabled: _voiceInputEnabled,
+      tencentAppId: _voiceTencentAppIdController.text.trim(),
+      tencentSecretId: _voiceTencentSecretIdController.text.trim(),
+      tencentSecretKey: _voiceTencentSecretKeyController.text,
+      tencentToken: _voiceTencentTokenController.text.trim(),
+      tencentEngineModelType: engine.isEmpty ? '16k_zh' : engine,
+      autoSendAfterRecognition: _voiceAutoSendAfterRecognition,
+    );
+  }
+
+  Future<void> _saveVoiceSettingsOnly() async {
+    setState(() => _isSaving = true);
+    try {
+      await OpenClawSettingsStore.saveVoiceSettings(_currentVoiceSettings());
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('语音设置已保存到本机')));
     } finally {
       if (mounted) {
         setState(() => _isSaving = false);
@@ -545,6 +596,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 12),
           _SettingsEntryCard(
+            icon: Icons.graphic_eq_rounded,
+            accentColor: const Color(0xFFDB2777),
+            title: '语音',
+            subtitle: _voiceSummary(),
+            onTap:
+                () => _openDetailPage(
+                  title: '语音',
+                  icon: Icons.graphic_eq_rounded,
+                  accentColor: const Color(0xFFDB2777),
+                  builder: (context) => _buildVoiceSettingsContent(context),
+                ),
+          ),
+          const SizedBox(height: 12),
+          _SettingsEntryCard(
             icon: Icons.admin_panel_settings_rounded,
             accentColor: const Color(0xFFD97706),
             title: '服务管理',
@@ -626,6 +691,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
           return cli?.loginValid == true;
         }).length;
     return '$total 个平台 · $active 个已接入 Cookie · $cliReady 个 CLI 可用';
+  }
+
+  String _voiceSummary() {
+    if (!_voiceInputEnabled) return '语音输入未启用 · 语音输出待接入';
+    final hasSecret =
+        _voiceTencentSecretIdController.text.trim().isNotEmpty &&
+        _voiceTencentSecretKeyController.text.trim().isNotEmpty;
+    final engine = _voiceTencentEngineController.text.trim();
+    return [
+      '语音输入已启用',
+      hasSecret ? '腾讯云已配置' : '腾讯云未配置',
+      engine.isEmpty ? '16k_zh' : engine,
+      _voiceAutoSendAfterRecognition ? '松手自动发送' : '转文字后编辑',
+    ].join(' · ');
   }
 
   String _serviceSummary() {
@@ -825,6 +904,143 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
             ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildVoiceSettingsContent(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SettingsSectionCard(
+          title: '语音输入',
+          subtitle: '长按聊天输入栏的麦克风，把语音转成文字。第一版使用腾讯云一句话识别。',
+          icon: Icons.mic_rounded,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('启用语音输入'),
+                subtitle: const Text('启用并配置密钥后，可在移动端长按麦克风转文字'),
+                value: _voiceInputEnabled,
+                onChanged: (value) {
+                  setState(() => _voiceInputEnabled = value);
+                  _notifyDetailPages();
+                },
+              ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('松手后自动发送'),
+                subtitle: const Text('关闭时只把识别结果填进输入框，确认后再发送'),
+                value: _voiceAutoSendAfterRecognition,
+                onChanged: (value) {
+                  setState(() => _voiceAutoSendAfterRecognition = value);
+                  _notifyDetailPages();
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _SettingsSectionCard(
+          title: '腾讯云 ASR',
+          subtitle: '密钥仅保存在本机，适合个人使用；公共分发版本建议改用服务端临时凭证。',
+          icon: Icons.cloud_queue_rounded,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('AppID'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _voiceTencentAppIdController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: '腾讯云 AppID（为后续实时 SDK 预留）',
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('SecretID'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _voiceTencentSecretIdController,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: 'AKID...',
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('SecretKey'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _voiceTencentSecretKeyController,
+                obscureText: _obscureVoiceSecretKey,
+                decoration: InputDecoration(
+                  border: const OutlineInputBorder(),
+                  hintText: '腾讯云 SecretKey',
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _obscureVoiceSecretKey
+                          ? Icons.visibility_off
+                          : Icons.visibility,
+                    ),
+                    onPressed: () {
+                      setState(() {
+                        _obscureVoiceSecretKey = !_obscureVoiceSecretKey;
+                      });
+                      _notifyDetailPages();
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('Token（可选）'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _voiceTencentTokenController,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: '临时密钥 token，没有可留空',
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('识别引擎'),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _voiceTencentEngineController,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: '16k_zh',
+                  helperText: '常用：16k_zh 普通话，16k_zh-PY 中英粤，16k_en 英语',
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _SettingsSectionCard(
+          title: '语音输出',
+          subtitle: '后续接入 TTS、角色语音和自动朗读时会放在这里。',
+          icon: Icons.volume_up_rounded,
+          child: const Text('暂未启用'),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _isSaving ? null : _saveVoiceSettingsOnly,
+            icon:
+                _isSaving
+                    ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                    : const Icon(Icons.save_rounded),
+            label: Text(_isSaving ? '保存中…' : '保存语音设置'),
           ),
         ),
       ],

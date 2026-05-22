@@ -549,7 +549,7 @@ class _TavernScreenState extends State<TavernScreen>
   ) async {
     await this.context.read<TavernStore>().loadConfigHubData();
     if (!mounted) return;
-    final navigator = Navigator.of(context);
+    final navigator = Navigator.of(this.context);
     await navigator.push(
       MaterialPageRoute(
         builder:
@@ -1936,6 +1936,7 @@ class _TavernScreenState extends State<TavernScreen>
     final store = context.read<TavernStore>();
     if (store.providers.isEmpty) {
       await store.loadConfigOptions(notify: false);
+      if (!context.mounted) return;
     }
     final providers = store.providers;
     final isCreate = preset == null;

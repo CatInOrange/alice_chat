@@ -17,6 +17,7 @@ dependencies:
   markdown: ^7.3.0
   flutter_cache_manager: ^3.4.1
   http: ^1.2.2
+  crypto: ^3.0.6
   intl: ^0.20.2
   provider: ^6.1.2
   shared_preferences: ^2.5.3
@@ -38,6 +39,7 @@ dependencies:
   webview_windows: ^0.4.0
   mime: ^2.0.0
   open_filex: ^4.7.0
+  record: ^6.2.0
 
 dev_dependencies:
   flutter_test:
