@@ -349,6 +349,7 @@ class _ChatScreenState extends State<ChatScreen> {
   TencentRealtimeAsrSession? _voiceAsrSession;
   Timer? _streamingHintPulseTimer;
   Timer? _voiceSilenceTimer;
+  int _voiceConversationGeneration = 0;
   int _fallbackStreamingHintIndex = 0;
 
   static const double _pullTriggerDistance = 72;
@@ -356,6 +357,7 @@ class _ChatScreenState extends State<ChatScreen> {
   static const double _edgeHintHeight = 52;
   static const double _edgeHintCardHeight = 64;
   static const Duration _voiceSilenceTimeout = Duration(seconds: 3);
+  static const Duration _voiceFollowupWindowTimeout = Duration(seconds: 5);
 
   double _lastSavedOffset = -1;
   bool _lastSavedStickToBottom = true;
@@ -383,6 +385,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final Map<int, String> _voiceRealtimeSegments = {};
   bool _composerHasVoiceInputDraft = false;
   bool _shouldPlayNextAssistantReply = false;
+  bool _voiceConversationActive = false;
   String? _lastVoiceOutputMessageId;
   Set<String> _voiceReplyBaselineAssistantIds = const {};
   int _handledWakeVoiceInputTrigger = 0;
@@ -812,6 +815,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     if (oldWidget.session.id == widget.session.id) return;
 
+    _cancelVoiceConversationSideEffects(reason: 'session_changed');
     unawaited(_disposeVoiceAsrSession(closeSession: true));
     _notifyVoiceInputFinished();
     _lastSavedOffset = -1;
@@ -830,7 +834,11 @@ class _ChatScreenState extends State<ChatScreen> {
     _voiceAutoSendOverride = widget.wakeAutoSendAfterRecognition;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      unawaited(_startVoiceRecording());
+      unawaited(
+        _startVoiceRecording(
+          autoSendOverride: widget.wakeAutoSendAfterRecognition,
+        ),
+      );
     });
   }
 
@@ -1259,6 +1267,9 @@ class _ChatScreenState extends State<ChatScreen> {
       _quotedMessageDraft = null;
       _composerHasVoiceInputDraft = false;
       if (shouldPlayReplyForVoiceInput) {
+        _voiceConversationActive = true;
+      }
+      if (shouldPlayReplyForVoiceInput) {
         _shouldPlayNextAssistantReply = true;
         _voiceReplyBaselineAssistantIds = voiceReplyBaselineAssistantIds;
       }
@@ -1295,13 +1306,23 @@ class _ChatScreenState extends State<ChatScreen> {
           _isSendingAttachment = false;
         }
       });
-      _showSnackBar('发送附件失败：${_humanizeUiError(error)}');
+      if (sentFromVoiceInput) {
+        _endVoiceConversation(reason: 'send_failed');
+        _notifyVoiceInputFinished();
+      }
+      _showSnackBar(
+        '${pendingAttachment == null ? '发送失败' : '发送附件失败'}：${_humanizeUiError(error)}',
+      );
       return;
     }
 
     if (!mounted) return;
     if (pendingAttachment != null) {
       setState(() => _isSendingAttachment = false);
+    }
+    if (sentFromVoiceInput && !shouldPlayReplyForVoiceInput) {
+      _endVoiceConversation(reason: 'auto_tts_disabled');
+      _notifyVoiceInputFinished();
     }
   }
 
@@ -1339,7 +1360,10 @@ class _ChatScreenState extends State<ChatScreen> {
     _showSnackBar('长按麦克风开始说话');
   }
 
-  Future<void> _startVoiceRecording() async {
+  Future<void> _startVoiceRecording({
+    bool? autoSendOverride,
+    Duration? initialSilenceTimeout,
+  }) async {
     if (_isComposerBusy) {
       _notifyVoiceInputFinished();
       return;
@@ -1354,6 +1378,9 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       await widget.onVoiceInputStarting?.call();
       await _disposeVoiceAsrSession(closeSession: true);
+      if (autoSendOverride != null) {
+        _voiceAutoSendOverride = autoSendOverride;
+      }
       _voiceTextBeforeRecording = _composerController.text;
       _voiceRealtimeSegments.clear();
       final session = await _voiceAsrService.start(settings: _voiceSettings);
@@ -1372,12 +1399,13 @@ class _ChatScreenState extends State<ChatScreen> {
         _isVoiceRecognizing = false;
         _voiceStatusText = '正在实时识别，松手结束';
       });
-      _restartVoiceSilenceTimer();
+      _restartVoiceSilenceTimer(timeout: initialSilenceTimeout);
       HapticFeedback.lightImpact();
     } catch (error) {
       await _disposeVoiceAsrSession(closeSession: true);
       if (!mounted) return;
       _showSnackBar('启动录音失败：${_humanizeUiError(error)}');
+      _endVoiceConversation(reason: 'asr_start_failed');
       _notifyVoiceInputFinished();
     }
   }
@@ -1416,6 +1444,7 @@ class _ChatScreenState extends State<ChatScreen> {
           setState(() => _voiceStatusText = null);
         }
       });
+      _endVoiceConversation(reason: 'voice_cancelled');
       _notifyVoiceInputFinished();
       return;
     }
@@ -1432,6 +1461,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _voiceStatusText = null;
       });
       _showSnackBar('说话时间太短');
+      _endVoiceConversation(reason: 'too_short');
       _notifyVoiceInputFinished();
       return;
     }
@@ -1442,6 +1472,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _voiceStatusText = null;
       });
       _showSnackBar('实时识别连接未建立');
+      _endVoiceConversation(reason: 'missing_asr_session');
       _notifyVoiceInputFinished();
       return;
     }
@@ -1478,6 +1509,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _voiceStatusText = null;
     });
     _showSnackBar('实时语音识别失败：${_humanizeUiError(error)}');
+    _endVoiceConversation(reason: 'asr_error');
     _notifyVoiceInputFinished();
   }
 
@@ -1493,6 +1525,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.isEmpty) {
       _restoreVoiceTextBeforeRecording();
       _showSnackBar('没有识别到文字');
+      _endVoiceConversation(reason: 'empty_asr_result');
       _notifyVoiceInputFinished();
       return;
     }
@@ -1500,21 +1533,44 @@ class _ChatScreenState extends State<ChatScreen> {
     _composerHasVoiceInputDraft = true;
     final autoSend =
         _voiceAutoSendOverride ?? _voiceSettings.autoSendAfterRecognition;
+    if (autoSend) {
+      _voiceConversationActive = true;
+    }
     _notifyVoiceInputFinished();
     if (autoSend && text.isNotEmpty) {
       await _handleSend(_composerController.text);
+    } else {
+      _endVoiceConversation(reason: 'voice_draft_not_auto_sent');
     }
   }
 
   void _notifyVoiceInputFinished() {
     _voiceAutoSendOverride = null;
+    if (_voiceConversationActive) return;
     widget.onVoiceInputFinished?.call();
   }
 
-  void _restartVoiceSilenceTimer() {
+  void _endVoiceConversation({required String reason}) {
+    if (!_voiceConversationActive) return;
+    _voiceConversationActive = false;
+    _voiceConversationGeneration += 1;
+    unawaited(
+      NativeDebugBridge.instance.log(
+        'voice_conversation',
+        'ended reason=$reason',
+      ),
+    );
+  }
+
+  void _cancelVoiceConversationSideEffects({required String reason}) {
+    _cancelVoiceSilenceTimer();
+    _endVoiceConversation(reason: reason);
+  }
+
+  void _restartVoiceSilenceTimer({Duration? timeout}) {
     _voiceSilenceTimer?.cancel();
     if (!_isVoiceRecording) return;
-    _voiceSilenceTimer = Timer(_voiceSilenceTimeout, () {
+    _voiceSilenceTimer = Timer(timeout ?? _voiceSilenceTimeout, () {
       if (!mounted || !_isVoiceRecording) return;
       if (_currentVoiceRealtimeText.trim().isEmpty) {
         unawaited(_abortVoiceRecordingWithoutText());
@@ -1544,6 +1600,7 @@ class _ChatScreenState extends State<ChatScreen> {
     await _disposeVoiceAsrSession(closeSession: true);
     _restoreVoiceTextBeforeRecording();
     _showSnackBar('没有检测到语音，已结束');
+    _endVoiceConversation(reason: 'followup_timeout');
     _notifyVoiceInputFinished();
   }
 
@@ -2746,9 +2803,14 @@ class _ChatScreenState extends State<ChatScreen> {
       if (manual) {
         _showSnackBar('请先在设置的“语音”中启用语音输出并配置 MiniMax API Key');
       }
+      if (!manual) {
+        _endVoiceConversation(reason: 'tts_not_configured');
+        _notifyVoiceInputFinished();
+      }
       return;
     }
     try {
+      final generation = _voiceConversationGeneration;
       await _voiceOutputPlayer.stop();
       final result = await _voiceTtsService.synthesizeToFile(
         text: text,
@@ -2757,12 +2819,53 @@ class _ChatScreenState extends State<ChatScreen> {
       );
       await _voiceOutputPlayer.setFilePath(result.filePath);
       await _voiceOutputPlayer.play();
+      await _waitForVoiceOutputComplete(generation: generation);
+      if (!manual) {
+        _startVoiceFollowupWindow(generation: generation);
+      }
     } catch (error) {
       if (!mounted) return;
       if (manual) {
         _showSnackBar('语音播放失败：${_humanizeUiError(error)}');
+      } else {
+        _endVoiceConversation(reason: 'tts_failed');
+        _notifyVoiceInputFinished();
       }
     }
+  }
+
+  Future<void> _waitForVoiceOutputComplete({required int generation}) async {
+    await _voiceOutputPlayer.processingStateStream.firstWhere((state) {
+      return !mounted ||
+          generation != _voiceConversationGeneration ||
+          state == ProcessingState.completed ||
+          state == ProcessingState.idle;
+    });
+  }
+
+  void _startVoiceFollowupWindow({required int generation}) {
+    if (!mounted ||
+        !_voiceConversationActive ||
+        generation != _voiceConversationGeneration) {
+      return;
+    }
+    if (_isComposerBusy) {
+      _endVoiceConversation(reason: 'followup_blocked');
+      _notifyVoiceInputFinished();
+      return;
+    }
+    unawaited(
+      NativeDebugBridge.instance.log(
+        'voice_conversation',
+        'followup window opened session=${widget.session.id}',
+      ),
+    );
+    unawaited(
+      _startVoiceRecording(
+        autoSendOverride: true,
+        initialSilenceTimeout: _voiceFollowupWindowTimeout,
+      ),
+    );
   }
 
   Future<void> _confirmDeleteMessage(core.Message message) async {
@@ -3928,7 +4031,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final store = context.read<ChatSessionStore>();
     store.removeListener(_handleStoreChanged);
     _streamingHintPulseTimer?.cancel();
-    _cancelVoiceSilenceTimer();
+    _cancelVoiceConversationSideEffects(reason: 'dispose');
     _chatListController.removeListener(_handleScroll);
     _chatListController.dispose();
     _composerController.removeListener(_handleComposerTextChanged);
