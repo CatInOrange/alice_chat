@@ -11,6 +11,8 @@ import '../features/contacts/presentation/contacts_screen.dart';
 import '../features/chat/application/chat_session_store.dart';
 import '../features/chat/domain/chat_session.dart';
 import '../features/chat/presentation/chat_screen.dart';
+import '../features/voice/data/sherpa_wake_word_service.dart';
+import '../core/openclaw/openclaw_settings.dart';
 import '../core/debug/native_debug_bridge.dart';
 import '../features/diary/presentation/diary_sheet.dart';
 import '../features/notifications/application/background_connection_service.dart';
@@ -69,8 +71,15 @@ class _MainScaffoldState extends State<_MainScaffold>
   bool _desktopLive2dVisible = false;
   ChatSession? _activeChatSession;
   StreamSubscription<NotificationOpenData>? _notificationOpenSub;
+  StreamSubscription<SherpaWakeWordHit>? _wakeWordHitSub;
+  SherpaWakeWordTestSession? _wakeWordSession;
+  final SherpaWakeWordService _wakeWordService = SherpaWakeWordService();
   String _lastConsumedNotificationKey = '';
   late final WebviewHostController _webviewHostController;
+  bool _isWakeWordStarting = false;
+  bool _wakeWordPausedForVoiceInput = false;
+  int _wakeVoiceInputTrigger = 0;
+  bool? _wakeAutoSendAfterRecognition;
 
   // Single source of truth for contacts
   static final List<Contact> _contacts = [
@@ -125,6 +134,7 @@ class _MainScaffoldState extends State<_MainScaffold>
     _notificationOpenSub = NotificationService.instance.onNotificationOpened
         .listen(_handleNotificationOpen);
     unawaited(_ensureBackgroundServiceConfigured());
+    unawaited(_startWakeWordListening(reason: 'init'));
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _primeUnreadSessions();
       await _consumePendingNotificationOpen(source: 'postFrame');
@@ -135,6 +145,7 @@ class _MainScaffoldState extends State<_MainScaffold>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _notificationOpenSub?.cancel();
+    unawaited(_disposeWakeWordListener());
     _webviewHostController.disposeController();
     super.dispose();
   }
@@ -167,7 +178,125 @@ class _MainScaffoldState extends State<_MainScaffold>
       unawaited(context.read<ChatSessionStore>().handleAppResumed());
       unawaited(context.read<MusicStore>().handleAppResumed());
       unawaited(context.read<TodoStore>().refreshFromRemote(force: true));
+      unawaited(_startWakeWordListening(reason: 'resumed'));
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      unawaited(_stopWakeWordListening(reason: 'lifecycle_$state'));
     }
+  }
+
+  bool get _isWakeWordPlatformSupported {
+    if (kIsWeb) return false;
+    return defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS;
+  }
+
+  Future<void> _startWakeWordListening({required String reason}) async {
+    if (!_isWakeWordPlatformSupported ||
+        _wakeWordSession != null ||
+        _isWakeWordStarting ||
+        _wakeWordPausedForVoiceInput) {
+      return;
+    }
+    _isWakeWordStarting = true;
+    try {
+      final voiceSettings = await OpenClawSettingsStore.loadVoiceSettings();
+      final settings = voiceSettings.wakeWord;
+      if (!settings.enabled) return;
+      final session = await _wakeWordService.startTest(settings);
+      await _wakeWordHitSub?.cancel();
+      _wakeWordSession = session;
+      _wakeWordHitSub = session.hits.listen(
+        _handleWakeWordHit,
+        onError:
+            (Object error, StackTrace stackTrace) => unawaited(
+              NativeDebugBridge.instance.log(
+                'wake_word',
+                'listener error reason=$reason error=$error',
+                level: 'WARN',
+              ),
+            ),
+      );
+      unawaited(
+        NativeDebugBridge.instance.log(
+          'wake_word',
+          'listener started reason=$reason',
+        ),
+      );
+    } catch (error) {
+      unawaited(
+        NativeDebugBridge.instance.log(
+          'wake_word',
+          'listener start failed reason=$reason error=$error',
+          level: 'WARN',
+        ),
+      );
+    } finally {
+      _isWakeWordStarting = false;
+    }
+  }
+
+  Future<void> _stopWakeWordListening({required String reason}) async {
+    await _wakeWordHitSub?.cancel();
+    _wakeWordHitSub = null;
+    final session = _wakeWordSession;
+    _wakeWordSession = null;
+    await session?.stop();
+    unawaited(
+      NativeDebugBridge.instance.log(
+        'wake_word',
+        'listener stopped reason=$reason',
+      ),
+    );
+  }
+
+  Future<void> _disposeWakeWordListener() async {
+    await _stopWakeWordListening(reason: 'dispose');
+    await _wakeWordService.dispose();
+  }
+
+  void _handleWakeWordHit(SherpaWakeWordHit hit) {
+    unawaited(
+      NativeDebugBridge.instance.log(
+        'wake_word',
+        'hit keyword=${hit.keyword} session=${hit.sessionId} navigate=${hit.navigateToChat} voice=${hit.startVoiceInput}',
+      ),
+    );
+    final contact = _findContactBySessionId(hit.sessionId);
+    if (contact == null) return;
+    if (hit.navigateToChat) {
+      _navigateToChat(contact);
+    }
+    if (!hit.startVoiceInput) return;
+    unawaited(_triggerWakeVoiceInput(hit));
+  }
+
+  Future<void> _triggerWakeVoiceInput(SherpaWakeWordHit hit) async {
+    _wakeWordPausedForVoiceInput = true;
+    await _stopWakeWordListening(reason: 'wake_hit_voice_input');
+    if (!mounted) return;
+    setState(() {
+      _wakeAutoSendAfterRecognition = hit.autoSendAfterRecognition;
+      _wakeVoiceInputTrigger += 1;
+    });
+  }
+
+  Future<void> _handleChatVoiceInputStarting() async {
+    _wakeWordPausedForVoiceInput = true;
+    await _stopWakeWordListening(reason: 'chat_voice_input_starting');
+  }
+
+  void _handleChatVoiceInputFinished() {
+    if (!_wakeWordPausedForVoiceInput) return;
+    _wakeWordPausedForVoiceInput = false;
+    unawaited(
+      Future<void>.delayed(const Duration(milliseconds: 800), () {
+        if (mounted) {
+          return _startWakeWordListening(reason: 'chat_voice_input_finished');
+        }
+      }),
+    );
   }
 
   void _navigateToChat(Contact contact) {
@@ -511,6 +640,10 @@ class _MainScaffoldState extends State<_MainScaffold>
                       _activeChatSession!.id == 'alice'
                           ? _openCompanionWebview
                           : null,
+                  wakeVoiceInputTrigger: _wakeVoiceInputTrigger,
+                  wakeAutoSendAfterRecognition: _wakeAutoSendAfterRecognition,
+                  onVoiceInputStarting: _handleChatVoiceInputStarting,
+                  onVoiceInputFinished: _handleChatVoiceInputFinished,
                 ),
               ),
             ),
@@ -827,6 +960,10 @@ class _MainScaffoldState extends State<_MainScaffold>
                 _activeChatSession!.id == 'alice'
                     ? _openCompanionWebview
                     : null,
+            wakeVoiceInputTrigger: _wakeVoiceInputTrigger,
+            wakeAutoSendAfterRecognition: _wakeAutoSendAfterRecognition,
+            onVoiceInputStarting: _handleChatVoiceInputStarting,
+            onVoiceInputFinished: _handleChatVoiceInputFinished,
           ),
         ),
       );

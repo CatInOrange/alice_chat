@@ -17,12 +17,20 @@ class SherpaWakeWordHit {
     required this.sessionId,
     required this.label,
     required this.at,
+    this.navigateToChat = true,
+    this.startVoiceInput = true,
+    this.autoSendAfterRecognition,
+    this.autoPlayReply = true,
   });
 
   final String keyword;
   final String sessionId;
   final String label;
   final DateTime at;
+  final bool navigateToChat;
+  final bool startVoiceInput;
+  final bool? autoSendAfterRecognition;
+  final bool autoPlayReply;
 }
 
 class SherpaWakeWordModelStatus {
@@ -165,6 +173,10 @@ class SherpaWakeWordService {
             sessionId: target.sessionId,
             label: target.label,
             at: DateTime.now(),
+            navigateToChat: target.navigateToChat,
+            startVoiceInput: target.startVoiceInput,
+            autoSendAfterRecognition: target.autoSendAfterRecognition,
+            autoPlayReply: target.autoPlayReply,
           ),
         );
         spotter.reset(stream);
@@ -336,6 +348,7 @@ const _expectedModelFiles = [
 const _knownChineseKeywordTokens = {
   '晚秋晚秋': 'w ǎn q iū w ǎn q iū',
   '苏晚秋': 's ū w ǎn q iū',
+  '小秋小秋': 'x iǎo q iū x iǎo q iū',
   '玲珑玲珑': 'l íng l óng l íng l óng',
   '玉玲珑': 'y ù l íng l óng',
   '素心素心': 's ù x īn s ù x īn',

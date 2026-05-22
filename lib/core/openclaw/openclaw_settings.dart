@@ -53,6 +53,9 @@ class VoiceWakeWordTargetSettings {
         if (keyword.isNotEmpty) keywords.add(keyword);
       }
     }
+    for (final keyword in fallback.keywords) {
+      if (!keywords.contains(keyword)) keywords.add(keyword);
+    }
     return VoiceWakeWordTargetSettings(
       sessionId: (json['sessionId'] ?? fallback.sessionId).toString().trim(),
       label: (json['label'] ?? fallback.label).toString().trim(),
@@ -107,7 +110,7 @@ class VoiceWakeWordSettings {
     VoiceWakeWordTargetSettings(
       sessionId: 'alice',
       label: '晚秋',
-      keywords: ['晚秋晚秋', '苏晚秋'],
+      keywords: ['晚秋晚秋', '苏晚秋', '小秋小秋'],
     ),
     VoiceWakeWordTargetSettings(
       sessionId: 'yulinglong',

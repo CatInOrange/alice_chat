@@ -37,11 +37,19 @@ class ChatScreen extends StatefulWidget {
     required this.session,
     this.onBack,
     this.onOpenCompanion,
+    this.wakeVoiceInputTrigger = 0,
+    this.wakeAutoSendAfterRecognition,
+    this.onVoiceInputStarting,
+    this.onVoiceInputFinished,
   });
 
   final ChatSession session;
   final VoidCallback? onBack;
   final VoidCallback? onOpenCompanion;
+  final int wakeVoiceInputTrigger;
+  final bool? wakeAutoSendAfterRecognition;
+  final Future<void> Function()? onVoiceInputStarting;
+  final VoidCallback? onVoiceInputFinished;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -375,6 +383,8 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _shouldPlayNextAssistantReply = false;
   String? _lastVoiceOutputMessageId;
   Set<String> _voiceReplyBaselineAssistantIds = const {};
+  int _handledWakeVoiceInputTrigger = 0;
+  bool? _voiceAutoSendOverride;
 
   // Composer height tracking for relative positioning of floating elements
   static const double _composerPaddingVertical = 20.0; // 8 + 12
@@ -427,6 +437,7 @@ class _ChatScreenState extends State<ChatScreen> {
       store.addListener(_handleStoreChanged);
       _handleStoreChanged();
       store.ensureReady(widget.session);
+      _consumeWakeVoiceInputTrigger();
     });
   }
 
@@ -794,6 +805,9 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void didUpdateWidget(covariant ChatScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.wakeVoiceInputTrigger != widget.wakeVoiceInputTrigger) {
+      _consumeWakeVoiceInputTrigger();
+    }
     if (oldWidget.session.id == widget.session.id) return;
 
     _lastSavedOffset = -1;
@@ -802,6 +816,18 @@ class _ChatScreenState extends State<ChatScreen> {
     _chatController.setMessages(const []);
     _handleStoreChanged();
     context.read<ChatSessionStore>().ensureReady(widget.session);
+    _consumeWakeVoiceInputTrigger();
+  }
+
+  void _consumeWakeVoiceInputTrigger() {
+    final trigger = widget.wakeVoiceInputTrigger;
+    if (trigger <= 0 || trigger == _handledWakeVoiceInputTrigger) return;
+    _handledWakeVoiceInputTrigger = trigger;
+    _voiceAutoSendOverride = widget.wakeAutoSendAfterRecognition;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(_startVoiceRecording());
+    });
   }
 
   void _handleStoreChanged() {
@@ -1310,14 +1336,19 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _startVoiceRecording() async {
-    if (_isComposerBusy) return;
+    if (_isComposerBusy) {
+      _notifyVoiceInputFinished();
+      return;
+    }
     await _loadVoiceSettings();
     if (!_isVoicePlatformSupported || !_voiceSettings.canUseInput) {
       await _handleVoiceTap();
+      _notifyVoiceInputFinished();
       return;
     }
 
     try {
+      await widget.onVoiceInputStarting?.call();
       await _disposeVoiceAsrSession(closeSession: true);
       _voiceTextBeforeRecording = _composerController.text;
       _voiceRealtimeSegments.clear();
@@ -1342,6 +1373,7 @@ class _ChatScreenState extends State<ChatScreen> {
       await _disposeVoiceAsrSession(closeSession: true);
       if (!mounted) return;
       _showSnackBar('启动录音失败：${_humanizeUiError(error)}');
+      _notifyVoiceInputFinished();
     }
   }
 
@@ -1378,6 +1410,7 @@ class _ChatScreenState extends State<ChatScreen> {
           setState(() => _voiceStatusText = null);
         }
       });
+      _notifyVoiceInputFinished();
       return;
     }
 
@@ -1393,6 +1426,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _voiceStatusText = null;
       });
       _showSnackBar('说话时间太短');
+      _notifyVoiceInputFinished();
       return;
     }
 
@@ -1402,6 +1436,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _voiceStatusText = null;
       });
       _showSnackBar('实时识别连接未建立');
+      _notifyVoiceInputFinished();
       return;
     }
 
@@ -1428,6 +1463,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _voiceStatusText = null;
     });
     _showSnackBar('实时语音识别失败：${_humanizeUiError(error)}');
+    _notifyVoiceInputFinished();
   }
 
   Future<void> _handleVoiceAsrDone() async {
@@ -1441,13 +1477,22 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.isEmpty) {
       _restoreVoiceTextBeforeRecording();
       _showSnackBar('没有识别到文字');
+      _notifyVoiceInputFinished();
       return;
     }
     _replaceRecognizedVoiceText(text);
     _composerHasVoiceInputDraft = true;
-    if (_voiceSettings.autoSendAfterRecognition && text.isNotEmpty) {
+    final autoSend =
+        _voiceAutoSendOverride ?? _voiceSettings.autoSendAfterRecognition;
+    _notifyVoiceInputFinished();
+    if (autoSend && text.isNotEmpty) {
       await _handleSend(_composerController.text);
     }
+  }
+
+  void _notifyVoiceInputFinished() {
+    _voiceAutoSendOverride = null;
+    widget.onVoiceInputFinished?.call();
   }
 
   String get _currentVoiceRealtimeText {
