@@ -42,6 +42,26 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      - name: Prepare build version
+        run: |
+          BUILD_TIME=$(TZ=Asia/Shanghai date +%Y%m%d%H%M)
+          BUILD_NUMBER=$(TZ=Asia/Shanghai date +%y%j%H%M)
+          BASE_VERSION=$(python3 - << 'EOF'
+          from pathlib import Path
+          for line in Path('pubspec.yaml').read_text(encoding='utf-8').splitlines():
+              if line.startswith('version:'):
+                  print(line.split(':', 1)[1].strip().split('+', 1)[0])
+                  break
+          EOF
+          )
+          VERSION_NAME="${BASE_VERSION}-${BUILD_TIME}"
+          {
+            echo "BUILD_TIME=$BUILD_TIME"
+            echo "BUILD_NUMBER=$BUILD_NUMBER"
+            echo "VERSION_NAME=$VERSION_NAME"
+          } >> "$GITHUB_ENV"
+          echo "Version: $VERSION_NAME+$BUILD_NUMBER"
+
       - name: Cache Flutter pub
         uses: actions/cache@v4
         with:
@@ -85,13 +105,52 @@ jobs:
           key: flutter-artifacts-${{ runner.os }}
 
       - name: Build release APK
-        run: flutter build apk --release
+        run: flutter build apk --release --build-name "$VERSION_NAME" --build-number "$BUILD_NUMBER"
 
       - name: Compress APK
         run: |
           cd build/app/outputs/flutter-apk
           zip app-release.apk.zip app-release.apk
           echo "Compressed size: $(du -h app-release.apk.zip | cut -f1)"
+
+      - name: Prepare update manifest
+        env:
+          COS_BUCKET: ${{ secrets.COS_BUCKET }}
+          COS_REGION: ${{ secrets.COS_REGION }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          python3 << 'EOF'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          apk_zip = Path('build/app/outputs/flutter-apk/app-release.apk.zip')
+          digest = hashlib.sha256(apk_zip.read_bytes()).hexdigest()
+          bucket = os.environ['COS_BUCKET']
+          region = os.environ['COS_REGION']
+          version_path = f'apk/releases/{os.environ["BUILD_TIME"]}/app-release.apk.zip'
+          manifest = {
+              'schema': 1,
+              'appId': 'alice_chat',
+              'platform': 'android',
+              'versionName': os.environ['VERSION_NAME'],
+              'buildNumber': int(os.environ['BUILD_NUMBER']),
+              'buildTime': os.environ['BUILD_TIME'],
+              'apkZipUrl': f'https://{bucket}.cos.{region}.myqcloud.com/{version_path}',
+              'latestApkZipUrl': f'https://{bucket}.cos.{region}.myqcloud.com/apk/app-release.apk.zip',
+              'sha256': digest,
+              'size': apk_zip.stat().st_size,
+              'releaseNotes': os.environ.get('HEAD_COMMIT_MESSAGE') or '',
+              'commit': os.environ.get('GITHUB_SHA', ''),
+              'publishedAt': os.environ['BUILD_TIME'],
+          }
+          Path('build/app/outputs/flutter-apk/latest.json').write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2),
+              encoding='utf-8',
+          )
+          print(json.dumps(manifest, ensure_ascii=False, indent=2))
+          EOF
 
       - name: Setup COS CLI
         run: |
@@ -125,8 +184,11 @@ jobs:
           )
           client = CosS3Client(config)
 
-          local_file = 'build/app/outputs/flutter-apk/app-release.apk.zip'
-          cos_path = 'apk/app-release.apk.zip'
+          files = [
+              ('build/app/outputs/flutter-apk/app-release.apk.zip', 'apk/app-release.apk.zip'),
+              ('build/app/outputs/flutter-apk/app-release.apk.zip', f'apk/releases/{os.environ["BUILD_TIME"]}/app-release.apk.zip'),
+              ('build/app/outputs/flutter-apk/latest.json', 'apk/latest.json'),
+          ]
 
           def upload_with_retry(client, bucket, local_file, cos_path, max_retries=3):
               for attempt in range(max_retries):
@@ -140,6 +202,11 @@ jobs:
                           PartSize=20,
                           MAXThread=20
                       )
+                      client.put_object_acl(
+                          Bucket=bucket,
+                          Key=cos_path,
+                          ACL='public-read',
+                      )
                       logger.info('Upload complete!')
                       return True
                   except (CosClientError, CosServiceError, Exception) as e:
@@ -151,14 +218,13 @@ jobs:
               return False
 
           bucket = os.environ['COS_BUCKET']
-          success = upload_with_retry(client, bucket, local_file, cos_path)
+          success = True
+          for local_file, cos_path in files:
+              success = upload_with_retry(client, bucket, local_file, cos_path) and success
 
           if success:
-              print(f'COS URL: https://{bucket}.cos.{os.environ["COS_REGION"]}.myqcloud.com/{cos_path}')
+              print(f'Latest manifest: https://{bucket}.cos.{os.environ["COS_REGION"]}.myqcloud.com/apk/latest.json')
           else:
               logger.error('Upload failed after all retries')
               exit(1)
           EOF
-        continue-on-error: true
-
-

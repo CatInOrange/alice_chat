@@ -20,6 +20,7 @@ import '../../tavern/presentation/tavern_screen.dart';
 import '../../todo/presentation/todo_screen.dart';
 import '../../voice/data/sherpa_wake_word_service.dart';
 import '../../voice/data/wake_reply_audio_cache_service.dart';
+import 'app_update_screen.dart';
 import 'debug_logs_panel.dart';
 import '../../../app/theme.dart';
 
@@ -1068,6 +1069,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 () => Navigator.of(context).push(
                   MaterialPageRoute<void>(
                     builder: (_) => const TavernScreen(configOnly: true),
+                  ),
+                ),
+          ),
+          const SizedBox(height: 12),
+          _SettingsEntryCard(
+            icon: Icons.system_update_rounded,
+            accentColor: const Color(0xFF0891B2),
+            title: '应用更新',
+            subtitle: '检查 GitHub Actions 发布的最新安装包，下载后交给系统安装器。',
+            onTap:
+                () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AppUpdateScreen(),
                   ),
                 ),
           ),
