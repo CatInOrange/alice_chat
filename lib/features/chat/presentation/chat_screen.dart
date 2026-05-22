@@ -2393,10 +2393,95 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _openMarkdownLink(String? href) async {
-    if (href == null || href.isEmpty) return;
-    final uri = Uri.tryParse(href);
+    final rawHref = href?.trim() ?? '';
+    if (rawHref.isEmpty) return;
+    final fileHref = _normalizeMarkdownFileHref(rawHref);
+    final resolvedUrl = _resolveAttachmentUrl(fileHref);
+    if (resolvedUrl.isEmpty) return;
+
+    if (_shouldOpenMarkdownLinkInApp(fileHref, resolvedUrl)) {
+      try {
+        final fileName = _fileNameFromMarkdownLink(fileHref, resolvedUrl);
+        final mimeType = lookupMimeType(fileName) ?? '';
+        final localPath = await _materializeAttachmentForOpen(
+          resolvedUrl: resolvedUrl,
+          fileName: fileName,
+          mimeType: mimeType,
+          attachmentId: 'markdown-link',
+        );
+        final result = await OpenFilex.open(
+          localPath,
+          type: mimeType.isEmpty ? null : mimeType,
+        );
+        if (!mounted || result.type == ResultType.done) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              result.message.isEmpty ? '没有可用应用打开该文件' : result.message,
+            ),
+          ),
+        );
+      } catch (error) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('打开链接失败: $error')));
+      }
+      return;
+    }
+
+    final uri = Uri.tryParse(resolvedUrl);
     if (uri == null) return;
     await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  String _normalizeMarkdownFileHref(String rawHref) {
+    if (!_looksLikeLocalAbsolutePath(rawHref)) return rawHref;
+    final withoutLineSuffix = rawHref.replaceFirst(
+      RegExp(r':\d+(?::\d+)?$'),
+      '',
+    );
+    if (withoutLineSuffix != rawHref && File(withoutLineSuffix).existsSync()) {
+      return withoutLineSuffix;
+    }
+    return rawHref;
+  }
+
+  bool _shouldOpenMarkdownLinkInApp(String rawHref, String resolvedUrl) {
+    if (rawHref.startsWith('data:') || rawHref.startsWith('file:')) return true;
+    if (rawHref.startsWith('/uploads/')) return true;
+    if (rawHref.startsWith('/api/media/file')) return true;
+    if (_looksLikeLocalAbsolutePath(rawHref)) return true;
+
+    final uri = Uri.tryParse(resolvedUrl);
+    return uri != null && uri.path == '/api/media/file';
+  }
+
+  bool _looksLikeLocalAbsolutePath(String value) {
+    if (value.startsWith('/root/')) return true;
+    if (value.startsWith('/Users/')) return true;
+    if (value.startsWith('/home/')) return true;
+    return RegExp(r'^[a-zA-Z]:[\\/]').hasMatch(value);
+  }
+
+  String _fileNameFromMarkdownLink(String rawHref, String resolvedUrl) {
+    final resolvedUri = Uri.tryParse(resolvedUrl);
+    final mediaPath = resolvedUri?.queryParameters['path'];
+    final candidates = [
+      mediaPath,
+      Uri.tryParse(rawHref)?.path,
+      resolvedUri?.path,
+      rawHref,
+    ];
+    for (final candidate in candidates) {
+      final value = (candidate ?? '').trim();
+      if (value.isEmpty || value.startsWith('data:')) continue;
+      final basename = p.basename(value);
+      if (basename.isNotEmpty && basename != '.' && basename != '/') {
+        return basename;
+      }
+    }
+    return 'attachment';
   }
 
   String _formatMessageTime(DateTime dateTime) {

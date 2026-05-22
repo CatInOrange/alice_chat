@@ -124,6 +124,7 @@ def _resolve_allowed_media_path(raw_path: str, *, context: AppContext) -> tuple[
     path = Path(os.path.expanduser(value)).resolve()
     allowed_roots = [
         context.uploads_dir.resolve(),
+        ROOT.resolve(),
         (ROOT.parent / 'media').resolve(),
     ]
     if not any(_is_within(path, root) for root in allowed_roots):
