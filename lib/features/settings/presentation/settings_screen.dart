@@ -462,6 +462,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _installBundledVoiceWakeModel() async {
+    setState(() {
+      _voiceWakeTestStatus = '正在安装内置默认模型…';
+      _voiceWakeTestLogs.insert(0, '安装内置默认模型');
+    });
+    _notifyDetailPages();
+    try {
+      final status = await _voiceWakeWordService.installBundledDefaultModel(
+        _currentVoiceWakeWordSettings(),
+        overwrite: true,
+      );
+      if (!mounted) return;
+      setState(() {
+        _voiceWakeTestStatus = status.ready ? '默认模型已就绪' : '默认模型安装不完整';
+        _voiceWakeTestLogs.insert(0, '模型目录：${status.directory}');
+        if (status.missingFiles.isNotEmpty) {
+          _voiceWakeTestLogs.insert(
+            0,
+            '缺少文件：${status.missingFiles.join(', ')}',
+          );
+        }
+      });
+      _notifyDetailPages();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(status.ready ? '默认模型已安装' : '默认模型安装不完整')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _voiceWakeTestStatus = '安装默认模型失败：$error';
+        _voiceWakeTestLogs.insert(0, '安装默认模型失败：$error');
+      });
+      _notifyDetailPages();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('安装默认模型失败：$error')));
+    }
+  }
+
   Future<void> _stopVoiceWakeTest({bool silent = false}) async {
     await _voiceWakeHitSubscription?.cancel();
     _voiceWakeHitSubscription = null;
@@ -1793,12 +1832,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               OutlinedButton.icon(
                 onPressed:
-                    () => launchUrl(
-                      Uri.parse(SherpaWakeWordService.modelDownloadUrl),
-                      mode: LaunchMode.externalApplication,
-                    ),
-                icon: const Icon(Icons.download_rounded),
-                label: const Text('打开模型下载'),
+                    _isVoiceWakeTesting
+                        ? null
+                        : () => _installBundledVoiceWakeModel(),
+                icon: const Icon(Icons.install_mobile_rounded),
+                label: const Text('重新安装默认模型'),
               ),
             ],
           ),
@@ -1819,7 +1857,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
           const SizedBox(height: 6),
           const Text(
-            '自定义中文词暂时需要填入 tokenized 行，例如 “l íng l óng @玲珑”；默认角色词已内置。',
+            '默认 3.3M 中文模型已随安装包内置，首次测试会自动安装到本机目录。自定义中文词暂时需要填入 tokenized 行。',
             style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
           ),
         ],

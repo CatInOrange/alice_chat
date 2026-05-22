@@ -58,3 +58,4 @@ flutter:
     - assets/avatars/user.jpg
     - assets/avatars/wanqiu_loading.jpg
     - assets/avatars/tavern_default.png
+    - assets/sherpa_onnx/kws_zh_3.3m/

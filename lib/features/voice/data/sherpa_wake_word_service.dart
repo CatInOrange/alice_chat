@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
@@ -57,6 +58,45 @@ class SherpaWakeWordService {
   final AudioRecorder _recorder = AudioRecorder();
 
   Future<SherpaWakeWordModelStatus> modelStatus(
+    VoiceWakeWordSettings settings,
+  ) async {
+    await installBundledDefaultModel(settings);
+    final dir = await _resolveModelDirectory(settings);
+    final missing = <String>[
+      for (final file in _expectedModelFiles)
+        if (!File(p.join(dir.path, file)).existsSync()) file,
+    ];
+    return SherpaWakeWordModelStatus(
+      directory: dir.path,
+      ready: missing.isEmpty,
+      missingFiles: missing,
+    );
+  }
+
+  Future<SherpaWakeWordModelStatus> installBundledDefaultModel(
+    VoiceWakeWordSettings settings, {
+    bool overwrite = false,
+  }) async {
+    final configured = settings.modelAssetPath.trim();
+    if (configured.isNotEmpty &&
+        configured != VoiceWakeWordSettings.defaultModelAssetPath) {
+      return _rawModelStatus(settings);
+    }
+
+    final dir = await _resolveModelDirectory(settings);
+    await dir.create(recursive: true);
+    for (final file in _expectedModelFiles) {
+      final output = File(p.join(dir.path, file));
+      if (!overwrite && output.existsSync()) continue;
+      final bytes = await rootBundle.load(
+        '${VoiceWakeWordSettings.defaultModelAssetPath}/$file',
+      );
+      await output.writeAsBytes(bytes.buffer.asUint8List(), flush: true);
+    }
+    return _rawModelStatus(settings);
+  }
+
+  Future<SherpaWakeWordModelStatus> _rawModelStatus(
     VoiceWakeWordSettings settings,
   ) async {
     final dir = await _resolveModelDirectory(settings);
