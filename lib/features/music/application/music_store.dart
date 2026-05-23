@@ -2725,6 +2725,17 @@ class MusicStore extends ChangeNotifier {
   }
 
   void _dispatchMusicActionEvent(Map<String, dynamic> payload) {
+    _debugState(
+      'events.music_action.received',
+      extra: {
+        'actionType': payload['type'],
+        'actionSource': payload['source'],
+        'actionRequestId': payload['requestId'],
+        'actionPayload': jsonEncode(payload['payload']),
+        'seq': _lastEventSeq,
+      },
+      force: true,
+    );
     try {
       final action = MusicAction.fromMap(payload);
       unawaited(handleAction(action));
@@ -3083,6 +3094,7 @@ class MusicStore extends ChangeNotifier {
           'sourceTrackId': resolved.track.sourceTrackId,
           'resolvedProviderId': resolved.resolvedSource?.providerId,
         },
+        force: true,
       );
       return resolved.copyWith(
         track: resolved.track.copyWith(
