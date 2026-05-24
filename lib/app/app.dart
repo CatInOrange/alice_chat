@@ -27,6 +27,7 @@ import '../features/tavern/application/tavern_store.dart';
 import '../features/tavern/presentation/tavern_screen.dart';
 import '../features/todo/application/todo_store.dart';
 import '../features/todo/presentation/todo_screen.dart';
+import '../features/habits/application/habits_store.dart';
 import '../features/webview/application/webview_host_controller.dart';
 import '../features/webview/presentation/companion_webview_page.dart';
 import '../features/webview/presentation/webview_screen.dart';
@@ -45,6 +46,7 @@ class AliceChatApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => MusicPlatformStore()),
         ChangeNotifierProvider(create: (_) => TavernStore()),
         ChangeNotifierProvider(create: (_) => TodoStore(), lazy: false),
+        ChangeNotifierProvider(create: (_) => HabitsStore(), lazy: false),
       ],
       child: MaterialApp(
         title: 'Alice Chat',

@@ -22,6 +22,7 @@ from .routes.chat import create_chat_router
 from .routes.debug import create_debug_router
 from .routes.diary import create_diary_router
 from .routes.events import create_events_router
+from .routes.habits import create_habits_router
 from .routes.push import create_push_router
 from .routes.media import create_media_router
 from .routes.music import create_music_router
@@ -219,6 +220,7 @@ def create_app() -> FastAPI:
     async def lifespan(_: FastAPI):
         recovery_task: asyncio.Task | None = None
         diary_scheduler_task: asyncio.Task | None = None
+        habits_scheduler_task: asyncio.Task | None = None
         context.session_store.ensure_schema()
         context.message_store.ensure_schema()
         context.music_store.ensure_schema()
@@ -228,12 +230,14 @@ def create_app() -> FastAPI:
         context.events_bus.store.ensure_schema()
         context.push_device_store.ensure_schema()
         context.todo_store.ensure_schema()
+        context.habits_store.ensure_schema()
         context.tavern_store.ensure_schema()
         context.recovery_service.ensure_schema()
         context.events_bus.bind_loop(asyncio.get_running_loop())
         set_push_callback(lambda frame: _persist_push_message(context, frame))
         recovery_task = asyncio.create_task(context.recovery_service.run_loop())
         diary_scheduler_task = asyncio.create_task(context.diary_service.run_daily_scheduler())
+        habits_scheduler_task = asyncio.create_task(context.habits_service.run_daily_scheduler())
         try:
             for provider in get_chat_providers():
                 if str(provider.get('type') or '').strip() == 'openclaw-channel':
@@ -254,6 +258,12 @@ def create_app() -> FastAPI:
                 diary_scheduler_task.cancel()
                 try:
                     await diary_scheduler_task
+                except asyncio.CancelledError:
+                    pass
+            if habits_scheduler_task is not None:
+                habits_scheduler_task.cancel()
+                try:
+                    await habits_scheduler_task
                 except asyncio.CancelledError:
                     pass
             set_push_callback(None)
@@ -286,6 +296,7 @@ def create_app() -> FastAPI:
     app.include_router(create_media_router(context))
     app.include_router(create_music_router(context))
     app.include_router(create_todo_router(context))
+    app.include_router(create_habits_router(context))
     app.include_router(create_diary_router(context))
     app.include_router(create_tavern_router(context))
     app.include_router(create_debug_router(context))

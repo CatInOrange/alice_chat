@@ -6,6 +6,9 @@ import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../app/theme.dart';
+import '../../habits/application/habits_store.dart';
+import '../../habits/domain/habits_models.dart';
+import '../../habits/presentation/habits_widgets.dart';
 import '../application/todo_store.dart';
 import '../domain/todo_models.dart';
 
@@ -39,6 +42,7 @@ class _TodoScreenState extends State<TodoScreen>
   DateTime? _lastAutoRefreshAt;
   bool _refreshInFlight = false;
   bool _autoRefreshQueued = false;
+  bool _isHabitsMode = false;
 
   @override
   void initState() {
@@ -48,6 +52,8 @@ class _TodoScreenState extends State<TodoScreen>
         _todoHeroMessages[Random().nextInt(_todoHeroMessages.length)];
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_refreshTodo(forceRemote: true, markAutoRefresh: true));
+      final habitsStore = context.read<HabitsStore>();
+      unawaited(habitsStore.ensureLoaded());
     });
   }
 
@@ -60,6 +66,9 @@ class _TodoScreenState extends State<TodoScreen>
       return;
     }
     _scheduleAutoRefresh(force: true);
+    if (mounted) {
+      unawaited(context.read<HabitsStore>().refreshFromRemote(force: true));
+    }
   }
 
   @override
@@ -91,6 +100,25 @@ class _TodoScreenState extends State<TodoScreen>
     }
 
     _scheduleAutoRefresh();
+    final habitsStore = context.watch<HabitsStore>();
+
+    if (_isHabitsMode) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF6F7FB),
+        appBar: AppBar(
+          title: const Text('习惯'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.add),
+              onPressed: () => _openHabitEditor(),
+              tooltip: '新建习惯',
+            ),
+          ],
+        ),
+        body: _buildHabitsBody(habitsStore),
+        floatingActionButton: _AddHabitFab(onTap: _openHabitEditor),
+      );
+    }
 
     var filteredTasks = switch (_activeFilter) {
       _TaskFeedFilter.all => store.tasks
@@ -246,7 +274,22 @@ class _TodoScreenState extends State<TodoScreen>
     return Scaffold(
       backgroundColor: const Color(0xFFF6F7FB),
       appBar: AppBar(
-        title: const Text('待办'),
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _SegmentToggle(
+              label: '待办事项',
+              selected: !_isHabitsMode,
+              onTap: () => setState(() => _isHabitsMode = false),
+            ),
+            const SizedBox(width: 8),
+            _SegmentToggle(
+              label: '🏃 习惯',
+              selected: _isHabitsMode,
+              onTap: () => setState(() => _isHabitsMode = true),
+            ),
+          ],
+        ),
         actions: [
           if (store.activeProjects.length > 1)
             IconButton(
@@ -431,6 +474,54 @@ class _TodoScreenState extends State<TodoScreen>
       subtasks: result.subtasks
           .map((item) => item.copyWith(taskId: taskId))
           .toList(growable: false),
+    );
+  }
+
+  Widget _buildHabitsBody(HabitsStore habitsStore) {
+    if (habitsStore.isLoading && !habitsStore.isLoaded) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final habits = habitsStore.habits;
+    return RefreshIndicator(
+      onRefresh: () => habitsStore.refreshFromRemote(force: true),
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
+        slivers: [
+          SliverToBoxAdapter(child: HabitsHeroCard(habits: habits)),
+          if (habits.isEmpty)
+            const HabitsEmptyState()
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
+              sliver: SliverList.builder(
+                itemCount: habits.length,
+                itemBuilder: (context, index) {
+                  final habit = habits[index];
+                  return HabitCard(
+                    habit: habit,
+                    onToggle: () => habitsStore.toggleHabit(habit.id),
+                  );
+                },
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openHabitEditor({Habit? habit}) async {
+    final habitsStore = context.read<HabitsStore>();
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ChangeNotifierProvider<HabitsStore>.value(
+        value: habitsStore,
+        child: HabitEditorSheet(habit: habit),
+      ),
     );
   }
 }
@@ -3292,4 +3383,56 @@ String _formatDue(DateTime dueAt, {bool withDate = false}) {
 bool _isSameDay(DateTime? a, DateTime b) {
   if (a == null) return false;
   return a.year == b.year && a.month == b.month && a.day == b.day;
+}
+
+// ── Segment Toggle Widget ──────────────────────────────────
+
+class _SegmentToggle extends StatelessWidget {
+  const _SegmentToggle({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          color: selected ? const Color(0xFF7BAAF7) : const Color(0xFFEEF1F8),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: selected ? Colors.white : const Color(0xFF7B8496),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AddHabitFab extends StatelessWidget {
+  const _AddHabitFab({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return FloatingActionButton(
+      onPressed: onTap,
+      backgroundColor: const Color(0xFF7BAAF7),
+      child: const Icon(Icons.add, color: Colors.white),
+    );
+  }
 }

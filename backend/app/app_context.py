@@ -4,9 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .config import load_config
-from .services import ChatService, DiaryService, EventsBus, MusicService, PushService, RequestDeduper, TranscriptRecoveryService
+from .services import ChatService, DiaryService, EventsBus, HabitsService, MusicService, PushService, RequestDeduper, TranscriptRecoveryService
 from .services.tavern import TavernService, TavernStreamingService
-from .store import DiaryStore, MessageStore, MusicHistoryStore, MusicStore, PushDeviceStore, RecoveryStore, SessionStore, TodoStore
+from .store import DiaryStore, HabitsStore, MessageStore, MusicHistoryStore, MusicStore, PushDeviceStore, RecoveryStore, SessionStore, TodoStore
 from .store.tavern import TavernStore
 
 
@@ -26,6 +26,8 @@ class AppContext:
     request_deduper: RequestDeduper
     push_device_store: PushDeviceStore
     todo_store: TodoStore
+    habits_store: HabitsStore
+    habits_service: HabitsService
     push_service: PushService
     tavern_store: TavernStore
     tavern_service: TavernService
@@ -41,6 +43,7 @@ def create_app_context(*, uploads_dir: Path) -> AppContext:
     music_history_store = MusicHistoryStore()
     diary_store = DiaryStore()
     todo_store = TodoStore()
+    habits_store = HabitsStore()
     recovery_store = RecoveryStore()
     events_bus = EventsBus()
     chat_service = ChatService(sessions=session_store, messages=message_store)
@@ -61,6 +64,7 @@ def create_app_context(*, uploads_dir: Path) -> AppContext:
         chat_service=chat_service,
     )
     music_service = MusicService(store=music_store, history_store=music_history_store, config=load_config())
+    habits_service = HabitsService(store=habits_store)
     push_device_store = PushDeviceStore()
     tavern_store = TavernStore()
     tavern_service = TavernService(store=tavern_store, uploads_dir=uploads_dir)
@@ -84,6 +88,8 @@ def create_app_context(*, uploads_dir: Path) -> AppContext:
         request_deduper=request_deduper,
         push_device_store=push_device_store,
         todo_store=todo_store,
+        habits_store=habits_store,
+        habits_service=habits_service,
         push_service=PushService(push_device_store, load_config()),
         tavern_store=tavern_store,
         tavern_service=tavern_service,
