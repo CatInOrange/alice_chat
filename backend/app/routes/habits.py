@@ -31,6 +31,7 @@ def create_habits_router(context: AppContext) -> APIRouter:
 
     @router.get("/api/habits")
     async def list_habits() -> dict:
+        context.habits_service.refresh_daily()
         snapshot = context.habits_service.get_full_snapshot()
         return {"ok": True, **snapshot}
 

@@ -43,6 +43,23 @@ class HabitInstance {
   );
 }
 
+class HabitHistoryDay {
+  const HabitHistoryDay({required this.date, required this.status});
+
+  final String date;
+  final String status;
+
+  bool get isCompleted => status == 'completed';
+  bool get isExpired => status == 'expired';
+  bool get isPending => status == 'pending';
+
+  factory HabitHistoryDay.fromJson(Map<String, dynamic> json) =>
+      HabitHistoryDay(
+        date: (json['date'] ?? '') as String,
+        status: (json['status'] ?? 'none') as String,
+      );
+}
+
 class Habit {
   const Habit({
     required this.id,
@@ -57,10 +74,12 @@ class Habit {
     this.sortOrder = 0,
     this.createdAt,
     this.updatedAt,
+    this.dueToday = false,
     this.todayInstance,
     this.weeklyStats,
     this.monthlyStats,
     this.streak = 0,
+    this.history = const [],
   });
 
   final String id;
@@ -75,10 +94,12 @@ class Habit {
   final int sortOrder;
   final double? createdAt;
   final double? updatedAt;
+  final bool dueToday;
   final HabitInstance? todayInstance;
   final HabitStats? weeklyStats;
   final HabitStats? monthlyStats;
   final int streak;
+  final List<HabitHistoryDay> history;
 
   bool get isDaily => frequency == 'daily';
   bool get isWeekly => frequency == 'weekly';
@@ -97,7 +118,8 @@ class Habit {
       title: (json['title'] ?? '') as String,
       description: (json['description'] ?? '') as String? ?? '',
       frequency: (json['frequency'] ?? 'daily') as String,
-      weekdays: (json['weekdays'] as List<dynamic>?)
+      weekdays:
+          (json['weekdays'] as List<dynamic>?)
               ?.map((d) => (d as num).toInt())
               .toList() ??
           [],
@@ -108,19 +130,29 @@ class Habit {
       sortOrder: (json['sortOrder'] as num?)?.toInt() ?? 0,
       createdAt: (json['createdAt'] as num?)?.toDouble(),
       updatedAt: (json['updatedAt'] as num?)?.toDouble(),
-      todayInstance: json['todayInstance'] != null
-          ? HabitInstance.fromJson(
-              json['todayInstance'] as Map<String, dynamic>)
-          : null,
-      weeklyStats: stats != null
-          ? HabitStats.fromJson(
-              (stats['weekly'] ?? {}) as Map<String, dynamic>)
-          : null,
-      monthlyStats: stats != null
-          ? HabitStats.fromJson(
-              (stats['monthly'] ?? {}) as Map<String, dynamic>)
-          : null,
+      dueToday: json['dueToday'] as bool? ?? false,
+      todayInstance:
+          json['todayInstance'] != null
+              ? HabitInstance.fromJson(
+                json['todayInstance'] as Map<String, dynamic>,
+              )
+              : null,
+      weeklyStats:
+          stats != null
+              ? HabitStats.fromJson(
+                (stats['weekly'] ?? {}) as Map<String, dynamic>,
+              )
+              : null,
+      monthlyStats:
+          stats != null
+              ? HabitStats.fromJson(
+                (stats['monthly'] ?? {}) as Map<String, dynamic>,
+              )
+              : null,
       streak: (json['streak'] as num?)?.toInt() ?? 0,
+      history: (json['history'] as List<dynamic>? ?? const [])
+          .map((item) => HabitHistoryDay.fromJson(item as Map<String, dynamic>))
+          .toList(growable: false),
     );
   }
 }

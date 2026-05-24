@@ -82,6 +82,7 @@ class HabitsService:
 
     def get_full_snapshot(self) -> dict[str, Any]:
         today = _today_str()
+        today_date = datetime.now(_TZ).date()
         habits = self.store.list_habits()
         enriched = []
         for habit in habits:
@@ -95,9 +96,11 @@ class HabitsService:
             streak = self.store.compute_streak(habit["id"], today)
             enriched.append({
                 **habit,
+                "dueToday": _is_active_day(habit, today_date),
                 "todayInstance": instance,
                 "stats": stats,
                 "streak": streak,
+                "history": self._history(habit["id"], today_date, days=30),
             })
         return {"habits": enriched}
 
@@ -114,6 +117,7 @@ class HabitsService:
 
     def _enrich_one(self, habit: dict, today: str | None = None) -> dict:
         today = today or _today_str()
+        today_date = date.fromisoformat(today)
         instance = self.store.get_instance(habit["id"], today)
         stats = self.store.compute_stats(
             habit["id"],
@@ -124,10 +128,33 @@ class HabitsService:
         streak = self.store.compute_streak(habit["id"], today)
         return {
             **habit,
+            "dueToday": _is_active_day(habit, today_date),
             "todayInstance": instance,
             "stats": stats,
             "streak": streak,
+            "history": self._history(habit["id"], today_date, days=30),
         }
+
+    def _history(self, habit_id: str, today: date, *, days: int) -> list[dict[str, Any]]:
+        start = today - timedelta(days=days - 1)
+        instances = {
+            item["date"]: item
+            for item in self.store.get_instances(
+                habit_id,
+                since=start.isoformat(),
+                until=today.isoformat(),
+            )
+        }
+        return [
+            {
+                "date": (start + timedelta(days=index)).isoformat(),
+                "status": instances.get(
+                    (start + timedelta(days=index)).isoformat(),
+                    {},
+                ).get("status", "none"),
+            }
+            for index in range(days)
+        ]
 
     # ── Daily scheduler (like diary's run_daily_scheduler) ────
 

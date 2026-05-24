@@ -19,14 +19,22 @@ class HabitsHeroCard extends StatelessWidget {
 
     int weekDone = 0, weekTotal = 0;
     int monthDone = 0, monthTotal = 0;
+    int todayDone = 0, todayTotal = 0;
     int bestStreak = 0;
     for (final h in habits) {
       weekDone += h.weeklyStats?.done ?? 0;
       weekTotal += h.weeklyStats?.total ?? 0;
       monthDone += h.monthlyStats?.done ?? 0;
       monthTotal += h.monthlyStats?.total ?? 0;
+      if (h.dueToday) {
+        todayTotal += 1;
+        if (h.todayInstance?.isCompleted ?? false) {
+          todayDone += 1;
+        }
+      }
       if (h.streak > bestStreak) bestStreak = h.streak;
     }
+    final todayRate = todayTotal == 0 ? 0.0 : todayDone / todayTotal;
 
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 14, 20, 10),
@@ -40,7 +48,7 @@ class HabitsHeroCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF7BAAF7).withOpacity(0.35),
+            color: const Color(0xFF7BAAF7).withValues(alpha: 0.35),
             blurRadius: 16,
             offset: const Offset(0, 6),
           ),
@@ -50,12 +58,39 @@ class HabitsHeroCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            '📊 本月习惯',
+            '今日习惯',
             style: TextStyle(
               color: Colors.white,
               fontSize: 13,
               fontWeight: FontWeight.w600,
             ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '$todayDone/$todayTotal',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 34,
+                  fontWeight: FontWeight.w900,
+                  height: 1,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  '${(todayRate * 100).round()}%',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.82),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 14),
           Row(
@@ -91,7 +126,10 @@ class _StatCircle extends StatelessWidget {
           height: 52,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            border: Border.all(color: Colors.white.withOpacity(0.4), width: 2),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.4),
+              width: 2,
+            ),
           ),
           alignment: Alignment.center,
           child: Text(
@@ -107,7 +145,7 @@ class _StatCircle extends StatelessWidget {
         Text(
           label,
           style: TextStyle(
-            color: Colors.white.withOpacity(0.8),
+            color: Colors.white.withValues(alpha: 0.8),
             fontSize: 11,
             fontWeight: FontWeight.w500,
           ),
@@ -164,6 +202,7 @@ class HabitCard extends StatelessWidget {
     final theme = Theme.of(context);
     final isDone = habit.todayInstance?.isCompleted ?? false;
     final rate = habit.weeklyStats?.rate ?? 0.0;
+    final dueToday = habit.dueToday;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -171,7 +210,10 @@ class HabitCard extends StatelessWidget {
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isDone ? _accentColor.withOpacity(0.3) : const Color(0xFFE8ECF3),
+          color:
+              isDone
+                  ? _accentColor.withValues(alpha: 0.3)
+                  : const Color(0xFFE8ECF3),
         ),
       ),
       child: Padding(
@@ -185,7 +227,7 @@ class HabitCard extends StatelessWidget {
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(
-                    color: _accentColor.withOpacity(0.12),
+                    color: _accentColor.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   alignment: Alignment.center,
@@ -215,7 +257,11 @@ class HabitCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                _TodayToggle(isDone: isDone, onToggle: onToggle),
+                _TodayToggle(
+                  isDone: isDone,
+                  enabled: dueToday,
+                  onToggle: onToggle,
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -247,6 +293,10 @@ class HabitCard extends StatelessWidget {
                   ),
               ],
             ),
+            if (habit.history.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _HabitHistoryGrid(history: habit.history, color: _accentColor),
+            ],
           ],
         ),
       ),
@@ -267,45 +317,105 @@ class HabitCard extends StatelessWidget {
 }
 
 class _TodayToggle extends StatelessWidget {
-  const _TodayToggle({required this.isDone, required this.onToggle});
+  const _TodayToggle({
+    required this.isDone,
+    required this.enabled,
+    required this.onToggle,
+  });
 
   final bool isDone;
+  final bool enabled;
   final VoidCallback onToggle;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onToggle,
+      onTap: enabled ? onToggle : null,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        width: 72,
+        width: enabled ? 72 : 88,
         height: 36,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
-          color: isDone ? const Color(0xFF66C5A3) : const Color(0xFFE8ECF3),
+          color:
+              !enabled
+                  ? const Color(0xFFF2F4FA)
+                  : isDone
+                  ? const Color(0xFF66C5A3)
+                  : const Color(0xFFE8ECF3),
         ),
         alignment: Alignment.center,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(
-              isDone ? Icons.check : Icons.check,
+              !enabled ? Icons.remove_rounded : Icons.check,
               size: 16,
-              color: isDone ? Colors.white : const Color(0xFF7B8496),
+              color: enabled && isDone ? Colors.white : const Color(0xFF7B8496),
             ),
             const SizedBox(width: 4),
             Text(
-              isDone ? '已打卡' : '打卡',
+              !enabled
+                  ? '今日不需要'
+                  : isDone
+                  ? '已打卡'
+                  : '打卡',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
-                color: isDone ? Colors.white : const Color(0xFF2D3443),
+                color:
+                    enabled && isDone ? Colors.white : const Color(0xFF2D3443),
               ),
             ),
           ],
         ),
       ),
     );
+  }
+}
+
+class _HabitHistoryGrid extends StatelessWidget {
+  const _HabitHistoryGrid({required this.history, required this.color});
+
+  final List<HabitHistoryDay> history;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 4,
+      runSpacing: 4,
+      children: history
+          .map((day) {
+            final fill = switch (day.status) {
+              'completed' => color,
+              'expired' => const Color(0xFFF28CA6),
+              'pending' => const Color(0xFFFFC857),
+              _ => const Color(0xFFE8ECF3),
+            };
+            return Tooltip(
+              message: '${day.date} ${_statusLabel(day.status)}',
+              child: Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(
+                  color: fill,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            );
+          })
+          .toList(growable: false),
+    );
+  }
+
+  String _statusLabel(String status) {
+    return switch (status) {
+      'completed' => '已完成',
+      'expired' => '未完成',
+      'pending' => '待完成',
+      _ => '无计划',
+    };
   }
 }
 
@@ -323,7 +433,7 @@ class _ProgressBar extends StatelessWidget {
         child: LinearProgressIndicator(
           value: rate,
           minHeight: 6,
-          backgroundColor: color.withOpacity(0.1),
+          backgroundColor: color.withValues(alpha: 0.1),
           valueColor: AlwaysStoppedAnimation<Color>(color),
         ),
       ),
@@ -440,43 +550,46 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 6,
-                  children: _allWeekdays.map((d) {
-                    final selected = _weekdays.contains(d);
-                    return GestureDetector(
-                      onTap: () {
-                        setState(() {
-                          if (selected) {
-                            _weekdays.remove(d);
-                          } else {
-                            _weekdays.add(d);
-                            _weekdays.sort();
-                          }
-                        });
-                      },
-                      child: Container(
-                        width: 40,
-                        height: 40,
-                        margin: const EdgeInsets.only(bottom: 6),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: selected
-                              ? const Color(0xFF7BAAF7)
-                              : const Color(0xFFF2F4FA),
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          _weekdayNames[d],
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                            color: selected
-                                ? Colors.white
-                                : const Color(0xFF7B8496),
+                  children:
+                      _allWeekdays.map((d) {
+                        final selected = _weekdays.contains(d);
+                        return GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              if (selected) {
+                                _weekdays.remove(d);
+                              } else {
+                                _weekdays.add(d);
+                                _weekdays.sort();
+                              }
+                            });
+                          },
+                          child: Container(
+                            width: 40,
+                            height: 40,
+                            margin: const EdgeInsets.only(bottom: 6),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color:
+                                  selected
+                                      ? const Color(0xFF7BAAF7)
+                                      : const Color(0xFFF2F4FA),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              _weekdayNames[d],
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                                color:
+                                    selected
+                                        ? Colors.white
+                                        : const Color(0xFF7B8496),
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                    );
-                  }).toList(),
+                        );
+                      }).toList(),
                 ),
               ],
               const SizedBox(height: 16),
@@ -506,22 +619,23 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
                       borderRadius: BorderRadius.circular(14),
                     ),
                   ),
-                  child: _saving
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
+                  child:
+                      _saving
+                          ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                          : Text(
+                            _isEditing ? '保存' : '创建',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
-                        )
-                      : Text(
-                          _isEditing ? '保存' : '创建',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
                 ),
               ),
               const SizedBox(height: 8),
@@ -569,20 +683,21 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
   Future<void> _delete() async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('删除习惯'),
-        content: Text('确定删除「${widget.habit?.title}」吗？'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text('删除习惯'),
+            content: Text('确定删除「${widget.habit?.title}」吗？'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text('删除', style: TextStyle(color: Colors.red.shade400)),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text('删除', style: TextStyle(color: Colors.red.shade400)),
-          ),
-        ],
-      ),
     );
     if (confirmed != true || !mounted) return;
     setState(() => _saving = true);
@@ -592,7 +707,11 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
 }
 
 class _FreqChip extends StatelessWidget {
-  const _FreqChip({required this.label, required this.selected, required this.onTap});
+  const _FreqChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
   final String label;
   final bool selected;
