@@ -103,6 +103,19 @@ class _TodoScreenState extends State<TodoScreen>
     final habitsStore = context.watch<HabitsStore>();
 
     if (_isHabitsMode) {
+      if (widget.embedded) {
+        return Stack(
+          children: [
+            _buildHabitsBody(habitsStore),
+            Positioned(
+              right: 18,
+              bottom: 18,
+              child: _AddHabitFab(onTap: _openHabitEditor),
+            ),
+          ],
+        );
+      }
+
       return Scaffold(
         backgroundColor: const Color(0xFFF6F7FB),
         appBar: AppBar(
@@ -152,6 +165,8 @@ class _TodoScreenState extends State<TodoScreen>
           parent: BouncingScrollPhysics(),
         ),
         slivers: [
+          if (widget.embedded)
+            SliverToBoxAdapter(child: _buildEmbeddedModeSwitcher()),
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
@@ -311,6 +326,27 @@ class _TodoScreenState extends State<TodoScreen>
       ),
       body: body,
       floatingActionButton: _AddTaskFab(onTap: () => _openEditor()),
+    );
+  }
+
+  Widget _buildEmbeddedModeSwitcher() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+      child: Row(
+        children: [
+          _SegmentToggle(
+            label: '待办事项',
+            selected: !_isHabitsMode,
+            onTap: () => setState(() => _isHabitsMode = false),
+          ),
+          const SizedBox(width: 8),
+          _SegmentToggle(
+            label: '🏃 习惯',
+            selected: _isHabitsMode,
+            onTap: () => setState(() => _isHabitsMode = true),
+          ),
+        ],
+      ),
     );
   }
 
@@ -490,6 +526,8 @@ class _TodoScreenState extends State<TodoScreen>
           parent: BouncingScrollPhysics(),
         ),
         slivers: [
+          if (widget.embedded)
+            SliverToBoxAdapter(child: _buildEmbeddedModeSwitcher()),
           SliverToBoxAdapter(child: HabitsHeroCard(habits: habits)),
           if (habits.isEmpty)
             const HabitsEmptyState()
@@ -518,10 +556,11 @@ class _TodoScreenState extends State<TodoScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => ChangeNotifierProvider<HabitsStore>.value(
-        value: habitsStore,
-        child: HabitEditorSheet(habit: habit),
-      ),
+      builder:
+          (_) => ChangeNotifierProvider<HabitsStore>.value(
+            value: habitsStore,
+            child: HabitEditorSheet(habit: habit),
+          ),
     );
   }
 }
