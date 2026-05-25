@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 import '../../../core/debug/native_debug_bridge.dart';
 import '../../../core/openclaw/openclaw_http_client.dart';
 import '../../../core/openclaw/openclaw_settings.dart';
+import 'pomodoro_notification_service.dart';
 import '../data/todo_local_store.dart';
 import '../domain/todo_models.dart';
 
@@ -27,6 +28,7 @@ class TodoStore extends ChangeNotifier {
   String? _error;
   List<TodoProject> _projects = const [];
   List<TodoTask> _tasks = const [];
+  List<TodoPomodoro> _pomodoros = const [];
   int _lastRemoteRevision = 0;
   bool _isRefreshingRemote = false;
   bool _isPushingRemote = false;
@@ -40,6 +42,13 @@ class TodoStore extends ChangeNotifier {
   List<TodoProject> get archivedProjects =>
       _projects.where((item) => item.archived).toList(growable: false);
   List<TodoTask> get tasks => _tasks;
+  List<TodoPomodoro> get pomodoros => _pomodoros;
+  TodoPomodoro? get activePomodoro {
+    for (final item in _pomodoros) {
+      if (item.isActive) return item;
+    }
+    return null;
+  }
 
   Future<List<TodoSubtask>> subtasksForTask(String taskId) {
     return _localStore.listSubtasks(taskId);
@@ -199,6 +208,111 @@ class TodoStore extends ChangeNotifier {
   int get totalCompletedCount => _tasks.where((item) => item.isDone).length;
   int get totalDueTodayCount => todayTasks.length;
 
+  List<TodoPomodoro> pomodorosForTask(String taskId) {
+    return _pomodoros
+        .where((item) => item.taskId == taskId)
+        .toList(growable: false)
+      ..sort((a, b) => b.startedAt.compareTo(a.startedAt));
+  }
+
+  int completedPomodoroCountForTask(String taskId) {
+    return _pomodoros
+        .where((item) => item.taskId == taskId && item.isCompletedFocus)
+        .length;
+  }
+
+  int completedPomodoroMinutesForTask(String taskId) {
+    return _pomodoros
+        .where((item) => item.taskId == taskId && item.isCompletedFocus)
+        .fold<int>(0, (sum, item) => sum + item.focusPlannedMinutes);
+  }
+
+  Future<TodoPomodoro?> startPomodoro(
+    String taskId, {
+    int focusMinutes = 25,
+    int breakMinutes = 5,
+  }) async {
+    final task = _taskById(taskId);
+    if (task == null) return null;
+    final current = activePomodoro;
+    if (current != null) {
+      await cancelPomodoro(current.id);
+    }
+    final now = DateTime.now();
+    final roundIndex = completedPomodoroCountForTask(taskId) + 1;
+    final pomodoro = TodoPomodoro(
+      id: 'pomodoro:${_uuid.v4()}',
+      taskId: taskId,
+      roundIndex: roundIndex,
+      phase: PomodoroPhase.focus,
+      status: PomodoroStatus.running,
+      focusPlannedMinutes: focusMinutes,
+      breakPlannedMinutes: breakMinutes,
+      startedAt: now,
+      endsAt: now.add(Duration(minutes: focusMinutes)),
+      focusStartedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    );
+    _pomodoros = [pomodoro, ..._pomodoros];
+    notifyListeners();
+    await PomodoroNotificationService.instance.schedule(
+      pomodoro: pomodoro,
+      taskTitle: task.title,
+    );
+    await _persistSnapshot();
+    return pomodoro;
+  }
+
+  Future<void> markPomodoroFocusDone(
+    String pomodoroId, {
+    String note = '',
+  }) async {
+    final index = _pomodoros.indexWhere((item) => item.id == pomodoroId);
+    if (index < 0) return;
+    final now = DateTime.now();
+    final current = _pomodoros[index];
+    final updated = current.copyWith(
+      phase: PomodoroPhase.shortBreak,
+      status: PomodoroStatus.running,
+      focusEndedAt: current.focusEndedAt ?? now,
+      breakStartedAt: now,
+      endsAt: now.add(Duration(minutes: current.breakPlannedMinutes)),
+      note: note.trim(),
+      updatedAt: now,
+    );
+    await _replacePomodoro(updated, schedule: true);
+  }
+
+  Future<void> completePomodoroBreak(String pomodoroId) async {
+    final index = _pomodoros.indexWhere((item) => item.id == pomodoroId);
+    if (index < 0) return;
+    final now = DateTime.now();
+    final current = _pomodoros[index];
+    final updated = current.copyWith(
+      status: PomodoroStatus.completed,
+      breakEndedAt: current.breakEndedAt ?? now,
+      completedAt: now,
+      updatedAt: now,
+    );
+    await _replacePomodoro(updated, schedule: false);
+    await PomodoroNotificationService.instance.cancel(pomodoroId);
+  }
+
+  Future<void> cancelPomodoro(String pomodoroId) async {
+    final index = _pomodoros.indexWhere((item) => item.id == pomodoroId);
+    if (index < 0) return;
+    final now = DateTime.now();
+    final current = _pomodoros[index];
+    final updated = current.copyWith(
+      status: PomodoroStatus.cancelled,
+      cancelledAt: now,
+      updatedAt: now,
+    );
+    await _replacePomodoro(updated, schedule: false);
+    await PomodoroNotificationService.instance.cancel(pomodoroId);
+  }
+
   Future<void> saveProject(TodoProject project) async {
     final now = DateTime.now();
     final existingIndex = _projects.indexWhere((item) => item.id == project.id);
@@ -336,6 +450,9 @@ class TodoStore extends ChangeNotifier {
 
   Future<void> deleteTask(String taskId) async {
     _tasks = _tasks.where((item) => item.id != taskId).toList(growable: false);
+    _pomodoros = _pomodoros
+        .where((item) => item.taskId != taskId)
+        .toList(growable: false);
     notifyListeners();
     await _localStore.deleteTask(taskId);
     final client = _client;
@@ -522,7 +639,12 @@ class TodoStore extends ChangeNotifier {
     for (final task in _tasks) {
       subtasks.addAll(await _localStore.listSubtasks(task.id));
     }
-    return TodoSnapshot(projects: _projects, tasks: _tasks, subtasks: subtasks);
+    return TodoSnapshot(
+      projects: _projects,
+      tasks: _tasks,
+      subtasks: subtasks,
+      pomodoros: _pomodoros,
+    );
   }
 
   Future<void> _applySnapshot(
@@ -532,6 +654,8 @@ class TodoStore extends ChangeNotifier {
     _projects = snapshot.projects.toList(growable: false)
       ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
     _tasks = snapshot.tasks.toList(growable: false)..sort(_taskSort);
+    _pomodoros = snapshot.pomodoros.toList(growable: false)
+      ..sort((a, b) => b.startedAt.compareTo(a.startedAt));
     if (replaceLocal) {
       await _localStore.replaceSnapshot(snapshot);
     }
@@ -654,6 +778,34 @@ class TodoStore extends ChangeNotifier {
     ];
 
     return TodoSnapshot(projects: projects, tasks: tasks);
+  }
+
+  TodoTask? _taskById(String taskId) {
+    for (final task in _tasks) {
+      if (task.id == taskId) return task;
+    }
+    return null;
+  }
+
+  Future<void> _replacePomodoro(
+    TodoPomodoro pomodoro, {
+    required bool schedule,
+  }) async {
+    _pomodoros = _pomodoros
+        .map((item) => item.id == pomodoro.id ? pomodoro : item)
+        .toList(growable: false)
+      ..sort((a, b) => b.startedAt.compareTo(a.startedAt));
+    notifyListeners();
+    if (schedule) {
+      final task = _taskById(pomodoro.taskId);
+      if (task != null) {
+        await PomodoroNotificationService.instance.schedule(
+          pomodoro: pomodoro,
+          taskTitle: task.title,
+        );
+      }
+    }
+    await _persistSnapshot();
   }
 
   static int _taskSort(TodoTask a, TodoTask b) {

@@ -276,6 +276,188 @@ class TodoSubtask {
   );
 }
 
+enum PomodoroPhase { focus, shortBreak }
+
+enum PomodoroStatus {
+  running,
+  paused,
+  awaitingNote,
+  awaitingDecision,
+  completed,
+  cancelled,
+}
+
+class TodoPomodoro {
+  const TodoPomodoro({
+    required this.id,
+    required this.taskId,
+    this.roundIndex = 1,
+    this.phase = PomodoroPhase.focus,
+    this.status = PomodoroStatus.running,
+    this.focusPlannedMinutes = 25,
+    this.breakPlannedMinutes = 5,
+    required this.startedAt,
+    required this.endsAt,
+    this.focusStartedAt,
+    this.focusEndedAt,
+    this.breakStartedAt,
+    this.breakEndedAt,
+    this.completedAt,
+    this.cancelledAt,
+    this.note = '',
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String id;
+  final String taskId;
+  final int roundIndex;
+  final PomodoroPhase phase;
+  final PomodoroStatus status;
+  final int focusPlannedMinutes;
+  final int breakPlannedMinutes;
+  final DateTime startedAt;
+  final DateTime endsAt;
+  final DateTime? focusStartedAt;
+  final DateTime? focusEndedAt;
+  final DateTime? breakStartedAt;
+  final DateTime? breakEndedAt;
+  final DateTime? completedAt;
+  final DateTime? cancelledAt;
+  final String note;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+
+  bool get isActive =>
+      status == PomodoroStatus.running ||
+      status == PomodoroStatus.paused ||
+      status == PomodoroStatus.awaitingNote ||
+      status == PomodoroStatus.awaitingDecision;
+  bool get isFocus => phase == PomodoroPhase.focus;
+  bool get isBreak => phase == PomodoroPhase.shortBreak;
+  bool get isCompletedFocus =>
+      focusEndedAt != null && status != PomodoroStatus.cancelled;
+
+  TodoPomodoro copyWith({
+    String? id,
+    String? taskId,
+    int? roundIndex,
+    PomodoroPhase? phase,
+    PomodoroStatus? status,
+    int? focusPlannedMinutes,
+    int? breakPlannedMinutes,
+    DateTime? startedAt,
+    DateTime? endsAt,
+    Object? focusStartedAt = _sentinel,
+    Object? focusEndedAt = _sentinel,
+    Object? breakStartedAt = _sentinel,
+    Object? breakEndedAt = _sentinel,
+    Object? completedAt = _sentinel,
+    Object? cancelledAt = _sentinel,
+    String? note,
+    Object? createdAt = _sentinel,
+    Object? updatedAt = _sentinel,
+  }) {
+    return TodoPomodoro(
+      id: id ?? this.id,
+      taskId: taskId ?? this.taskId,
+      roundIndex: roundIndex ?? this.roundIndex,
+      phase: phase ?? this.phase,
+      status: status ?? this.status,
+      focusPlannedMinutes: focusPlannedMinutes ?? this.focusPlannedMinutes,
+      breakPlannedMinutes: breakPlannedMinutes ?? this.breakPlannedMinutes,
+      startedAt: startedAt ?? this.startedAt,
+      endsAt: endsAt ?? this.endsAt,
+      focusStartedAt:
+          identical(focusStartedAt, _sentinel)
+              ? this.focusStartedAt
+              : focusStartedAt as DateTime?,
+      focusEndedAt:
+          identical(focusEndedAt, _sentinel)
+              ? this.focusEndedAt
+              : focusEndedAt as DateTime?,
+      breakStartedAt:
+          identical(breakStartedAt, _sentinel)
+              ? this.breakStartedAt
+              : breakStartedAt as DateTime?,
+      breakEndedAt:
+          identical(breakEndedAt, _sentinel)
+              ? this.breakEndedAt
+              : breakEndedAt as DateTime?,
+      completedAt:
+          identical(completedAt, _sentinel)
+              ? this.completedAt
+              : completedAt as DateTime?,
+      cancelledAt:
+          identical(cancelledAt, _sentinel)
+              ? this.cancelledAt
+              : cancelledAt as DateTime?,
+      note: note ?? this.note,
+      createdAt:
+          identical(createdAt, _sentinel)
+              ? this.createdAt
+              : createdAt as DateTime?,
+      updatedAt:
+          identical(updatedAt, _sentinel)
+              ? this.updatedAt
+              : updatedAt as DateTime?,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'taskId': taskId,
+    'roundIndex': roundIndex,
+    'phase': phase.name,
+    'status': status.name,
+    'focusPlannedMinutes': focusPlannedMinutes,
+    'breakPlannedMinutes': breakPlannedMinutes,
+    'startedAt': startedAt.toIso8601String(),
+    'endsAt': endsAt.toIso8601String(),
+    'focusStartedAt': focusStartedAt?.toIso8601String(),
+    'focusEndedAt': focusEndedAt?.toIso8601String(),
+    'breakStartedAt': breakStartedAt?.toIso8601String(),
+    'breakEndedAt': breakEndedAt?.toIso8601String(),
+    'completedAt': completedAt?.toIso8601String(),
+    'cancelledAt': cancelledAt?.toIso8601String(),
+    'note': note,
+    'createdAt': createdAt?.toIso8601String(),
+    'updatedAt': updatedAt?.toIso8601String(),
+  };
+
+  factory TodoPomodoro.fromJson(Map<String, dynamic> json) {
+    final startedAt = _parseDate(json['startedAt']) ?? DateTime.now();
+    return TodoPomodoro(
+      id: json['id'] as String,
+      taskId: json['taskId'] as String,
+      roundIndex: json['roundIndex'] as int? ?? 1,
+      phase: PomodoroPhase.values.firstWhere(
+        (item) => item.name == (json['phase'] as String? ?? 'focus'),
+        orElse: () => PomodoroPhase.focus,
+      ),
+      status: PomodoroStatus.values.firstWhere(
+        (item) => item.name == (json['status'] as String? ?? 'running'),
+        orElse: () => PomodoroStatus.running,
+      ),
+      focusPlannedMinutes: json['focusPlannedMinutes'] as int? ?? 25,
+      breakPlannedMinutes: json['breakPlannedMinutes'] as int? ?? 5,
+      startedAt: startedAt,
+      endsAt:
+          _parseDate(json['endsAt']) ??
+          startedAt.add(const Duration(minutes: 25)),
+      focusStartedAt: _parseDate(json['focusStartedAt']) ?? startedAt,
+      focusEndedAt: _parseDate(json['focusEndedAt']),
+      breakStartedAt: _parseDate(json['breakStartedAt']),
+      breakEndedAt: _parseDate(json['breakEndedAt']),
+      completedAt: _parseDate(json['completedAt']),
+      cancelledAt: _parseDate(json['cancelledAt']),
+      note: json['note'] as String? ?? '',
+      createdAt: _parseDate(json['createdAt']),
+      updatedAt: _parseDate(json['updatedAt']),
+    );
+  }
+}
+
 enum TodoPriority { low, medium, high, urgent }
 
 enum TodoStatus { todo, doing, done, archived }
@@ -285,33 +467,36 @@ class TodoSnapshot {
     required this.projects,
     required this.tasks,
     this.subtasks = const [],
+    this.pomodoros = const [],
   });
 
   final List<TodoProject> projects;
   final List<TodoTask> tasks;
   final List<TodoSubtask> subtasks;
+  final List<TodoPomodoro> pomodoros;
 
   Map<String, dynamic> toJson() => {
     'projects': projects.map((item) => item.toJson()).toList(growable: false),
     'tasks': tasks.map((item) => item.toJson()).toList(growable: false),
     'subtasks': subtasks.map((item) => item.toJson()).toList(growable: false),
+    'pomodoros': pomodoros.map((item) => item.toJson()).toList(growable: false),
   };
 
   String encode() => jsonEncode(toJson());
 
   factory TodoSnapshot.fromJson(Map<String, dynamic> json) => TodoSnapshot(
-    projects:
-        (json['projects'] as List<dynamic>? ?? const [])
-            .map((item) => TodoProject.fromJson(item as Map<String, dynamic>))
-            .toList(growable: false),
-    tasks:
-        (json['tasks'] as List<dynamic>? ?? const [])
-            .map((item) => TodoTask.fromJson(item as Map<String, dynamic>))
-            .toList(growable: false),
-    subtasks:
-        (json['subtasks'] as List<dynamic>? ?? const [])
-            .map((item) => TodoSubtask.fromJson(item as Map<String, dynamic>))
-            .toList(growable: false),
+    projects: (json['projects'] as List<dynamic>? ?? const [])
+        .map((item) => TodoProject.fromJson(item as Map<String, dynamic>))
+        .toList(growable: false),
+    tasks: (json['tasks'] as List<dynamic>? ?? const [])
+        .map((item) => TodoTask.fromJson(item as Map<String, dynamic>))
+        .toList(growable: false),
+    subtasks: (json['subtasks'] as List<dynamic>? ?? const [])
+        .map((item) => TodoSubtask.fromJson(item as Map<String, dynamic>))
+        .toList(growable: false),
+    pomodoros: (json['pomodoros'] as List<dynamic>? ?? const [])
+        .map((item) => TodoPomodoro.fromJson(item as Map<String, dynamic>))
+        .toList(growable: false),
   );
 
   factory TodoSnapshot.decode(String raw) =>
@@ -319,3 +504,9 @@ class TodoSnapshot {
 }
 
 const Object _sentinel = Object();
+
+DateTime? _parseDate(Object? value) {
+  final raw = value as String?;
+  if (raw == null || raw.trim().isEmpty) return null;
+  return DateTime.parse(raw);
+}

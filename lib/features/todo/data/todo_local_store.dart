@@ -7,7 +7,7 @@ import '../domain/todo_models.dart';
 class TodoLocalStore {
   static const String _legacyStorageKey = 'alicechat.todo.snapshot.v1';
   static const String _dbName = 'alicechat_todo.db';
-  static const int _dbVersion = 3;
+  static const int _dbVersion = 4;
 
   Database? _database;
 
@@ -15,11 +15,18 @@ class TodoLocalStore {
     final db = await _openDatabase();
     await _maybeMigrateLegacyPrefs(db);
 
-    final projectRows = await db.query('todo_projects', orderBy: 'sort_order ASC');
+    final projectRows = await db.query(
+      'todo_projects',
+      orderBy: 'sort_order ASC',
+    );
     final taskRows = await db.query('todo_tasks');
     final subtaskRows = await db.query(
       'todo_subtasks',
       orderBy: 'task_id ASC, sort_order ASC, created_at ASC',
+    );
+    final pomodoroRows = await db.query(
+      'todo_pomodoros',
+      orderBy: 'started_at DESC',
     );
     if (projectRows.isEmpty && taskRows.isEmpty) {
       return null;
@@ -32,6 +39,7 @@ class TodoLocalStore {
           .map((row) => _taskFromRow(row, subtasks: subtasks))
           .toList(growable: false),
       subtasks: subtasks,
+      pomodoros: pomodoroRows.map(_pomodoroFromRow).toList(growable: false),
     );
   }
 
@@ -106,7 +114,11 @@ class TodoLocalStore {
   ) async {
     final db = await _openDatabase();
     await db.transaction((txn) async {
-      await txn.delete('todo_subtasks', where: 'task_id = ?', whereArgs: [taskId]);
+      await txn.delete(
+        'todo_subtasks',
+        where: 'task_id = ?',
+        whereArgs: [taskId],
+      );
       final batch = txn.batch();
       for (final subtask in subtasks) {
         batch.insert(
@@ -141,6 +153,9 @@ class TodoLocalStore {
         if (oldVersion < 3) {
           await _migrateReminderAndProjectOrder(db);
         }
+        if (oldVersion < 4) {
+          await _createPomodoroTable(db);
+        }
       },
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
@@ -172,6 +187,7 @@ class TodoLocalStore {
   Future<void> _replaceAll(Database db, TodoSnapshot snapshot) async {
     await db.transaction((txn) async {
       await txn.delete('todo_subtasks');
+      await txn.delete('todo_pomodoros');
       await txn.delete('todo_tasks');
       await txn.delete('todo_projects');
 
@@ -194,6 +210,13 @@ class TodoLocalStore {
         batch.insert(
           'todo_subtasks',
           _subtaskToRow(subtask),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      for (final pomodoro in snapshot.pomodoros) {
+        batch.insert(
+          'todo_pomodoros',
+          _pomodoroToRow(pomodoro),
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
@@ -249,6 +272,27 @@ class TodoLocalStore {
     'updated_at': subtask.updatedAt?.millisecondsSinceEpoch,
   };
 
+  Map<String, Object?> _pomodoroToRow(TodoPomodoro pomodoro) => {
+    'id': pomodoro.id,
+    'task_id': pomodoro.taskId,
+    'round_index': pomodoro.roundIndex,
+    'phase': pomodoro.phase.name,
+    'status': pomodoro.status.name,
+    'focus_planned_minutes': pomodoro.focusPlannedMinutes,
+    'break_planned_minutes': pomodoro.breakPlannedMinutes,
+    'started_at': pomodoro.startedAt.millisecondsSinceEpoch,
+    'ends_at': pomodoro.endsAt.millisecondsSinceEpoch,
+    'focus_started_at': pomodoro.focusStartedAt?.millisecondsSinceEpoch,
+    'focus_ended_at': pomodoro.focusEndedAt?.millisecondsSinceEpoch,
+    'break_started_at': pomodoro.breakStartedAt?.millisecondsSinceEpoch,
+    'break_ended_at': pomodoro.breakEndedAt?.millisecondsSinceEpoch,
+    'completed_at': pomodoro.completedAt?.millisecondsSinceEpoch,
+    'cancelled_at': pomodoro.cancelledAt?.millisecondsSinceEpoch,
+    'note': pomodoro.note,
+    'created_at': pomodoro.createdAt?.millisecondsSinceEpoch,
+    'updated_at': pomodoro.updatedAt?.millisecondsSinceEpoch,
+  };
+
   TodoTask _taskFromRow(
     Map<String, Object?> row, {
     required List<TodoSubtask> subtasks,
@@ -275,8 +319,7 @@ class TodoLocalStore {
     completedSubtaskCount:
         subtasks
             .where(
-              (item) =>
-                  item.taskId == row['id'] as String && item.isCompleted,
+              (item) => item.taskId == row['id'] as String && item.isCompleted,
             )
             .length,
   );
@@ -287,6 +330,37 @@ class TodoLocalStore {
     title: row['title'] as String,
     isCompleted: (row['is_completed'] as int? ?? 0) == 1,
     sortOrder: row['sort_order'] as int? ?? 0,
+    createdAt: _dateFromEpoch(row['created_at']),
+    updatedAt: _dateFromEpoch(row['updated_at']),
+  );
+
+  TodoPomodoro _pomodoroFromRow(Map<String, Object?> row) => TodoPomodoro(
+    id: row['id'] as String,
+    taskId: row['task_id'] as String,
+    roundIndex: row['round_index'] as int? ?? 1,
+    phase: PomodoroPhase.values.firstWhere(
+      (item) => item.name == (row['phase'] as String? ?? 'focus'),
+      orElse: () => PomodoroPhase.focus,
+    ),
+    status: PomodoroStatus.values.firstWhere(
+      (item) => item.name == (row['status'] as String? ?? 'running'),
+      orElse: () => PomodoroStatus.running,
+    ),
+    focusPlannedMinutes: row['focus_planned_minutes'] as int? ?? 25,
+    breakPlannedMinutes: row['break_planned_minutes'] as int? ?? 5,
+    startedAt:
+        _dateFromEpoch(row['started_at']) ??
+        DateTime.fromMillisecondsSinceEpoch(0),
+    endsAt:
+        _dateFromEpoch(row['ends_at']) ??
+        DateTime.fromMillisecondsSinceEpoch(0),
+    focusStartedAt: _dateFromEpoch(row['focus_started_at']),
+    focusEndedAt: _dateFromEpoch(row['focus_ended_at']),
+    breakStartedAt: _dateFromEpoch(row['break_started_at']),
+    breakEndedAt: _dateFromEpoch(row['break_ended_at']),
+    completedAt: _dateFromEpoch(row['completed_at']),
+    cancelledAt: _dateFromEpoch(row['cancelled_at']),
+    note: row['note'] as String? ?? '',
     createdAt: _dateFromEpoch(row['created_at']),
     updatedAt: _dateFromEpoch(row['updated_at']),
   );
@@ -328,12 +402,11 @@ class TodoLocalStore {
       'CREATE INDEX idx_todo_tasks_due_at ON todo_tasks(due_at)',
     );
     await _createSubtaskTable(db);
+    await _createPomodoroTable(db);
   }
 
   Future<void> _migrateReminderAndProjectOrder(DatabaseExecutor db) async {
-    await db.execute(
-      'ALTER TABLE todo_tasks ADD COLUMN reminder_at INTEGER',
-    );
+    await db.execute('ALTER TABLE todo_tasks ADD COLUMN reminder_at INTEGER');
   }
 
   Future<void> _createSubtaskTable(DatabaseExecutor db) async {
@@ -351,6 +424,38 @@ class TodoLocalStore {
     ''');
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_todo_subtasks_task_id ON todo_subtasks(task_id)',
+    );
+  }
+
+  Future<void> _createPomodoroTable(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS todo_pomodoros (
+        id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        round_index INTEGER NOT NULL DEFAULT 1,
+        phase TEXT NOT NULL,
+        status TEXT NOT NULL,
+        focus_planned_minutes INTEGER NOT NULL DEFAULT 25,
+        break_planned_minutes INTEGER NOT NULL DEFAULT 5,
+        started_at INTEGER NOT NULL,
+        ends_at INTEGER NOT NULL,
+        focus_started_at INTEGER,
+        focus_ended_at INTEGER,
+        break_started_at INTEGER,
+        break_ended_at INTEGER,
+        completed_at INTEGER,
+        cancelled_at INTEGER,
+        note TEXT NOT NULL DEFAULT '',
+        created_at INTEGER,
+        updated_at INTEGER,
+        FOREIGN KEY(task_id) REFERENCES todo_tasks(id) ON DELETE CASCADE
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_todo_pomodoros_task_id ON todo_pomodoros(task_id)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_todo_pomodoros_status ON todo_pomodoros(status)',
     );
   }
 

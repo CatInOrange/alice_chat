@@ -1111,6 +1111,14 @@ class _TaskTileState extends State<_TaskTile> {
     final project = widget.project;
     final color = Color(project.colorValue);
     final theme = Theme.of(context);
+    final store = context.watch<TodoStore>();
+    final activePomodoro = store.activePomodoro;
+    final taskPomodoros = store.pomodorosForTask(task.id);
+    final taskPomodoroCount =
+        taskPomodoros.where((item) => item.isCompletedFocus).length;
+    final isPomodoroRunning =
+        activePomodoro?.taskId == task.id &&
+        activePomodoro?.status == PomodoroStatus.running;
     final dueTone = _dueTone(task.dueAt, isDone: task.isDone);
     final subtitleBits = <Widget>[
       if (widget.showProjectPill)
@@ -1130,6 +1138,17 @@ class _TaskTileState extends State<_TaskTile> {
         _InlineMetaText(
           text: _priorityLabel(task.priority),
           color: _priorityColor(task.priority),
+        ),
+      if (taskPomodoroCount > 0)
+        _InlineMetaText(
+          text: '🍅 $taskPomodoroCount',
+          color: const Color(0xFFEF7B45),
+        ),
+      if (isPomodoroRunning)
+        _InlineMetaText(
+          text:
+              '${activePomodoro!.isFocus ? '专注中' : '休息中'} ${_formatCompactDuration(activePomodoro.endsAt.difference(DateTime.now()))}',
+          color: const Color(0xFFEF7B45),
         ),
     ];
 
@@ -1237,6 +1256,8 @@ class _TaskTileState extends State<_TaskTile> {
                     project: project,
                     dueTone: dueTone,
                     subtasksFuture: _subtasksFuture,
+                    pomodoros: taskPomodoros,
+                    activePomodoro: activePomodoro,
                   ),
                 ),
               ),
@@ -1273,12 +1294,16 @@ class _TaskExpandedBody extends StatelessWidget {
     required this.project,
     required this.dueTone,
     required this.subtasksFuture,
+    required this.pomodoros,
+    required this.activePomodoro,
   });
 
   final TodoTask task;
   final TodoProject project;
   final _DueTone? dueTone;
   final Future<List<TodoSubtask>>? subtasksFuture;
+  final List<TodoPomodoro> pomodoros;
+  final TodoPomodoro? activePomodoro;
 
   @override
   Widget build(BuildContext context) {
@@ -1333,6 +1358,12 @@ class _TaskExpandedBody extends StatelessWidget {
             ),
           ),
         Wrap(spacing: 12, runSpacing: 8, children: metaItems),
+        const SizedBox(height: 12),
+        _PomodoroPanel(
+          task: task,
+          pomodoros: pomodoros,
+          activePomodoro: activePomodoro,
+        ),
         if (task.subtaskCount > 0) ...[
           const SizedBox(height: 12),
           Text(
@@ -1471,6 +1502,292 @@ class _SubtaskLine extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _PomodoroPanel extends StatefulWidget {
+  const _PomodoroPanel({
+    required this.task,
+    required this.pomodoros,
+    required this.activePomodoro,
+  });
+
+  final TodoTask task;
+  final List<TodoPomodoro> pomodoros;
+  final TodoPomodoro? activePomodoro;
+
+  @override
+  State<_PomodoroPanel> createState() => _PomodoroPanelState();
+}
+
+class _PomodoroPanelState extends State<_PomodoroPanel> {
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && widget.activePomodoro?.taskId == widget.task.id) {
+        setState(() {});
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<TodoStore>();
+    final active = store.activePomodoro;
+    final currentTaskActive = active?.taskId == widget.task.id ? active : null;
+    final completed =
+        widget.pomodoros.where((item) => item.isCompletedFocus).length;
+    final minutes = widget.pomodoros
+        .where((item) => item.isCompletedFocus)
+        .fold<int>(0, (sum, item) => sum + item.focusPlannedMinutes);
+    final recent = widget.pomodoros
+        .where((item) => item.isCompletedFocus && item.note.trim().isNotEmpty)
+        .take(2)
+        .toList(growable: false);
+    final theme = Theme.of(context);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7F0),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFFFDDC2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.timer_outlined,
+                size: 17,
+                color: Color(0xFFEF7B45),
+              ),
+              const SizedBox(width: 7),
+              Text(
+                '专注',
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: const Color(0xFF8A4A22),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '🍅 $completed · ${minutes}min',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: const Color(0xFF8A4A22),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (currentTaskActive != null)
+            _ActivePomodoroControls(
+              task: widget.task,
+              pomodoro: currentTaskActive,
+            )
+          else if (active != null)
+            Text(
+              '另一个任务正在专注中，先结束那一轮再开始这里。',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: const Color(0xFF99633A),
+                height: 1.35,
+              ),
+            )
+          else
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FilledButton.icon(
+                onPressed: () => store.startPomodoro(widget.task.id),
+                icon: const Icon(Icons.play_arrow_rounded),
+                label: const Text('开始番茄 25min'),
+              ),
+            ),
+          if (recent.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            for (final item in recent)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  '· ${item.note.trim()}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF99633A),
+                  ),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ActivePomodoroControls extends StatelessWidget {
+  const _ActivePomodoroControls({required this.task, required this.pomodoro});
+
+  final TodoTask task;
+  final TodoPomodoro pomodoro;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.read<TodoStore>();
+    final remaining = pomodoro.endsAt.difference(DateTime.now());
+    final expired = remaining.inSeconds <= 0;
+    final phaseLabel = pomodoro.isFocus ? '工作中' : '休息中';
+    final actionLabel =
+        pomodoro.isFocus
+            ? (expired ? '记录进展' : '提前完成')
+            : (expired ? '继续下一轮' : '跳过休息');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              phaseLabel,
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                color: const Color(0xFF8A4A22),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              _formatCompactDuration(remaining),
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: const Color(0xFFEF7B45),
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilledButton(
+              onPressed: () async {
+                if (pomodoro.isFocus) {
+                  final note = await _askPomodoroNote(context);
+                  if (note == null) return;
+                  await store.markPomodoroFocusDone(pomodoro.id, note: note);
+                  return;
+                }
+                await store.completePomodoroBreak(pomodoro.id);
+                if (!context.mounted) return;
+                await store.startPomodoro(task.id);
+              },
+              child: Text(actionLabel),
+            ),
+            OutlinedButton(
+              onPressed: () => store.cancelPomodoro(pomodoro.id),
+              child: const Text('放弃'),
+            ),
+            if (pomodoro.isBreak)
+              TextButton(
+                onPressed: () => store.completePomodoroBreak(pomodoro.id),
+                child: const Text('结束本次'),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Future<String?> _askPomodoroNote(BuildContext context) async {
+    final controller = TextEditingController();
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+        return Padding(
+          padding: EdgeInsets.only(bottom: bottomInset),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: Color(0xFFF8F8FD),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 22),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 44,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFD9DDEC),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      '记录这个番茄',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: controller,
+                      autofocus: true,
+                      minLines: 3,
+                      maxLines: 5,
+                      decoration: const InputDecoration(
+                        hintText: '进展可以空着，比如：完成接口草稿',
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(context).pop(''),
+                            child: const Text('空着继续'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed:
+                                () => Navigator.of(
+                                  context,
+                                ).pop(controller.text.trim()),
+                            child: const Text('进入休息'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    controller.dispose();
+    return result;
   }
 }
 
@@ -3569,6 +3886,13 @@ String _formatDue(DateTime dueAt, {bool withDate = false}) {
     return '今天 $hh:$min';
   }
   return '${isToday ? '今天' : '$mm/$dd'} $hh:$min';
+}
+
+String _formatCompactDuration(Duration duration) {
+  final seconds = duration.inSeconds <= 0 ? 0 : duration.inSeconds;
+  final minutesPart = (seconds ~/ 60).toString().padLeft(2, '0');
+  final secondsPart = (seconds % 60).toString().padLeft(2, '0');
+  return '$minutesPart:$secondsPart';
 }
 
 bool _isSameDay(DateTime? a, DateTime b) {

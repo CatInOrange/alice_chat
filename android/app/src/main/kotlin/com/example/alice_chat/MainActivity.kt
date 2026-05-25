@@ -1,5 +1,8 @@
 package com.example.alice_chat
 
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -17,7 +20,9 @@ class MainActivity : FlutterActivity() {
 
     companion object {
         const val ACTION_OPEN_CHAT_NOTIFICATION = "com.example.alice_chat.OPEN_CHAT_NOTIFICATION"
+        const val ACTION_OPEN_POMODORO_NOTIFICATION = "com.example.alice_chat.OPEN_POMODORO_NOTIFICATION"
         const val EXTRA_NOTIFICATION_OPEN_PAYLOAD = "notificationOpenPayload"
+        const val EXTRA_POMODORO_OPEN_PAYLOAD = "pomodoroOpenPayload"
         private const val MAX_PENDING_MUSIC_ACTIONS = 32
         private val mainHandler = Handler(Looper.getMainLooper())
         private var backgroundMusicChannel: MethodChannel? = null
@@ -144,6 +149,28 @@ class MainActivity : FlutterActivity() {
         }
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
+            "alicechat/pomodoro_timer"
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "schedulePomodoro" -> {
+                    val id = call.argument<String>("id").orEmpty()
+                    val taskId = call.argument<String>("taskId").orEmpty()
+                    val taskTitle = call.argument<String>("taskTitle").orEmpty()
+                    val phase = call.argument<String>("phase").orEmpty()
+                    val triggerAt = call.argument<Number>("triggerAt")?.toLong() ?: 0L
+                    schedulePomodoroAlarm(id, taskId, taskTitle, phase, triggerAt)
+                    result.success(null)
+                }
+                "cancelPomodoro" -> {
+                    val id = call.argument<String>("id").orEmpty()
+                    cancelPomodoroAlarm(id)
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
             "alicechat/debug_logs"
         ).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -171,6 +198,10 @@ class MainActivity : FlutterActivity() {
 
     private fun captureIntent(intent: Intent?) {
         val action = intent?.action.orEmpty()
+        if (action == ACTION_OPEN_POMODORO_NOTIFICATION) {
+            appendLog("main", "captureIntent accepted_pomodoro payload=${intent?.getStringExtra(EXTRA_POMODORO_OPEN_PAYLOAD).orEmpty()}")
+            return
+        }
         val sessionId = intent?.getStringExtra(AliceChatForegroundService.EXTRA_SESSION_ID)?.trim().orEmpty()
         val messageId = intent?.getStringExtra(AliceChatForegroundService.EXTRA_MESSAGE_ID)?.trim().orEmpty()
         val payload = intent?.getStringExtra(EXTRA_NOTIFICATION_OPEN_PAYLOAD).orEmpty()
@@ -192,6 +223,61 @@ class MainActivity : FlutterActivity() {
 
     private fun appendLog(tag: String, message: String) {
         DebugLogBuffer.append(tag, message)
+    }
+
+    private fun schedulePomodoroAlarm(
+        id: String,
+        taskId: String,
+        taskTitle: String,
+        phase: String,
+        triggerAt: Long,
+    ) {
+        if (id.isBlank() || triggerAt <= 0L) {
+            appendLog("pomodoro", "schedule skipped invalid id=$id triggerAt=$triggerAt")
+            return
+        }
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val pendingIntent = pomodoroPendingIntent(id, taskId, taskTitle, phase)
+        val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
+        if (canExact && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+        } else if (canExact) {
+            alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+        } else {
+            alarmManager.set(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
+        }
+        appendLog("pomodoro", "schedule id=$id task=$taskId phase=$phase triggerAt=$triggerAt exact=$canExact")
+    }
+
+    private fun cancelPomodoroAlarm(id: String) {
+        if (id.isBlank()) return
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        alarmManager.cancel(pomodoroPendingIntent(id, "", "", ""))
+        appendLog("pomodoro", "cancel id=$id")
+    }
+
+    private fun pomodoroPendingIntent(
+        id: String,
+        taskId: String,
+        taskTitle: String,
+        phase: String,
+    ): PendingIntent {
+        val intent = Intent(this, PomodoroAlarmReceiver::class.java).apply {
+            action = PomodoroAlarmReceiver.ACTION_POMODORO_ALARM
+            putExtra(PomodoroAlarmReceiver.EXTRA_POMODORO_ID, id)
+            putExtra(PomodoroAlarmReceiver.EXTRA_TASK_ID, taskId)
+            putExtra(PomodoroAlarmReceiver.EXTRA_TASK_TITLE, taskTitle)
+            putExtra(PomodoroAlarmReceiver.EXTRA_PHASE, phase)
+            data = android.net.Uri.parse("alicechat://pomodoro-alarm/$id")
+        }
+        return PendingIntent.getBroadcast(
+            this,
+            id.hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
     }
 }
 

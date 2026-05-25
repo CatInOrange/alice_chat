@@ -34,10 +34,12 @@ def _normalize_snapshot(snapshot: dict[str, Any] | None) -> dict[str, Any]:
     projects = data.get("projects")
     tasks = data.get("tasks")
     subtasks = data.get("subtasks")
+    pomodoros = data.get("pomodoros")
     return {
         "projects": projects if isinstance(projects, list) else [],
         "tasks": tasks if isinstance(tasks, list) else [],
         "subtasks": subtasks if isinstance(subtasks, list) else [],
+        "pomodoros": pomodoros if isinstance(pomodoros, list) else [],
     }
 
 
@@ -361,6 +363,11 @@ def _delete_task(snapshot: dict[str, Any], task_id: str) -> dict[str, Any]:
     snapshot["subtasks"] = [
         item
         for item in snapshot["subtasks"]
+        if str(item.get("taskId") or "").strip() != task_id
+    ]
+    snapshot["pomodoros"] = [
+        item
+        for item in snapshot["pomodoros"]
         if str(item.get("taskId") or "").strip() != task_id
     ]
     return task
