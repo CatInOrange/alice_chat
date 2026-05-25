@@ -42,7 +42,6 @@ class _TodoScreenState extends State<TodoScreen>
   DateTime? _lastAutoRefreshAt;
   bool _refreshInFlight = false;
   bool _autoRefreshQueued = false;
-  bool _isHabitsMode = false;
 
   @override
   void initState() {
@@ -102,37 +101,6 @@ class _TodoScreenState extends State<TodoScreen>
     _scheduleAutoRefresh();
     final habitsStore = context.watch<HabitsStore>();
 
-    if (_isHabitsMode) {
-      if (widget.embedded) {
-        return Stack(
-          children: [
-            _buildHabitsBody(habitsStore),
-            Positioned(
-              right: 18,
-              bottom: 18,
-              child: _AddHabitFab(onTap: _openHabitEditor),
-            ),
-          ],
-        );
-      }
-
-      return Scaffold(
-        backgroundColor: const Color(0xFFF6F7FB),
-        appBar: AppBar(
-          title: const Text('习惯'),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.add),
-              onPressed: () => _openHabitEditor(),
-              tooltip: '新建习惯',
-            ),
-          ],
-        ),
-        body: _buildHabitsBody(habitsStore),
-        floatingActionButton: _AddHabitFab(onTap: _openHabitEditor),
-      );
-    }
-
     var filteredTasks = switch (_activeFilter) {
       _TaskFeedFilter.all => store.tasks
           .where(
@@ -165,8 +133,6 @@ class _TodoScreenState extends State<TodoScreen>
           parent: BouncingScrollPhysics(),
         ),
         slivers: [
-          if (widget.embedded)
-            SliverToBoxAdapter(child: _buildEmbeddedModeSwitcher()),
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
@@ -177,6 +143,7 @@ class _TodoScreenState extends State<TodoScreen>
               ),
             ),
           ),
+          SliverToBoxAdapter(child: _buildInlineHabitsSection(habitsStore)),
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
@@ -280,7 +247,10 @@ class _TodoScreenState extends State<TodoScreen>
           Positioned(
             right: 18,
             bottom: 18,
-            child: _AddTaskFab(onTap: () => _openEditor()),
+            child: _AddEntryFab(
+              onAddTask: () => _openEditor(),
+              onAddHabit: _openHabitEditor,
+            ),
           ),
         ],
       );
@@ -289,22 +259,7 @@ class _TodoScreenState extends State<TodoScreen>
     return Scaffold(
       backgroundColor: const Color(0xFFF6F7FB),
       appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _SegmentToggle(
-              label: '待办事项',
-              selected: !_isHabitsMode,
-              onTap: () => setState(() => _isHabitsMode = false),
-            ),
-            const SizedBox(width: 8),
-            _SegmentToggle(
-              label: '🏃 习惯',
-              selected: _isHabitsMode,
-              onTap: () => setState(() => _isHabitsMode = true),
-            ),
-          ],
-        ),
+        title: const Text('待办'),
         actions: [
           if (store.activeProjects.length > 1)
             IconButton(
@@ -320,34 +275,91 @@ class _TodoScreenState extends State<TodoScreen>
             ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: _AddTaskFab(onTap: () => _openEditor(), compact: true),
+            child: _AddEntryFab(
+              onAddTask: () => _openEditor(),
+              onAddHabit: _openHabitEditor,
+              compact: true,
+            ),
           ),
         ],
       ),
       body: body,
-      floatingActionButton: _AddTaskFab(onTap: () => _openEditor()),
+      floatingActionButton: _AddEntryFab(
+        onAddTask: () => _openEditor(),
+        onAddHabit: _openHabitEditor,
+      ),
     );
   }
 
-  Widget _buildEmbeddedModeSwitcher() {
+  Widget _buildInlineHabitsSection(HabitsStore habitsStore) {
+    final habits = habitsStore.habits.where((habit) => habit.dueToday).toList();
+    final doneCount =
+        habits
+            .where((habit) => habit.todayInstance?.isCompleted ?? false)
+            .length;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(20, 6, 20, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SegmentToggle(
-            label: '待办事项',
-            selected: !_isHabitsMode,
-            onTap: () => setState(() => _isHabitsMode = false),
+          Row(
+            children: [
+              Text(
+                '今日习惯',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '$doneCount/${habits.length}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: const Color(0xFF7B8496),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: _openHabitEditor,
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: const Text('习惯'),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          _SegmentToggle(
-            label: '🏃 习惯',
-            selected: _isHabitsMode,
-            onTap: () => setState(() => _isHabitsMode = true),
-          ),
+          const SizedBox(height: 8),
+          if (habitsStore.isLoading && !habitsStore.isLoaded)
+            const _InlineHabitPlaceholder()
+          else if (habits.isEmpty)
+            _InlineHabitEmptyCard(onCreate: _openHabitEditor)
+          else
+            ...habits.map(
+              (habit) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: HabitCard(
+                  habit: habit,
+                  onToggle: () => unawaited(_toggleHabit(habit)),
+                  onTap: () => _openHabitEditor(habit: habit),
+                ),
+              ),
+            ),
         ],
       ),
     );
+  }
+
+  Future<void> _toggleHabit(Habit habit) async {
+    try {
+      await context.read<HabitsStore>().toggleHabit(habit.id);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('习惯打卡失败：$e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   Future<void> _refreshTodo({
@@ -510,43 +522,6 @@ class _TodoScreenState extends State<TodoScreen>
       subtasks: result.subtasks
           .map((item) => item.copyWith(taskId: taskId))
           .toList(growable: false),
-    );
-  }
-
-  Widget _buildHabitsBody(HabitsStore habitsStore) {
-    if (habitsStore.isLoading && !habitsStore.isLoaded) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    final habits = habitsStore.habits;
-    return RefreshIndicator(
-      onRefresh: () => habitsStore.refreshFromRemote(force: true),
-      child: CustomScrollView(
-        physics: const AlwaysScrollableScrollPhysics(
-          parent: BouncingScrollPhysics(),
-        ),
-        slivers: [
-          if (widget.embedded)
-            SliverToBoxAdapter(child: _buildEmbeddedModeSwitcher()),
-          SliverToBoxAdapter(child: HabitsHeroCard(habits: habits)),
-          if (habits.isEmpty)
-            const HabitsEmptyState()
-          else
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
-              sliver: SliverList.builder(
-                itemCount: habits.length,
-                itemBuilder: (context, index) {
-                  final habit = habits[index];
-                  return HabitCard(
-                    habit: habit,
-                    onToggle: () => habitsStore.toggleHabit(habit.id),
-                  );
-                },
-              ),
-            ),
-        ],
-      ),
     );
   }
 
@@ -1906,11 +1881,188 @@ class _EmptyCard extends StatelessWidget {
   }
 }
 
+class _InlineHabitPlaceholder extends StatelessWidget {
+  const _InlineHabitPlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 58,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE8ECF3)),
+      ),
+      alignment: Alignment.center,
+      child: const SizedBox(
+        width: 18,
+        height: 18,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      ),
+    );
+  }
+}
+
+class _InlineHabitEmptyCard extends StatelessWidget {
+  const _InlineHabitEmptyCard({required this.onCreate});
+
+  final VoidCallback onCreate;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onCreate,
+        borderRadius: BorderRadius.circular(16),
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE8ECF3)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF2F4FA),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.directions_run_rounded,
+                  color: Color(0xFF7B8496),
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  '今天没有待打卡习惯',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF2D3443),
+                  ),
+                ),
+              ),
+              const Icon(Icons.add_rounded, color: Color(0xFF7B6CF6)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AddEntryFab extends StatelessWidget {
+  const _AddEntryFab({
+    required this.onAddTask,
+    required this.onAddHabit,
+    this.compact = false,
+  });
+
+  final VoidCallback onAddTask;
+  final VoidCallback onAddHabit;
+  final bool compact;
+
+  Future<void> _openMenu(BuildContext context) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder:
+          (context) => SafeArea(
+            top: false,
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Color(0xFFF8F8FD),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              ),
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD9DDEC),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  ListTile(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    tileColor: Colors.white,
+                    leading: const Icon(
+                      Icons.checklist_rounded,
+                      color: Color(0xFF7B6CF6),
+                    ),
+                    title: const Text('新建任务'),
+                    subtitle: const Text('一次性事项、项目任务或提醒'),
+                    onTap: () => Navigator.of(context).pop('task'),
+                  ),
+                  const SizedBox(height: 10),
+                  ListTile(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    tileColor: Colors.white,
+                    leading: const Icon(
+                      Icons.directions_run_rounded,
+                      color: Color(0xFF4E9F7A),
+                    ),
+                    title: const Text('新建习惯'),
+                    subtitle: const Text('每天或每周重复打卡'),
+                    onTap: () => Navigator.of(context).pop('habit'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+    );
+    if (action == 'task') {
+      onAddTask();
+    } else if (action == 'habit') {
+      onAddHabit();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _AddFabShell(
+      compact: compact,
+      label: '新建',
+      onTap: () => _openMenu(context),
+    );
+  }
+}
+
 class _AddTaskFab extends StatelessWidget {
   const _AddTaskFab({required this.onTap, this.compact = false});
 
   final VoidCallback onTap;
   final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    return _AddFabShell(compact: compact, label: '新建任务', onTap: onTap);
+  }
+}
+
+class _AddFabShell extends StatelessWidget {
+  const _AddFabShell({
+    required this.compact,
+    required this.label,
+    required this.onTap,
+  });
+
+  final bool compact;
+  final String label;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1942,14 +2094,14 @@ class _AddTaskFab extends StatelessWidget {
                   ),
                 ],
               ),
-              child: const Row(
+              child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.add_rounded, color: Colors.white),
-                  SizedBox(width: 6),
+                  const Icon(Icons.add_rounded, color: Colors.white),
+                  const SizedBox(width: 6),
                   Text(
-                    '新建任务',
-                    style: TextStyle(
+                    label,
+                    style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w700,
                     ),
@@ -3422,56 +3574,4 @@ String _formatDue(DateTime dueAt, {bool withDate = false}) {
 bool _isSameDay(DateTime? a, DateTime b) {
   if (a == null) return false;
   return a.year == b.year && a.month == b.month && a.day == b.day;
-}
-
-// ── Segment Toggle Widget ──────────────────────────────────
-
-class _SegmentToggle extends StatelessWidget {
-  const _SegmentToggle({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          color: selected ? const Color(0xFF7BAAF7) : const Color(0xFFEEF1F8),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: selected ? Colors.white : const Color(0xFF7B8496),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _AddHabitFab extends StatelessWidget {
-  const _AddHabitFab({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return FloatingActionButton(
-      onPressed: onTap,
-      backgroundColor: const Color(0xFF7BAAF7),
-      child: const Icon(Icons.add, color: Colors.white),
-    );
-  }
 }

@@ -51,6 +51,7 @@ def create_habits_router(context: AppContext) -> APIRouter:
         updated = context.habits_store.update_habit(habit_id, body)
         if updated is None:
             raise HTTPException(status_code=500, detail="update failed")
+        context.habits_service.reconcile_today(updated)
         enriched = context.habits_service._enrich_one(updated)
         return {"ok": True, "habit": enriched}
 

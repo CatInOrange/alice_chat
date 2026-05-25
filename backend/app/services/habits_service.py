@@ -113,6 +113,16 @@ class HabitsService:
             self.store.upsert_instance(habit["id"], today, "pending")
         return self._enrich_one(habit, today)
 
+    def reconcile_today(self, habit: dict[str, Any]) -> None:
+        today = _today_str()
+        today_date = datetime.now(_TZ).date()
+        instance = self.store.get_instance(habit["id"], today)
+        if _is_active_day(habit, today_date):
+            if instance is None:
+                self.store.upsert_instance(habit["id"], today, "pending")
+        elif instance is not None and instance.get("status") == "pending":
+            self.store.delete_pending_instance(habit["id"], today)
+
     # ── Helpers ───────────────────────────────────────────────
 
     def _enrich_one(self, habit: dict, today: str | None = None) -> dict:

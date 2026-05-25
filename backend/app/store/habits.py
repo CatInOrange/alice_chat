@@ -243,6 +243,16 @@ class HabitsStore:
         self.upsert_instance(habit_id, date, "expired")
         return True
 
+    def delete_pending_instance(self, habit_id: str, date: str) -> bool:
+        self.ensure_schema()
+        with connect(self.db) as conn:
+            cur = conn.execute(
+                "DELETE FROM habit_instances WHERE habit_id = ? AND date = ? AND status = 'pending'",
+                (habit_id, date),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
     # ── Stats ────────────────────────────────────────────────
 
     def compute_stats(self, habit_id: str, week_start: str, month_start: str, today: str) -> dict[str, Any]:

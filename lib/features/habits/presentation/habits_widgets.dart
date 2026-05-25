@@ -184,10 +184,16 @@ class _EmptyHeroCard extends StatelessWidget {
 // ── Habit Card ──────────────────────────────────────────────
 
 class HabitCard extends StatelessWidget {
-  const HabitCard({super.key, required this.habit, required this.onToggle});
+  const HabitCard({
+    super.key,
+    required this.habit,
+    required this.onToggle,
+    this.onTap,
+  });
 
   final Habit habit;
   final VoidCallback onToggle;
+  final VoidCallback? onTap;
 
   Color get _accentColor {
     try {
@@ -204,100 +210,119 @@ class HabitCard extends StatelessWidget {
     final rate = habit.weeklyStats?.rate ?? 0.0;
     final dueToday = habit.dueToday;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color:
-              isDone
-                  ? _accentColor.withValues(alpha: 0.3)
-                  : const Color(0xFFE8ECF3),
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color:
+                  isDone
+                      ? _accentColor.withValues(alpha: 0.3)
+                      : const Color(0xFFE8ECF3),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: _accentColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    _iconForHabit(habit.title),
-                    style: const TextStyle(fontSize: 20),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        habit.title,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+                Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: _accentColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${habit.frequencyLabel}${habit.reminderTime.isNotEmpty ? ' · ${habit.reminderTime}' : ''}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF7B8496),
-                        ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        _iconForHabit(habit.title),
+                        style: const TextStyle(fontSize: 20),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            habit.title,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${habit.frequencyLabel}${habit.reminderTime.isNotEmpty ? ' · ${habit.reminderTime}' : ''}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF7B8496),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _TodayToggle(
+                      isDone: isDone,
+                      enabled: dueToday,
+                      onToggle: onToggle,
+                    ),
+                    if (onTap != null) ...[
+                      const SizedBox(width: 4),
+                      IconButton(
+                        onPressed: onTap,
+                        icon: const Icon(Icons.more_horiz_rounded),
+                        tooltip: '编辑习惯',
+                        visualDensity: VisualDensity.compact,
+                        color: const Color(0xFF8F99AD),
                       ),
                     ],
-                  ),
+                  ],
                 ),
-                _TodayToggle(
-                  isDone: isDone,
-                  enabled: dueToday,
-                  onToggle: onToggle,
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    _ProgressBar(rate: rate, color: _accentColor),
+                    const SizedBox(width: 10),
+                    Text(
+                      '${(rate * 100).toInt()}%',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: _accentColor,
+                      ),
+                    ),
+                    const Spacer(),
+                    if (habit.streak > 0)
+                      Row(
+                        children: [
+                          const Text('🔥', style: TextStyle(fontSize: 12)),
+                          const SizedBox(width: 2),
+                          Text(
+                            '${habit.streak}天',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFFFF9A3C),
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                _ProgressBar(rate: rate, color: _accentColor),
-                const SizedBox(width: 10),
-                Text(
-                  '${(rate * 100).toInt()}%',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w700,
+                if (habit.history.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  _HabitHistoryGrid(
+                    history: habit.history,
                     color: _accentColor,
                   ),
-                ),
-                const Spacer(),
-                if (habit.streak > 0)
-                  Row(
-                    children: [
-                      const Text('🔥', style: TextStyle(fontSize: 12)),
-                      const SizedBox(width: 2),
-                      Text(
-                        '${habit.streak}天',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w700,
-                          color: const Color(0xFFFF9A3C),
-                        ),
-                      ),
-                    ],
-                  ),
+                ],
               ],
             ),
-            if (habit.history.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              _HabitHistoryGrid(history: habit.history, color: _accentColor),
-            ],
-          ],
+          ),
         ),
       ),
     );
@@ -454,6 +479,8 @@ class HabitEditorSheet extends StatefulWidget {
 
 class _HabitEditorSheetState extends State<HabitEditorSheet> {
   late final TextEditingController _titleCtrl;
+  late final TextEditingController _descriptionCtrl;
+  late final TextEditingController _reminderCtrl;
   late String _frequency;
   late List<int> _weekdays;
   late String _reminderTime;
@@ -469,14 +496,18 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
     super.initState();
     final h = widget.habit;
     _titleCtrl = TextEditingController(text: h?.title ?? '');
+    _descriptionCtrl = TextEditingController(text: h?.description ?? '');
     _frequency = h?.frequency ?? 'daily';
     _weekdays = List<int>.from(h?.weekdays ?? [1, 2, 3, 4, 5]);
     _reminderTime = h?.reminderTime ?? '';
+    _reminderCtrl = TextEditingController(text: _reminderTime);
   }
 
   @override
   void dispose() {
     _titleCtrl.dispose();
+    _descriptionCtrl.dispose();
+    _reminderCtrl.dispose();
     super.dispose();
   }
 
@@ -521,6 +552,18 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
                 autofocus: !_isEditing,
                 decoration: const InputDecoration(
                   hintText: '习惯名称',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.all(Radius.circular(12)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _descriptionCtrl,
+                minLines: 1,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  hintText: '备注（可选）',
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.all(Radius.circular(12)),
                   ),
@@ -596,15 +639,26 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
               Text('提醒时间', style: theme.textTheme.bodySmall),
               const SizedBox(height: 8),
               TextField(
-                controller: TextEditingController(text: _reminderTime),
-                onChanged: (v) => _reminderTime = v,
-                keyboardType: TextInputType.datetime,
-                decoration: const InputDecoration(
+                controller: _reminderCtrl,
+                readOnly: true,
+                onTap: _pickReminderTime,
+                decoration: InputDecoration(
                   hintText: '如 07:00（留空不提醒）',
-                  border: OutlineInputBorder(
+                  border: const OutlineInputBorder(
                     borderRadius: BorderRadius.all(Radius.circular(12)),
                   ),
-                  suffixIcon: Icon(Icons.access_time, size: 20),
+                  suffixIcon:
+                      _reminderTime.isEmpty
+                          ? const Icon(Icons.access_time, size: 20)
+                          : IconButton(
+                            icon: const Icon(Icons.close_rounded, size: 20),
+                            tooltip: '清除提醒',
+                            onPressed:
+                                () => setState(() {
+                                  _reminderTime = '';
+                                  _reminderCtrl.clear();
+                                }),
+                          ),
                 ),
               ),
               const SizedBox(height: 20),
@@ -663,21 +717,36 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
 
   Future<void> _save() async {
     final title = _titleCtrl.text.trim();
-    if (title.isEmpty) return;
+    if (title.isEmpty) {
+      _showError('先写一个习惯名称');
+      return;
+    }
+    if (_frequency == 'weekly' && _weekdays.isEmpty) {
+      _showError('每周习惯至少选择一天');
+      return;
+    }
     setState(() => _saving = true);
     final store = context.read<HabitsStore>();
     final payload = <String, dynamic>{
       'title': title,
+      'description': _descriptionCtrl.text.trim(),
       'frequency': _frequency,
       'weekdays': _frequency == 'weekly' ? _weekdays : [],
       'reminderTime': _reminderTime,
     };
-    if (_isEditing) {
-      await store.updateHabit(widget.habit!.id, payload);
-    } else {
-      await store.createHabit(payload);
+    try {
+      if (_isEditing) {
+        await store.updateHabit(widget.habit!.id, payload);
+      } else {
+        await store.createHabit(payload);
+      }
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        _showError('保存失败：$e');
+      }
     }
-    if (mounted) Navigator.of(context).pop();
   }
 
   Future<void> _delete() async {
@@ -701,8 +770,43 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
     );
     if (confirmed != true || !mounted) return;
     setState(() => _saving = true);
-    await context.read<HabitsStore>().deleteHabit(widget.habit!.id);
-    if (mounted) Navigator.of(context).pop();
+    try {
+      await context.read<HabitsStore>().deleteHabit(widget.habit!.id);
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saving = false);
+        _showError('删除失败：$e');
+      }
+    }
+  }
+
+  Future<void> _pickReminderTime() async {
+    final initial = _parseReminderTime(_reminderTime) ?? TimeOfDay.now();
+    final picked = await showTimePicker(context: context, initialTime: initial);
+    if (picked == null || !mounted) return;
+    final text =
+        '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
+    setState(() {
+      _reminderTime = text;
+      _reminderCtrl.text = text;
+    });
+  }
+
+  TimeOfDay? _parseReminderTime(String value) {
+    final parts = value.split(':');
+    if (parts.length != 2) return null;
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+    if (hour == null || minute == null) return null;
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+    return TimeOfDay(hour: hour, minute: minute);
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
   }
 }
 
