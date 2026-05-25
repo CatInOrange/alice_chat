@@ -183,17 +183,26 @@ class _EmptyHeroCard extends StatelessWidget {
 
 // ── Habit Card ──────────────────────────────────────────────
 
-class HabitCard extends StatelessWidget {
+class HabitCard extends StatefulWidget {
   const HabitCard({
     super.key,
     required this.habit,
     required this.onToggle,
-    this.onTap,
+    this.onEdit,
   });
 
   final Habit habit;
   final VoidCallback onToggle;
-  final VoidCallback? onTap;
+  final VoidCallback? onEdit;
+
+  @override
+  State<HabitCard> createState() => _HabitCardState();
+}
+
+class _HabitCardState extends State<HabitCard> {
+  bool _expanded = false;
+
+  Habit get habit => widget.habit;
 
   Color get _accentColor {
     try {
@@ -207,119 +216,118 @@ class HabitCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDone = habit.todayInstance?.isCompleted ?? false;
-    final rate = habit.weeklyStats?.rate ?? 0.0;
     final dueToday = habit.dueToday;
 
     return Material(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(18),
       child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
+        onTap: () => setState(() => _expanded = !_expanded),
+        onLongPress: widget.onEdit == null ? null : _showActionMenu,
+        borderRadius: BorderRadius.circular(18),
         child: Ink(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color:
-                  isDone
-                      ? _accentColor.withValues(alpha: 0.3)
-                      : const Color(0xFFE8ECF3),
-            ),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFE8ECF3)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x08000000),
+                blurRadius: 12,
+                offset: Offset(0, 6),
+              ),
+            ],
           ),
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
                     Container(
-                      width: 40,
-                      height: 40,
+                      width: 36,
+                      height: 36,
                       decoration: BoxDecoration(
                         color: _accentColor.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                       alignment: Alignment.center,
                       child: Text(
                         _iconForHabit(habit.title),
-                        style: const TextStyle(fontSize: 20),
+                        style: const TextStyle(fontSize: 18),
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    const SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             habit.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w800,
                             ),
                           ),
                           const SizedBox(height: 2),
-                          Text(
-                            '${habit.frequencyLabel}${habit.reminderTime.isNotEmpty ? ' · ${habit.reminderTime}' : ''}',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: const Color(0xFF7B8496),
-                            ),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 2,
+                            children: [
+                              _CompactMetaText(
+                                text: habit.frequencyLabel,
+                                color: _accentColor,
+                              ),
+                              if (habit.reminderTime.isNotEmpty)
+                                _CompactMetaText(
+                                  text: habit.reminderTime,
+                                  color: const Color(0xFF7B8496),
+                                ),
+                              if (habit.streak > 0)
+                                _CompactMetaText(
+                                  text: '连续 ${habit.streak} 天',
+                                  color: const Color(0xFFFF9A3C),
+                                ),
+                            ],
                           ),
                         ],
                       ),
                     ),
+                    const SizedBox(width: 8),
                     _TodayToggle(
                       isDone: isDone,
                       enabled: dueToday,
-                      onToggle: onToggle,
+                      onToggle: widget.onToggle,
                     ),
-                    if (onTap != null) ...[
-                      const SizedBox(width: 4),
-                      IconButton(
-                        onPressed: onTap,
-                        icon: const Icon(Icons.more_horiz_rounded),
-                        tooltip: '编辑习惯',
-                        visualDensity: VisualDensity.compact,
-                        color: const Color(0xFF8F99AD),
-                      ),
-                    ],
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _ProgressBar(rate: rate, color: _accentColor),
-                    const SizedBox(width: 10),
-                    Text(
-                      '${(rate * 100).toInt()}%',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: _accentColor,
+                    const SizedBox(width: 4),
+                    AnimatedRotation(
+                      turns: _expanded ? 0.5 : 0,
+                      duration: const Duration(milliseconds: 180),
+                      child: const Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        size: 20,
+                        color: Color(0xFF8F99AD),
                       ),
                     ),
-                    const Spacer(),
-                    if (habit.streak > 0)
-                      Row(
-                        children: [
-                          const Text('🔥', style: TextStyle(fontSize: 12)),
-                          const SizedBox(width: 2),
-                          Text(
-                            '${habit.streak}天',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: const Color(0xFFFF9A3C),
-                            ),
-                          ),
-                        ],
-                      ),
                   ],
                 ),
-                if (habit.history.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  _HabitHistoryGrid(
-                    history: habit.history,
+                AnimatedCrossFade(
+                  firstChild: const SizedBox(width: double.infinity),
+                  secondChild: _HabitDetailPanel(
+                    habit: habit,
                     color: _accentColor,
+                    onEdit: widget.onEdit,
                   ),
-                ],
+                  crossFadeState:
+                      _expanded
+                          ? CrossFadeState.showSecond
+                          : CrossFadeState.showFirst,
+                  duration: const Duration(milliseconds: 180),
+                  firstCurve: Curves.easeOutCubic,
+                  secondCurve: Curves.easeOutCubic,
+                  sizeCurve: Curves.easeOutCubic,
+                ),
               ],
             ),
           ),
@@ -338,6 +346,205 @@ class HabitCard extends StatelessWidget {
     if (lower.contains('运动') || lower.contains('健身')) return '💪';
     if (lower.contains('写') || lower.contains('记')) return '✍️';
     return '⭐';
+  }
+
+  Future<void> _showActionMenu() async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder:
+          (context) => SafeArea(
+            child: Container(
+              margin: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.edit_rounded),
+                    title: const Text('编辑习惯'),
+                    onTap: () => Navigator.pop(context, 'edit'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+    );
+    if (action == 'edit') {
+      widget.onEdit?.call();
+    }
+  }
+}
+
+class _CompactMetaText extends StatelessWidget {
+  const _CompactMetaText({required this.text, required this.color});
+
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+        color: color,
+        fontWeight: FontWeight.w700,
+        height: 1.1,
+      ),
+    );
+  }
+}
+
+class _HabitDetailPanel extends StatelessWidget {
+  const _HabitDetailPanel({
+    required this.habit,
+    required this.color,
+    required this.onEdit,
+  });
+
+  final Habit habit;
+  final Color color;
+  final VoidCallback? onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final weekly = habit.weeklyStats;
+    final monthly = habit.monthlyStats;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (habit.description.isNotEmpty) ...[
+            Text(
+              habit.description,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: const Color(0xFF7B8496),
+                height: 1.35,
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+          Row(
+            children: [
+              Expanded(
+                child: _HabitMetricTile(
+                  label: '本周',
+                  value: _formatStats(weekly),
+                  color: color,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _HabitMetricTile(
+                  label: '本月',
+                  value: _formatStats(monthly),
+                  color: color,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _HabitMetricTile(
+                  label: '连续',
+                  value: '${habit.streak}天',
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: _ProgressBar(rate: weekly?.rate ?? 0.0, color: color),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                '周完成率 ${(((weekly?.rate ?? 0.0) * 100).round())}%',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: const Color(0xFF7B8496),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          if (habit.history.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _HabitHistoryGrid(history: habit.history, color: color),
+          ],
+          if (onEdit != null) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: onEdit,
+                icon: const Icon(Icons.edit_rounded, size: 16),
+                label: const Text('编辑'),
+                style: TextButton.styleFrom(
+                  visualDensity: VisualDensity.compact,
+                  foregroundColor: const Color(0xFF5E6B86),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _formatStats(HabitStats? stats) {
+    if (stats == null || stats.total == 0) return '0/0';
+    return '${stats.done}/${stats.total}';
+  }
+}
+
+class _HabitMetricTile extends StatelessWidget {
+  const _HabitMetricTile({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: const Color(0xFF7B8496),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              color: const Color(0xFF2D3443),
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

@@ -339,7 +339,7 @@ class _TodoScreenState extends State<TodoScreen>
                 child: HabitCard(
                   habit: habit,
                   onToggle: () => unawaited(_toggleHabit(habit)),
-                  onTap: () => _openHabitEditor(habit: habit),
+                  onEdit: () => _openHabitEditor(habit: habit),
                 ),
               ),
             ),
