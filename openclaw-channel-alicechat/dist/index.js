@@ -319,6 +319,7 @@ function playlistDraftToPlaylistRef(draft) {
 }
 const TODO_PRIORITIES = ['low', 'medium', 'high', 'urgent'];
 const TODO_STATUSES = ['todo', 'doing', 'done', 'archived'];
+const HABIT_FREQUENCIES = ['daily', 'weekly'];
 function normalizeTodoPriority(value, fallback = 'medium') {
     const priority = String(value || '').trim().toLowerCase();
     return TODO_PRIORITIES.includes(priority) ? priority : fallback;
@@ -398,6 +399,78 @@ function summarizeTodoSnapshot(snapshot, options = {}) {
         summaryText: lines.length
             ? lines.join('\n')
             : `No todo tasks matched scope=${scope}.`,
+    };
+}
+function normalizeHabitFrequency(value, fallback = 'daily') {
+    const frequency = String(value || '').trim().toLowerCase();
+    return HABIT_FREQUENCIES.includes(frequency) ? frequency : fallback;
+}
+function normalizeHabitWeekdays(rawWeekdays) {
+    if (!Array.isArray(rawWeekdays))
+        return [];
+    return [...new Set(rawWeekdays
+            .map((day) => Number(day))
+            .filter((day) => Number.isInteger(day) && day >= 1 && day <= 7))].sort((a, b) => a - b);
+}
+function normalizeHabitReminderTime(value) {
+    const raw = String(value || '').trim();
+    if (!raw)
+        return '';
+    const match = raw.match(/^(\d{1,2}):(\d{2})$/);
+    if (!match)
+        return raw;
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59)
+        return raw;
+    return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+function summarizeHabitSnapshot(response, options = {}) {
+    const opts = options || {};
+    const habits = Array.isArray(response?.habits) ? response.habits : [];
+    const scope = String(opts.scope || 'today').trim();
+    const includeHistory = opts.includeHistory === true;
+    const limit = Number.isFinite(Number(opts.limit)) ? Math.max(1, Number(opts.limit)) : 50;
+    const today = new Date().toISOString().slice(0, 10);
+    let filtered = habits.filter((habit) => {
+        if (scope === 'all')
+            return true;
+        if (scope === 'active')
+            return habit.active !== false;
+        if (scope === 'inactive')
+            return habit.active === false;
+        if (scope === 'completed_today')
+            return habit.dueToday === true && habit.todayInstance?.status === 'completed';
+        if (scope === 'pending_today')
+            return habit.dueToday === true && habit.todayInstance?.status !== 'completed';
+        return habit.dueToday === true;
+    });
+    filtered = filtered.slice(0, limit);
+    const weekdayLabels = ['一', '二', '三', '四', '五', '六', '日'];
+    const lines = filtered.map((habit) => {
+        const id = String(habit.id || '');
+        const title = String(habit.title || '');
+        const status = habit.todayInstance?.status || (habit.dueToday ? 'pending' : 'not_due');
+        const frequency = String(habit.frequency || 'daily');
+        const weekdays = normalizeHabitWeekdays(habit.weekdays)
+            .map((day) => weekdayLabels[day - 1])
+            .join('');
+        const schedule = frequency === 'weekly' ? `weekly(${weekdays || 'none'})` : 'daily';
+        const reminder = habit.reminderTime ? ` remind=${habit.reminderTime}` : '';
+        const weekly = habit.stats?.weekly ? ` week=${habit.stats.weekly.done}/${habit.stats.weekly.total}` : '';
+        const monthly = habit.stats?.monthly ? ` month=${habit.stats.monthly.done}/${habit.stats.monthly.total}` : '';
+        return `- [${status}] ${title} (#${id}) ${schedule} streak=${Number(habit.streak || 0)}${weekly}${monthly}${reminder}`;
+    });
+    return {
+        habits: includeHistory
+            ? filtered
+            : filtered.map((habit) => {
+                const { history, ...rest } = habit || {};
+                return rest;
+            }),
+        summaryText: lines.length
+            ? lines.join('\n')
+            : `No habits matched scope=${scope} for ${today}.`,
     };
 }
 function createBridgeServer(ctx) {
@@ -1385,6 +1458,216 @@ export function register(api) {
                             text: summarized.summaryText,
                         }],
                     details,
+                };
+            }
+            catch (error) {
+                return {
+                    content: [{ type: 'text', text: `Error: ${error?.message || String(error)}` }],
+                    details: { error: true },
+                };
+            }
+        },
+    });
+    api.registerTool({
+        name: 'habit_action',
+        label: 'Manage habits',
+        description: 'Create, update, complete, reopen, toggle, delete, or refresh AliceChat habits.',
+        parameters: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+                type: {
+                    type: 'string',
+                    enum: [
+                        'create_habit',
+                        'update_habit',
+                        'delete_habit',
+                        'complete_today',
+                        'reopen_today',
+                        'toggle_today',
+                        'refresh',
+                    ],
+                },
+                requestId: { type: 'string' },
+                habitId: { type: 'string' },
+                title: { type: 'string' },
+                description: { type: 'string' },
+                frequency: { type: 'string', enum: HABIT_FREQUENCIES },
+                weekdays: {
+                    type: 'array',
+                    description: 'ISO weekdays for weekly habits: 1=Monday, 7=Sunday.',
+                    items: { type: 'number' },
+                },
+                reminderTime: { type: 'string', description: 'HH:mm local time, or empty string to clear.' },
+                active: { type: 'boolean' },
+                colorValue: { type: 'number' },
+                iconCodePoint: { type: 'number' },
+                sortOrder: { type: 'number' },
+            },
+            required: ['type'],
+        },
+        async execute(_id, params) {
+            try {
+                const input = params || {};
+                const actionType = String(input.type || '').trim();
+                const requestId = String(input.requestId || '').trim() || String(_id || '').trim() || undefined;
+                const habitId = String(input.habitId || '').trim();
+                const payload = {};
+                if (input.title !== undefined)
+                    payload.title = String(input.title || '').trim();
+                if (input.description !== undefined)
+                    payload.description = String(input.description || '').trim();
+                if (input.frequency !== undefined)
+                    payload.frequency = normalizeHabitFrequency(input.frequency);
+                if (input.weekdays !== undefined)
+                    payload.weekdays = normalizeHabitWeekdays(input.weekdays);
+                if (input.reminderTime !== undefined)
+                    payload.reminderTime = normalizeHabitReminderTime(input.reminderTime);
+                if (input.active !== undefined)
+                    payload.active = input.active === true;
+                if (input.colorValue !== undefined)
+                    payload.colorValue = Number(input.colorValue || 0);
+                if (input.iconCodePoint !== undefined)
+                    payload.iconCodePoint = Number(input.iconCodePoint || 0);
+                if (input.sortOrder !== undefined)
+                    payload.sortOrder = Number(input.sortOrder || 0);
+                if (actionType === 'create_habit') {
+                    if (!payload.title) {
+                        return {
+                            content: [{ type: 'text', text: 'Error: create_habit 需要 title。' }],
+                            details: { error: true },
+                        };
+                    }
+                    if (payload.frequency === 'weekly' && !payload.weekdays?.length) {
+                        return {
+                            content: [{ type: 'text', text: 'Error: weekly 习惯需要 weekdays，1=周一，7=周日。' }],
+                            details: { error: true },
+                        };
+                    }
+                    const response = await callAliceChatApi('POST', '/api/habits', payload);
+                    return {
+                        content: [{ type: 'text', text: `Habit created: ${String(response?.habit?.title || payload.title)}.` }],
+                        details: { ...response, requestId },
+                    };
+                }
+                if (actionType === 'update_habit') {
+                    if (!habitId) {
+                        return {
+                            content: [{ type: 'text', text: 'Error: update_habit 需要 habitId。' }],
+                            details: { error: true },
+                        };
+                    }
+                    if (payload.frequency === 'weekly' && input.weekdays !== undefined && !payload.weekdays?.length) {
+                        return {
+                            content: [{ type: 'text', text: 'Error: weekly 习惯至少需要一个 weekdays。' }],
+                            details: { error: true },
+                        };
+                    }
+                    const response = await callAliceChatApi('PUT', `/api/habits/${encodeURIComponent(habitId)}`, payload);
+                    return {
+                        content: [{ type: 'text', text: `Habit updated: ${String(response?.habit?.title || habitId)}.` }],
+                        details: { ...response, requestId },
+                    };
+                }
+                if (actionType === 'delete_habit') {
+                    if (!habitId) {
+                        return {
+                            content: [{ type: 'text', text: 'Error: delete_habit 需要 habitId。' }],
+                            details: { error: true },
+                        };
+                    }
+                    const response = await callAliceChatApi('DELETE', `/api/habits/${encodeURIComponent(habitId)}`, {});
+                    return {
+                        content: [{ type: 'text', text: `Habit deleted: ${habitId}.` }],
+                        details: { ...response, requestId },
+                    };
+                }
+                if (['complete_today', 'reopen_today', 'toggle_today'].includes(actionType)) {
+                    if (!habitId) {
+                        return {
+                            content: [{ type: 'text', text: `Error: ${actionType} 需要 habitId。` }],
+                            details: { error: true },
+                        };
+                    }
+                    if (actionType === 'toggle_today') {
+                        const response = await callAliceChatApi('POST', `/api/habits/${encodeURIComponent(habitId)}/toggle`, {});
+                        return {
+                            content: [{ type: 'text', text: `Habit toggled: ${String(response?.habit?.title || habitId)}.` }],
+                            details: { ...response, requestId },
+                        };
+                    }
+                    const snapshot = await callAliceChatApi('GET', '/api/habits', {});
+                    const habit = (Array.isArray(snapshot?.habits) ? snapshot.habits : [])
+                        .find((item) => String(item?.id || '') === habitId);
+                    if (!habit) {
+                        return {
+                            content: [{ type: 'text', text: `Error: habit not found: ${habitId}` }],
+                            details: { error: true, snapshot },
+                        };
+                    }
+                    const completed = habit.todayInstance?.status === 'completed';
+                    const shouldToggle = actionType === 'complete_today' ? !completed : completed;
+                    if (!shouldToggle) {
+                        return {
+                            content: [{ type: 'text', text: `Habit already ${completed ? 'completed' : 'open'} today: ${String(habit.title || habitId)}.` }],
+                            details: { ok: true, habit, unchanged: true, requestId },
+                        };
+                    }
+                    const response = await callAliceChatApi('POST', `/api/habits/${encodeURIComponent(habitId)}/toggle`, {});
+                    return {
+                        content: [{ type: 'text', text: `Habit ${actionType === 'complete_today' ? 'completed' : 'reopened'}: ${String(response?.habit?.title || habitId)}.` }],
+                        details: { ...response, requestId },
+                    };
+                }
+                if (actionType === 'refresh') {
+                    const response = await callAliceChatApi('POST', '/api/habits/refresh', {});
+                    return {
+                        content: [{ type: 'text', text: 'Habits refreshed.' }],
+                        details: { ...response, requestId },
+                    };
+                }
+                return {
+                    content: [{ type: 'text', text: `Error: unsupported habit action: ${actionType}` }],
+                    details: { error: true },
+                };
+            }
+            catch (error) {
+                return {
+                    content: [{ type: 'text', text: `Error: ${error?.message || String(error)}` }],
+                    details: { error: true },
+                };
+            }
+        },
+    });
+    api.registerTool({
+        name: 'get_habit_snapshot',
+        label: 'Read habit snapshot',
+        description: 'Read current AliceChat habits, optionally filtered by today, pending, completed, active, or inactive.',
+        parameters: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+                scope: {
+                    type: 'string',
+                    enum: ['today', 'pending_today', 'completed_today', 'active', 'inactive', 'all'],
+                },
+                includeHistory: { type: 'boolean' },
+                limit: { type: 'number' },
+            },
+        },
+        async execute(_id, params) {
+            try {
+                const response = await callAliceChatApi('GET', '/api/habits', {});
+                const summarized = summarizeHabitSnapshot(response, params || {});
+                return {
+                    content: [{
+                            type: 'text',
+                            text: summarized.summaryText,
+                        }],
+                    details: {
+                        ...response,
+                        habits: summarized.habits,
+                    },
                 };
             }
             catch (error) {

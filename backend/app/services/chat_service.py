@@ -103,10 +103,54 @@ Rules:
 - Do not invent unsupported todo actions.
 """.strip()
 
+_HABIT_TOOL_GUIDANCE_TEMPLATE = """
+Habit reading and editing are available through tool calls.
+
+Current habit time context:
+- Current datetime: {current_datetime}
+- Current date: {current_date}
+- Timezone: Asia/Shanghai (UTC+08:00)
+
+When the user asks to view habits, today's habits, pending habits, completed habits, habit streaks, or habit stats, prefer `get_habit_snapshot` instead of guessing from chat history.
+
+When the user asks to create, update, complete/check in, reopen/uncheck, delete, pause, resume, or refresh habits, prefer `habit_action`.
+
+Available habit tools:
+- `get_habit_snapshot`: read current habits, optionally filtered by scope
+- `habit_action`: create/update/delete/check habits in AliceChat
+
+Available `habit_action` types:
+- `create_habit`
+- `update_habit`
+- `delete_habit`
+- `complete_today`
+- `reopen_today`
+- `toggle_today`
+- `refresh`
+
+Rules:
+- For updates or deletes to an existing habit, prefer reading with `get_habit_snapshot` first so you can use the right `habitId`.
+- If the user references an existing habit ambiguously, ask a concise follow-up question instead of guessing.
+- If the user clearly wants a new habit recorded, use `habit_action` directly.
+- Habit frequency values are `daily` and `weekly`.
+- For weekly habits, `weekdays` uses ISO weekdays: 1=Monday, 7=Sunday. Ask if the intended weekdays are unclear.
+- `reminderTime` uses local `HH:mm`, for example `08:30`; use an empty string to clear it.
+- Use `active: false` to pause a habit and `active: true` to resume it.
+- Do not invent unsupported habit actions.
+""".strip()
+
 
 def _build_todo_tool_guidance() -> str:
     now = datetime.now(ZoneInfo("Asia/Shanghai"))
     return _TODO_TOOL_GUIDANCE_TEMPLATE.format(
+        current_datetime=now.isoformat(timespec="seconds"),
+        current_date=now.date().isoformat(),
+    )
+
+
+def _build_habit_tool_guidance() -> str:
+    now = datetime.now(ZoneInfo("Asia/Shanghai"))
+    return _HABIT_TOOL_GUIDANCE_TEMPLATE.format(
         current_datetime=now.isoformat(timespec="seconds"),
         current_date=now.date().isoformat(),
     )
@@ -165,6 +209,7 @@ class ChatService:
         if provider_id == "alicechat-channel":
             extra_system_prompts.append(_MUSIC_TOOL_GUIDANCE)
             extra_system_prompts.append(_build_todo_tool_guidance())
+            extra_system_prompts.append(_build_habit_tool_guidance())
 
         return ChatResolvedRequest(
             model_config=model_config,
