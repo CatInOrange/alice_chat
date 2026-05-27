@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -24,6 +24,13 @@ def _week_start() -> str:
 
 def _month_start() -> str:
     return datetime.now(_TZ).date().replace(day=1).isoformat()
+
+
+def _parse_date(value: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD") from exc
 
 
 def create_habits_router(context: AppContext) -> APIRouter:
@@ -76,6 +83,24 @@ def create_habits_router(context: AppContext) -> APIRouter:
             context.habits_store.toggle_instance(habit_id, today)
         enriched = context.habits_service._enrich_one(habit)
         return {"ok": True, "habit": enriched}
+
+    @router.post("/api/habits/{habit_id}/instances/{date_value}/complete")
+    async def complete_habit_instance(habit_id: str, date_value: str) -> dict:
+        habit = context.habits_store.get_habit(habit_id)
+        if habit is None:
+            raise HTTPException(status_code=404, detail=f"habit not found: {habit_id}")
+        target_date = _parse_date(date_value)
+        updated = context.habits_service.set_instance_completed(habit, target_date)
+        return {"ok": True, "habit": updated}
+
+    @router.post("/api/habits/{habit_id}/instances/{date_value}/reopen")
+    async def reopen_habit_instance(habit_id: str, date_value: str) -> dict:
+        habit = context.habits_store.get_habit(habit_id)
+        if habit is None:
+            raise HTTPException(status_code=404, detail=f"habit not found: {habit_id}")
+        target_date = _parse_date(date_value)
+        updated = context.habits_service.reopen_instance(habit, target_date)
+        return {"ok": True, "habit": updated}
 
     @router.post("/api/habits/refresh")
     async def refresh_habits() -> dict:

@@ -692,6 +692,8 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
   late List<int> _weekdays;
   late String _reminderTime;
   bool _saving = false;
+  String? _backfillBusyDate;
+  Habit? _currentHabit;
 
   bool get _isEditing => widget.habit != null;
 
@@ -868,6 +870,10 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
                           ),
                 ),
               ),
+              if (_isEditing) ...[
+                const SizedBox(height: 18),
+                _buildBackfillSection(theme),
+              ],
               const SizedBox(height: 20),
               SizedBox(
                 width: double.infinity,
@@ -984,6 +990,165 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
       if (mounted) {
         setState(() => _saving = false);
         _showError('删除失败：$e');
+      }
+    }
+  }
+
+  Widget _buildBackfillSection(ThemeData theme) {
+    final habit = _currentHabit ?? widget.habit;
+    if (habit == null) return const SizedBox.shrink();
+    final days =
+        habit.history.length > 7
+            ? habit.history.sublist(habit.history.length - 7)
+            : habit.history;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('补打卡', style: theme.textTheme.bodySmall),
+            Text(
+              '最近7天',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: const Color(0xFF9AA3B5),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            for (final day in days) ...[
+              Expanded(child: _buildBackfillDay(day)),
+              if (day != days.last) const SizedBox(width: 6),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBackfillDay(HabitHistoryDay day) {
+    final habit = _currentHabit ?? widget.habit!;
+    final parsed = DateTime.tryParse(day.date);
+    final scheduled =
+        parsed != null &&
+        (habit.isDaily || habit.weekdays.contains(parsed.weekday));
+    final completed = day.isCompleted;
+    final busy = _backfillBusyDate == day.date;
+    final label = parsed == null ? '--' : '${parsed.month}/${parsed.day}';
+    final weekday = parsed == null ? '' : _weekdayNames[parsed.weekday];
+    final color = completed ? const Color(0xFF66C5A3) : const Color(0xFF7BAAF7);
+    return Tooltip(
+      message:
+          scheduled
+              ? (completed ? '取消 ${day.date} 打卡' : '补打卡 ${day.date}')
+              : '${day.date} 不需要打卡',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: scheduled && !busy ? () => _toggleBackfillDay(day) : null,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          height: 58,
+          decoration: BoxDecoration(
+            color:
+                !scheduled
+                    ? const Color(0xFFF5F7FB)
+                    : completed
+                    ? color.withValues(alpha: 0.14)
+                    : const Color(0xFFF2F4FA),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color:
+                  !scheduled
+                      ? const Color(0xFFE8ECF3)
+                      : completed
+                      ? color
+                      : const Color(0xFFE1E6F0),
+            ),
+          ),
+          child:
+              busy
+                  ? const Center(
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                  : Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        weekday,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color:
+                              scheduled
+                                  ? const Color(0xFF7B8496)
+                                  : const Color(0xFFC2C8D5),
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color:
+                              !scheduled
+                                  ? const Color(0xFFC2C8D5)
+                                  : completed
+                                  ? const Color(0xFF2F8F70)
+                                  : const Color(0xFF2D3443),
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Icon(
+                        completed
+                            ? Icons.check_circle_rounded
+                            : scheduled
+                            ? Icons.add_circle_outline_rounded
+                            : Icons.remove_circle_outline_rounded,
+                        size: 14,
+                        color:
+                            !scheduled
+                                ? const Color(0xFFC2C8D5)
+                                : completed
+                                ? color
+                                : const Color(0xFF9AA3B5),
+                      ),
+                    ],
+                  ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _toggleBackfillDay(HabitHistoryDay day) async {
+    final habit = widget.habit;
+    if (habit == null || _backfillBusyDate != null) return;
+    setState(() => _backfillBusyDate = day.date);
+    try {
+      final store = context.read<HabitsStore>();
+      Habit? updated;
+      if (day.isCompleted) {
+        updated = await store.reopenHabitOnDate(habit.id, day.date);
+      } else {
+        updated = await store.completeHabitOnDate(habit.id, day.date);
+      }
+      if (mounted) {
+        setState(() {
+          _currentHabit = updated ?? _currentHabit;
+          _backfillBusyDate = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _backfillBusyDate = null);
+        _showError('补打卡失败：$e');
       }
     }
   }

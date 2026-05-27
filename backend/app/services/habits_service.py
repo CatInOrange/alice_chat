@@ -6,6 +6,8 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from fastapi import HTTPException
+
 from ..store.habits import HabitsStore
 
 _LOG = logging.getLogger(__name__)
@@ -123,7 +125,28 @@ class HabitsService:
         elif instance is not None and instance.get("status") == "pending":
             self.store.delete_pending_instance(habit["id"], today)
 
+    def set_instance_completed(self, habit: dict[str, Any], target_date: date) -> dict:
+        self._validate_manual_instance_date(habit, target_date)
+        self.store.upsert_instance(habit["id"], target_date.isoformat(), "completed")
+        return self._enrich_one(habit)
+
+    def reopen_instance(self, habit: dict[str, Any], target_date: date) -> dict:
+        self._validate_manual_instance_date(habit, target_date)
+        today = datetime.now(_TZ).date()
+        status = "pending" if target_date == today else "expired"
+        self.store.upsert_instance(habit["id"], target_date.isoformat(), status)
+        return self._enrich_one(habit)
+
     # ── Helpers ───────────────────────────────────────────────
+
+    def _validate_manual_instance_date(self, habit: dict[str, Any], target_date: date) -> None:
+        today = datetime.now(_TZ).date()
+        if target_date > today:
+            raise HTTPException(status_code=400, detail="cannot check in a future date")
+        if target_date < today - timedelta(days=6):
+            raise HTTPException(status_code=400, detail="manual check-in is limited to the last 7 days")
+        if not _is_active_day(habit, target_date):
+            raise HTTPException(status_code=400, detail="habit is not scheduled for this date")
 
     def _enrich_one(self, habit: dict, today: str | None = None) -> dict:
         today = today or _today_str()

@@ -62,7 +62,8 @@ class HabitsStore extends ChangeNotifier {
     final client = _client;
     if (client == null) return;
     final payload = await client.getJson('/api/habits');
-    final list = (payload['habits'] as List<dynamic>?)
+    final list =
+        (payload['habits'] as List<dynamic>?)
             ?.map((j) => Habit.fromJson(j as Map<String, dynamic>))
             .toList() ??
         [];
@@ -124,12 +125,39 @@ class HabitsStore extends ChangeNotifier {
     await _configReady;
     final client = _client;
     if (client == null) return;
-    final result =
-        await client.postJson('/api/habits/$habitId/toggle', {});
+    final result = await client.postJson('/api/habits/$habitId/toggle', {});
     final habitJson = result['habit'] as Map<String, dynamic>?;
     if (habitJson == null) return;
     final habit = Habit.fromJson(habitJson);
     _habits = _habits.map((h) => h.id == habitId ? habit : h).toList();
     notifyListeners();
+  }
+
+  Future<Habit?> completeHabitOnDate(String habitId, String date) async {
+    return _setHabitInstanceStatus(habitId, date, action: 'complete');
+  }
+
+  Future<Habit?> reopenHabitOnDate(String habitId, String date) async {
+    return _setHabitInstanceStatus(habitId, date, action: 'reopen');
+  }
+
+  Future<Habit?> _setHabitInstanceStatus(
+    String habitId,
+    String date, {
+    required String action,
+  }) async {
+    await _configReady;
+    final client = _client;
+    if (client == null) return null;
+    final result = await client.postJson(
+      '/api/habits/$habitId/instances/$date/$action',
+      {},
+    );
+    final habitJson = result['habit'] as Map<String, dynamic>?;
+    if (habitJson == null) return null;
+    final habit = Habit.fromJson(habitJson);
+    _habits = _habits.map((h) => h.id == habitId ? habit : h).toList();
+    notifyListeners();
+    return habit;
   }
 }
