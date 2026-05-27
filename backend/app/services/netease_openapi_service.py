@@ -224,11 +224,12 @@ CiK45wIDAQAB
             raise NeteaseOpenApiError('缺少可用的网易云歌曲ID')
         safe_play_time = max(0, min(play_time_seconds, 60 * 60))
         self._run_weapi_json_request(
-            (
-                'https://music.163.com/weapi/radio/trash/add'
-                f'?alg=RT&songId={normalized_track_id}&time={safe_play_time}'
-            ),
-            data={},
+            'https://music.163.com/weapi/radio/trash/add',
+            data={
+                'alg': 'RT',
+                'songId': normalized_track_id,
+                'time': safe_play_time,
+            },
             error_prefix='标记私人 FM 不喜欢失败',
         )
 
