@@ -148,6 +148,7 @@ class SherpaWakeWordService {
         encoder: AudioEncoder.pcm16bits,
         sampleRate: 16000,
         numChannels: 1,
+        audioInterruption: AudioInterruptionMode.none,
       ),
     );
 
