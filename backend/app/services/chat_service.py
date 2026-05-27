@@ -8,12 +8,10 @@ During migration we keep message payload format identical to the legacy backend.
 """
 
 from dataclasses import dataclass, replace
-from datetime import datetime
 import json
 import logging
 import mimetypes
 import uuid
-from zoneinfo import ZoneInfo
 
 from ..agents import ChatRequest, create_agent_backend
 from ..config import get_chat_config, get_chat_provider
@@ -40,120 +38,6 @@ class ChatResolvedRequest:
     contact_id: str = ''
     user_id: str = ''
     client_message_id: str = ''
-
-
-_MUSIC_TOOL_GUIDANCE = """
-Music playback control is available through tool calls.
-
-When the user explicitly asks to play music, play a playlist, pause, continue, skip, or reorder the queue, prefer the `music_action` tool instead of plain-text instructions.
-
-Available `music_action` types:
-- `play_track`: play one track immediately
-- `play_playlist`: play a playlist immediately
-- `queue_next`: insert one or more tracks to play next
-- `queue_append`: append one or more tracks to the end of the queue
-- `pause_resume`: pause or resume playback
-- `skip`: skip the current track
-- `save_ai_playlist`: save a recommendation playlist draft for AliceChat's home card; use this for recommendations that should not immediately interrupt playback
-
-Rules:
-- Use playback actions only when the user clearly wants playback control.
-- If the user wants recommendations without asking to start playback right now, prefer `save_ai_playlist`.
-- If essential track or playlist information is missing, ask a concise follow-up question instead of guessing.
-- Do not invent unsupported music actions.
-""".strip()
-
-_TODO_TOOL_GUIDANCE_TEMPLATE = """
-Todo reading and editing are available through tool calls.
-
-Current todo time context:
-- Current datetime: {current_datetime}
-- Current date: {current_date}
-- Timezone: Asia/Shanghai (UTC+08:00)
-
-When the user asks to view current tasks, pending tasks, today's tasks, or tasks in a project, prefer `get_todo_snapshot` instead of guessing from chat history.
-
-When the user asks to create, update, complete, reopen, delete, or reorganize todo items, prefer `todo_action`.
-
-Available todo tools:
-- `get_todo_snapshot`: read the current todo snapshot, optionally filtered by scope or project
-- `todo_action`: create or update tasks/projects/subtasks in AliceChat
-
-Available `todo_action` types:
-- `create_task`
-- `update_task`
-- `complete_task`
-- `reopen_task`
-- `delete_task`
-- `create_project`
-- `update_project`
-- `archive_project`
-- `replace_subtasks`
-
-Rules:
-- When creating a new task and project placement matters, prefer calling `get_todo_snapshot` first so you can see the existing projects and choose the best matching one.
-- Prefer placing new tasks into an existing relevant project by passing `projectId` or `projectName` with `todo_action`.
-- Do not default new tasks to `工作` unless the task content clearly belongs there.
-- Resolve relative dates like today, tomorrow, this week, next Thursday, and tonight from the current todo time context above.
-- For `dueAt` and `reminderAt`, use ISO 8601 datetimes with the `+08:00` offset. If the user gives only a date, use a conservative end-of-day due time such as `23:59:59+08:00`.
-- For updates to an existing task or project, prefer reading with `get_todo_snapshot` first so you can use the right `taskId` or `projectId`.
-- If the user references an existing todo item ambiguously, ask a concise follow-up question instead of guessing.
-- If the user clearly wants a new task recorded, use `todo_action` directly.
-- If there is no clearly suitable existing project, use the inbox-style fallback instead of forcing a weak guess.
-- Do not invent unsupported todo actions.
-""".strip()
-
-_HABIT_TOOL_GUIDANCE_TEMPLATE = """
-Habit reading and editing are available through tool calls.
-
-Current habit time context:
-- Current datetime: {current_datetime}
-- Current date: {current_date}
-- Timezone: Asia/Shanghai (UTC+08:00)
-
-When the user asks to view habits, today's habits, pending habits, completed habits, habit streaks, or habit stats, prefer `get_habit_snapshot` instead of guessing from chat history.
-
-When the user asks to create, update, complete/check in, reopen/uncheck, delete, pause, resume, or refresh habits, prefer `habit_action`.
-
-Available habit tools:
-- `get_habit_snapshot`: read current habits, optionally filtered by scope
-- `habit_action`: create/update/delete/check habits in AliceChat
-
-Available `habit_action` types:
-- `create_habit`
-- `update_habit`
-- `delete_habit`
-- `complete_today`
-- `reopen_today`
-- `toggle_today`
-- `refresh`
-
-Rules:
-- For updates or deletes to an existing habit, prefer reading with `get_habit_snapshot` first so you can use the right `habitId`.
-- If the user references an existing habit ambiguously, ask a concise follow-up question instead of guessing.
-- If the user clearly wants a new habit recorded, use `habit_action` directly.
-- Habit frequency values are `daily` and `weekly`.
-- For weekly habits, `weekdays` uses ISO weekdays: 1=Monday, 7=Sunday. Ask if the intended weekdays are unclear.
-- `reminderTime` uses local `HH:mm`, for example `08:30`; use an empty string to clear it.
-- Use `active: false` to pause a habit and `active: true` to resume it.
-- Do not invent unsupported habit actions.
-""".strip()
-
-
-def _build_todo_tool_guidance() -> str:
-    now = datetime.now(ZoneInfo("Asia/Shanghai"))
-    return _TODO_TOOL_GUIDANCE_TEMPLATE.format(
-        current_datetime=now.isoformat(timespec="seconds"),
-        current_date=now.date().isoformat(),
-    )
-
-
-def _build_habit_tool_guidance() -> str:
-    now = datetime.now(ZoneInfo("Asia/Shanghai"))
-    return _HABIT_TOOL_GUIDANCE_TEMPLATE.format(
-        current_datetime=now.isoformat(timespec="seconds"),
-        current_date=now.date().isoformat(),
-    )
 
 
 class ChatService:
@@ -205,12 +89,6 @@ class ChatService:
                 )
             )
 
-        extra_system_prompts: list[str] = []
-        if provider_id == "alicechat-channel":
-            extra_system_prompts.append(_MUSIC_TOOL_GUIDANCE)
-            extra_system_prompts.append(_build_todo_tool_guidance())
-            extra_system_prompts.append(_build_habit_tool_guidance())
-
         return ChatResolvedRequest(
             model_config=model_config,
             provider=overrides,
@@ -221,7 +99,7 @@ class ChatService:
             attachments=parsed_attachments,
             assistant_meta=assistant_meta,
             message_source=message_source,
-            extra_system_prompts=extra_system_prompts,
+            extra_system_prompts=[],
             session_key=str(body.get('sessionKey') or '').strip(),
             contact_id=str(body.get('contactId') or '').strip(),
             user_id=str(body.get('userId') or '').strip(),

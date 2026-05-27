@@ -338,6 +338,195 @@ function normalizeTodoSubtasks(rawSubtasks, fallbackIdPrefix) {
     }))
         .filter((item) => item.title);
 }
+function getShanghaiNowParts() {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+    }).formatToParts(new Date());
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return {
+        year: Number(values.year),
+        month: Number(values.month),
+        day: Number(values.day),
+        hour: Number(values.hour),
+        minute: Number(values.minute),
+        second: Number(values.second),
+    };
+}
+function shiftShanghaiDate(parts, days) {
+    const shifted = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days, 0, 0, 0));
+    return {
+        year: shifted.getUTCFullYear(),
+        month: shifted.getUTCMonth() + 1,
+        day: shifted.getUTCDate(),
+    };
+}
+function formatShanghaiIso(parts) {
+    const pad = (value) => String(value).padStart(2, '0');
+    return `${parts.year}-${pad(parts.month)}-${pad(parts.day)}T${pad(parts.hour)}:${pad(parts.minute)}:${pad(parts.second || 0)}+08:00`;
+}
+function parseChineseWeekday(text) {
+    const match = text.match(/(?:周|星期|礼拜)([一二三四五六日天1-7])/);
+    if (!match)
+        return null;
+    const map = {
+        一: 1,
+        二: 2,
+        三: 3,
+        四: 4,
+        五: 5,
+        六: 6,
+        日: 7,
+        天: 7,
+    };
+    return Number(map[match[1]] || match[1]);
+}
+function parseEnglishWeekday(text) {
+    const match = text.match(/\b(next\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i);
+    if (!match)
+        return null;
+    const map = {
+        monday: 1,
+        tuesday: 2,
+        wednesday: 3,
+        thursday: 4,
+        friday: 5,
+        saturday: 6,
+        sunday: 7,
+    };
+    return {
+        weekday: map[match[2].toLowerCase()],
+        next: !!match[1],
+    };
+}
+function parseTodoTimeOfDay(text, fallback) {
+    const colonMatch = text.match(/([01]?\d|2[0-3])[:：]([0-5]\d)/);
+    if (colonMatch) {
+        return { hour: Number(colonMatch[1]), minute: Number(colonMatch[2]), second: 0 };
+    }
+    const hourMatch = text.match(/([0-2]?\d)\s*(?:点|时)(半|[0-5]?\d分?)?/);
+    if (hourMatch) {
+        const suffix = hourMatch[2] || '';
+        let hour = Number(hourMatch[1]);
+        const minute = suffix === '半' ? 30 : Number(String(suffix).replace('分', '') || 0);
+        if ((/下午|晚上|今晚|傍晚/.test(text)) && hour < 12)
+            hour += 12;
+        if (/中午/.test(text) && hour < 11)
+            hour += 12;
+        if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+            return { hour, minute, second: 0 };
+        }
+    }
+    if (/凌晨/.test(text))
+        return { hour: 1, minute: 0, second: 0 };
+    if (/早上|上午|明早/.test(text))
+        return { hour: 9, minute: 0, second: 0 };
+    if (/中午/.test(text))
+        return { hour: 12, minute: 0, second: 0 };
+    if (/下午/.test(text))
+        return { hour: 15, minute: 0, second: 0 };
+    if (/傍晚/.test(text))
+        return { hour: 18, minute: 0, second: 0 };
+    if (/晚上|今晚/.test(text)) {
+        return fallback.endOfDay
+            ? { hour: 23, minute: 59, second: 59 }
+            : { hour: 20, minute: 0, second: 0 };
+    }
+    if (/\btonight\b/i.test(text)) {
+        return fallback.endOfDay
+            ? { hour: 23, minute: 59, second: 59 }
+            : { hour: 20, minute: 0, second: 0 };
+    }
+    if (/\bmorning\b/i.test(text))
+        return { hour: 9, minute: 0, second: 0 };
+    if (/\bnoon\b/i.test(text))
+        return { hour: 12, minute: 0, second: 0 };
+    if (/\bafternoon\b/i.test(text))
+        return { hour: 15, minute: 0, second: 0 };
+    if (/\bevening|night\b/i.test(text))
+        return { hour: 20, minute: 0, second: 0 };
+    return fallback.endOfDay
+        ? { hour: 23, minute: 59, second: 59 }
+        : { hour: 9, minute: 0, second: 0 };
+}
+function parseTodoRelativeDateText(rawText, options = {}) {
+    const text = String(rawText || '').trim();
+    if (!text)
+        return null;
+    const fallback = { endOfDay: options.endOfDay !== false };
+    const isoMatch = text.match(/(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2})[:：](\d{2})(?::(\d{2}))?)?/);
+    if (isoMatch) {
+        const time = isoMatch[4]
+            ? { hour: Number(isoMatch[4]), minute: Number(isoMatch[5]), second: Number(isoMatch[6] || 0) }
+            : parseTodoTimeOfDay(text, fallback);
+        return formatShanghaiIso({
+            year: Number(isoMatch[1]),
+            month: Number(isoMatch[2]),
+            day: Number(isoMatch[3]),
+            ...time,
+        });
+    }
+    const monthDayMatch = text.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]?/);
+    const now = getShanghaiNowParts();
+    let date = { year: now.year, month: now.month, day: now.day };
+    if (monthDayMatch) {
+        date = {
+            year: now.year,
+            month: Number(monthDayMatch[1]),
+            day: Number(monthDayMatch[2]),
+        };
+    }
+    else if (/大后天/.test(text)) {
+        date = shiftShanghaiDate(now, 3);
+    }
+    else if (/后天/.test(text)) {
+        date = shiftShanghaiDate(now, 2);
+    }
+    else if (/明天|明日|明早|\btomorrow\b/i.test(text)) {
+        date = shiftShanghaiDate(now, 1);
+    }
+    else if (/昨天|昨日|\byesterday\b/i.test(text)) {
+        date = shiftShanghaiDate(now, -1);
+    }
+    else {
+        const weekday = parseChineseWeekday(text);
+        if (weekday) {
+            const todayWeekday = new Date(Date.UTC(now.year, now.month - 1, now.day)).getUTCDay() || 7;
+            let delta = weekday - todayWeekday;
+            if (/下周|下星期|下礼拜/.test(text)) {
+                delta += 7;
+            }
+            else if (!/本周|这周|这个星期|这星期|本星期|本礼拜/.test(text) && delta < 0) {
+                delta += 7;
+            }
+            date = shiftShanghaiDate(now, delta);
+        }
+        else {
+            const englishWeekday = parseEnglishWeekday(text);
+            if (englishWeekday) {
+                const todayWeekday = new Date(Date.UTC(now.year, now.month - 1, now.day)).getUTCDay() || 7;
+                let delta = englishWeekday.weekday - todayWeekday;
+                if (englishWeekday.next) {
+                    delta += 7;
+                }
+                else if (delta < 0) {
+                    delta += 7;
+                }
+                date = shiftShanghaiDate(now, delta);
+            }
+        }
+    }
+    return formatShanghaiIso({
+        ...date,
+        ...parseTodoTimeOfDay(text, fallback),
+    });
+}
 function summarizeTodoSnapshot(snapshot, options = {}) {
     const source = snapshot || {};
     const opts = options || {};
@@ -511,10 +700,7 @@ function createBridgeServer(ctx) {
             peer: { kind: 'direct', id: senderId },
         });
         const agentId = requestedAgent || route.agentId;
-        const instructionText = String(frame.instructionText || '').trim();
-        const agentBodyText = instructionText
-            ? `[System Guidance]\n${instructionText}\n\n[User Message]\n${text}`
-            : text;
+        const agentBodyText = text;
         const body = channelRuntime.reply.formatAgentEnvelope({
             channel: channelLabel,
             from: senderName,
@@ -979,7 +1165,7 @@ export function register(api) {
     api.registerTool({
         name: 'music_action',
         label: 'Control music playback',
-        description: 'Send a structured music action to AliceChat for playback control or AI playlist recommendations.',
+        description: 'Control AliceChat music playback or save an AI playlist recommendation. Use save_ai_playlist for recommendations that should not start playback.',
         parameters: {
             type: 'object',
             additionalProperties: false,
@@ -1292,7 +1478,7 @@ export function register(api) {
     api.registerTool({
         name: 'todo_action',
         label: 'Manage todo items',
-        description: 'Create or update AliceChat todo items with structured actions.',
+        description: 'Create, update, complete, reopen, delete, or reorganize AliceChat todo items and projects. Read get_todo_snapshot first when editing an ambiguous existing item.',
         parameters: {
             type: 'object',
             additionalProperties: false,
@@ -1320,8 +1506,16 @@ export function register(api) {
                 description: { type: 'string' },
                 priority: { type: 'string', enum: TODO_PRIORITIES },
                 status: { type: 'string', enum: TODO_STATUSES },
-                dueAt: { type: 'string', description: 'ISO datetime.' },
-                reminderAt: { type: 'string', description: 'ISO datetime.' },
+                dueAt: { type: 'string', description: 'ISO 8601 datetime with offset, for example 2026-05-27T23:59:59+08:00.' },
+                reminderAt: { type: 'string', description: 'ISO 8601 datetime with offset, for example 2026-05-27T09:00:00+08:00.' },
+                dueDateText: {
+                    type: 'string',
+                    description: 'Natural date/time text such as 明晚, 明天 10:00, 下周四, or tomorrow night. Resolved by the tool using Asia/Shanghai runtime time when dueAt is omitted.',
+                },
+                reminderDateText: {
+                    type: 'string',
+                    description: 'Natural reminder date/time text. Resolved by the tool using Asia/Shanghai runtime time when reminderAt is omitted.',
+                },
                 archived: { type: 'boolean' },
                 subtasks: {
                     type: 'array',
@@ -1361,10 +1555,18 @@ export function register(api) {
                     payload.priority = normalizeTodoPriority(input.priority);
                 if (input.status !== undefined)
                     payload.status = normalizeTodoStatus(input.status);
-                if (input.dueAt !== undefined)
+                if (input.dueAt !== undefined) {
                     payload.dueAt = input.dueAt ? String(input.dueAt).trim() : null;
-                if (input.reminderAt !== undefined)
+                }
+                else if (input.dueDateText !== undefined) {
+                    payload.dueAt = parseTodoRelativeDateText(input.dueDateText, { endOfDay: true });
+                }
+                if (input.reminderAt !== undefined) {
                     payload.reminderAt = input.reminderAt ? String(input.reminderAt).trim() : null;
+                }
+                else if (input.reminderDateText !== undefined) {
+                    payload.reminderAt = parseTodoRelativeDateText(input.reminderDateText, { endOfDay: false });
+                }
                 if (input.archived !== undefined)
                     payload.archived = input.archived === true;
                 if (input.subtasks !== undefined) {
@@ -1419,7 +1621,7 @@ export function register(api) {
     api.registerTool({
         name: 'get_todo_snapshot',
         label: 'Read todo snapshot',
-        description: 'Read current AliceChat todo projects and tasks, optionally filtered by scope or project.',
+        description: 'Read current AliceChat todo projects and tasks, optionally filtered by scope or project. Use before editing existing or ambiguous todo items.',
         parameters: {
             type: 'object',
             additionalProperties: false,
@@ -1471,7 +1673,7 @@ export function register(api) {
     api.registerTool({
         name: 'habit_action',
         label: 'Manage habits',
-        description: 'Create, update, complete, reopen, toggle, delete, or refresh AliceChat habits.',
+        description: 'Create, update, complete, reopen, toggle, delete, pause, resume, or refresh AliceChat habits. Read get_habit_snapshot first when editing an ambiguous existing habit.',
         parameters: {
             type: 'object',
             additionalProperties: false,
@@ -1642,7 +1844,7 @@ export function register(api) {
     api.registerTool({
         name: 'get_habit_snapshot',
         label: 'Read habit snapshot',
-        description: 'Read current AliceChat habits, optionally filtered by today, pending, completed, active, or inactive.',
+        description: 'Read current AliceChat habits, optionally filtered by today, pending, completed, active, or inactive. Use before editing existing or ambiguous habits.',
         parameters: {
             type: 'object',
             additionalProperties: false,

@@ -9,6 +9,9 @@
   "contracts": {
     "tools": ["music_action", "todo_action", "get_todo_snapshot", "habit_action", "get_habit_snapshot", "save_latest_ai_playlist", "get_latest_ai_playlist"]
   },
+  "skills": [
+    "./skills"
+  ],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
