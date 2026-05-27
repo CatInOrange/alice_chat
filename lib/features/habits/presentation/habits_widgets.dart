@@ -275,10 +275,6 @@ class _HabitCardState extends State<HabitCard> {
                             spacing: 8,
                             runSpacing: 2,
                             children: [
-                              _CompactMetaText(
-                                text: habit.frequencyLabel,
-                                color: _accentColor,
-                              ),
                               if (habit.reminderTime.isNotEmpty)
                                 _CompactMetaText(
                                   text: habit.reminderTime,
@@ -288,6 +284,12 @@ class _HabitCardState extends State<HabitCard> {
                                 _CompactMetaText(
                                   text: '连续 ${habit.streak} 天',
                                   color: const Color(0xFFFF9A3C),
+                                ),
+                              if (habit.reminderTime.isEmpty &&
+                                  habit.streak <= 0)
+                                _CompactMetaText(
+                                  text: habit.frequencyLabel,
+                                  color: _accentColor,
                                 ),
                             ],
                           ),
