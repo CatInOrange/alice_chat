@@ -1129,526 +1129,188 @@ class _MusicHeroCard extends StatelessWidget {
     final accentVisualWidth = isCompact ? 148.0 : 188.0;
     final artworkFrameWidth = isCompact ? 160.0 : 176.0;
     final artworkFrameHeight = isCompact ? 198.0 : 220.0;
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: cardRadius,
-        boxShadow: [
-          BoxShadow(
-            color: palette.glowColor.withValues(alpha: 0.34),
-            blurRadius: 30,
-            offset: const Offset(0, 18),
-          ),
-          const BoxShadow(
-            color: Color(0x160B1220),
-            blurRadius: 32,
-            offset: Offset(0, 16),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: cardRadius,
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      palette.gradient.first.withValues(alpha: 0.96),
-                      palette.gradient.last.withValues(alpha: 0.92),
-                    ],
-                  ),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.12),
-                  ),
-                ),
-              ),
+    final cardHeight = isCompact ? 336.0 : 360.0;
+    return SizedBox(
+      height: cardHeight,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: cardRadius,
+          boxShadow: [
+            BoxShadow(
+              color: palette.glowColor.withValues(alpha: 0.34),
+              blurRadius: 30,
+              offset: const Offset(0, 18),
             ),
-            Positioned.fill(
-              child: MusicArtworkBackdrop(
-                track: track,
-                borderRadius: cardRadius,
-                blurSigma: 26,
-                opacity: 0.24,
-                tintOpacity: 0.22,
-                darkness: 0.28,
-                backendBaseUrl: backendBaseUrl,
-                appPassword: appPassword,
-              ),
+            const BoxShadow(
+              color: Color(0x160B1220),
+              blurRadius: 32,
+              offset: Offset(0, 16),
             ),
-            Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              bottom: 0,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Colors.white.withValues(alpha: 0.06),
-                      Colors.transparent,
-                      Colors.black.withValues(alpha: 0.14),
-                    ],
-                    stops: const [0.0, 0.3, 1.0],
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              right: -18,
-              top: 10,
-              bottom: 10,
-              width: accentVisualWidth,
-              child: IgnorePointer(
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Positioned(
-                      right: -12,
-                      top: 12,
-                      child: Container(
-                        width: 184,
-                        height: 184,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: RadialGradient(
-                            colors: [
-                              Colors.white.withValues(alpha: 0.18),
-                              Colors.white.withValues(alpha: 0.03),
-                              Colors.transparent,
-                            ],
-                          ),
-                        ),
-                      ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: cardRadius,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        palette.gradient.first.withValues(alpha: 0.96),
+                        palette.gradient.last.withValues(alpha: 0.92),
+                      ],
                     ),
-                    Positioned.fill(
-                      child: Align(
-                        alignment: Alignment.centerRight,
-                        child: Transform.translate(
-                          offset: const Offset(10, 0),
-                          child: SizedBox(
-                            width: artworkFrameWidth,
-                            height: artworkFrameHeight,
-                            child: Stack(
-                              children: [
-                                Positioned.fill(
-                                  child: DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(40),
-                                      border: Border.all(
-                                        color: Colors.white.withValues(
-                                          alpha: 0.18,
-                                        ),
-                                      ),
-                                      gradient: LinearGradient(
-                                        begin: Alignment.topLeft,
-                                        end: Alignment.bottomRight,
-                                        colors: [
-                                          Colors.white.withValues(alpha: 0.14),
-                                          Colors.white.withValues(alpha: 0.04),
-                                        ],
-                                      ),
-                                      boxShadow: const [
-                                        BoxShadow(
-                                          color: Color(0x18000000),
-                                          blurRadius: 24,
-                                          offset: Offset(0, 14),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                Positioned(
-                                  left: 10,
-                                  right: 10,
-                                  top: 10,
-                                  bottom: 10,
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(34),
-                                    child: Stack(
-                                      fit: StackFit.expand,
-                                      children: [
-                                        MusicArtwork(
-                                          track: track,
-                                          size: 196,
-                                          showMeta: false,
-                                          showIconBadge: false,
-                                          overlayStrength: 0.05,
-                                          backendBaseUrl: backendBaseUrl,
-                                          appPassword: appPassword,
-                                        ),
-                                        DecoratedBox(
-                                          decoration: BoxDecoration(
-                                            gradient: LinearGradient(
-                                              begin: Alignment.topCenter,
-                                              end: Alignment.bottomCenter,
-                                              colors: [
-                                                Colors.white.withValues(
-                                                  alpha: 0.12,
-                                                ),
-                                                Colors.transparent,
-                                                Colors.black.withValues(
-                                                  alpha: 0.12,
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.12),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned.fill(
+                child: MusicArtworkBackdrop(
+                  track: track,
+                  borderRadius: cardRadius,
+                  blurSigma: 26,
+                  opacity: 0.24,
+                  tintOpacity: 0.22,
+                  darkness: 0.28,
+                  backendBaseUrl: backendBaseUrl,
+                  appPassword: appPassword,
+                ),
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                top: 0,
+                bottom: 0,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Colors.white.withValues(alpha: 0.06),
+                        Colors.transparent,
+                        Colors.black.withValues(alpha: 0.14),
+                      ],
+                      stops: const [0.0, 0.3, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                right: -18,
+                top: 10,
+                bottom: 10,
+                width: accentVisualWidth,
+                child: IgnorePointer(
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Positioned(
+                        right: -12,
+                        top: 12,
+                        child: Container(
+                          width: 184,
+                          height: 184,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: RadialGradient(
+                              colors: [
+                                Colors.white.withValues(alpha: 0.18),
+                                Colors.white.withValues(alpha: 0.03),
+                                Colors.transparent,
                               ],
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    colors: [
-                      Colors.black.withValues(alpha: 0.36),
-                      Colors.black.withValues(alpha: 0.14),
-                      Colors.black.withValues(alpha: 0.0),
-                    ],
-                    stops: const [0.0, 0.56, 1.0],
-                  ),
-                ),
-              ),
-            ),
-            Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: cardRadius,
-                onTap: onDetailTap ?? onPlayTap,
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    isCompact ? 18 : 22,
-                    isCompact ? 18 : 20,
-                    isCompact ? 18 : 22,
-                    isCompact ? 18 : 20,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 7,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.16),
-                              ),
-                            ),
-                            child: Text(
-                              badgeLabel,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.35,
-                              ),
-                            ),
-                          ),
-                          const Spacer(),
-                          if ((timestampLabel ?? '').trim().isNotEmpty)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 6,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.18),
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                              child: Text(
-                                timestampLabel!,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: Colors.white.withValues(alpha: 0.84),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                      SizedBox(height: isCompact ? 14 : 18),
-                      SizedBox(
-                        width: heroInfoWidth,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              title,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: Colors.white.withValues(alpha: 0.78),
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.32,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              headline,
-                              maxLines: isCompact ? 1 : 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.titleLarge?.copyWith(
-                                color: Colors.white,
-                                fontSize: isCompact ? 23 : 27,
-                                height: 1.06,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            if ((subtitle ?? '').trim().isNotEmpty) ...[
-                              const SizedBox(height: 8),
-                              Text(
-                                subtitle!,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: Colors.white.withValues(alpha: 0.92),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                            const SizedBox(height: 10),
-                            Text(
-                              description,
-                              maxLines: isCompact ? 1 : 3,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: Colors.white.withValues(alpha: 0.84),
-                                height: isCompact ? 1.24 : 1.38,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Spacer(),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(24),
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-                          child: Container(
-                            padding: EdgeInsets.fromLTRB(
-                              isCompact ? 12 : 16,
-                              isCompact ? 12 : 14,
-                              isCompact ? 12 : 16,
-                              isCompact ? 12 : 14,
-                            ),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  Colors.white.withValues(alpha: 0.14),
-                                  Colors.white.withValues(alpha: 0.07),
-                                ],
-                              ),
-                              borderRadius: BorderRadius.circular(24),
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.14),
-                              ),
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Container(
-                                  width: isCompact ? 38 : 42,
-                                  height: isCompact ? 38 : 42,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Colors.white.withValues(alpha: 0.1),
-                                    border: Border.all(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.16,
+                      Positioned.fill(
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: Transform.translate(
+                            offset: const Offset(10, 0),
+                            child: SizedBox(
+                              width: artworkFrameWidth,
+                              height: artworkFrameHeight,
+                              child: Stack(
+                                children: [
+                                  Positioned.fill(
+                                    child: DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(40),
+                                        border: Border.all(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.18,
+                                          ),
+                                        ),
+                                        gradient: LinearGradient(
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                          colors: [
+                                            Colors.white.withValues(
+                                              alpha: 0.14,
+                                            ),
+                                            Colors.white.withValues(
+                                              alpha: 0.04,
+                                            ),
+                                          ],
+                                        ),
+                                        boxShadow: const [
+                                          BoxShadow(
+                                            color: Color(0x18000000),
+                                            blurRadius: 24,
+                                            offset: Offset(0, 14),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ),
-                                  child: Icon(
-                                    Icons.graphic_eq_rounded,
-                                    color: Colors.white.withValues(alpha: 0.9),
-                                    size: isCompact ? 18 : 20,
-                                  ),
-                                ),
-                                SizedBox(width: isCompact ? 10 : 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        '当前主打',
-                                        style: theme.textTheme.bodySmall
-                                            ?.copyWith(
-                                              color: Colors.white.withValues(
-                                                alpha: 0.7,
-                                              ),
-                                              fontWeight: FontWeight.w700,
-                                              letterSpacing: 0.3,
-                                            ),
-                                      ),
-                                      const SizedBox(height: 3),
-                                      Text(
-                                        track.title,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: theme.textTheme.titleMedium
-                                            ?.copyWith(
-                                              color: Colors.white,
-                                              fontSize: isCompact ? 15 : 18,
-                                              fontWeight: FontWeight.w800,
-                                              height: 1.15,
-                                            ),
-                                      ),
-                                      const SizedBox(height: 3),
-                                      Text(
-                                        '${track.artist} · ${track.album}',
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: theme.textTheme.bodySmall
-                                            ?.copyWith(
-                                              color: Colors.white.withValues(
-                                                alpha: 0.78,
-                                              ),
-                                              height: 1.25,
-                                            ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                SizedBox(width: isCompact ? 8 : 12),
-                                SizedBox(
-                                  width: isCompact ? 98 : 128,
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      FilledButton.tonalIcon(
-                                        onPressed: isBusy ? null : onPlayTap,
-                                        style: FilledButton.styleFrom(
-                                          backgroundColor: Colors.white,
-                                          foregroundColor:
-                                              palette.gradient.first,
-                                          padding: EdgeInsets.symmetric(
-                                            horizontal: isCompact ? 8 : 12,
-                                            vertical: isCompact ? 10 : 11,
+                                  Positioned(
+                                    left: 10,
+                                    right: 10,
+                                    top: 10,
+                                    bottom: 10,
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(34),
+                                      child: Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          MusicArtwork(
+                                            track: track,
+                                            size: 196,
+                                            showMeta: false,
+                                            showIconBadge: false,
+                                            overlayStrength: 0.05,
+                                            backendBaseUrl: backendBaseUrl,
+                                            appPassword: appPassword,
                                           ),
-                                          minimumSize: Size(
-                                            isCompact ? 98 : 128,
-                                            isCompact ? 44 : 46,
-                                          ),
-                                          elevation: 0,
-                                          shape: const StadiumBorder(),
-                                        ),
-                                        icon:
-                                            isBusy
-                                                ? SizedBox(
-                                                  width: 16,
-                                                  height: 16,
-                                                  child: CircularProgressIndicator(
-                                                    strokeWidth: 2,
-                                                    valueColor:
-                                                        AlwaysStoppedAnimation<
-                                                          Color
-                                                        >(
-                                                          palette
-                                                              .gradient
-                                                              .first,
-                                                        ),
+                                          DecoratedBox(
+                                            decoration: BoxDecoration(
+                                              gradient: LinearGradient(
+                                                begin: Alignment.topCenter,
+                                                end: Alignment.bottomCenter,
+                                                colors: [
+                                                  Colors.white.withValues(
+                                                    alpha: 0.12,
                                                   ),
-                                                )
-                                                : const Icon(
-                                                  Icons.play_arrow_rounded,
-                                                ),
-                                        label: Text(
-                                          isBusy
-                                              ? '处理中...'
-                                              : compactPrimaryLabel,
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.w800,
-                                            fontSize: isCompact ? 14 : 15,
-                                          ),
-                                        ),
-                                      ),
-                                      if (onDetailTap != null) ...[
-                                        const SizedBox(height: 6),
-                                        Container(
-                                          decoration: BoxDecoration(
-                                            color: Colors.white.withValues(
-                                              alpha: 0.12,
-                                            ),
-                                            borderRadius: BorderRadius.circular(
-                                              999,
-                                            ),
-                                            border: Border.all(
-                                              color: Colors.white.withValues(
-                                                alpha: 0.16,
-                                              ),
-                                            ),
-                                          ),
-                                          child: InkWell(
-                                            onTap: isBusy ? null : onDetailTap,
-                                            borderRadius: BorderRadius.circular(
-                                              999,
-                                            ),
-                                            child: Padding(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 8,
-                                                    vertical: 4,
-                                                  ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Text(
-                                                    compactDetailLabel,
-                                                    style: theme
-                                                        .textTheme
-                                                        .bodySmall
-                                                        ?.copyWith(
-                                                          color: Colors.white
-                                                              .withValues(
-                                                                alpha: 0.96,
-                                                              ),
-                                                          fontWeight:
-                                                              FontWeight.w700,
-                                                        ),
-                                                  ),
-                                                  const SizedBox(width: 3),
-                                                  Icon(
-                                                    Icons.arrow_forward_rounded,
-                                                    size: 16,
-                                                    color: Colors.white
-                                                        .withValues(
-                                                          alpha: 0.92,
-                                                        ),
+                                                  Colors.transparent,
+                                                  Colors.black.withValues(
+                                                    alpha: 0.12,
                                                   ),
                                                 ],
                                               ),
                                             ),
                                           ),
-                                        ),
-                                      ],
-                                    ],
+                                        ],
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -1657,8 +1319,360 @@ class _MusicHeroCard extends StatelessWidget {
                   ),
                 ),
               ),
-            ),
-          ],
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      colors: [
+                        Colors.black.withValues(alpha: 0.36),
+                        Colors.black.withValues(alpha: 0.14),
+                        Colors.black.withValues(alpha: 0.0),
+                      ],
+                      stops: const [0.0, 0.56, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: cardRadius,
+                  onTap: onDetailTap ?? onPlayTap,
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      isCompact ? 18 : 22,
+                      isCompact ? 18 : 20,
+                      isCompact ? 18 : 22,
+                      isCompact ? 18 : 20,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 7,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.16),
+                                ),
+                              ),
+                              child: Text(
+                                badgeLabel,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.35,
+                                ),
+                              ),
+                            ),
+                            const Spacer(),
+                            if ((timestampLabel ?? '').trim().isNotEmpty)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.18),
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  timestampLabel!,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: Colors.white.withValues(alpha: 0.84),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        SizedBox(height: isCompact ? 14 : 18),
+                        SizedBox(
+                          width: heroInfoWidth,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                title,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: Colors.white.withValues(alpha: 0.78),
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.32,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                headline,
+                                maxLines: isCompact ? 1 : 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleLarge?.copyWith(
+                                  color: Colors.white,
+                                  fontSize: isCompact ? 23 : 27,
+                                  height: 1.06,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              if ((subtitle ?? '').trim().isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  subtitle!,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: Colors.white.withValues(alpha: 0.92),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 10),
+                              Text(
+                                description,
+                                maxLines: isCompact ? 1 : 3,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: Colors.white.withValues(alpha: 0.84),
+                                  height: isCompact ? 1.24 : 1.38,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Spacer(),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(24),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                            child: Container(
+                              padding: EdgeInsets.fromLTRB(
+                                isCompact ? 12 : 16,
+                                isCompact ? 12 : 14,
+                                isCompact ? 12 : 16,
+                                isCompact ? 12 : 14,
+                              ),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [
+                                    Colors.white.withValues(alpha: 0.14),
+                                    Colors.white.withValues(alpha: 0.07),
+                                  ],
+                                ),
+                                borderRadius: BorderRadius.circular(24),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.14),
+                                ),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Container(
+                                    width: isCompact ? 38 : 42,
+                                    height: isCompact ? 38 : 42,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Colors.white.withValues(
+                                        alpha: 0.1,
+                                      ),
+                                      border: Border.all(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.16,
+                                        ),
+                                      ),
+                                    ),
+                                    child: Icon(
+                                      Icons.graphic_eq_rounded,
+                                      color: Colors.white.withValues(
+                                        alpha: 0.9,
+                                      ),
+                                      size: isCompact ? 18 : 20,
+                                    ),
+                                  ),
+                                  SizedBox(width: isCompact ? 10 : 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          '当前主打',
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                color: Colors.white.withValues(
+                                                  alpha: 0.7,
+                                                ),
+                                                fontWeight: FontWeight.w700,
+                                                letterSpacing: 0.3,
+                                              ),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          track.title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.textTheme.titleMedium
+                                              ?.copyWith(
+                                                color: Colors.white,
+                                                fontSize: isCompact ? 15 : 18,
+                                                fontWeight: FontWeight.w800,
+                                                height: 1.15,
+                                              ),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          '${track.artist} · ${track.album}',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                color: Colors.white.withValues(
+                                                  alpha: 0.78,
+                                                ),
+                                                height: 1.25,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  SizedBox(width: isCompact ? 8 : 12),
+                                  SizedBox(
+                                    width: isCompact ? 98 : 128,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        FilledButton.tonalIcon(
+                                          onPressed: isBusy ? null : onPlayTap,
+                                          style: FilledButton.styleFrom(
+                                            backgroundColor: Colors.white,
+                                            foregroundColor:
+                                                palette.gradient.first,
+                                            padding: EdgeInsets.symmetric(
+                                              horizontal: isCompact ? 8 : 12,
+                                              vertical: isCompact ? 10 : 11,
+                                            ),
+                                            minimumSize: Size(
+                                              isCompact ? 98 : 128,
+                                              isCompact ? 44 : 46,
+                                            ),
+                                            elevation: 0,
+                                            shape: const StadiumBorder(),
+                                          ),
+                                          icon:
+                                              isBusy
+                                                  ? SizedBox(
+                                                    width: 16,
+                                                    height: 16,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      valueColor:
+                                                          AlwaysStoppedAnimation<
+                                                            Color
+                                                          >(
+                                                            palette
+                                                                .gradient
+                                                                .first,
+                                                          ),
+                                                    ),
+                                                  )
+                                                  : const Icon(
+                                                    Icons.play_arrow_rounded,
+                                                  ),
+                                          label: Text(
+                                            isBusy
+                                                ? '处理中...'
+                                                : compactPrimaryLabel,
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: isCompact ? 14 : 15,
+                                            ),
+                                          ),
+                                        ),
+                                        if (onDetailTap != null) ...[
+                                          const SizedBox(height: 6),
+                                          Container(
+                                            decoration: BoxDecoration(
+                                              color: Colors.white.withValues(
+                                                alpha: 0.12,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                              border: Border.all(
+                                                color: Colors.white.withValues(
+                                                  alpha: 0.16,
+                                                ),
+                                              ),
+                                            ),
+                                            child: InkWell(
+                                              onTap:
+                                                  isBusy ? null : onDetailTap,
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                              child: Padding(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 4,
+                                                    ),
+                                                child: Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Text(
+                                                      compactDetailLabel,
+                                                      style: theme
+                                                          .textTheme
+                                                          .bodySmall
+                                                          ?.copyWith(
+                                                            color: Colors.white
+                                                                .withValues(
+                                                                  alpha: 0.96,
+                                                                ),
+                                                            fontWeight:
+                                                                FontWeight.w700,
+                                                          ),
+                                                    ),
+                                                    const SizedBox(width: 3),
+                                                    Icon(
+                                                      Icons
+                                                          .arrow_forward_rounded,
+                                                      size: 16,
+                                                      color: Colors.white
+                                                          .withValues(
+                                                            alpha: 0.92,
+                                                          ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
