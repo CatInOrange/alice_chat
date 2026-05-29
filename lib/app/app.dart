@@ -24,7 +24,6 @@ import '../features/music/application/music_platform_store.dart';
 import '../features/music/application/music_store.dart';
 import '../features/music/presentation/music_screen.dart';
 import '../features/tavern/application/tavern_store.dart';
-import '../features/tavern/presentation/tavern_screen.dart';
 import '../features/todo/application/todo_store.dart';
 import '../features/todo/presentation/todo_screen.dart';
 import '../features/habits/application/habits_store.dart';
@@ -719,7 +718,6 @@ class _MainScaffoldState extends State<_MainScaffold>
               ),
               const TodoScreen(embedded: true),
               const MusicScreen(),
-              const TavernScreen(),
               const SettingsScreen(),
             ],
           ),
@@ -1038,15 +1036,6 @@ class _MainScaffoldState extends State<_MainScaffold>
     if (_currentIndex == 2) {
       return const MusicScreen();
     }
-    if (_currentIndex == 3) {
-      return _WorkbenchPlaceholderCard(
-        removePadding: true,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(26),
-          child: const TavernScreen(),
-        ),
-      );
-    }
     if (_currentIndex == 0 && _activeChatSession != null) {
       return _WorkbenchPlaceholderCard(
         removePadding: true,
@@ -1087,10 +1076,9 @@ class _MainScaffoldState extends State<_MainScaffold>
       case 2:
         return const MusicScreen();
       case 3:
-        return const TavernScreen();
-      case 4:
-      default:
         return const SettingsScreen();
+      default:
+        return const SizedBox.shrink();
     }
   }
 
@@ -1126,11 +1114,6 @@ class _MainScaffoldState extends State<_MainScaffold>
           label: '音乐',
         ),
         NavigationDestination(
-          icon: Icon(Icons.auto_awesome_outlined),
-          selectedIcon: Icon(Icons.auto_awesome),
-          label: '酒馆',
-        ),
-        NavigationDestination(
           icon: Icon(Icons.settings_outlined),
           selectedIcon: Icon(Icons.settings),
           label: '设置',
@@ -1146,8 +1129,6 @@ class _MainScaffoldState extends State<_MainScaffold>
       case 2:
         return '音乐';
       case 3:
-        return '酒馆';
-      case 4:
         return '设置';
       default:
         return '消息';
@@ -1161,8 +1142,6 @@ class _MainScaffoldState extends State<_MainScaffold>
       case 2:
         return Icons.library_music_rounded;
       case 3:
-        return Icons.auto_awesome_rounded;
-      case 4:
         return Icons.settings_rounded;
       default:
         return Icons.chat_bubble_rounded;
@@ -1191,7 +1170,6 @@ class _PrimaryNavRail extends StatelessWidget {
       (icon: Icons.chat_bubble_outline_rounded, label: '聊天'),
       (icon: Icons.checklist_rounded, label: '待办'),
       (icon: Icons.library_music_outlined, label: '音乐'),
-      (icon: Icons.auto_awesome_outlined, label: '酒馆'),
       (icon: Icons.settings_outlined, label: '设置'),
     ];
 

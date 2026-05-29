@@ -105,6 +105,77 @@ class TranscriptRecoveryService:
                 recovered = True
         return recovered
 
+    def sync_session_from_transcript(
+        self,
+        session_id: str,
+        *,
+        before_message_id: str = '',
+        after_message_id: str = '',
+        limit: int = 20,
+        recent_user_limit: int = 3,
+        reconcile_tail: bool = False,
+        tail_limit: int = 5,
+        allow_tail_delete: bool = False,
+    ) -> dict[str, Any]:
+        resolved_session_id = str(session_id or '').strip()
+        page_limit = max(1, min(int(limit or 20), 100))
+        actions: list[dict[str, Any]] = []
+        if not resolved_session_id:
+            return {'ok': False, 'changed': False, 'reason': 'missing_session_id', 'actions': actions}
+
+        transcript_path, transcript_messages = self._resolve_session_transcript(resolved_session_id)
+        if transcript_path is None:
+            return {'ok': True, 'changed': False, 'reason': 'missing_transcript', 'actions': actions}
+        if not transcript_messages:
+            return {'ok': True, 'changed': False, 'reason': 'empty_transcript', 'actions': actions}
+
+        imported_before = 0
+        if str(before_message_id or '').strip():
+            imported_before = self._backfill_session_before_from_transcript(
+                session_id=resolved_session_id,
+                before_message_id=str(before_message_id or '').strip(),
+                limit=page_limit,
+                transcript_path=transcript_path,
+                transcript_messages=transcript_messages,
+            )
+            if imported_before:
+                actions.append({'type': 'backfill_before', 'count': imported_before})
+
+        imported_after = 0
+        should_recover_gaps = bool(str(after_message_id or '').strip()) or bool(str(before_message_id or '').strip())
+        if should_recover_gaps:
+            imported_after = self._recover_missing_after_recent_users_from_transcript(
+                session_id=resolved_session_id,
+                limit=page_limit,
+                user_limit=recent_user_limit,
+                transcript_path=transcript_path,
+                transcript_messages=transcript_messages,
+            )
+            if imported_after:
+                actions.append({'type': 'recover_recent_user_gaps', 'count': imported_after})
+
+        tail_result: dict[str, Any] | None = None
+        if reconcile_tail:
+            local_tail = self.messages.list_session_messages_page(
+                resolved_session_id,
+                limit=max(3, min(int(tail_limit or 5), 20)),
+            )['messages']
+            tail_result = self._reconcile_transcript_tail_window(
+                session_id=resolved_session_id,
+                transcript_path=transcript_path,
+                transcript_messages=transcript_messages,
+                local_tail=local_tail,
+                limit=tail_limit,
+                allow_delete=allow_tail_delete,
+            )
+            actions.extend(list(tail_result.get('actions') or []))
+
+        changed = bool(imported_before or imported_after or (tail_result or {}).get('changed'))
+        if changed:
+            self.sessions.touch(resolved_session_id)
+        reason = 'synced' if changed else ((tail_result or {}).get('reason') or 'nothing_to_sync')
+        return {'ok': True, 'changed': changed, 'reason': str(reason), 'actions': actions}
+
     async def reconcile_session_tail(
         self,
         session_id: str,
@@ -150,6 +221,18 @@ class TranscriptRecoveryService:
         transcript_messages = self._load_transcript_messages(transcript_path)
         if not transcript_messages:
             return {'ok': True, 'changed': False, 'reason': 'empty_transcript', 'actions': []}
+
+        tail_sync = self._reconcile_transcript_tail_window(
+            session_id=resolved_session_id,
+            transcript_path=transcript_path,
+            transcript_messages=transcript_messages,
+            local_tail=local_tail,
+            limit=page_limit,
+            allow_delete=False,
+        )
+        if tail_sync.get('changed'):
+            self.sessions.touch(resolved_session_id)
+            return tail_sync
 
         user_index = self._find_latest_user_index_in_transcript(
             transcript_messages,
@@ -257,16 +340,23 @@ class TranscriptRecoveryService:
         if existing_assistants:
             return {'ok': True, 'changed': False, 'reason': 'non_replaceable_assistant_exists', 'actions': []}
 
+        created = self._first_assistant_created_at_after_user(
+            transcript_messages,
+            anchor_index=user_index,
+        )
+        if self._transcript_item_already_present(
+            resolved_session_id,
+            role='assistant',
+            text=recovered_body,
+            created_at=created or 0,
+        ):
+            return {'ok': True, 'changed': False, 'reason': 'assistant_already_present', 'actions': []}
         message_id = self._build_transcript_backfill_message_id(
             session_id=resolved_session_id,
             transcript_item=transcript_messages[user_index + 1],
         )
         if self.messages.get_message(message_id) is not None:
             return {'ok': True, 'changed': False, 'reason': 'message_id_already_exists', 'actions': []}
-        created = self._first_assistant_created_at_after_user(
-            transcript_messages,
-            anchor_index=user_index,
-        )
         persisted = self.messages.create_message(
             session_id=resolved_session_id,
             role='assistant',
@@ -297,6 +387,148 @@ class TranscriptRecoveryService:
             'actions': [{'type': 'insert_assistant', 'messageId': str(persisted.get('id') or '')}],
         }
 
+    def _reconcile_transcript_tail_window(
+        self,
+        *,
+        session_id: str,
+        transcript_path: Path,
+        transcript_messages: list[dict[str, Any]],
+        local_tail: list[dict],
+        limit: int,
+        allow_delete: bool = False,
+    ) -> dict[str, Any]:
+        window_limit = max(1, min(int(limit or 5), 20))
+        transcript_tail = [
+            item
+            for item in transcript_messages
+            if str(item.get('role') or '') in {'user', 'assistant'}
+        ][-window_limit:]
+        local_visible = self._build_local_visible_messages(local_tail)[-window_limit:]
+        if not transcript_tail or not local_visible:
+            return {'ok': True, 'changed': False, 'reason': 'tail_sync_empty_window', 'actions': []}
+
+        local_keys = [self._compare_key(item) for item in local_visible]
+        transcript_keys = [self._compare_key(item) for item in transcript_tail]
+        if local_keys == transcript_keys:
+            return {'ok': True, 'changed': False, 'reason': 'tail_already_synced', 'actions': []}
+
+        local_key_set = set(local_keys)
+        transcript_key_set = set(transcript_keys)
+        if not local_key_set.intersection(transcript_key_set):
+            return {'ok': True, 'changed': False, 'reason': 'tail_no_overlap', 'actions': []}
+
+        actions: list[dict[str, Any]] = []
+        matched_local_by_transcript_index = self._ordered_tail_matches(
+            transcript_keys=transcript_keys,
+            local_keys=local_keys,
+        )
+        consumed_local_indexes = set(matched_local_by_transcript_index.values())
+
+        if allow_delete:
+            for local_index, message in enumerate(local_visible):
+                if local_index in consumed_local_indexes:
+                    continue
+                if str(message.get('role') or '') != 'assistant':
+                    continue
+                if not self._is_reconcile_replaceable_assistant(message):
+                    continue
+                if self._is_transcript_imported_assistant(message):
+                    continue
+                deleted = self.messages.soft_delete_message(
+                    str(message.get('id') or ''),
+                    deleted_by='tail_reconcile_extra',
+                )
+                if deleted is not None:
+                    actions.append({
+                        'type': 'delete_extra',
+                        'messageId': str(message.get('id') or ''),
+                        'role': str(message.get('role') or ''),
+                    })
+
+        for transcript_index, item in enumerate(transcript_tail):
+            if transcript_index in matched_local_by_transcript_index:
+                continue
+            if str(item.get('role') or '') != 'assistant':
+                continue
+            if self._transcript_item_already_present(
+                session_id,
+                role='assistant',
+                text=str(item.get('text') or ''),
+                created_at=float(item.get('createdAt') or 0),
+            ):
+                continue
+            message_id = self._build_transcript_backfill_message_id(
+                session_id=session_id,
+                transcript_item=item,
+            )
+            if self.messages.get_message(message_id) is not None:
+                continue
+            meta = {
+                'transcriptBackfill': {
+                    'source': _RECOVERY_SOURCE,
+                    'mode': 'tail_window_sync',
+                    'transcriptPath': str(transcript_path),
+                    'transcriptRecordId': str(item.get('recordId') or ''),
+                    'transcriptMessageId': str(item.get('transcriptMessageId') or ''),
+                    'transcriptIndex': int(item.get('transcriptIndex') or 0),
+                },
+            }
+            persisted = self.messages.create_message(
+                session_id=session_id,
+                role=str(item.get('role') or 'assistant'),
+                text=str(item.get('text') or ''),
+                raw_text=str(item.get('text') or ''),
+                attachments=[],
+                source='transcript_reconcile',
+                meta=json.dumps(meta, ensure_ascii=False),
+                message_id=message_id,
+                created_at=float(item.get('createdAt') or 0) or None,
+            )
+            actions.append({
+                'type': 'insert_missing',
+                'messageId': str(persisted.get('id') or ''),
+                'role': str(item.get('role') or ''),
+            })
+
+        return {
+            'ok': True,
+            'changed': bool(actions),
+            'reason': 'tail_window_synced' if actions else 'tail_already_synced',
+            'actions': actions,
+        }
+
+    def _ordered_tail_matches(
+        self,
+        *,
+        transcript_keys: list[tuple[str, str]],
+        local_keys: list[tuple[str, str]],
+    ) -> dict[int, int]:
+        if not transcript_keys or not local_keys:
+            return {}
+        rows = len(transcript_keys)
+        cols = len(local_keys)
+        dp = [[0] * (cols + 1) for _ in range(rows + 1)]
+        for row in range(rows - 1, -1, -1):
+            for col in range(cols - 1, -1, -1):
+                if transcript_keys[row] == local_keys[col]:
+                    dp[row][col] = 1 + dp[row + 1][col + 1]
+                else:
+                    dp[row][col] = max(dp[row + 1][col], dp[row][col + 1])
+
+        matches: dict[int, int] = {}
+        row = 0
+        col = 0
+        while row < rows and col < cols:
+            if transcript_keys[row] == local_keys[col]:
+                matches[row] = col
+                row += 1
+                col += 1
+            elif dp[row][col + 1] >= dp[row + 1][col]:
+                col += 1
+            else:
+                row += 1
+        return matches
+
     def backfill_session_before(
         self,
         session_id: str,
@@ -310,24 +542,36 @@ class TranscriptRecoveryService:
         if not resolved_session_id or not anchor_message_id:
             return 0
 
-        session = self.sessions.get_session(resolved_session_id)
-        session_key = self._extract_session_key(getattr(session, 'route_key', '') if session else '')
-        if not session_key:
-            return 0
-        transcript_path = self._resolve_transcript_path(session_key)
+        transcript_path, transcript_messages = self._resolve_session_transcript(resolved_session_id)
         if transcript_path is None:
             return 0
-
-        transcript_messages = self._load_transcript_messages(transcript_path)
         if not transcript_messages:
             return 0
 
-        local_messages = self.messages.list_session_messages(resolved_session_id, limit=5000)
+        return self._backfill_session_before_from_transcript(
+            session_id=resolved_session_id,
+            before_message_id=anchor_message_id,
+            limit=page_limit,
+            transcript_path=transcript_path,
+            transcript_messages=transcript_messages,
+        )
+
+    def _backfill_session_before_from_transcript(
+        self,
+        *,
+        session_id: str,
+        before_message_id: str,
+        limit: int,
+        transcript_path: Path,
+        transcript_messages: list[dict[str, Any]],
+    ) -> int:
+        page_limit = max(1, min(int(limit or 20), 100))
+        local_messages = self.messages.list_session_messages(session_id, limit=5000)
         local_visible = self._build_local_visible_messages(local_messages)
         if not local_visible:
             return 0
         anchor_index = next(
-            (index for index, item in enumerate(local_visible) if item['id'] == anchor_message_id),
+            (index for index, item in enumerate(local_visible) if item['id'] == before_message_id),
             -1,
         )
         if anchor_index < 0:
@@ -352,14 +596,14 @@ class TranscriptRecoveryService:
         imported = 0
         for item in import_candidates:
             if self._transcript_item_already_present(
-                resolved_session_id,
+                session_id,
                 role=str(item.get('role') or ''),
                 text=str(item.get('text') or ''),
                 created_at=float(item.get('createdAt') or 0),
             ):
                 continue
             message_id = self._build_transcript_backfill_message_id(
-                session_id=resolved_session_id,
+                session_id=session_id,
                 transcript_item=item,
             )
             if self.messages.get_message(message_id) is not None:
@@ -374,7 +618,7 @@ class TranscriptRecoveryService:
                 },
             }
             self.messages.create_message(
-                session_id=resolved_session_id,
+                session_id=session_id,
                 role=str(item.get('role') or 'assistant'),
                 text=str(item.get('text') or ''),
                 raw_text=str(item.get('text') or ''),
@@ -387,8 +631,232 @@ class TranscriptRecoveryService:
             imported += 1
 
         if imported > 0:
-            self.sessions.touch(resolved_session_id)
+            self.sessions.touch(session_id)
         return imported
+
+    def recover_missing_after_recent_users(
+        self,
+        session_id: str,
+        *,
+        limit: int = 20,
+        user_limit: int = 3,
+    ) -> int:
+        resolved_session_id = str(session_id or '').strip()
+        page_limit = max(1, min(int(limit or 20), 100))
+        recent_user_limit = max(1, min(int(user_limit or 3), 10))
+        if not resolved_session_id:
+            return 0
+
+        transcript_path, transcript_messages = self._resolve_session_transcript(resolved_session_id)
+        if transcript_path is None:
+            return 0
+        if not transcript_messages:
+            return 0
+
+        return self._recover_missing_after_recent_users_from_transcript(
+            session_id=resolved_session_id,
+            limit=page_limit,
+            user_limit=recent_user_limit,
+            transcript_path=transcript_path,
+            transcript_messages=transcript_messages,
+        )
+
+    def _recover_missing_after_recent_users_from_transcript(
+        self,
+        *,
+        session_id: str,
+        limit: int,
+        user_limit: int,
+        transcript_path: Path,
+        transcript_messages: list[dict[str, Any]],
+    ) -> int:
+        page_limit = max(1, min(int(limit or 20), 100))
+        recent_user_limit = max(1, min(int(user_limit or 3), 10))
+        local_messages = self.messages.list_session_messages(session_id, limit=5000)
+        local_users = [
+            item
+            for item in local_messages
+            if str(item.get('role') or '').strip() == 'user'
+            and str(item.get('text') or '').strip()
+        ][-recent_user_limit:]
+        if not local_users:
+            return 0
+
+        imported = 0
+        for index, user_message in enumerate(local_users):
+            remaining = page_limit - imported
+            if remaining <= 0:
+                break
+            next_user = local_users[index + 1] if index + 1 < len(local_users) else None
+            user_index = self._find_latest_user_index_in_transcript(
+                transcript_messages,
+                role='user',
+                text=str(user_message.get('text') or ''),
+                created_at=float(user_message.get('createdAt') or 0),
+            )
+            if user_index < 0:
+                continue
+            imported += self._recover_assistant_gap_after_user(
+                session_id=session_id,
+                user_message=user_message,
+                next_user_message=next_user,
+                transcript_path=transcript_path,
+                transcript_messages=transcript_messages,
+                user_index=user_index,
+                limit=remaining,
+            )
+
+        if imported > 0:
+            self.sessions.touch(session_id)
+        return imported
+
+    def _recover_assistant_gap_after_user(
+        self,
+        *,
+        session_id: str,
+        user_message: dict,
+        next_user_message: dict | None,
+        transcript_path: Path,
+        transcript_messages: list[dict[str, Any]],
+        user_index: int,
+        limit: int,
+    ) -> int:
+        if user_index < 0:
+            return 0
+        assistant_items = self._assistant_items_after_transcript_user(
+            transcript_messages,
+            anchor_index=user_index,
+        )
+        if not assistant_items:
+            return 0
+
+        user_created_at = float(user_message.get('createdAt') or 0)
+        next_user_created_at = float((next_user_message or {}).get('createdAt') or 0)
+        local_assistants = self._assistant_messages_between_users(
+            session_id,
+            after_created_at=user_created_at,
+            before_created_at=next_user_created_at if next_user_created_at > 0 else None,
+            limit=20,
+        )
+        transcript_texts = {
+            self._normalize_compare_text(str(item.get('text') or ''))
+            for item in assistant_items
+        }
+        blocking_assistants = [
+            item
+            for item in local_assistants
+            if not self._is_reconcile_replaceable_assistant(item)
+            and self._normalize_compare_text(str(item.get('text') or '')) not in transcript_texts
+        ]
+        if blocking_assistants:
+            return 0
+
+        replace_target = next(
+            (item for item in local_assistants if self._is_reconcile_replaceable_assistant(item)),
+            None,
+        )
+        if replace_target is not None:
+            recovered_body = self._body_from_transcript_assistant_items(assistant_items)
+            if not recovered_body:
+                return 0
+            if self._normalize_compare_text(str(replace_target.get('text') or '')) == self._normalize_compare_text(recovered_body):
+                return 0
+            meta = parse_message_meta(replace_target.get('meta'))
+            meta['transcriptRecovery'] = {
+                'source': _RECOVERY_SOURCE,
+                'mode': 'recent_user_gap_replace',
+                'transcriptPath': str(transcript_path),
+                'recoveryUserMessageId': str(user_message.get('id') or ''),
+                'beforeUserMessageId': str((next_user_message or {}).get('id') or ''),
+                'replacedMessageId': str(replace_target.get('id') or ''),
+                'originalText': str(replace_target.get('text') or ''),
+            }
+            updated = self.chat_service.update_message_content(
+                message_id=str(replace_target.get('id') or ''),
+                text=recovered_body,
+                raw_text=recovered_body,
+                meta=meta,
+            )
+            return 1 if updated is not None else 0
+
+        imported = 0
+        for item in assistant_items:
+            if imported >= max(1, int(limit or 1)):
+                break
+            if self._transcript_item_already_present(
+                session_id,
+                role='assistant',
+                text=str(item.get('text') or ''),
+                created_at=float(item.get('createdAt') or 0),
+            ):
+                continue
+            message_id = self._build_transcript_backfill_message_id(
+                session_id=session_id,
+                transcript_item=item,
+            )
+            if self.messages.get_message(message_id) is not None:
+                continue
+            meta = {
+                'transcriptBackfill': {
+                    'source': _RECOVERY_SOURCE,
+                    'mode': 'recent_user_gap',
+                    'transcriptPath': str(transcript_path),
+                    'transcriptRecordId': str(item.get('recordId') or ''),
+                    'transcriptMessageId': str(item.get('transcriptMessageId') or ''),
+                    'transcriptIndex': int(item.get('transcriptIndex') or 0),
+                    'recoveryUserMessageId': str(user_message.get('id') or ''),
+                    'beforeUserMessageId': str((next_user_message or {}).get('id') or ''),
+                },
+            }
+            self.messages.create_message(
+                session_id=session_id,
+                role='assistant',
+                text=str(item.get('text') or ''),
+                raw_text=str(item.get('text') or ''),
+                attachments=[],
+                source='transcript_backfill',
+                meta=json.dumps(meta, ensure_ascii=False),
+                message_id=message_id,
+                created_at=float(item.get('createdAt') or 0) or None,
+            )
+            imported += 1
+        return imported
+
+    def _assistant_items_after_transcript_user(
+        self,
+        transcript_messages: list[dict[str, Any]],
+        *,
+        anchor_index: int,
+    ) -> list[dict[str, Any]]:
+        if anchor_index < 0 or anchor_index >= len(transcript_messages):
+            return []
+        items: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in transcript_messages[anchor_index + 1 :]:
+            role = str(item.get('role') or '')
+            if role == 'user':
+                break
+            if role != 'assistant':
+                continue
+            content_text = str(item.get('text') or '').strip()
+            if not content_text:
+                continue
+            normalized = self._normalize_compare_text(content_text)
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            items.append(item)
+        return items
+
+    def _body_from_transcript_assistant_items(self, items: list[dict[str, Any]]) -> str:
+        body = '\n\n'.join(
+            str(item.get('text') or '').strip()
+            for item in items
+            if str(item.get('text') or '').strip()
+        ).strip()
+        if len(body) > 12000:
+            body = body[:12000].rstrip() + '\n\n[恢复内容已截断]'
+        return body
 
     def recover_missing_after_latest_user(
         self,
@@ -560,25 +1028,12 @@ class TranscriptRecoveryService:
         *,
         anchor_index: int,
     ) -> str:
-        if anchor_index < 0 or anchor_index >= len(transcript_messages):
-            return ''
-        parts: list[str] = []
-        seen: set[str] = set()
-        for item in transcript_messages[anchor_index + 1 :]:
-            role = str(item.get('role') or '')
-            if role == 'user':
-                break
-            if role != 'assistant':
-                continue
-            content_text = str(item.get('text') or '').strip()
-            if not content_text or content_text in seen:
-                continue
-            seen.add(content_text)
-            parts.append(content_text)
-        body = '\n\n'.join(parts).strip()
-        if len(body) > 12000:
-            body = body[:12000].rstrip() + '\n\n[恢复内容已截断]'
-        return body
+        return self._body_from_transcript_assistant_items(
+            self._assistant_items_after_transcript_user(
+                transcript_messages,
+                anchor_index=anchor_index,
+            )
+        )
 
     def _latest_user_in_messages(self, messages: list[dict]) -> dict | None:
         for item in reversed(messages or []):
@@ -590,6 +1045,15 @@ class TranscriptRecoveryService:
         meta = parse_message_meta(user_message.get('meta'))
         return str(meta.get('clientMessageId') or '').strip()
 
+    def _is_transcript_imported_assistant(self, message: dict) -> bool:
+        if str(message.get('role') or '').strip() != 'assistant':
+            return False
+        source = str(message.get('source') or '').strip()
+        if source in {'transcript_backfill', 'transcript_reconcile'}:
+            return True
+        meta = parse_message_meta(message.get('meta'))
+        return isinstance(meta.get('transcriptBackfill'), dict) or isinstance(meta.get('transcriptRecovery'), dict)
+
     def _assistant_messages_after_user(
         self,
         session_id: str,
@@ -597,22 +1061,44 @@ class TranscriptRecoveryService:
         *,
         limit: int = 6,
     ) -> list[dict]:
-        if user_created_at <= 0:
+        return self._assistant_messages_between_users(
+            session_id,
+            after_created_at=user_created_at,
+            before_created_at=None,
+            limit=limit,
+        )
+
+    def _assistant_messages_between_users(
+        self,
+        session_id: str,
+        *,
+        after_created_at: float,
+        before_created_at: float | None = None,
+        limit: int = 6,
+    ) -> list[dict]:
+        if after_created_at <= 0:
             return []
         self.messages.ensure_schema()
         with connect(self.messages.db) as conn:
+            before_clause = ''
+            params: list[object] = [str(session_id), float(after_created_at)]
+            if before_created_at is not None and float(before_created_at) > 0:
+                before_clause = 'AND created_at < ?'
+                params.append(float(before_created_at))
+            params.append(int(max(1, limit)))
             rows = conn.execute(
-                """
+                f"""
                 SELECT *
                 FROM messages
                 WHERE session_id=?
                   AND deleted_at IS NULL
                   AND role='assistant'
                   AND created_at > ?
+                  {before_clause}
                 ORDER BY created_at ASC, id ASC
                 LIMIT ?
                 """,
-                (str(session_id), float(user_created_at), int(max(1, limit))),
+                tuple(params),
             ).fetchall()
             return [self.messages._row_to_message(row) for row in rows]
 
@@ -869,6 +1355,16 @@ class TranscriptRecoveryService:
         _, session_key = value.split('|', 1)
         return session_key.strip() if session_key.strip().startswith('agent:') else ''
 
+    def _resolve_session_transcript(self, session_id: str) -> tuple[Path | None, list[dict[str, Any]]]:
+        session = self.sessions.get_session(str(session_id or '').strip())
+        session_key = self._extract_session_key(getattr(session, 'route_key', '') if session else '')
+        if not session_key:
+            return None, []
+        transcript_path = self._resolve_transcript_path(session_key)
+        if transcript_path is None:
+            return None, []
+        return transcript_path, self._load_transcript_messages(transcript_path)
+
     def _detect_existing_suspicious_reason(self, message: dict) -> str:
         meta = parse_message_meta(message.get('meta'))
         suspicious = meta.get('suspiciousFinal')
@@ -900,7 +1396,7 @@ class TranscriptRecoveryService:
             role = str(message.get('role') or '').strip()
             if role not in {'user', 'assistant'}:
                 continue
-            text = self._extract_text_content(message.get('content')).strip()
+            text = self._extract_transcript_visible_text(role, message.get('content')).strip()
             if not text:
                 continue
             items.append(
@@ -932,6 +1428,8 @@ class TranscriptRecoveryService:
                     'text': text,
                     'normalizedText': self._normalize_compare_text(text),
                     'createdAt': float(message.get('createdAt') or 0),
+                    'source': str(message.get('source') or ''),
+                    'meta': message.get('meta') or '',
                 }
             )
         return items
@@ -1092,7 +1590,7 @@ class TranscriptRecoveryService:
             message = record.get('message') or {}
             if str(message.get('role') or '') != 'user':
                 continue
-            content_text = self._extract_text_content(message.get('content'))
+            content_text = self._extract_transcript_visible_text('user', message.get('content'))
             if content_text.strip() == user_needle:
                 anchor_index = idx
 
@@ -1100,7 +1598,12 @@ class TranscriptRecoveryService:
             trajectory_path = transcript_path.with_suffix('.trajectory.jsonl')
             if self._trajectory_mentions_user(trajectory_path, user_needle):
                 return self._extract_tail_assistant_text(records, user_created_at=user_created_at)
-            return self._extract_tail_assistant_text(records, user_created_at=user_created_at)
+            _LOG.info(
+                '[alicechat.recovery] skip_unanchored_tail_recovery transcript=%s user=%r',
+                transcript_path,
+                user_needle[:120],
+            )
+            return ''
         transcript_messages = self._load_transcript_messages(transcript_path)
         return self._build_recovery_body_from_transcript_messages(
             transcript_messages,
@@ -1173,3 +1676,39 @@ class TranscriptRecoveryService:
             if text:
                 parts.append(text)
         return '\n\n'.join(parts).strip()
+
+    def _extract_transcript_visible_text(self, role: str, content: object) -> str:
+        text = self._extract_text_content(content).strip()
+        if str(role or '').strip() != 'user':
+            return text
+        return self._extract_visible_user_message_text(text)
+
+    def _extract_visible_user_message_text(self, text: str) -> str:
+        value = str(text or '').strip()
+        if not value:
+            return ''
+        for marker in ('[User Message]', 'Current user request:'):
+            if marker in value:
+                value = value.rsplit(marker, 1)[-1].strip()
+                break
+        if value.startswith('System: '):
+            value = self._strip_system_background_prefix(value)
+        if value.startswith('[System Guidance]') or value.startswith('OpenClaw runtime context for this turn:'):
+            return ''
+        if value.startswith('Conversation info (untrusted metadata):'):
+            return ''
+        return value
+
+    def _strip_system_background_prefix(self, text: str) -> str:
+        lines = str(text or '').splitlines()
+        index = 0
+        while index < len(lines):
+            line = lines[index].strip()
+            if not line:
+                index += 1
+                continue
+            if not line.startswith('System: '):
+                break
+            index += 1
+        remainder = '\n'.join(lines[index:]).strip()
+        return remainder or str(text or '').strip()

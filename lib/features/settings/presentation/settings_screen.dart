@@ -1125,6 +1125,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 12),
           _SettingsEntryCard(
+            icon: Icons.meeting_room_rounded,
+            accentColor: const Color(0xFF475569),
+            title: '角色酒馆',
+            subtitle: '从设置页进入角色卡、聊天和世界书工作台。',
+            onTap:
+                () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const TavernScreen()),
+                ),
+          ),
+          const SizedBox(height: 12),
+          _SettingsEntryCard(
             icon: Icons.auto_awesome_rounded,
             accentColor: const Color(0xFF2563EB),
             title: '酒馆配置',

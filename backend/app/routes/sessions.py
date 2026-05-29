@@ -64,18 +64,13 @@ def create_sessions_router(context: AppContext) -> APIRouter:
             after_message_id=str(after or '').strip() or None,
         )
         if str(before or '').strip() and page['paging'].get('hasMoreBefore') is False:
-            recovered_after = 0
-            imported = context.recovery_service.backfill_session_before(
+            sync_result = context.recovery_service.sync_session_from_transcript(
                 session_id,
                 before_message_id=str(before or '').strip(),
                 limit=limit,
+                recent_user_limit=3,
             )
-            if imported <= 0:
-                recovered_after = context.recovery_service.recover_missing_after_latest_user(
-                    session_id,
-                    limit=limit,
-                )
-            if imported > 0 or recovered_after > 0:
+            if sync_result.get('changed'):
                 page = context.message_store.list_session_messages_page(
                     session_id,
                     limit=limit,
@@ -83,11 +78,13 @@ def create_sessions_router(context: AppContext) -> APIRouter:
                     after_message_id=str(after or '').strip() or None,
                 )
         if str(after or '').strip() and not page['messages']:
-            imported = context.recovery_service.recover_missing_after_latest_user(
+            sync_result = context.recovery_service.sync_session_from_transcript(
                 session_id,
+                after_message_id=str(after or '').strip(),
                 limit=limit,
+                recent_user_limit=3,
             )
-            if imported > 0:
+            if sync_result.get('changed'):
                 page = context.message_store.list_session_messages_page(
                     session_id,
                     limit=limit,
@@ -121,9 +118,13 @@ def create_sessions_router(context: AppContext) -> APIRouter:
         session_id = require_existing_session(context.session_store, session_id)
         payload = body or {}
         limit = int(payload.get('limit') or 5)
-        result = await context.recovery_service.reconcile_session_tail(
+        result = context.recovery_service.sync_session_from_transcript(
             session_id,
+            limit=limit,
+            recent_user_limit=3,
+            reconcile_tail=True,
             tail_limit=limit,
+            allow_tail_delete=bool(payload.get('allowDelete') or False),
         )
         page = context.message_store.list_session_messages_page(
             session_id,
