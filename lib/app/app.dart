@@ -16,7 +16,6 @@ import '../features/voice/data/sherpa_wake_word_service.dart';
 import '../features/voice/data/wake_reply_audio_cache_service.dart';
 import '../core/openclaw/openclaw_settings.dart';
 import '../core/debug/native_debug_bridge.dart';
-import '../features/diary/presentation/diary_sheet.dart';
 import '../features/notifications/application/background_connection_service.dart';
 import '../features/notifications/application/notification_service.dart';
 import '../features/settings/presentation/settings_screen.dart';
@@ -30,7 +29,6 @@ import '../features/habits/application/habits_store.dart';
 import '../features/webview/application/webview_host_controller.dart';
 import '../features/webview/presentation/companion_webview_page.dart';
 import '../features/webview/presentation/webview_screen.dart';
-import '../features/companion/presentation/companion_panel.dart';
 import 'theme.dart';
 
 class AliceChatApp extends StatelessWidget {
@@ -71,7 +69,6 @@ class _MainScaffoldState extends State<_MainScaffold>
   );
 
   int _currentIndex = 0;
-  bool _desktopLive2dVisible = false;
   ChatSession? _activeChatSession;
   StreamSubscription<NotificationOpenData>? _notificationOpenSub;
   StreamSubscription<SherpaWakeWordHit>? _wakeWordHitSub;
@@ -617,27 +614,14 @@ class _MainScaffoldState extends State<_MainScaffold>
     }
   }
 
-  void _setDesktopLive2dVisible(bool value, {required String reason}) {
-    if (_desktopLive2dVisible == value) {
-      _webviewHostController.setKeepAliveRequested(
-        value,
-        reason: 'desktopLive2dVisible',
-      );
-      _webviewHostController.refreshRetention(reason: reason);
-      return;
-    }
-    setState(() {
-      _desktopLive2dVisible = value;
-    });
+  bool get _shouldShowDesktopLive2d => _currentIndex == 0 || _currentIndex == 1;
+
+  void _syncDesktopLive2dRetention({required String reason}) {
     _webviewHostController.setKeepAliveRequested(
-      value,
+      _shouldShowDesktopLive2d,
       reason: 'desktopLive2dVisible',
     );
     _webviewHostController.refreshRetention(reason: reason);
-  }
-
-  void _toggleDesktopLive2d({required String reason}) {
-    _setDesktopLive2dVisible(!_desktopLive2dVisible, reason: reason);
   }
 
   Future<void> _openCompanionWebview() async {
@@ -651,11 +635,6 @@ class _MainScaffoldState extends State<_MainScaffold>
             (_) => CompanionWebviewPage(hostController: _webviewHostController),
       ),
     );
-  }
-
-  Future<void> _openDiarySheet() async {
-    final config = context.read<ChatSessionStore>().currentConfig;
-    await showDiarySheet(context, config: config);
   }
 
   @override
@@ -755,18 +734,8 @@ class _MainScaffoldState extends State<_MainScaffold>
   }) {
     final theme = Theme.of(context);
     final selectedContactId = _activeChatSession?.id;
-    final companion = CompanionPanel(
-      session: _activeChatSession,
-      state: activeState,
-      compact: !isDesktop,
-      live2dVisible: _desktopLive2dVisible,
-      onOpenLive2d: () => _toggleDesktopLive2d(reason: 'companionPanelToggle'),
-      onOpenDiary: _activeChatSession?.id == 'alice' ? _openDiarySheet : null,
-      onOpenMusic: () {
-        setState(() => _currentIndex = 2);
-      },
-    );
     final showSidebar = _currentIndex == 0;
+    final showLive2dPanel = _shouldShowDesktopLive2d;
     final centerPane = _buildCenterPane(activeState);
 
     return Scaffold(
@@ -791,7 +760,6 @@ class _MainScaffoldState extends State<_MainScaffold>
                         child: _PrimaryNavRail(
                           currentIndex: _currentIndex,
                           activeChatSession: _activeChatSession,
-                          live2dVisible: _desktopLive2dVisible,
                           onSelected: (index) {
                             setState(() {
                               _currentIndex = index;
@@ -804,10 +772,10 @@ class _MainScaffoldState extends State<_MainScaffold>
                                 reason: 'desktopNavAway',
                               );
                             }
+                            _syncDesktopLive2dRetention(
+                              reason: 'desktopNav:$index',
+                            );
                           },
-                          onToggleLive2d:
-                              () =>
-                                  _toggleDesktopLive2d(reason: 'navRailToggle'),
                         ),
                       ),
                       Container(width: 1, color: const Color(0xFFE1E6F0)),
@@ -942,7 +910,7 @@ class _MainScaffoldState extends State<_MainScaffold>
                           ],
                         ),
                       ),
-                      if (showSidebar) ...[
+                      if (showLive2dPanel) ...[
                         Container(width: 1, color: const Color(0xFFE1E6F0)),
                         SizedBox(
                           width: isDesktop ? 340 : 300,
@@ -969,39 +937,30 @@ class _MainScaffoldState extends State<_MainScaffold>
                                         12,
                                       ),
                                       child: _WorkbenchPlaceholderCard(
-                                        removePadding: _desktopLive2dVisible,
+                                        removePadding: true,
                                         child: AnimatedSwitcher(
                                           duration: const Duration(
                                             milliseconds: 220,
                                           ),
                                           switchInCurve: Curves.easeOutCubic,
                                           switchOutCurve: Curves.easeInCubic,
-                                          child:
-                                              _desktopLive2dVisible
-                                                  ? AnimatedBuilder(
-                                                    animation:
-                                                        _webviewHostController,
-                                                    builder: (context, _) {
-                                                      return _webviewHostController
-                                                              .mountedView
-                                                          ? WebviewScreen(
-                                                            key: ValueKey(
-                                                              'webview-live2d-full-panel-${_webviewHostController.seed}',
-                                                            ),
-                                                            active: true,
-                                                            embedded: true,
-                                                          )
-                                                          : const ColoredBox(
-                                                            color: Colors.white,
-                                                          );
-                                                    },
-                                                  )
-                                                  : SizedBox.expand(
-                                                    key: const ValueKey(
-                                                      'companion-only',
+                                          child: AnimatedBuilder(
+                                            animation: _webviewHostController,
+                                            builder: (context, _) {
+                                              return _webviewHostController
+                                                      .mountedView
+                                                  ? WebviewScreen(
+                                                    key: ValueKey(
+                                                      'webview-live2d-full-panel-${_webviewHostController.seed}',
                                                     ),
-                                                    child: companion,
-                                                  ),
+                                                    active: true,
+                                                    embedded: true,
+                                                  )
+                                                  : const ColoredBox(
+                                                    color: Colors.white,
+                                                  );
+                                            },
+                                          ),
                                         ),
                                       ),
                                     ),
@@ -1153,16 +1112,12 @@ class _PrimaryNavRail extends StatelessWidget {
   const _PrimaryNavRail({
     required this.currentIndex,
     required this.activeChatSession,
-    required this.live2dVisible,
     required this.onSelected,
-    required this.onToggleLive2d,
   });
 
   final int currentIndex;
   final ChatSession? activeChatSession;
-  final bool live2dVisible;
   final ValueChanged<int> onSelected;
-  final VoidCallback onToggleLive2d;
 
   @override
   Widget build(BuildContext context) {
@@ -1245,50 +1200,6 @@ class _PrimaryNavRail extends StatelessWidget {
             );
           }),
           const Spacer(),
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: InkWell(
-              onTap: onToggleLive2d,
-              borderRadius: BorderRadius.circular(16),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                width: 56,
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                decoration: BoxDecoration(
-                  color:
-                      live2dVisible
-                          ? const Color(0xFFEFE8FF)
-                          : const Color(0xFFF3F5FA),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Column(
-                  children: [
-                    Icon(
-                      live2dVisible
-                          ? Icons.auto_awesome
-                          : Icons.auto_awesome_outlined,
-                      color:
-                          live2dVisible
-                              ? const Color(0xFF7C4DFF)
-                              : const Color(0xFF7B8496),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Live2D',
-                      style: TextStyle(
-                        fontSize: desktopAdjustedFontSize(10),
-                        fontWeight: FontWeight.w700,
-                        color:
-                            live2dVisible
-                                ? const Color(0xFF7C4DFF)
-                                : const Color(0xFF7B8496),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
           Container(
             width: 40,
             height: 40,
