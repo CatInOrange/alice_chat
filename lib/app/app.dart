@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
@@ -740,24 +741,24 @@ class _MainScaffoldState extends State<_MainScaffold>
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6FB),
-      body: Column(
-        children: [
-          if (isDesktop) const _DesktopTitleBar(),
-          Expanded(
-            child: SafeArea(
-              top: !isDesktop,
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEEF1F8),
-                    borderRadius: BorderRadius.circular(30),
-                  ),
-                  child: Row(
-                    children: [
-                      _DesktopDragRegion(
-                        enabled: isDesktop,
-                        child: _PrimaryNavRail(
+      body: _DesktopWindowDragSurface(
+        enabled: isDesktop,
+        child: Column(
+          children: [
+            if (isDesktop) const _DesktopTitleBar(),
+            Expanded(
+              child: SafeArea(
+                top: !isDesktop,
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEEF1F8),
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    child: Row(
+                      children: [
+                        _PrimaryNavRail(
                           currentIndex: _currentIndex,
                           activeChatSession: _activeChatSession,
                           onSelected: (index) {
@@ -777,123 +778,116 @@ class _MainScaffoldState extends State<_MainScaffold>
                             );
                           },
                         ),
-                      ),
-                      Container(width: 1, color: const Color(0xFFE1E6F0)),
-                      if (showSidebar) ...[
-                        SizedBox(
-                          width: 300,
-                          child: Stack(
-                            children: [
-                              Positioned.fill(
-                                child: _DesktopDragRegion(
-                                  enabled: isDesktop,
-                                  child: const SizedBox.expand(),
-                                ),
-                              ),
-                              Column(
-                                children: [
-                                  _DesktopDragRegion(
-                                    enabled: isDesktop,
-                                    child: Padding(
-                                      padding: const EdgeInsets.fromLTRB(
-                                        18,
-                                        18,
-                                        18,
-                                        10,
-                                      ),
-                                      child: Row(
-                                        children: [
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  _currentIndex == 0
-                                                      ? '消息'
-                                                      : _navTitle(
-                                                        _currentIndex,
-                                                      ),
-                                                  style: theme
-                                                      .textTheme
-                                                      .titleLarge
-                                                      ?.copyWith(
-                                                        fontWeight:
-                                                            FontWeight.w800,
-                                                        color: const Color(
-                                                          0xFF2D3443,
-                                                        ),
-                                                      ),
-                                                ),
-                                                const SizedBox(height: 4),
-                                                Text(
-                                                  _currentIndex == 0
-                                                      ? '像微信桌面版一样利落，再加一点陪伴感。'
-                                                      : '保留统一功能，不做花哨分叉。',
-                                                  style: theme
-                                                      .textTheme
-                                                      .bodySmall
-                                                      ?.copyWith(
-                                                        color: const Color(
-                                                          0xFF98A1B3,
-                                                        ),
-                                                        fontWeight:
-                                                            FontWeight.w600,
-                                                      ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
+                        Container(width: 1, color: const Color(0xFFE1E6F0)),
+                        if (showSidebar) ...[
+                          SizedBox(
+                            width: 300,
+                            child: Column(
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    18,
+                                    18,
+                                    18,
+                                    10,
                                   ),
-                                  Expanded(
-                                    child:
-                                        _currentIndex == 0
-                                            ? ContactsScreen(
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              _currentIndex == 0
+                                                  ? '消息'
+                                                  : _navTitle(_currentIndex),
+                                              style: theme.textTheme.titleLarge
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w800,
+                                                    color: const Color(
+                                                      0xFF2D3443,
+                                                    ),
+                                                  ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              _currentIndex == 0
+                                                  ? '像微信桌面版一样利落，再加一点陪伴感。'
+                                                  : '保留统一功能，不做花哨分叉。',
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                    color: const Color(
+                                                      0xFF98A1B3,
+                                                    ),
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Expanded(
+                                  child:
+                                      _currentIndex == 0
+                                          ? _NoDesktopWindowDragRegion(
+                                            enabled: isDesktop,
+                                            child: ContactsScreen(
                                               contacts: _contacts,
                                               onContactTap: _navigateToChat,
                                               unreadCounts: unreadCounts,
                                               selectedContactId:
                                                   selectedContactId,
                                               embedded: true,
-                                            )
-                                            : Padding(
-                                              padding:
-                                                  const EdgeInsets.fromLTRB(
-                                                    12,
-                                                    4,
-                                                    12,
-                                                    12,
-                                                  ),
+                                            ),
+                                          )
+                                          : Padding(
+                                            padding: const EdgeInsets.fromLTRB(
+                                              12,
+                                              4,
+                                              12,
+                                              12,
+                                            ),
+                                            child: _NoDesktopWindowDragRegion(
+                                              enabled: isDesktop,
                                               child: _WorkbenchPlaceholderCard(
                                                 child: _buildWorkbenchPage(),
                                               ),
                                             ),
+                                          ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(width: 1, color: const Color(0xFFE1E6F0)),
+                        ],
+                        Expanded(
+                          child: Column(
+                            children: [
+                              const SizedBox(height: 12),
+                              Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    12,
+                                    0,
+                                    12,
+                                    12,
                                   ),
-                                ],
+                                  child: centerPane,
+                                ),
                               ),
                             ],
                           ),
                         ),
-                        Container(width: 1, color: const Color(0xFFE1E6F0)),
-                      ],
-                      Expanded(
-                        child: Stack(
-                          children: [
-                            Positioned.fill(
-                              child: _DesktopDragRegion(
-                                enabled: isDesktop,
-                                child: const SizedBox.expand(),
-                              ),
-                            ),
-                            Column(
+                        if (showLive2dPanel) ...[
+                          Container(width: 1, color: const Color(0xFFE1E6F0)),
+                          SizedBox(
+                            width: isDesktop ? 340 : 300,
+                            child: Column(
                               children: [
-                                _DesktopDragRegion(
-                                  enabled: isDesktop,
-                                  child: const SizedBox(height: 12),
-                                ),
+                                const SizedBox(height: 12),
                                 Expanded(
                                   child: Padding(
                                     padding: const EdgeInsets.fromLTRB(
@@ -902,40 +896,8 @@ class _MainScaffoldState extends State<_MainScaffold>
                                       12,
                                       12,
                                     ),
-                                    child: centerPane,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (showLive2dPanel) ...[
-                        Container(width: 1, color: const Color(0xFFE1E6F0)),
-                        SizedBox(
-                          width: isDesktop ? 340 : 300,
-                          child: Stack(
-                            children: [
-                              Positioned.fill(
-                                child: _DesktopDragRegion(
-                                  enabled: isDesktop,
-                                  child: const SizedBox.expand(),
-                                ),
-                              ),
-                              Column(
-                                children: [
-                                  _DesktopDragRegion(
-                                    enabled: isDesktop,
-                                    child: const SizedBox(height: 12),
-                                  ),
-                                  Expanded(
-                                    child: Padding(
-                                      padding: const EdgeInsets.fromLTRB(
-                                        12,
-                                        0,
-                                        12,
-                                        12,
-                                      ),
+                                    child: _NoDesktopWindowDragRegion(
+                                      enabled: isDesktop,
                                       child: _WorkbenchPlaceholderCard(
                                         removePadding: true,
                                         child: AnimatedSwitcher(
@@ -965,53 +927,57 @@ class _MainScaffoldState extends State<_MainScaffold>
                                       ),
                                     ),
                                   ),
-                                ],
-                              ),
-                            ],
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildCenterPane(ChatViewState? activeState) {
     if (_currentIndex == 1) {
-      return _WorkbenchPlaceholderCard(
-        removePadding: true,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(26),
-          child: const TodoScreen(embedded: true),
+      return _NoDesktopWindowDragRegion(
+        child: _WorkbenchPlaceholderCard(
+          removePadding: true,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(26),
+            child: const TodoScreen(embedded: true),
+          ),
         ),
       );
     }
     if (_currentIndex == 2) {
-      return const MusicScreen();
+      return const _NoDesktopWindowDragRegion(child: MusicScreen());
     }
     if (_currentIndex == 0 && _activeChatSession != null) {
-      return _WorkbenchPlaceholderCard(
-        removePadding: true,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(26),
-          child: ChatScreen(
-            key: ValueKey('chat-desktop-${_activeChatSession!.id}'),
-            session: _activeChatSession!,
-            onBack: _closeChat,
-            onOpenCompanion:
-                _activeChatSession!.id == 'alice'
-                    ? _openCompanionWebview
-                    : null,
-            wakeVoiceInputTrigger: _wakeVoiceInputTrigger,
-            wakeAutoSendAfterRecognition: _wakeAutoSendAfterRecognition,
-            onVoiceInputStarting: _handleChatVoiceInputStarting,
-            onVoiceInputFinished: _handleChatVoiceInputFinished,
+      return _NoDesktopWindowDragRegion(
+        child: _WorkbenchPlaceholderCard(
+          removePadding: true,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(26),
+            child: ChatScreen(
+              key: ValueKey('chat-desktop-${_activeChatSession!.id}'),
+              session: _activeChatSession!,
+              onBack: _closeChat,
+              onOpenCompanion:
+                  _activeChatSession!.id == 'alice'
+                      ? _openCompanionWebview
+                      : null,
+              wakeVoiceInputTrigger: _wakeVoiceInputTrigger,
+              wakeAutoSendAfterRecognition: _wakeAutoSendAfterRecognition,
+              onVoiceInputStarting: _handleChatVoiceInputStarting,
+              onVoiceInputFinished: _handleChatVoiceInputFinished,
+            ),
           ),
         ),
       );
@@ -1159,41 +1125,45 @@ class _PrimaryNavRail extends StatelessWidget {
             final selected = currentIndex == index && activeChatSession == null;
             return Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
-              child: InkWell(
-                onTap: () => onSelected(index),
-                borderRadius: BorderRadius.circular(18),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  width: 56,
-                  padding: const EdgeInsets.symmetric(vertical: 10),
-                  decoration: BoxDecoration(
-                    color:
-                        selected ? const Color(0xFFEFE8FF) : Colors.transparent,
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: Column(
-                    children: [
-                      Icon(
-                        item.icon,
-                        color:
-                            selected
-                                ? const Color(0xFF7C4DFF)
-                                : const Color(0xFF7B8496),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        item.label,
-                        style: TextStyle(
-                          fontSize: desktopAdjustedFontSize(11),
-                          fontWeight:
-                              selected ? FontWeight.w700 : FontWeight.w600,
+              child: _NoDesktopWindowDragRegion(
+                child: InkWell(
+                  onTap: () => onSelected(index),
+                  borderRadius: BorderRadius.circular(18),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    width: 56,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color:
+                          selected
+                              ? const Color(0xFFEFE8FF)
+                              : Colors.transparent,
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Column(
+                      children: [
+                        Icon(
+                          item.icon,
                           color:
                               selected
                                   ? const Color(0xFF7C4DFF)
                                   : const Color(0xFF7B8496),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 4),
+                        Text(
+                          item.label,
+                          style: TextStyle(
+                            fontSize: desktopAdjustedFontSize(11),
+                            fontWeight:
+                                selected ? FontWeight.w700 : FontWeight.w600,
+                            color:
+                                selected
+                                    ? const Color(0xFF7C4DFF)
+                                    : const Color(0xFF7B8496),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1303,18 +1273,200 @@ class _WorkbenchEmptyState extends StatelessWidget {
   }
 }
 
-class _DesktopDragRegion extends StatelessWidget {
-  const _DesktopDragRegion({required this.child, this.enabled = true});
+class _DesktopWindowDragSurface extends StatefulWidget {
+  const _DesktopWindowDragSurface({required this.child, required this.enabled});
 
   final Widget child;
   final bool enabled;
 
   @override
-  Widget build(BuildContext context) {
-    if (!enabled || kIsWeb) {
-      return child;
+  State<_DesktopWindowDragSurface> createState() =>
+      _DesktopWindowDragSurfaceState();
+}
+
+class _DesktopWindowDragSurfaceState extends State<_DesktopWindowDragSurface> {
+  static const double _dragThreshold = 5;
+
+  final _DesktopWindowDragController _controller =
+      _DesktopWindowDragController();
+  Offset? _pointerDownPosition;
+  bool _dragging = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  bool _isPrimaryMousePointer(PointerEvent event) {
+    return event.kind == PointerDeviceKind.mouse &&
+        event.buttons == kPrimaryMouseButton;
+  }
+
+  void _handlePointerDown(PointerDownEvent event) {
+    if (!widget.enabled ||
+        kIsWeb ||
+        !_isPrimaryMousePointer(event) ||
+        _controller.isBlocked) {
+      _pointerDownPosition = null;
+      return;
     }
-    return DragToMoveArea(child: child);
+    _pointerDownPosition = event.position;
+    _dragging = false;
+  }
+
+  void _handlePointerMove(PointerMoveEvent event) {
+    final start = _pointerDownPosition;
+    if (start == null || _dragging || !_isPrimaryMousePointer(event)) {
+      return;
+    }
+    if (_controller.isBlocked) {
+      _resetPointerState();
+      return;
+    }
+    if ((event.position - start).distance < _dragThreshold) {
+      return;
+    }
+    _dragging = true;
+    _pointerDownPosition = null;
+    unawaited(windowManager.startDragging());
+  }
+
+  void _resetPointerState() {
+    _pointerDownPosition = null;
+    _dragging = false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.enabled || kIsWeb) {
+      return widget.child;
+    }
+    return _DesktopWindowDragScope(
+      controller: _controller,
+      child: Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: _handlePointerDown,
+        onPointerMove: _handlePointerMove,
+        onPointerUp: (_) => _resetPointerState(),
+        onPointerCancel: (_) => _resetPointerState(),
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+class _DesktopWindowDragController extends ChangeNotifier {
+  int _blockedRegionDepth = 0;
+
+  bool get isBlocked => _blockedRegionDepth > 0;
+
+  void enterBlockedRegion() {
+    _blockedRegionDepth += 1;
+  }
+
+  void exitBlockedRegion() {
+    if (_blockedRegionDepth == 0) {
+      return;
+    }
+    _blockedRegionDepth -= 1;
+  }
+}
+
+class _DesktopWindowDragScope extends InheritedWidget {
+  const _DesktopWindowDragScope({
+    required this.controller,
+    required super.child,
+  });
+
+  final _DesktopWindowDragController controller;
+
+  static _DesktopWindowDragController? maybeOf(BuildContext context) {
+    return context
+        .dependOnInheritedWidgetOfExactType<_DesktopWindowDragScope>()
+        ?.controller;
+  }
+
+  @override
+  bool updateShouldNotify(_DesktopWindowDragScope oldWidget) {
+    return controller != oldWidget.controller;
+  }
+}
+
+class _NoDesktopWindowDragRegion extends StatefulWidget {
+  const _NoDesktopWindowDragRegion({required this.child, this.enabled = true});
+
+  final Widget child;
+  final bool enabled;
+
+  @override
+  State<_NoDesktopWindowDragRegion> createState() =>
+      _NoDesktopWindowDragRegionState();
+}
+
+class _NoDesktopWindowDragRegionState
+    extends State<_NoDesktopWindowDragRegion> {
+  _DesktopWindowDragController? _controller;
+  bool _inside = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final nextController = _DesktopWindowDragScope.maybeOf(context);
+    if (_inside && _controller != nextController) {
+      _controller?.exitBlockedRegion();
+      nextController?.enterBlockedRegion();
+    }
+    _controller = nextController;
+  }
+
+  @override
+  void didUpdateWidget(_NoDesktopWindowDragRegion oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_inside && oldWidget.enabled && !widget.enabled) {
+      _controller?.exitBlockedRegion();
+    } else if (_inside && !oldWidget.enabled && widget.enabled) {
+      _controller?.enterBlockedRegion();
+    }
+  }
+
+  @override
+  void dispose() {
+    if (_inside && widget.enabled) {
+      _controller?.exitBlockedRegion();
+    }
+    super.dispose();
+  }
+
+  void _handleEnter(PointerEnterEvent event) {
+    if (!widget.enabled || _inside) {
+      return;
+    }
+    _inside = true;
+    _controller?.enterBlockedRegion();
+  }
+
+  void _handleExit(PointerExitEvent event) {
+    if (!_inside) {
+      return;
+    }
+    if (widget.enabled) {
+      _controller?.exitBlockedRegion();
+    }
+    _inside = false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.enabled || kIsWeb) {
+      return widget.child;
+    }
+    return MouseRegion(
+      opaque: false,
+      onEnter: _handleEnter,
+      onExit: _handleExit,
+      child: widget.child,
+    );
   }
 }
 
@@ -1344,7 +1496,20 @@ class _DesktopTitleBarState extends State<_DesktopTitleBar> {
 
   @override
   Widget build(BuildContext context) {
-    return DragToMoveArea(
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onDoubleTap: () async {
+        final isMax = await windowManager.isMaximized();
+        if (isMax) {
+          await windowManager.unmaximize();
+        } else {
+          await windowManager.maximize();
+        }
+        final nextIsMax = await windowManager.isMaximized();
+        if (mounted) {
+          setState(() => _isMaximized = nextIsMax);
+        }
+      },
       child: Container(
         height: 36,
         decoration: const BoxDecoration(
@@ -1416,18 +1581,20 @@ class _WindowButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(6),
-        hoverColor: hoverColor,
-        child: Padding(
-          padding: const EdgeInsets.all(6),
-          child: Icon(
-            icon,
-            size: 16,
-            color: hoverIconColor ?? const Color(0xFF7B8496),
+    return _NoDesktopWindowDragRegion(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(6),
+          hoverColor: hoverColor,
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: Icon(
+              icon,
+              size: 16,
+              color: hoverIconColor ?? const Color(0xFF7B8496),
+            ),
           ),
         ),
       ),
