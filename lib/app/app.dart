@@ -615,7 +615,7 @@ class _MainScaffoldState extends State<_MainScaffold>
     }
   }
 
-  bool get _shouldShowDesktopLive2d => _currentIndex == 0 || _currentIndex == 1;
+  bool get _shouldShowDesktopLive2d => true;
 
   void _syncDesktopLive2dRetention({required String reason}) {
     _webviewHostController.setKeepAliveRequested(
@@ -881,57 +881,8 @@ class _MainScaffoldState extends State<_MainScaffold>
                             ],
                           ),
                         ),
-                        if (showLive2dPanel) ...[
-                          Container(width: 1, color: const Color(0xFFE1E6F0)),
-                          SizedBox(
-                            width: isDesktop ? 340 : 300,
-                            child: Column(
-                              children: [
-                                const SizedBox(height: 12),
-                                Expanded(
-                                  child: Padding(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      12,
-                                      0,
-                                      12,
-                                      12,
-                                    ),
-                                    child: _NoDesktopWindowDragRegion(
-                                      enabled: isDesktop,
-                                      child: _WorkbenchPlaceholderCard(
-                                        removePadding: true,
-                                        child: AnimatedSwitcher(
-                                          duration: const Duration(
-                                            milliseconds: 220,
-                                          ),
-                                          switchInCurve: Curves.easeOutCubic,
-                                          switchOutCurve: Curves.easeInCubic,
-                                          child: AnimatedBuilder(
-                                            animation: _webviewHostController,
-                                            builder: (context, _) {
-                                              return _webviewHostController
-                                                      .mountedView
-                                                  ? WebviewScreen(
-                                                    key: ValueKey(
-                                                      'webview-live2d-full-panel-${_webviewHostController.seed}',
-                                                    ),
-                                                    active: true,
-                                                    embedded: true,
-                                                  )
-                                                  : const ColoredBox(
-                                                    color: Colors.white,
-                                                  );
-                                            },
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                        if (showLive2dPanel)
+                          _buildDesktopLive2dPanel(isDesktop: isDesktop),
                       ],
                     ),
                   ),
@@ -941,6 +892,57 @@ class _MainScaffoldState extends State<_MainScaffold>
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildDesktopLive2dPanel({required bool isDesktop}) {
+    final width =
+        _currentIndex == 0 || _currentIndex == 1
+            ? (isDesktop ? 340.0 : 300.0)
+            : (isDesktop ? 320.0 : 280.0);
+
+    return Row(
+      children: [
+        Container(width: 1, color: const Color(0xFFE1E6F0)),
+        SizedBox(
+          width: width,
+          child: Column(
+            children: [
+              const SizedBox(height: 12),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  child: _NoDesktopWindowDragRegion(
+                    enabled: isDesktop,
+                    child: _WorkbenchPlaceholderCard(
+                      removePadding: true,
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 220),
+                        switchInCurve: Curves.easeOutCubic,
+                        switchOutCurve: Curves.easeInCubic,
+                        child: AnimatedBuilder(
+                          animation: _webviewHostController,
+                          builder: (context, _) {
+                            return _webviewHostController.mountedView
+                                ? WebviewScreen(
+                                  key: ValueKey(
+                                    'webview-live2d-full-panel-${_webviewHostController.seed}',
+                                  ),
+                                  active: true,
+                                  embedded: true,
+                                )
+                                : const ColoredBox(color: Colors.white);
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
