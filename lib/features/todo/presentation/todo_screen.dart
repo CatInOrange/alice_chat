@@ -1727,89 +1727,6 @@ class _ActivePomodoroControls extends StatelessWidget {
       ],
     );
   }
-
-  Future<String?> _askPomodoroNote(BuildContext context) async {
-    final controller = TextEditingController();
-    final result = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-        return Padding(
-          padding: EdgeInsets.only(bottom: bottomInset),
-          child: Container(
-            decoration: const BoxDecoration(
-              color: Color(0xFFF8F8FD),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-            ),
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 22),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 44,
-                        height: 5,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFD9DDEC),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    Text(
-                      '记录这个番茄',
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: controller,
-                      autofocus: true,
-                      minLines: 3,
-                      maxLines: 5,
-                      decoration: const InputDecoration(
-                        hintText: '进展可以空着，比如：完成接口草稿',
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => Navigator.of(context).pop(''),
-                            child: const Text('空着继续'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: FilledButton(
-                            onPressed:
-                                () => Navigator.of(
-                                  context,
-                                ).pop(controller.text.trim()),
-                            child: const Text('进入休息'),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-    controller.dispose();
-    return result;
-  }
 }
 
 class _PomodoroPlanSummaryCard extends StatelessWidget {
@@ -1973,6 +1890,7 @@ class _PomodoroPlanScreen extends StatelessWidget {
                       activePomodoro: active,
                       timeSlot: timeSlots[item.id],
                       onEdit: () => _openEditor(context, item: item),
+                      onEnd: () => _endPlanPomodoro(context, item.id),
                       onStart: () async {
                         final result = await context
                             .read<TodoStore>()
@@ -2068,6 +1986,25 @@ class _PomodoroPlanScreen extends StatelessWidget {
       ),
     );
   }
+
+  static Future<void> _endPlanPomodoro(
+    BuildContext context,
+    String planItemId,
+  ) async {
+    final store = context.read<TodoStore>();
+    final pomodoro = store.activePomodoro;
+    if (pomodoro == null || pomodoro.planItemId != planItemId) return;
+
+    if (pomodoro.isFocus) {
+      final note = await _askPomodoroNote(context);
+      if (note == null) return;
+      await store.markPomodoroFocusDone(pomodoro.id, note: note);
+      return;
+    }
+
+    await store.completePomodoroBreak(pomodoro.id);
+    await store.startNextPomodoroPlanItem();
+  }
 }
 
 class _PomodoroPlanItemTile extends StatelessWidget {
@@ -2077,6 +2014,7 @@ class _PomodoroPlanItemTile extends StatelessWidget {
     required this.activePomodoro,
     required this.timeSlot,
     required this.onEdit,
+    required this.onEnd,
     required this.onStart,
     required this.onDelete,
     this.onSkip,
@@ -2087,6 +2025,7 @@ class _PomodoroPlanItemTile extends StatelessWidget {
   final TodoPomodoro? activePomodoro;
   final _PomodoroPlanTimeSlot? timeSlot;
   final VoidCallback onEdit;
+  final VoidCallback onEnd;
   final VoidCallback onStart;
   final VoidCallback onDelete;
   final VoidCallback? onSkip;
@@ -2102,6 +2041,7 @@ class _PomodoroPlanItemTile extends StatelessWidget {
         activePomodoro == null;
     final theme = Theme.of(context);
     final statusColor = _planStatusColor(item.status);
+    final activePhaseLabel = activePomodoro?.isFocus == true ? '结束专注' : '完成休息';
 
     return Material(
       color: Colors.white,
@@ -2159,30 +2099,12 @@ class _PomodoroPlanItemTile extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 3),
-                        Row(
-                          children: [
-                            Text(
-                              _planStatusLabel(item.status),
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: statusColor,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                            if (timeSlot != null) ...[
-                              const SizedBox(width: 8),
-                              Flexible(
-                                child: Text(
-                                  timeSlot!.summary,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                    color: const Color(0xFF8F99AD),
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ],
+                        Text(
+                          _planStatusLabel(item.status),
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: statusColor,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ],
                     ),
@@ -2190,13 +2112,13 @@ class _PomodoroPlanItemTile extends StatelessWidget {
                   IconButton(
                     visualDensity: VisualDensity.compact,
                     onPressed:
-                        activeForItem ? null : (canStart ? onStart : null),
+                        activeForItem ? onEnd : (canStart ? onStart : null),
                     icon: Icon(
                       activeForItem
-                          ? Icons.timer_outlined
+                          ? Icons.stop_circle_outlined
                           : Icons.play_arrow_rounded,
                     ),
-                    tooltip: activeForItem ? '进行中' : '开始番茄',
+                    tooltip: activeForItem ? activePhaseLabel : '开始番茄',
                   ),
                   IconButton(
                     visualDensity: VisualDensity.compact,
@@ -2236,6 +2158,14 @@ class _PomodoroPlanItemTile extends StatelessWidget {
                   ),
                 ],
               ),
+              if (timeSlot != null) ...[
+                const SizedBox(height: 6),
+                _PlanTextLine(
+                  icon: Icons.schedule_rounded,
+                  label: '时间',
+                  text: timeSlot!.summary,
+                ),
+              ],
               if (item.estimatedGoal.trim().isNotEmpty) ...[
                 const SizedBox(height: 8),
                 _PlanTextLine(
@@ -2297,6 +2227,89 @@ class _PlanTextLine extends StatelessWidget {
       ],
     );
   }
+}
+
+Future<String?> _askPomodoroNote(BuildContext context) async {
+  final controller = TextEditingController();
+  final result = await showModalBottomSheet<String>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (context) {
+      final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+      return Padding(
+        padding: EdgeInsets.only(bottom: bottomInset),
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFFF8F8FD),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 22),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD9DDEC),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    '记录这个番茄',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    minLines: 3,
+                    maxLines: 5,
+                    decoration: const InputDecoration(
+                      hintText: '进展可以空着，比如：完成接口草稿',
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.of(context).pop(''),
+                          child: const Text('空着继续'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: FilledButton(
+                          onPressed:
+                              () => Navigator.of(
+                                context,
+                              ).pop(controller.text.trim()),
+                          child: const Text('进入休息'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+  controller.dispose();
+  return result;
 }
 
 class _PomodoroPlanEditorSheet extends StatefulWidget {
