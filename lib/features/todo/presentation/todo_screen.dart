@@ -1911,6 +1911,11 @@ class _PomodoroPlanScreen extends StatelessWidget {
     final store = context.watch<TodoStore>();
     final items = store.pomodoroPlanItems;
     final active = store.activePomodoro;
+    final timeSlots = _buildPomodoroPlanTimeSlots(
+      items,
+      store.pomodoros,
+      active,
+    );
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -1918,6 +1923,11 @@ class _PomodoroPlanScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('番茄计划'),
         actions: [
+          IconButton(
+            onPressed: () => _refreshHistory(context),
+            icon: const Icon(Icons.refresh_rounded),
+            tooltip: '刷新历史',
+          ),
           IconButton(
             onPressed: () => _openEditor(context),
             icon: const Icon(Icons.add_rounded),
@@ -1961,6 +1971,7 @@ class _PomodoroPlanScreen extends StatelessWidget {
                       index: index,
                       item: item,
                       activePomodoro: active,
+                      timeSlot: timeSlots[item.id],
                       onEdit: () => _openEditor(context, item: item),
                       onStart: () async {
                         final result = await context
@@ -2044,6 +2055,19 @@ class _PomodoroPlanScreen extends StatelessWidget {
       ),
     );
   }
+
+  static Future<void> _refreshHistory(BuildContext context) async {
+    final store = context.read<TodoStore>();
+    await store.ensureLoaded();
+    await store.refreshFromRemote(force: true);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('番茄历史已刷新'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
 }
 
 class _PomodoroPlanItemTile extends StatelessWidget {
@@ -2051,6 +2075,7 @@ class _PomodoroPlanItemTile extends StatelessWidget {
     required this.index,
     required this.item,
     required this.activePomodoro,
+    required this.timeSlot,
     required this.onEdit,
     required this.onStart,
     required this.onDelete,
@@ -2060,6 +2085,7 @@ class _PomodoroPlanItemTile extends StatelessWidget {
   final int index;
   final TodoPomodoroPlanItem item;
   final TodoPomodoro? activePomodoro;
+  final _PomodoroPlanTimeSlot? timeSlot;
   final VoidCallback onEdit;
   final VoidCallback onStart;
   final VoidCallback onDelete;
@@ -2079,14 +2105,14 @@ class _PomodoroPlanItemTile extends StatelessWidget {
 
     return Material(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(10),
       child: InkWell(
         onTap: onEdit,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(10),
         child: Ink(
-          padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+          padding: const EdgeInsets.fromLTRB(10, 10, 8, 10),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color:
                   activeForItem
@@ -2100,12 +2126,12 @@ class _PomodoroPlanItemTile extends StatelessWidget {
               Row(
                 children: [
                   Container(
-                    width: 34,
-                    height: 34,
+                    width: 28,
+                    height: 28,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
                       color: const Color(0xFFFFF0E7),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
                       '${index + 1}',
@@ -2115,7 +2141,7 @@ class _PomodoroPlanItemTile extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2133,15 +2159,73 @@ class _PomodoroPlanItemTile extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 3),
-                        Text(
-                          _planStatusLabel(item.status),
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: statusColor,
-                            fontWeight: FontWeight.w800,
-                          ),
+                        Row(
+                          children: [
+                            Text(
+                              _planStatusLabel(item.status),
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: statusColor,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            if (timeSlot != null) ...[
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: Text(
+                                  timeSlot!.summary,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color: const Color(0xFF8F99AD),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                       ],
                     ),
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    onPressed:
+                        activeForItem ? null : (canStart ? onStart : null),
+                    icon: Icon(
+                      activeForItem
+                          ? Icons.timer_outlined
+                          : Icons.play_arrow_rounded,
+                    ),
+                    tooltip: activeForItem ? '进行中' : '开始番茄',
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    onPressed: onEdit,
+                    icon: const Icon(Icons.edit_outlined),
+                    tooltip: '编辑',
+                  ),
+                  PopupMenuButton<String>(
+                    tooltip: '更多',
+                    icon: const Icon(Icons.more_vert_rounded),
+                    onSelected: (value) {
+                      if (value == 'skip') {
+                        onSkip?.call();
+                      } else if (value == 'delete') {
+                        onDelete();
+                      }
+                    },
+                    itemBuilder:
+                        (context) => [
+                          if (onSkip != null)
+                            const PopupMenuItem(
+                              value: 'skip',
+                              child: Text('跳过'),
+                            ),
+                          const PopupMenuItem(
+                            value: 'delete',
+                            child: Text('删除'),
+                          ),
+                        ],
                   ),
                   ReorderableDragStartListener(
                     index: index,
@@ -2153,7 +2237,7 @@ class _PomodoroPlanItemTile extends StatelessWidget {
                 ],
               ),
               if (item.estimatedGoal.trim().isNotEmpty) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 _PlanTextLine(
                   icon: Icons.flag_outlined,
                   label: '预计',
@@ -2161,45 +2245,13 @@ class _PomodoroPlanItemTile extends StatelessWidget {
                 ),
               ],
               if (item.actualProgress.trim().isNotEmpty) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 _PlanTextLine(
                   icon: Icons.fact_check_outlined,
                   label: '实际',
                   text: item.actualProgress.trim(),
                 ),
               ],
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  FilledButton.icon(
-                    onPressed: canStart ? onStart : null,
-                    icon: Icon(
-                      activeForItem
-                          ? Icons.timer_outlined
-                          : Icons.play_arrow_rounded,
-                    ),
-                    label: Text(activeForItem ? '进行中' : '开始'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: onEdit,
-                    icon: const Icon(Icons.edit_outlined),
-                    label: const Text('编辑'),
-                  ),
-                  if (onSkip != null)
-                    TextButton.icon(
-                      onPressed: onSkip,
-                      icon: const Icon(Icons.skip_next_rounded),
-                      label: const Text('跳过'),
-                    ),
-                  IconButton(
-                    onPressed: onDelete,
-                    icon: const Icon(Icons.delete_outline_rounded),
-                    tooltip: '删除',
-                  ),
-                ],
-              ),
             ],
           ),
         ),
@@ -2458,6 +2510,99 @@ TodoPomodoroPlanItem? _nextOpenPlanItem(List<TodoPomodoroPlanItem> items) {
     if (item.isOpen) return item;
   }
   return null;
+}
+
+class _PomodoroPlanTimeSlot {
+  const _PomodoroPlanTimeSlot(this.summary);
+
+  final String summary;
+}
+
+Map<String, _PomodoroPlanTimeSlot> _buildPomodoroPlanTimeSlots(
+  List<TodoPomodoroPlanItem> items,
+  List<TodoPomodoro> pomodoros,
+  TodoPomodoro? active,
+) {
+  final byPlanItemId = <String, TodoPomodoro>{};
+  final byPomodoroId = <String, TodoPomodoro>{};
+  for (final pomodoro in pomodoros) {
+    byPomodoroId[pomodoro.id] = pomodoro;
+    final planItemId = pomodoro.planItemId;
+    if (planItemId != null && planItemId.isNotEmpty) {
+      byPlanItemId.putIfAbsent(planItemId, () => pomodoro);
+    }
+  }
+
+  final result = <String, _PomodoroPlanTimeSlot>{};
+  var cursor = _nextPlanCursor(active);
+  for (final item in items) {
+    final linkedPomodoro =
+        byPlanItemId[item.id] ??
+        (item.pomodoroId == null ? null : byPomodoroId[item.pomodoroId]);
+    final start =
+        item.startedAt ??
+        linkedPomodoro?.focusStartedAt ??
+        linkedPomodoro?.startedAt;
+    final end =
+        item.completedAt ??
+        linkedPomodoro?.completedAt ??
+        linkedPomodoro?.focusEndedAt;
+
+    if (item.status == PomodoroPlanItemStatus.completed &&
+        (start != null || end != null)) {
+      result[item.id] = _PomodoroPlanTimeSlot(
+        start == null
+            ? '完成 ${_formatPlanClock(end!)}'
+            : end == null
+            ? '实际 ${_formatPlanClock(start)}'
+            : '实际 ${_formatPlanClock(start)}-${_formatPlanClock(end)}',
+      );
+      continue;
+    }
+    if (item.status == PomodoroPlanItemStatus.skipped) {
+      result[item.id] = _PomodoroPlanTimeSlot(
+        end == null ? '已跳过' : '跳过 ${_formatPlanClock(end)}',
+      );
+      continue;
+    }
+    if (item.status == PomodoroPlanItemStatus.running && start != null) {
+      final runningEnd = active?.planItemId == item.id ? active?.endsAt : null;
+      result[item.id] = _PomodoroPlanTimeSlot(
+        runningEnd == null
+            ? '开始 ${_formatPlanClock(start)}'
+            : '开始 ${_formatPlanClock(start)} · 预计 ${_formatPlanClock(runningEnd)}',
+      );
+      if (active?.planItemId == item.id) {
+        cursor = _nextPlanCursor(active);
+      }
+      continue;
+    }
+    if (item.status == PomodoroPlanItemStatus.planned) {
+      final estimatedStart = cursor;
+      final estimatedEnd = estimatedStart.add(const Duration(minutes: 25));
+      result[item.id] = _PomodoroPlanTimeSlot(
+        '预计 ${_formatPlanClock(estimatedStart)}-${_formatPlanClock(estimatedEnd)}',
+      );
+      cursor = estimatedEnd.add(const Duration(minutes: 5));
+    }
+  }
+  return result;
+}
+
+DateTime _nextPlanCursor(TodoPomodoro? active) {
+  final now = DateTime.now();
+  if (active == null) return now;
+  if (active.isFocus) {
+    return active.endsAt.add(Duration(minutes: active.breakPlannedMinutes));
+  }
+  return active.endsAt;
+}
+
+String _formatPlanClock(DateTime time) {
+  final hh = time.hour.toString().padLeft(2, '0');
+  final mm = time.minute.toString().padLeft(2, '0');
+  if (_isSameDay(time, DateTime.now())) return '$hh:$mm';
+  return '${time.month.toString().padLeft(2, '0')}/${time.day.toString().padLeft(2, '0')} $hh:$mm';
 }
 
 String _planStatusLabel(PomodoroPlanItemStatus status) {
