@@ -16,6 +16,45 @@ class PomodoroNotificationService {
   bool get _supportsNativeTimers =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
+  Future<void> prepareReliableReminders() async {
+    if (!_supportsNativeTimers) return;
+    try {
+      final status = await _channel.invokeMapMethod<String, bool>(
+        'getReminderStatus',
+      );
+      final exactAlarmAllowed = status?['exactAlarmAllowed'] ?? true;
+      final ignoringBatteryOptimizations =
+          status?['ignoringBatteryOptimizations'] ?? true;
+      await NativeDebugBridge.instance.log(
+        'pomodoro',
+        'reminder status exactAlarmAllowed=$exactAlarmAllowed ignoringBatteryOptimizations=$ignoringBatteryOptimizations',
+      );
+      if (!exactAlarmAllowed) {
+        await _channel.invokeMethod<void>('requestExactAlarmPermission');
+        await NativeDebugBridge.instance.log(
+          'pomodoro',
+          'requested exact alarm permission',
+        );
+        return;
+      }
+      if (!ignoringBatteryOptimizations) {
+        await _channel.invokeMethod<void>(
+          'requestBatteryOptimizationExemption',
+        );
+        await NativeDebugBridge.instance.log(
+          'pomodoro',
+          'requested battery optimization exemption',
+        );
+      }
+    } catch (error) {
+      await NativeDebugBridge.instance.log(
+        'pomodoro',
+        'prepare reminders failed error=$error',
+        level: 'WARN',
+      );
+    }
+  }
+
   Future<void> schedule({
     required TodoPomodoro pomodoro,
     required String taskTitle,

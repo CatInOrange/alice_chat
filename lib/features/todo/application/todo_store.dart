@@ -234,6 +234,7 @@ class TodoStore extends ChangeNotifier {
   }) async {
     final task = _taskById(taskId);
     if (task == null) return null;
+    await PomodoroNotificationService.instance.prepareReliableReminders();
     final current = activePomodoro;
     if (current != null) {
       await cancelPomodoro(current.id);
@@ -799,6 +800,7 @@ class TodoStore extends ChangeNotifier {
     if (schedule) {
       final task = _taskById(pomodoro.taskId);
       if (task != null) {
+        await PomodoroNotificationService.instance.prepareReliableReminders();
         await PomodoroNotificationService.instance.schedule(
           pomodoro: pomodoro,
           taskTitle: task.title,

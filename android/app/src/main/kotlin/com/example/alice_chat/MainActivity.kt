@@ -4,10 +4,13 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -152,6 +155,17 @@ class MainActivity : FlutterActivity() {
             "alicechat/pomodoro_timer"
         ).setMethodCallHandler { call, result ->
             when (call.method) {
+                "getReminderStatus" -> {
+                    result.success(pomodoroReminderStatus())
+                }
+                "requestExactAlarmPermission" -> {
+                    openExactAlarmSettings()
+                    result.success(null)
+                }
+                "requestBatteryOptimizationExemption" -> {
+                    openBatteryOptimizationSettings()
+                    result.success(null)
+                }
                 "schedulePomodoro" -> {
                     val id = call.argument<String>("id").orEmpty()
                     val taskId = call.argument<String>("taskId").orEmpty()
@@ -225,6 +239,55 @@ class MainActivity : FlutterActivity() {
         DebugLogBuffer.append(tag, message)
     }
 
+    private fun pomodoroReminderStatus(): Map<String, Boolean> {
+        val exactAlarmAllowed = canScheduleExactPomodoroAlarm()
+        val ignoringBatteryOptimizations = isIgnoringBatteryOptimizations()
+        appendLog(
+            "pomodoro",
+            "reminder status exactAlarmAllowed=$exactAlarmAllowed ignoringBatteryOptimizations=$ignoringBatteryOptimizations"
+        )
+        return mapOf(
+            "exactAlarmAllowed" to exactAlarmAllowed,
+            "ignoringBatteryOptimizations" to ignoringBatteryOptimizations,
+        )
+    }
+
+    private fun canScheduleExactPomodoroAlarm(): Boolean {
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
+    }
+
+    private fun isIgnoringBatteryOptimizations(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        return powerManager.isIgnoringBatteryOptimizations(packageName)
+    }
+
+    private fun openExactAlarmSettings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || canScheduleExactPomodoroAlarm()) return
+        val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+            data = Uri.parse("package:$packageName")
+        }
+        startSettingsIntent(intent, "exact_alarm")
+    }
+
+    private fun openBatteryOptimizationSettings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || isIgnoringBatteryOptimizations()) return
+        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = Uri.parse("package:$packageName")
+        }
+        startSettingsIntent(intent, "battery_optimization")
+    }
+
+    private fun startSettingsIntent(intent: Intent, source: String) {
+        try {
+            startActivity(intent)
+            appendLog("pomodoro", "open settings source=$source")
+        } catch (error: Exception) {
+            appendLog("pomodoro", "open settings failed source=$source error=${error.message}")
+        }
+    }
+
     private fun schedulePomodoroAlarm(
         id: String,
         taskId: String,
@@ -238,7 +301,7 @@ class MainActivity : FlutterActivity() {
         }
         val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val pendingIntent = pomodoroPendingIntent(id, taskId, taskTitle, phase)
-        val canExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
+        val canExact = canScheduleExactPomodoroAlarm()
         if (canExact && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
         } else if (canExact) {
