@@ -7,7 +7,7 @@ import '../domain/todo_models.dart';
 class TodoLocalStore {
   static const String _legacyStorageKey = 'alicechat.todo.snapshot.v1';
   static const String _dbName = 'alicechat_todo.db';
-  static const int _dbVersion = 4;
+  static const int _dbVersion = 5;
 
   Database? _database;
 
@@ -28,6 +28,10 @@ class TodoLocalStore {
       'todo_pomodoros',
       orderBy: 'started_at DESC',
     );
+    final pomodoroPlanRows = await db.query(
+      'todo_pomodoro_plan_items',
+      orderBy: 'sort_order ASC, created_at ASC',
+    );
     if (projectRows.isEmpty && taskRows.isEmpty) {
       return null;
     }
@@ -40,6 +44,9 @@ class TodoLocalStore {
           .toList(growable: false),
       subtasks: subtasks,
       pomodoros: pomodoroRows.map(_pomodoroFromRow).toList(growable: false),
+      pomodoroPlanItems: pomodoroPlanRows
+          .map(_pomodoroPlanItemFromRow)
+          .toList(growable: false),
     );
   }
 
@@ -156,6 +163,11 @@ class TodoLocalStore {
         if (oldVersion < 4) {
           await _createPomodoroTable(db);
         }
+        if (oldVersion >= 4 && oldVersion < 5) {
+          await _migratePomodoroPlan(db);
+        } else if (oldVersion < 5) {
+          await _createPomodoroPlanTable(db);
+        }
       },
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
@@ -188,6 +200,7 @@ class TodoLocalStore {
     await db.transaction((txn) async {
       await txn.delete('todo_subtasks');
       await txn.delete('todo_pomodoros');
+      await txn.delete('todo_pomodoro_plan_items');
       await txn.delete('todo_tasks');
       await txn.delete('todo_projects');
 
@@ -217,6 +230,13 @@ class TodoLocalStore {
         batch.insert(
           'todo_pomodoros',
           _pomodoroToRow(pomodoro),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      for (final item in snapshot.pomodoroPlanItems) {
+        batch.insert(
+          'todo_pomodoro_plan_items',
+          _pomodoroPlanItemToRow(item),
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
@@ -275,6 +295,7 @@ class TodoLocalStore {
   Map<String, Object?> _pomodoroToRow(TodoPomodoro pomodoro) => {
     'id': pomodoro.id,
     'task_id': pomodoro.taskId,
+    'plan_item_id': pomodoro.planItemId,
     'round_index': pomodoro.roundIndex,
     'phase': pomodoro.phase.name,
     'status': pomodoro.status.name,
@@ -291,6 +312,20 @@ class TodoLocalStore {
     'note': pomodoro.note,
     'created_at': pomodoro.createdAt?.millisecondsSinceEpoch,
     'updated_at': pomodoro.updatedAt?.millisecondsSinceEpoch,
+  };
+
+  Map<String, Object?> _pomodoroPlanItemToRow(TodoPomodoroPlanItem item) => {
+    'id': item.id,
+    'task_id': item.taskId,
+    'sort_order': item.sortOrder,
+    'estimated_goal': item.estimatedGoal,
+    'actual_progress': item.actualProgress,
+    'status': item.status.name,
+    'pomodoro_id': item.pomodoroId,
+    'created_at': item.createdAt?.millisecondsSinceEpoch,
+    'updated_at': item.updatedAt?.millisecondsSinceEpoch,
+    'started_at': item.startedAt?.millisecondsSinceEpoch,
+    'completed_at': item.completedAt?.millisecondsSinceEpoch,
   };
 
   TodoTask _taskFromRow(
@@ -337,6 +372,7 @@ class TodoLocalStore {
   TodoPomodoro _pomodoroFromRow(Map<String, Object?> row) => TodoPomodoro(
     id: row['id'] as String,
     taskId: row['task_id'] as String,
+    planItemId: row['plan_item_id'] as String?,
     roundIndex: row['round_index'] as int? ?? 1,
     phase: PomodoroPhase.values.firstWhere(
       (item) => item.name == (row['phase'] as String? ?? 'focus'),
@@ -364,6 +400,24 @@ class TodoLocalStore {
     createdAt: _dateFromEpoch(row['created_at']),
     updatedAt: _dateFromEpoch(row['updated_at']),
   );
+
+  TodoPomodoroPlanItem _pomodoroPlanItemFromRow(Map<String, Object?> row) =>
+      TodoPomodoroPlanItem(
+        id: row['id'] as String,
+        taskId: row['task_id'] as String?,
+        sortOrder: row['sort_order'] as int? ?? 0,
+        estimatedGoal: row['estimated_goal'] as String? ?? '',
+        actualProgress: row['actual_progress'] as String? ?? '',
+        status: PomodoroPlanItemStatus.values.firstWhere(
+          (item) => item.name == (row['status'] as String? ?? 'planned'),
+          orElse: () => PomodoroPlanItemStatus.planned,
+        ),
+        pomodoroId: row['pomodoro_id'] as String?,
+        createdAt: _dateFromEpoch(row['created_at']),
+        updatedAt: _dateFromEpoch(row['updated_at']),
+        startedAt: _dateFromEpoch(row['started_at']),
+        completedAt: _dateFromEpoch(row['completed_at']),
+      );
 
   Future<void> _createSchema(DatabaseExecutor db) async {
     await db.execute('''
@@ -403,6 +457,7 @@ class TodoLocalStore {
     );
     await _createSubtaskTable(db);
     await _createPomodoroTable(db);
+    await _createPomodoroPlanTable(db);
   }
 
   Future<void> _migrateReminderAndProjectOrder(DatabaseExecutor db) async {
@@ -432,6 +487,7 @@ class TodoLocalStore {
       CREATE TABLE IF NOT EXISTS todo_pomodoros (
         id TEXT PRIMARY KEY,
         task_id TEXT NOT NULL,
+        plan_item_id TEXT,
         round_index INTEGER NOT NULL DEFAULT 1,
         phase TEXT NOT NULL,
         status TEXT NOT NULL,
@@ -456,6 +512,36 @@ class TodoLocalStore {
     );
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_todo_pomodoros_status ON todo_pomodoros(status)',
+    );
+  }
+
+  Future<void> _migratePomodoroPlan(DatabaseExecutor db) async {
+    await db.execute('ALTER TABLE todo_pomodoros ADD COLUMN plan_item_id TEXT');
+    await _createPomodoroPlanTable(db);
+  }
+
+  Future<void> _createPomodoroPlanTable(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS todo_pomodoro_plan_items (
+        id TEXT PRIMARY KEY,
+        task_id TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        estimated_goal TEXT NOT NULL DEFAULT '',
+        actual_progress TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'planned',
+        pomodoro_id TEXT,
+        created_at INTEGER,
+        updated_at INTEGER,
+        started_at INTEGER,
+        completed_at INTEGER,
+        FOREIGN KEY(task_id) REFERENCES todo_tasks(id) ON DELETE SET NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_todo_pomodoro_plan_status ON todo_pomodoro_plan_items(status)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_todo_pomodoro_plan_task_id ON todo_pomodoro_plan_items(task_id)',
     );
   }
 

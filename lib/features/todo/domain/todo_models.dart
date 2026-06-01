@@ -287,10 +287,123 @@ enum PomodoroStatus {
   cancelled,
 }
 
+enum PomodoroPlanItemStatus { planned, running, completed, skipped }
+
+class TodoPomodoroPlanItem {
+  const TodoPomodoroPlanItem({
+    required this.id,
+    this.taskId,
+    this.sortOrder = 0,
+    this.estimatedGoal = '',
+    this.actualProgress = '',
+    this.status = PomodoroPlanItemStatus.planned,
+    this.pomodoroId,
+    this.createdAt,
+    this.updatedAt,
+    this.startedAt,
+    this.completedAt,
+  });
+
+  final String id;
+  final String? taskId;
+  final int sortOrder;
+  final String estimatedGoal;
+  final String actualProgress;
+  final PomodoroPlanItemStatus status;
+  final String? pomodoroId;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
+  final DateTime? startedAt;
+  final DateTime? completedAt;
+
+  bool get isOpen =>
+      status == PomodoroPlanItemStatus.planned ||
+      status == PomodoroPlanItemStatus.running;
+  bool get isDone =>
+      status == PomodoroPlanItemStatus.completed ||
+      status == PomodoroPlanItemStatus.skipped;
+
+  TodoPomodoroPlanItem copyWith({
+    String? id,
+    Object? taskId = _sentinel,
+    int? sortOrder,
+    String? estimatedGoal,
+    String? actualProgress,
+    PomodoroPlanItemStatus? status,
+    Object? pomodoroId = _sentinel,
+    Object? createdAt = _sentinel,
+    Object? updatedAt = _sentinel,
+    Object? startedAt = _sentinel,
+    Object? completedAt = _sentinel,
+  }) {
+    return TodoPomodoroPlanItem(
+      id: id ?? this.id,
+      taskId: identical(taskId, _sentinel) ? this.taskId : taskId as String?,
+      sortOrder: sortOrder ?? this.sortOrder,
+      estimatedGoal: estimatedGoal ?? this.estimatedGoal,
+      actualProgress: actualProgress ?? this.actualProgress,
+      status: status ?? this.status,
+      pomodoroId:
+          identical(pomodoroId, _sentinel)
+              ? this.pomodoroId
+              : pomodoroId as String?,
+      createdAt:
+          identical(createdAt, _sentinel)
+              ? this.createdAt
+              : createdAt as DateTime?,
+      updatedAt:
+          identical(updatedAt, _sentinel)
+              ? this.updatedAt
+              : updatedAt as DateTime?,
+      startedAt:
+          identical(startedAt, _sentinel)
+              ? this.startedAt
+              : startedAt as DateTime?,
+      completedAt:
+          identical(completedAt, _sentinel)
+              ? this.completedAt
+              : completedAt as DateTime?,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'taskId': taskId,
+    'sortOrder': sortOrder,
+    'estimatedGoal': estimatedGoal,
+    'actualProgress': actualProgress,
+    'status': status.name,
+    'pomodoroId': pomodoroId,
+    'createdAt': createdAt?.toIso8601String(),
+    'updatedAt': updatedAt?.toIso8601String(),
+    'startedAt': startedAt?.toIso8601String(),
+    'completedAt': completedAt?.toIso8601String(),
+  };
+
+  factory TodoPomodoroPlanItem.fromJson(Map<String, dynamic> json) =>
+      TodoPomodoroPlanItem(
+        id: json['id'] as String,
+        taskId: json['taskId'] as String?,
+        sortOrder: json['sortOrder'] as int? ?? 0,
+        estimatedGoal: json['estimatedGoal'] as String? ?? '',
+        actualProgress: json['actualProgress'] as String? ?? '',
+        status: PomodoroPlanItemStatus.values.firstWhere(
+          (item) => item.name == (json['status'] as String? ?? 'planned'),
+          orElse: () => PomodoroPlanItemStatus.planned,
+        ),
+        pomodoroId: json['pomodoroId'] as String?,
+        createdAt: _parseDate(json['createdAt']),
+        updatedAt: _parseDate(json['updatedAt']),
+        startedAt: _parseDate(json['startedAt']),
+        completedAt: _parseDate(json['completedAt']),
+      );
+}
+
 class TodoPomodoro {
   const TodoPomodoro({
     required this.id,
     required this.taskId,
+    this.planItemId,
     this.roundIndex = 1,
     this.phase = PomodoroPhase.focus,
     this.status = PomodoroStatus.running,
@@ -311,6 +424,7 @@ class TodoPomodoro {
 
   final String id;
   final String taskId;
+  final String? planItemId;
   final int roundIndex;
   final PomodoroPhase phase;
   final PomodoroStatus status;
@@ -341,6 +455,7 @@ class TodoPomodoro {
   TodoPomodoro copyWith({
     String? id,
     String? taskId,
+    Object? planItemId = _sentinel,
     int? roundIndex,
     PomodoroPhase? phase,
     PomodoroStatus? status,
@@ -361,6 +476,10 @@ class TodoPomodoro {
     return TodoPomodoro(
       id: id ?? this.id,
       taskId: taskId ?? this.taskId,
+      planItemId:
+          identical(planItemId, _sentinel)
+              ? this.planItemId
+              : planItemId as String?,
       roundIndex: roundIndex ?? this.roundIndex,
       phase: phase ?? this.phase,
       status: status ?? this.status,
@@ -407,6 +526,7 @@ class TodoPomodoro {
   Map<String, dynamic> toJson() => {
     'id': id,
     'taskId': taskId,
+    'planItemId': planItemId,
     'roundIndex': roundIndex,
     'phase': phase.name,
     'status': status.name,
@@ -430,6 +550,7 @@ class TodoPomodoro {
     return TodoPomodoro(
       id: json['id'] as String,
       taskId: json['taskId'] as String,
+      planItemId: json['planItemId'] as String?,
       roundIndex: json['roundIndex'] as int? ?? 1,
       phase: PomodoroPhase.values.firstWhere(
         (item) => item.name == (json['phase'] as String? ?? 'focus'),
@@ -468,18 +589,23 @@ class TodoSnapshot {
     required this.tasks,
     this.subtasks = const [],
     this.pomodoros = const [],
+    this.pomodoroPlanItems = const [],
   });
 
   final List<TodoProject> projects;
   final List<TodoTask> tasks;
   final List<TodoSubtask> subtasks;
   final List<TodoPomodoro> pomodoros;
+  final List<TodoPomodoroPlanItem> pomodoroPlanItems;
 
   Map<String, dynamic> toJson() => {
     'projects': projects.map((item) => item.toJson()).toList(growable: false),
     'tasks': tasks.map((item) => item.toJson()).toList(growable: false),
     'subtasks': subtasks.map((item) => item.toJson()).toList(growable: false),
     'pomodoros': pomodoros.map((item) => item.toJson()).toList(growable: false),
+    'pomodoroPlanItems': pomodoroPlanItems
+        .map((item) => item.toJson())
+        .toList(growable: false),
   };
 
   String encode() => jsonEncode(toJson());
@@ -496,6 +622,11 @@ class TodoSnapshot {
         .toList(growable: false),
     pomodoros: (json['pomodoros'] as List<dynamic>? ?? const [])
         .map((item) => TodoPomodoro.fromJson(item as Map<String, dynamic>))
+        .toList(growable: false),
+    pomodoroPlanItems: (json['pomodoroPlanItems'] as List<dynamic>? ?? const [])
+        .map(
+          (item) => TodoPomodoroPlanItem.fromJson(item as Map<String, dynamic>),
+        )
         .toList(growable: false),
   );
 

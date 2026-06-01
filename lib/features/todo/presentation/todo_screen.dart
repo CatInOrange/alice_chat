@@ -143,6 +143,12 @@ class _TodoScreenState extends State<TodoScreen>
               ),
             ),
           ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+              child: _PomodoroPlanSummaryCard(onOpen: _openPomodoroPlan),
+            ),
+          ),
           SliverToBoxAdapter(child: _buildInlineHabitsSection(habitsStore)),
           SliverToBoxAdapter(
             child: Padding(
@@ -273,6 +279,11 @@ class _TodoScreenState extends State<TodoScreen>
               icon: const Icon(Icons.inventory_2_outlined),
               tooltip: '已归档项目',
             ),
+          IconButton(
+            onPressed: _openPomodoroPlan,
+            icon: const Icon(Icons.playlist_add_check_rounded),
+            tooltip: '番茄计划',
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: _AddEntryFab(
@@ -427,6 +438,12 @@ class _TodoScreenState extends State<TodoScreen>
   void _openCompletedTasks() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => const _CompletedTasksScreen()),
+    );
+  }
+
+  void _openPomodoroPlan() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const _PomodoroPlanScreen()),
     );
   }
 
@@ -1688,6 +1705,10 @@ class _ActivePomodoroControls extends StatelessWidget {
                 }
                 await store.completePomodoroBreak(pomodoro.id);
                 if (!context.mounted) return;
+                if (pomodoro.planItemId != null) {
+                  final next = await store.startNextPomodoroPlanItem();
+                  if (next != null) return;
+                }
                 await store.startPomodoro(task.id);
               },
               child: Text(actionLabel),
@@ -1789,6 +1810,672 @@ class _ActivePomodoroControls extends StatelessWidget {
     controller.dispose();
     return result;
   }
+}
+
+class _PomodoroPlanSummaryCard extends StatelessWidget {
+  const _PomodoroPlanSummaryCard({required this.onOpen});
+
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<TodoStore>();
+    final items = store.pomodoroPlanItems;
+    final total = items.length;
+    final completed = store.completedPomodoroPlanCount;
+    final next = _nextOpenPlanItem(items);
+    final task = next == null ? null : _taskById(store.tasks, next.taskId);
+    final theme = Theme.of(context);
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onOpen,
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFECEFF6)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF0E7),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(
+                  Icons.playlist_add_check_rounded,
+                  color: Color(0xFFEF7B45),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          '番茄计划',
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          total == 0 ? '未规划' : '$completed/$total',
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: const Color(0xFFEF7B45),
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      next == null
+                          ? '给接下来的专注排个队。'
+                          : '${task?.title ?? '未选择任务'} · ${next.estimatedGoal.isEmpty ? '还没写目标' : next.estimatedGoal}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF7B8496),
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(Icons.chevron_right_rounded, color: Color(0xFF98A2B3)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PomodoroPlanScreen extends StatelessWidget {
+  const _PomodoroPlanScreen();
+
+  static const Uuid _uuid = Uuid();
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<TodoStore>();
+    final items = store.pomodoroPlanItems;
+    final active = store.activePomodoro;
+    final theme = Theme.of(context);
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF6F7FB),
+      appBar: AppBar(
+        title: const Text('番茄计划'),
+        actions: [
+          IconButton(
+            onPressed: () => _openEditor(context),
+            icon: const Icon(Icons.add_rounded),
+            tooltip: '新增番茄',
+          ),
+        ],
+      ),
+      body:
+          items.isEmpty
+              ? ListView(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 96),
+                children: [
+                  _EmptyCard(
+                    title: '还没有番茄计划',
+                    subtitle: '先规划一两颗番茄，写清任务和预计目标，开始后就按顺序推进。',
+                  ),
+                ],
+              )
+              : ReorderableListView.builder(
+                padding: const EdgeInsets.fromLTRB(20, 18, 20, 96),
+                buildDefaultDragHandles: false,
+                itemCount: items.length,
+                onReorder: (oldIndex, newIndex) {
+                  final normalizedNewIndex =
+                      newIndex > oldIndex ? newIndex - 1 : newIndex;
+                  unawaited(
+                    context.read<TodoStore>().reorderPomodoroPlanItems(
+                      oldIndex,
+                      normalizedNewIndex,
+                    ),
+                  );
+                },
+                itemBuilder: (context, index) {
+                  final item = items[index];
+                  return Padding(
+                    key: ValueKey('pomodoro-plan-${item.id}'),
+                    padding: EdgeInsets.only(
+                      bottom: index == items.length - 1 ? 0 : 12,
+                    ),
+                    child: _PomodoroPlanItemTile(
+                      index: index,
+                      item: item,
+                      activePomodoro: active,
+                      onEdit: () => _openEditor(context, item: item),
+                      onStart: () async {
+                        final result = await context
+                            .read<TodoStore>()
+                            .startPomodoroPlanItem(item.id);
+                        if (result == null && context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('先给这颗番茄选择一个任务。'),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                        }
+                      },
+                      onSkip:
+                          item.isDone
+                              ? null
+                              : () => context
+                                  .read<TodoStore>()
+                                  .skipPomodoroPlanItem(item.id),
+                      onDelete:
+                          () => context
+                              .read<TodoStore>()
+                              .deletePomodoroPlanItem(item.id),
+                    ),
+                  );
+                },
+              ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _openEditor(context),
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('新增番茄'),
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 14),
+          child: Text(
+            '完成专注后会回填实际进展；长按拖动图标可以调整顺序。',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: const Color(0xFF8B93A6),
+              height: 1.35,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  static Future<void> _openEditor(
+    BuildContext context, {
+    TodoPomodoroPlanItem? item,
+  }) async {
+    final store = context.read<TodoStore>();
+    final result = await showModalBottomSheet<_PomodoroPlanEditorResult>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _PomodoroPlanEditorSheet(item: item),
+    );
+    if (result == null) return;
+    if (result.deleteItem && item != null) {
+      await store.deletePomodoroPlanItem(item.id);
+      return;
+    }
+    final now = DateTime.now();
+    await store.savePomodoroPlanItem(
+      TodoPomodoroPlanItem(
+        id: item?.id ?? 'pomodoro-plan:${_uuid.v4()}',
+        taskId: result.taskId,
+        sortOrder: item?.sortOrder ?? store.pomodoroPlanItems.length,
+        estimatedGoal: result.estimatedGoal,
+        actualProgress: result.actualProgress,
+        status: item?.status ?? PomodoroPlanItemStatus.planned,
+        pomodoroId: item?.pomodoroId,
+        createdAt: item?.createdAt ?? now,
+        updatedAt: item?.updatedAt ?? now,
+        startedAt: item?.startedAt,
+        completedAt: item?.completedAt,
+      ),
+    );
+  }
+}
+
+class _PomodoroPlanItemTile extends StatelessWidget {
+  const _PomodoroPlanItemTile({
+    required this.index,
+    required this.item,
+    required this.activePomodoro,
+    required this.onEdit,
+    required this.onStart,
+    required this.onDelete,
+    this.onSkip,
+  });
+
+  final int index;
+  final TodoPomodoroPlanItem item;
+  final TodoPomodoro? activePomodoro;
+  final VoidCallback onEdit;
+  final VoidCallback onStart;
+  final VoidCallback onDelete;
+  final VoidCallback? onSkip;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<TodoStore>();
+    final task = _taskById(store.tasks, item.taskId);
+    final activeForItem = activePomodoro?.planItemId == item.id;
+    final canStart =
+        item.status == PomodoroPlanItemStatus.planned &&
+        item.taskId != null &&
+        activePomodoro == null;
+    final theme = Theme.of(context);
+    final statusColor = _planStatusColor(item.status);
+
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        onTap: onEdit,
+        borderRadius: BorderRadius.circular(18),
+        child: Ink(
+          padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color:
+                  activeForItem
+                      ? const Color(0xFFFFC89F)
+                      : const Color(0xFFECEFF6),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFF0E7),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${index + 1}',
+                      style: const TextStyle(
+                        color: Color(0xFFEF7B45),
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          task?.title ?? '未选择任务',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            color:
+                                task == null
+                                    ? const Color(0xFF98A2B3)
+                                    : const Color(0xFF2D3443),
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          _planStatusLabel(item.status),
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: statusColor,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ReorderableDragStartListener(
+                    index: index,
+                    child: const Icon(
+                      Icons.drag_indicator_rounded,
+                      color: Color(0xFF9AA3B5),
+                    ),
+                  ),
+                ],
+              ),
+              if (item.estimatedGoal.trim().isNotEmpty) ...[
+                const SizedBox(height: 12),
+                _PlanTextLine(
+                  icon: Icons.flag_outlined,
+                  label: '预计',
+                  text: item.estimatedGoal.trim(),
+                ),
+              ],
+              if (item.actualProgress.trim().isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _PlanTextLine(
+                  icon: Icons.fact_check_outlined,
+                  label: '实际',
+                  text: item.actualProgress.trim(),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.icon(
+                    onPressed: canStart ? onStart : null,
+                    icon: Icon(
+                      activeForItem
+                          ? Icons.timer_outlined
+                          : Icons.play_arrow_rounded,
+                    ),
+                    label: Text(activeForItem ? '进行中' : '开始'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: onEdit,
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('编辑'),
+                  ),
+                  if (onSkip != null)
+                    TextButton.icon(
+                      onPressed: onSkip,
+                      icon: const Icon(Icons.skip_next_rounded),
+                      label: const Text('跳过'),
+                    ),
+                  IconButton(
+                    onPressed: onDelete,
+                    icon: const Icon(Icons.delete_outline_rounded),
+                    tooltip: '删除',
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlanTextLine extends StatelessWidget {
+  const _PlanTextLine({
+    required this.icon,
+    required this.label,
+    required this.text,
+  });
+
+  final IconData icon;
+  final String label;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 15, color: const Color(0xFF8F99AD)),
+        const SizedBox(width: 7),
+        Text(
+          '$label：',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: const Color(0xFF8F99AD),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        Expanded(
+          child: Text(
+            text,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: const Color(0xFF475467),
+              height: 1.4,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PomodoroPlanEditorSheet extends StatefulWidget {
+  const _PomodoroPlanEditorSheet({this.item});
+
+  final TodoPomodoroPlanItem? item;
+
+  @override
+  State<_PomodoroPlanEditorSheet> createState() =>
+      _PomodoroPlanEditorSheetState();
+}
+
+class _PomodoroPlanEditorSheetState extends State<_PomodoroPlanEditorSheet> {
+  late String? _taskId;
+  late final TextEditingController _goalController;
+  late final TextEditingController _progressController;
+
+  @override
+  void initState() {
+    super.initState();
+    final item = widget.item;
+    _taskId = item?.taskId;
+    _goalController = TextEditingController(text: item?.estimatedGoal ?? '');
+    _progressController = TextEditingController(
+      text: item?.actualProgress ?? '',
+    );
+  }
+
+  @override
+  void dispose() {
+    _goalController.dispose();
+    _progressController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<TodoStore>();
+    final tasks = store.tasks
+        .where((task) => !task.isDone)
+        .toList(growable: false);
+    final theme = Theme.of(context);
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFFF8F8FD),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 46,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD9DDEC),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  widget.item == null ? '新增番茄' : '编辑番茄',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  '任务',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<String?>(
+                      value:
+                          tasks.any((task) => task.id == _taskId)
+                              ? _taskId
+                              : null,
+                      isExpanded: true,
+                      hint: const Text('选择一个任务'),
+                      items: [
+                        const DropdownMenuItem<String?>(
+                          value: null,
+                          child: Text('暂不选择'),
+                        ),
+                        ...tasks.map(
+                          (task) => DropdownMenuItem<String?>(
+                            value: task.id,
+                            child: Text(
+                              task.title,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ],
+                      onChanged: (value) => setState(() => _taskId = value),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                TextField(
+                  controller: _goalController,
+                  autofocus: widget.item == null,
+                  minLines: 3,
+                  maxLines: 5,
+                  decoration: const InputDecoration(
+                    labelText: '预计目标',
+                    hintText: '比如：完成番茄计划数据结构和页面入口',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _progressController,
+                  minLines: 3,
+                  maxLines: 5,
+                  decoration: const InputDecoration(
+                    labelText: '实际进展',
+                    hintText: '完成以后再补，也可以现在先记一点。',
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Row(
+                  children: [
+                    if (widget.item != null)
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed:
+                              () => Navigator.of(
+                                context,
+                              ).pop(const _PomodoroPlanEditorResult.delete()),
+                          child: const Text('删除'),
+                        ),
+                      ),
+                    if (widget.item != null) const SizedBox(width: 12),
+                    Expanded(
+                      flex: 2,
+                      child: FilledButton(
+                        onPressed: _submit,
+                        child: const Text('保存'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _submit() {
+    Navigator.of(context).pop(
+      _PomodoroPlanEditorResult(
+        taskId: _taskId,
+        estimatedGoal: _goalController.text.trim(),
+        actualProgress: _progressController.text.trim(),
+        deleteItem: false,
+      ),
+    );
+  }
+}
+
+class _PomodoroPlanEditorResult {
+  const _PomodoroPlanEditorResult({
+    required this.taskId,
+    required this.estimatedGoal,
+    required this.actualProgress,
+    required this.deleteItem,
+  });
+
+  const _PomodoroPlanEditorResult.delete()
+    : taskId = null,
+      estimatedGoal = '',
+      actualProgress = '',
+      deleteItem = true;
+
+  final String? taskId;
+  final String estimatedGoal;
+  final String actualProgress;
+  final bool deleteItem;
+}
+
+TodoTask? _taskById(List<TodoTask> tasks, String? taskId) {
+  if (taskId == null) return null;
+  for (final task in tasks) {
+    if (task.id == taskId) return task;
+  }
+  return null;
+}
+
+TodoPomodoroPlanItem? _nextOpenPlanItem(List<TodoPomodoroPlanItem> items) {
+  for (final item in items) {
+    if (item.isOpen) return item;
+  }
+  return null;
+}
+
+String _planStatusLabel(PomodoroPlanItemStatus status) {
+  return switch (status) {
+    PomodoroPlanItemStatus.planned => '待开始',
+    PomodoroPlanItemStatus.running => '进行中',
+    PomodoroPlanItemStatus.completed => '已完成',
+    PomodoroPlanItemStatus.skipped => '已跳过',
+  };
+}
+
+Color _planStatusColor(PomodoroPlanItemStatus status) {
+  return switch (status) {
+    PomodoroPlanItemStatus.planned => const Color(0xFF7B8496),
+    PomodoroPlanItemStatus.running => const Color(0xFFEF7B45),
+    PomodoroPlanItemStatus.completed => const Color(0xFF4E9F7A),
+    PomodoroPlanItemStatus.skipped => const Color(0xFF98A2B3),
+  };
 }
 
 class _ProjectManagementScreen extends StatelessWidget {

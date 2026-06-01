@@ -29,6 +29,7 @@ class TodoStore extends ChangeNotifier {
   List<TodoProject> _projects = const [];
   List<TodoTask> _tasks = const [];
   List<TodoPomodoro> _pomodoros = const [];
+  List<TodoPomodoroPlanItem> _pomodoroPlanItems = const [];
   int _lastRemoteRevision = 0;
   bool _isRefreshingRemote = false;
   bool _isPushingRemote = false;
@@ -43,6 +44,15 @@ class TodoStore extends ChangeNotifier {
       _projects.where((item) => item.archived).toList(growable: false);
   List<TodoTask> get tasks => _tasks;
   List<TodoPomodoro> get pomodoros => _pomodoros;
+  List<TodoPomodoroPlanItem> get pomodoroPlanItems =>
+      _pomodoroPlanItems.toList(growable: false)
+        ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+  int get openPomodoroPlanCount =>
+      _pomodoroPlanItems.where((item) => item.isOpen).length;
+  int get completedPomodoroPlanCount =>
+      _pomodoroPlanItems
+          .where((item) => item.status == PomodoroPlanItemStatus.completed)
+          .length;
   TodoPomodoro? get activePomodoro {
     for (final item in _pomodoros) {
       if (item.isActive) return item;
@@ -231,6 +241,7 @@ class TodoStore extends ChangeNotifier {
     String taskId, {
     int focusMinutes = 25,
     int breakMinutes = 5,
+    String? planItemId,
   }) async {
     final task = _taskById(taskId);
     if (task == null) return null;
@@ -244,6 +255,7 @@ class TodoStore extends ChangeNotifier {
     final pomodoro = TodoPomodoro(
       id: 'pomodoro:${_uuid.v4()}',
       taskId: taskId,
+      planItemId: planItemId,
       roundIndex: roundIndex,
       phase: PomodoroPhase.focus,
       status: PomodoroStatus.running,
@@ -256,6 +268,9 @@ class TodoStore extends ChangeNotifier {
       updatedAt: now,
     );
     _pomodoros = [pomodoro, ..._pomodoros];
+    if (planItemId != null) {
+      _markPlanItemRunning(planItemId, pomodoro.id, now);
+    }
     notifyListeners();
     await PomodoroNotificationService.instance.schedule(
       pomodoro: pomodoro,
@@ -282,6 +297,9 @@ class TodoStore extends ChangeNotifier {
       note: note.trim(),
       updatedAt: now,
     );
+    if (current.planItemId != null) {
+      _completePlanItem(current.planItemId!, note.trim(), now);
+    }
     await _replacePomodoro(updated, schedule: true);
   }
 
@@ -300,6 +318,90 @@ class TodoStore extends ChangeNotifier {
     await PomodoroNotificationService.instance.cancel(pomodoroId);
   }
 
+  Future<void> savePomodoroPlanItem(TodoPomodoroPlanItem item) async {
+    final now = DateTime.now();
+    final existingIndex = _pomodoroPlanItems.indexWhere(
+      (entry) => entry.id == item.id,
+    );
+    final normalized = item.copyWith(
+      sortOrder:
+          existingIndex >= 0 ? item.sortOrder : _pomodoroPlanItems.length,
+      estimatedGoal: item.estimatedGoal.trim(),
+      actualProgress: item.actualProgress.trim(),
+      createdAt:
+          existingIndex >= 0
+              ? _pomodoroPlanItems[existingIndex].createdAt
+              : item.createdAt ?? now,
+      updatedAt: now,
+    );
+    final mutable = _pomodoroPlanItems.toList(growable: true);
+    if (existingIndex >= 0) {
+      mutable[existingIndex] = normalized;
+    } else {
+      mutable.add(normalized);
+    }
+    _pomodoroPlanItems = _normalizePlanOrder(mutable);
+    notifyListeners();
+    await _persistSnapshot();
+  }
+
+  Future<void> deletePomodoroPlanItem(String itemId) async {
+    _pomodoroPlanItems = _normalizePlanOrder(
+      _pomodoroPlanItems.where((item) => item.id != itemId).toList(),
+    );
+    notifyListeners();
+    await _persistSnapshot();
+  }
+
+  Future<void> skipPomodoroPlanItem(String itemId) async {
+    final now = DateTime.now();
+    _pomodoroPlanItems = _pomodoroPlanItems
+        .map((item) {
+          if (item.id != itemId) return item;
+          return item.copyWith(
+            status: PomodoroPlanItemStatus.skipped,
+            completedAt: now,
+            updatedAt: now,
+          );
+        })
+        .toList(growable: false);
+    notifyListeners();
+    await _persistSnapshot();
+  }
+
+  Future<void> reorderPomodoroPlanItems(int oldIndex, int newIndex) async {
+    final mutable = pomodoroPlanItems.toList(growable: true);
+    if (oldIndex < 0 || oldIndex >= mutable.length) return;
+    if (newIndex < 0 || newIndex >= mutable.length) return;
+    final target = mutable.removeAt(oldIndex);
+    mutable.insert(newIndex, target);
+    _pomodoroPlanItems = _normalizePlanOrder(mutable);
+    notifyListeners();
+    await _persistSnapshot();
+  }
+
+  Future<TodoPomodoro?> startPomodoroPlanItem(String itemId) async {
+    final item = _pomodoroPlanItems.firstWhere(
+      (entry) => entry.id == itemId,
+      orElse: () => const TodoPomodoroPlanItem(id: ''),
+    );
+    final taskId = item.taskId;
+    if (item.id.isEmpty || taskId == null || taskId.isEmpty) return null;
+    return startPomodoro(taskId, planItemId: item.id);
+  }
+
+  Future<TodoPomodoro?> startNextPomodoroPlanItem() async {
+    for (final item in pomodoroPlanItems) {
+      final taskId = item.taskId;
+      if (item.status == PomodoroPlanItemStatus.planned &&
+          taskId != null &&
+          taskId.isNotEmpty) {
+        return startPomodoro(taskId, planItemId: item.id);
+      }
+    }
+    return null;
+  }
+
   Future<void> cancelPomodoro(String pomodoroId) async {
     final index = _pomodoros.indexWhere((item) => item.id == pomodoroId);
     if (index < 0) return;
@@ -310,6 +412,9 @@ class TodoStore extends ChangeNotifier {
       cancelledAt: now,
       updatedAt: now,
     );
+    if (current.planItemId != null) {
+      _resetPlanItem(current.planItemId!, now);
+    }
     await _replacePomodoro(updated, schedule: false);
     await PomodoroNotificationService.instance.cancel(pomodoroId);
   }
@@ -645,6 +750,7 @@ class TodoStore extends ChangeNotifier {
       tasks: _tasks,
       subtasks: subtasks,
       pomodoros: _pomodoros,
+      pomodoroPlanItems: _pomodoroPlanItems,
     );
   }
 
@@ -657,6 +763,7 @@ class TodoStore extends ChangeNotifier {
     _tasks = snapshot.tasks.toList(growable: false)..sort(_taskSort);
     _pomodoros = snapshot.pomodoros.toList(growable: false)
       ..sort((a, b) => b.startedAt.compareTo(a.startedAt));
+    _pomodoroPlanItems = _normalizePlanOrder(snapshot.pomodoroPlanItems);
     if (replaceLocal) {
       await _localStore.replaceSnapshot(snapshot);
     }
@@ -786,6 +893,67 @@ class TodoStore extends ChangeNotifier {
       if (task.id == taskId) return task;
     }
     return null;
+  }
+
+  void _markPlanItemRunning(String itemId, String pomodoroId, DateTime now) {
+    _pomodoroPlanItems = _pomodoroPlanItems
+        .map((item) {
+          if (item.id != itemId) return item;
+          return item.copyWith(
+            status: PomodoroPlanItemStatus.running,
+            pomodoroId: pomodoroId,
+            startedAt: item.startedAt ?? now,
+            updatedAt: now,
+          );
+        })
+        .toList(growable: false);
+  }
+
+  void _completePlanItem(String itemId, String progress, DateTime now) {
+    _pomodoroPlanItems = _pomodoroPlanItems
+        .map((item) {
+          if (item.id != itemId) return item;
+          return item.copyWith(
+            status: PomodoroPlanItemStatus.completed,
+            actualProgress:
+                progress.isEmpty ? item.actualProgress : progress.trim(),
+            completedAt: now,
+            updatedAt: now,
+          );
+        })
+        .toList(growable: false);
+  }
+
+  void _resetPlanItem(String itemId, DateTime now) {
+    _pomodoroPlanItems = _pomodoroPlanItems
+        .map((item) {
+          if (item.id != itemId) return item;
+          return item.copyWith(
+            status: PomodoroPlanItemStatus.planned,
+            pomodoroId: null,
+            startedAt: null,
+            updatedAt: now,
+          );
+        })
+        .toList(growable: false);
+  }
+
+  static List<TodoPomodoroPlanItem> _normalizePlanOrder(
+    List<TodoPomodoroPlanItem> items,
+  ) {
+    final now = DateTime.now();
+    final sorted = items.toList(growable: false)
+      ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    return sorted
+        .asMap()
+        .entries
+        .map(
+          (entry) => entry.value.copyWith(
+            sortOrder: entry.key,
+            updatedAt: entry.value.updatedAt ?? now,
+          ),
+        )
+        .toList(growable: false);
   }
 
   Future<void> _replacePomodoro(
