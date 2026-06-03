@@ -25,6 +25,10 @@ _LOG = logging.getLogger(__name__)
 
 _DEFAULT_AGENTS_ROOT = Path('/root/.openclaw/agents')
 _RECOVERY_SOURCE = 'openclaw_transcript'
+_DISPLAY_MODEL_PREFIX_RE = re.compile(
+    r'^\s*\[(?:gpt-[^\]]+|o\d[^\]]*|\{model\})\]\s*',
+    re.IGNORECASE,
+)
 
 
 class TranscriptRecoveryService:
@@ -1498,7 +1502,8 @@ class TranscriptRecoveryService:
         )
 
     def _normalize_compare_text(self, text: str) -> str:
-        return re.sub(r'\s+', ' ', str(text or '').strip())
+        without_display_prefix = _DISPLAY_MODEL_PREFIX_RE.sub('', str(text or '').strip(), count=1)
+        return re.sub(r'\s+', ' ', without_display_prefix.strip())
 
     def _resolve_transcript_message_created_at(self, record: dict, message: dict) -> float:
         message_ts = message.get('timestamp')
@@ -1515,12 +1520,38 @@ class TranscriptRecoveryService:
         text: str,
         created_at: float,
     ) -> bool:
-        return self.messages.find_equivalent_message(
+        exact = self.messages.find_equivalent_message(
             session_id,
             role=role,
             text=text,
             created_at=created_at if created_at > 0 else None,
-        ) is not None
+        )
+        if exact is not None:
+            return True
+
+        normalized_text = self._normalize_compare_text(text)
+        if not normalized_text:
+            return False
+        self.messages.ensure_schema()
+        with connect(self.messages.db) as conn:
+            params: list[object] = [str(session_id), str(role or '')]
+            created_at_clause = ''
+            if created_at > 0:
+                created_at_clause = 'AND ABS(created_at - ?) <= ?'
+                params.extend([float(created_at), 120.0])
+            rows = conn.execute(
+                f"""
+                SELECT text
+                FROM messages
+                WHERE session_id=?
+                  AND deleted_at IS NULL
+                  AND role=?
+                  {created_at_clause}
+                ORDER BY created_at ASC, id ASC
+                """,
+                tuple(params),
+            ).fetchall()
+        return any(self._normalize_compare_text(str(row['text'] or '')) == normalized_text for row in rows)
 
     def _build_transcript_backfill_message_id(
         self,

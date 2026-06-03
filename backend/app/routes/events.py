@@ -68,7 +68,6 @@ def create_events_router(context: AppContext) -> APIRouter:
                             'ts': float(event.get('ts') or 0),
                             'payload': sse_payload,
                         },
-                        event_name=event.get('type') or 'message',
                         include_id=True,
                     )
 
@@ -110,7 +109,6 @@ def create_events_router(context: AppContext) -> APIRouter:
                             'ts': event.ts,
                             'payload': sse_payload,
                         },
-                        event_name=event.type or 'message',
                         include_id=True,
                     )
             finally:

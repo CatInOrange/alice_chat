@@ -217,6 +217,12 @@ class _HabitCardState extends State<HabitCard> {
     final theme = Theme.of(context);
     final isDone = habit.todayInstance?.isCompleted ?? false;
     final dueToday = habit.dueToday;
+    final summaryText =
+        habit.streak >= 3
+            ? '连续 ${habit.streak} 天'
+            : '近30天 ${((habit.recent30Stats.rate) * 100).round()}%';
+    final summaryColor =
+        habit.streak >= 3 ? const Color(0xFFFF9A3C) : _accentColor;
 
     return Material(
       color: Colors.white,
@@ -280,17 +286,10 @@ class _HabitCardState extends State<HabitCard> {
                                   text: habit.reminderTime,
                                   color: const Color(0xFF7B8496),
                                 ),
-                              if (habit.streak > 0)
-                                _CompactMetaText(
-                                  text: '连续 ${habit.streak} 天',
-                                  color: const Color(0xFFFF9A3C),
-                                ),
-                              if (habit.reminderTime.isEmpty &&
-                                  habit.streak <= 0)
-                                _CompactMetaText(
-                                  text: habit.frequencyLabel,
-                                  color: _accentColor,
-                                ),
+                              _CompactMetaText(
+                                text: summaryText,
+                                color: summaryColor,
+                              ),
                             ],
                           ),
                         ],

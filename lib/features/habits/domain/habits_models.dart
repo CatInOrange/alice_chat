@@ -103,6 +103,13 @@ class Habit {
 
   bool get isDaily => frequency == 'daily';
   bool get isWeekly => frequency == 'weekly';
+  HabitStats get recent30Stats {
+    final trackedDays = history.where((day) => day.status != 'none');
+    return HabitStats(
+      done: trackedDays.where((day) => day.isCompleted).length,
+      total: trackedDays.length,
+    );
+  }
 
   String get frequencyLabel => isDaily ? '每天' : _weekdayLabel;
 

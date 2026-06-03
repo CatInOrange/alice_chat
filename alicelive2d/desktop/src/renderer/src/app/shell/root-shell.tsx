@@ -9,7 +9,6 @@ import {
 } from "@chakra-ui/react";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 
-const LIVE2D_WEB_DEBUG_VERSION = "web-debug-20260515-214450";
 import { useTranslation } from "react-i18next";
 import {
   FiLayers,
@@ -80,6 +79,7 @@ function resolveConnectionIntent(connectionState: string): "success" | "info" | 
 }
 
 const lunariaScrollbarStyles = getLunariaScrollbarStyles();
+const messageBubbleVisibleMs = 30_000;
 
 const vnFloatInKeyframes = `
   @keyframes vnBubbleFloatInLeft {
@@ -245,7 +245,6 @@ function WindowShell() {
   const { t } = useTranslation();
   const [sidebarPanel, setSidebarPanel] = useState<"sessions" | "settings" | null>(null);
   const [windowPlusOpen, setWindowPlusOpen] = useState(false);
-  const [live2dDebugTick, setLive2dDebugTick] = useState(0);
   const [viewportSize, setViewportSize] = useState({
     width: typeof window !== "undefined" ? window.innerWidth : 1280,
     height: typeof window !== "undefined" ? window.innerHeight : 720,
@@ -277,6 +276,16 @@ function WindowShell() {
     () => [...messages].reverse().find((message) => message.role === "assistant" && message.text?.trim()),
     [messages],
   );
+  const latestUserMessageKey = latestUserMessage
+    ? `${latestUserMessage.id || ""}:${latestUserMessage.createdAt || ""}:${latestUserMessage.text || ""}`
+    : "";
+  const latestAssistantMessageKey = latestAssistantMessage
+    ? `${latestAssistantMessage.id || ""}:${latestAssistantMessage.createdAt || ""}:${latestAssistantMessage.text || ""}`
+    : "";
+  const [visibleBubbleKeys, setVisibleBubbleKeys] = useState({
+    user: latestUserMessageKey,
+    assistant: latestAssistantMessageKey,
+  });
 
   const userBubbleAnimation = useMemo<CSSProperties>(
     () => ({ animation: "vnBubbleFloatInLeft 260ms ease-out" }),
@@ -332,19 +341,40 @@ function WindowShell() {
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (!latestUserMessageKey) {
+      setVisibleBubbleKeys((current) => ({ ...current, user: "" }));
       return undefined;
     }
-    (window as any).__OPENCLAW_WEB_DEBUG_VERSION__ = LIVE2D_WEB_DEBUG_VERSION;
-    const timer = window.setInterval(() => {
-      setLive2dDebugTick((value) => value + 1);
-    }, 200);
-    return () => window.clearInterval(timer);
-  }, []);
 
-  const live2dDebugState = ((typeof window !== "undefined"
-    ? (window as any).__OPENCLAW_LIVE2D_DEBUG__
-    : null) || {}) as Record<string, any>;
+    setVisibleBubbleKeys((current) => ({ ...current, user: latestUserMessageKey }));
+    const timer = window.setTimeout(() => {
+      setVisibleBubbleKeys((current) => (
+        current.user === latestUserMessageKey
+          ? { ...current, user: "" }
+          : current
+      ));
+    }, messageBubbleVisibleMs);
+
+    return () => window.clearTimeout(timer);
+  }, [latestUserMessageKey]);
+
+  useEffect(() => {
+    if (!latestAssistantMessageKey) {
+      setVisibleBubbleKeys((current) => ({ ...current, assistant: "" }));
+      return undefined;
+    }
+
+    setVisibleBubbleKeys((current) => ({ ...current, assistant: latestAssistantMessageKey }));
+    const timer = window.setTimeout(() => {
+      setVisibleBubbleKeys((current) => (
+        current.assistant === latestAssistantMessageKey
+          ? { ...current, assistant: "" }
+          : current
+      ));
+    }, messageBubbleVisibleMs);
+
+    return () => window.clearTimeout(timer);
+  }, [latestAssistantMessageKey]);
 
   const handleWindowUpload = (event: ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -384,43 +414,6 @@ function WindowShell() {
         >
           {connectionState}
         </Text>
-      </Box>
-
-      <Box
-        position="fixed"
-        top={isPortraitLayout ? "52px" : "68px"}
-        right={isPortraitLayout ? "14px" : "24px"}
-        zIndex="35"
-        maxW="min(420px, calc(100vw - 24px))"
-        bg="rgba(20, 24, 32, 0.84)"
-        color="#EAF2FF"
-        border="1px solid rgba(120, 170, 255, 0.38)"
-        borderRadius="14px"
-        boxShadow="0 16px 40px rgba(0,0,0,0.28)"
-        px="3"
-        py="2.5"
-        fontSize="11px"
-        lineHeight="1.45"
-        pointerEvents="none"
-        whiteSpace="pre-wrap"
-      >
-        <Text fontWeight="800" color="#9CC0FF">Live2D Web Debug</Text>
-        <Text>ver: {LIVE2D_WEB_DEBUG_VERSION}</Text>
-        <Text>tick: {live2dDebugTick}</Text>
-        <Text>event: {String(live2dDebugState.lastEvent || "-")}</Text>
-        <Text>enabled: {String(live2dDebugState.enabled ?? "unknown")}</Text>
-        <Text>constrain: {String(live2dDebugState.constrainPointerToCanvasHover ?? "unknown")}</Text>
-        <Text>insideCanvasFlag: {String(live2dDebugState.isPointerInsideCanvas ?? "unknown")}</Text>
-        <Text>forceCenter: {String(live2dDebugState.forceCenterUntilPointerReenters ?? "unknown")}</Text>
-        <Text>pointer: {live2dDebugState.pointer ? `${Math.round(Number(live2dDebugState.pointer.x || 0))}, ${Math.round(Number(live2dDebugState.pointer.y || 0))}` : "-"}</Text>
-        <Text>pointerType: {String(live2dDebugState.pointer?.pointerType || "-")}</Text>
-        <Text>buttons: {String(live2dDebugState.pointer?.buttons ?? "-")}</Text>
-        <Text>insideActiveRect: {String(live2dDebugState.insideActiveRect ?? "unknown")}</Text>
-        <Text>insideLive2DRect: {String(live2dDebugState.insideLive2DRect ?? "unknown")}</Text>
-        <Text>insideCanvasRect: {String(live2dDebugState.insideCanvasRect ?? "unknown")}</Text>
-        <Text>insideModelBounds: {String(live2dDebugState.insideModelBounds ?? "unknown")}</Text>
-        <Text>reason: {String(live2dDebugState.reason || "-")}</Text>
-        <Text>updated: {String(live2dDebugState.updatedAt || "-")}</Text>
       </Box>
 
       <style>{vnFloatInKeyframes}</style>
@@ -503,7 +496,7 @@ function WindowShell() {
           bottom={isMobileWeb ? "84px" : "88px"}
           zIndex="24"
         >
-          <HStack justify="flex-end" align="center" spacing="2">
+          <HStack justify="flex-end" align="center" gap="2">
             {/* TTS button */}
             <IconButton
               aria-label={useAppStore.getState().ttsEnabled ? t("shell.disableTts") : t("shell.enableTts")}
@@ -522,7 +515,7 @@ function WindowShell() {
 
         {!settingsOpen ? (
           <>
-            {latestUserMessage?.text ? (
+            {latestUserMessage?.text && visibleBubbleKeys.user === latestUserMessageKey ? (
               <Box
                 key={`user-bubble-${latestUserMessage.id || latestUserMessage.text}`}
                 position="absolute"
@@ -550,11 +543,24 @@ function WindowShell() {
                 }}
               >
                 <Text fontSize="9px" letterSpacing="0.08em" color="rgba(92, 84, 78, 0.72)" mb="2" fontWeight="600">{formatBubbleTimestamp(latestUserMessage.createdAt)}</Text>
-                <Text noOfLines={5} whiteSpace="pre-wrap" fontSize="13px" lineHeight="1.72" color="rgba(62, 57, 54, 0.88)">{latestUserMessage.text}</Text>
+                <Text
+                  whiteSpace="pre-wrap"
+                  fontSize="13px"
+                  lineHeight="1.72"
+                  color="rgba(62, 57, 54, 0.88)"
+                  css={{
+                    display: "-webkit-box",
+                    WebkitLineClamp: 5,
+                    WebkitBoxOrient: "vertical",
+                    overflow: "hidden",
+                  }}
+                >
+                  {latestUserMessage.text}
+                </Text>
               </Box>
             ) : null}
 
-            {latestAssistantMessage?.text ? (
+            {latestAssistantMessage?.text && visibleBubbleKeys.assistant === latestAssistantMessageKey ? (
               <Box
                 key={`assistant-bubble-${latestAssistantMessage.id || latestAssistantMessage.text}`}
                 position="absolute"
@@ -582,7 +588,20 @@ function WindowShell() {
                 }}
               >
                 <Text fontSize="9px" letterSpacing="0.08em" color="rgba(153, 104, 124, 0.72)" mb="2" fontWeight="700">{formatBubbleTimestamp(latestAssistantMessage.createdAt)}</Text>
-                <Text noOfLines={5} whiteSpace="pre-wrap" fontSize="13px" lineHeight="1.72" color="rgba(95, 72, 82, 0.92)">{latestAssistantMessage.text}</Text>
+                <Text
+                  whiteSpace="pre-wrap"
+                  fontSize="13px"
+                  lineHeight="1.72"
+                  color="rgba(95, 72, 82, 0.92)"
+                  css={{
+                    display: "-webkit-box",
+                    WebkitLineClamp: 5,
+                    WebkitBoxOrient: "vertical",
+                    overflow: "hidden",
+                  }}
+                >
+                  {latestAssistantMessage.text}
+                </Text>
               </Box>
             ) : null}
           </>

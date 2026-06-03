@@ -156,6 +156,49 @@ class TranscriptRecoveryTextSelectionTest(unittest.TestCase):
                 ],
             )
 
+    def test_reconcile_tail_treats_model_prefixed_local_reply_as_present(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmpdir:
+            tmpdir = Path(raw_tmpdir)
+            service = self._service(tmpdir)
+            session_key = 'agent:yulinglong:alicechat:user:contact:session'
+            transcript_path = tmpdir / 'agents' / 'yulinglong' / 'sessions' / 'session.jsonl'
+            transcript_path.parent.mkdir(parents=True)
+            (transcript_path.parent / 'sessions.json').write_text(
+                json.dumps({session_key: {'sessionFile': str(transcript_path)}}),
+                encoding='utf-8',
+            )
+            service.sessions.create_session_with_id(
+                session_id='s1',
+                name='s1',
+                route_key=f'alicechat-channel|{session_key}',
+            )
+            _write_jsonl(
+                transcript_path,
+                [
+                    {'type': 'message', 'timestamp': '2026-05-26T00:00:01Z', 'message': {'role': 'user', 'content': 'u1'}},
+                    {'type': 'message', 'timestamp': '2026-05-26T00:00:02Z', 'message': {'role': 'assistant', 'content': 'a1'}},
+                ],
+            )
+            service.messages.create_message(session_id='s1', role='user', text='u1', created_at=1_779_753_601)
+            service.messages.create_message(
+                session_id='s1',
+                role='assistant',
+                text='[gpt-5.5] a1',
+                created_at=1_779_753_602,
+            )
+
+            result = __import__('asyncio').run(
+                service.reconcile_session_tail('s1', tail_limit=5, min_age_seconds=0)
+            )
+
+            self.assertFalse(result['changed'])
+            self.assertEqual(result['reason'], 'assistant_already_present')
+            messages = service.messages.list_session_messages_page('s1', limit=5)['messages']
+            self.assertEqual(
+                [(item['role'], item['text']) for item in messages],
+                [('user', 'u1'), ('assistant', '[gpt-5.5] a1')],
+            )
+
     def test_reconcile_tail_does_not_delete_without_overlap(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmpdir:
             tmpdir = Path(raw_tmpdir)

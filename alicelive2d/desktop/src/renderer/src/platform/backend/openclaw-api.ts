@@ -253,15 +253,14 @@ function getAppPassword(): string {
   ).trim();
 }
 
-function buildAuthHeaders(extraHeaders: Record<string, string> = {}): Record<string, string> {
+function buildAuthHeaders(extraHeaders: HeadersInit = {}): Record<string, string> {
   const password = getAppPassword();
-  return {
-    ...extraHeaders,
-    ...(password ? {
-      'X-AliceChat-Password': password,
-      'Authorization': `Bearer ${password}`,
-    } : {}),
-  };
+  const headers = new Headers(extraHeaders);
+  if (password) {
+    headers.set('X-AliceChat-Password', password);
+    headers.set('Authorization', `Bearer ${password}`);
+  }
+  return Object.fromEntries(headers.entries());
 }
 
 function reportFrontendFetchError(details: Record<string, unknown>): void {
@@ -293,9 +292,13 @@ function reportFrontendFetchError(details: Record<string, unknown>): void {
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
+    const headers = new Headers(init?.headers);
+    if (!headers.has('Content-Type')) {
+      headers.set('Content-Type', 'application/json');
+    }
     response = await fetch(url, {
       ...init,
-      headers: buildAuthHeaders({ 'Content-Type': 'application/json', ...(init?.headers || {}) }),
+      headers: buildAuthHeaders(headers),
     });
   } catch (error) {
     const err = error as Error;
@@ -349,6 +352,19 @@ export async function createSession(baseUrl: string, name?: string): Promise<Lun
     },
   );
   return response.session;
+}
+
+export async function ensureAliceSession(baseUrl: string): Promise<LunariaSession> {
+  const sessionsPayload = await fetchSessions(baseUrl);
+  const existing = (sessionsPayload.sessions || []).find(
+    (s) => s.name === '晚秋',
+  );
+  if (existing) {
+    return existing;
+  }
+  console.log('[ensureAliceSession] Creating 晚秋 session via AliceChat backend');
+  const session = await createSession(baseUrl, '晚秋');
+  return session;
 }
 
 export async function selectSession(baseUrl: string, sessionId: string): Promise<void> {
@@ -418,12 +434,18 @@ export async function streamChat(
 ): Promise<void> {
   const url = buildBackendUrl(baseUrl, '/api/chat/stream');
   
+  // Always bind to 晚秋 (alice) via AliceChat backend
+  const bodyWithAlice = {
+    ...body,
+    contactId: 'alice',
+  };
+  
   let response: Response;
   try {
     response = await fetch(url, {
       method: 'POST',
       headers: buildAuthHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify(body),
+      body: JSON.stringify(bodyWithAlice),
       signal: handlers.signal,
     });
   } catch (error) {
@@ -495,16 +517,21 @@ export async function streamChat(
 export function openEventsStream(
   baseUrl: string,
   options: {
+    sessionId?: string | null;
     since?: number;
     onOpen?: () => void;
     onError?: () => void;
     onEvent: (event: EventsEnvelope) => void;
   },
 ): () => void {
-  const password = getAppPassword();
+  const params = new URLSearchParams();
+  params.set('since', String(options.since || 0));
+  if (options.sessionId) {
+    params.set('sessionId', options.sessionId);
+  }
   const streamUrl = buildBackendUrl(
     baseUrl,
-    `/api/events/stream?since=${encodeURIComponent(String(options.since || 0))}${password ? `&app_password=${encodeURIComponent(password)}` : ''}`,
+    `/api/events?${params.toString()}`,
   );
   const eventSource = new EventSource(streamUrl);
 

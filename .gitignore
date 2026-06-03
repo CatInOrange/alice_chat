@@ -21,6 +21,7 @@ build/
 
 # Local config
 /config.json
+/config.local.json
 
 # Local databases
 /data/

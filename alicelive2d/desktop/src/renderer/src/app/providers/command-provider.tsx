@@ -84,6 +84,7 @@ import {
   LunariaManifest,
   LunariaMessage,
   createSession,
+  ensureAliceSession,
   fetchManifest,
   fetchMessages,
   fetchSessions,
@@ -830,26 +831,20 @@ export function RendererCommandProvider({
       useAppStore.getState().setProviderFieldManifestValues(nextProviderFieldState.manifestValues);
       useAppStore.getState().hydrateManifest(nextManifest);
 
-      let sessionsPayload = await fetchSessions(normalizedBackendUrl);
+      // Always bind to 晚秋's session via AliceChat backend
+      const aliceSession = await ensureAliceSession(normalizedBackendUrl);
       if (!shouldApply()) {
         return;
       }
-      if (!(sessionsPayload.sessions || []).length) {
-        await createSession(normalizedBackendUrl);
-        if (!shouldApply()) {
-          return;
-        }
-        sessionsPayload = await fetchSessions(normalizedBackendUrl);
-        if (!shouldApply()) {
-          return;
-        }
+
+      // Refresh sessions to get updated list
+      const sessionsPayload = await fetchSessions(normalizedBackendUrl);
+      if (!shouldApply()) {
+        return;
       }
 
       useAppStore.getState().setSessions(sessionsPayload.sessions || []);
-      const targetSessionId = useAppStore.getState().currentSessionId
-        && sessionsPayload.sessions.some((session) => session.id === useAppStore.getState().currentSessionId)
-        ? useAppStore.getState().currentSessionId
-        : sessionsPayload.currentId || sessionsPayload.sessions?.[0]?.id || null;
+      const targetSessionId = aliceSession.id;
 
       if (targetSessionId) {
         await loadSession(targetSessionId, { shouldApply });
@@ -919,6 +914,7 @@ export function RendererCommandProvider({
     eventsReadyRef.current = false;
 
     eventsCleanupRef.current = openEventsStream(normalizedBackendUrl, {
+      sessionId: useAppStore.getState().currentSessionId,
       since: useAppStore.getState().lastEventSeq,
       onOpen: () => {
         if (!shouldApply()) {
