@@ -768,7 +768,12 @@ class MusicStore extends ChangeNotifier {
       );
       _cacheTracksForPlaylist(likedPlaylist.id, _likedTracks);
     }
-    _applyStateSnapshot(state, reason: 'hydrate_local_cache');
+    _applyStateSnapshot(
+      state,
+      reason: 'hydrate_local_cache',
+      recoverPlayback: false,
+      restorePlayingState: false,
+    );
     _latestAiPlaylist =
         state.latestAiPlaylist ??
         snapshot.latestAiPlaylist ??
@@ -4532,7 +4537,7 @@ class MusicStore extends ChangeNotifier {
         currentPlaylistId: _currentPlaylistId,
         neteaseLikedPlaylistId: _neteaseLikedPlaylistId,
         neteaseLikedPlaylistOpaqueId: _neteaseLikedPlaylistOpaqueId,
-        isPlaying: _isPlaying,
+        isPlaying: false,
         position: _position,
       ),
       latestAiPlaylist: _latestAiPlaylist,
@@ -4805,6 +4810,8 @@ class MusicStore extends ChangeNotifier {
   void _applyStateSnapshot(
     MusicStateSnapshot state, {
     String reason = 'unspecified',
+    bool recoverPlayback = true,
+    bool restorePlayingState = true,
   }) {
     final previousTrackId = _currentTrack.id.trim();
     final previousQueueHeadId =
@@ -4838,7 +4845,7 @@ class MusicStore extends ChangeNotifier {
         ),
       );
     }
-    _isPlaying = state.isPlaying;
+    _isPlaying = restorePlayingState ? state.isPlaying : false;
     _position = state.position;
     if (state.currentTrack != null &&
         state.position > state.currentTrack!.duration) {
@@ -4880,14 +4887,16 @@ class MusicStore extends ChangeNotifier {
       },
       force: reason.startsWith('event_'),
     );
-    _maybeRecoverPlaybackFromRemoteState(
-      state,
-      allowStaleOverride: true,
-      previousTrackId: previousTrackId,
-      previousQueueHeadId: previousQueueHeadId,
-      adapterTrackId: adapterTrackId,
-      adapterIsPlaying: adapterIsPlaying,
-    );
+    if (recoverPlayback) {
+      _maybeRecoverPlaybackFromRemoteState(
+        state,
+        allowStaleOverride: true,
+        previousTrackId: previousTrackId,
+        previousQueueHeadId: previousQueueHeadId,
+        adapterTrackId: adapterTrackId,
+        adapterIsPlaying: adapterIsPlaying,
+      );
+    }
   }
 
   void _maybeRecoverPlaybackFromRemoteState(
