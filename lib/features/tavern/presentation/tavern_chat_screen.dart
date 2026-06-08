@@ -870,9 +870,11 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       setState(() {
         _character = character;
         _chat = chat;
-        _messages = messages;
-        _streamingAssistantMessage = null;
-        _streamingAssistantMessageId = null;
+        if (!_isSending) {
+          _messages = messages;
+          _streamingAssistantMessage = null;
+          _streamingAssistantMessageId = null;
+        }
         _selectedPresetId = _chat.presetId.isNotEmpty ? _chat.presetId : null;
         _isRefreshing = false;
       });
