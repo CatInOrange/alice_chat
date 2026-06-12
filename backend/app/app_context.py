@@ -48,6 +48,7 @@ def create_app_context(*, uploads_dir: Path) -> AppContext:
     events_bus = EventsBus()
     chat_service = ChatService(sessions=session_store, messages=message_store)
     request_deduper = RequestDeduper()
+    habits_service = HabitsService(store=habits_store)
     recovery_service = TranscriptRecoveryService(
         sessions=session_store,
         messages=message_store,
@@ -62,9 +63,9 @@ def create_app_context(*, uploads_dir: Path) -> AppContext:
         music_history_store=music_history_store,
         todo_store=todo_store,
         chat_service=chat_service,
+        habits_service=habits_service,
     )
     music_service = MusicService(store=music_store, history_store=music_history_store, config=load_config())
-    habits_service = HabitsService(store=habits_store)
     push_device_store = PushDeviceStore()
     tavern_store = TavernStore()
     tavern_service = TavernService(store=tavern_store, uploads_dir=uploads_dir)

@@ -106,6 +106,56 @@ class HabitsService:
             })
         return {"habits": enriched}
 
+    def build_diary_snapshot(self, date_value: str) -> dict[str, Any]:
+        target_date = date.fromisoformat(str(date_value or _today_str()))
+        target = target_date.isoformat()
+        habits = self.store.list_habits(active_only=True)
+        items: list[dict[str, Any]] = []
+        completed_count = 0
+        pending_count = 0
+        expired_count = 0
+
+        for habit in habits:
+            if not _is_active_day(habit, target_date):
+                continue
+            instance = self.store.get_instance(habit["id"], target)
+            status = str((instance or {}).get("status") or "pending")
+            if status == "completed":
+                completed_count += 1
+            elif status == "expired":
+                expired_count += 1
+            else:
+                pending_count += 1
+
+            stats = self.store.compute_stats(
+                habit["id"],
+                week_start=_week_start(target_date),
+                month_start=_month_start(target_date),
+                today=target,
+            )
+            items.append({
+                "id": habit["id"],
+                "title": habit["title"],
+                "status": status,
+                "completedAt": (instance or {}).get("completedAt"),
+                "streak": self.store.compute_streak(habit["id"], target),
+                "weekly": stats["weekly"],
+                "monthly": stats["monthly"],
+            })
+
+        due_count = len(items)
+        return {
+            "date": target,
+            "summary": {
+                "due": due_count,
+                "completed": completed_count,
+                "pending": pending_count,
+                "expired": expired_count,
+                "completionRate": completed_count / due_count if due_count else None,
+            },
+            "items": items,
+        }
+
     # ── Create with auto instance ─────────────────────────────
 
     def create_habit(self, payload: dict[str, Any]) -> dict[str, Any]:

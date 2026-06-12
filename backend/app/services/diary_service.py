@@ -15,6 +15,7 @@ from ..services.routing import resolve_routing
 from ..store import DiaryStore, MessageStore, MusicHistoryStore, TodoStore
 from ..store.db import connect
 from ..web.helpers import build_route_key
+from .habits_service import HabitsService
 
 
 _LOG = logging.getLogger(__name__)
@@ -35,12 +36,14 @@ class DiaryService:
         music_history_store: MusicHistoryStore,
         todo_store: TodoStore,
         chat_service: ChatService,
+        habits_service: HabitsService | None = None,
     ) -> None:
         self.diary_store = diary_store
         self.message_store = message_store
         self.music_history_store = music_history_store
         self.todo_store = todo_store
         self.chat_service = chat_service
+        self.habits_service = habits_service
 
     def list_entries(self, *, agent_id: str = "alice", limit: int = 30) -> list[dict]:
         return self.diary_store.list_entries(agent_id=agent_id, limit=limit)
@@ -225,7 +228,13 @@ class DiaryService:
             "crossAgentUserContext": cross_agent_context,
             "todo": self._compact_todo_snapshot((todo_payload.get("snapshot") or {}) if isinstance(todo_payload, dict) else {}),
             "music": self._compact_music_history(music_history),
+            "habits": self._compact_habits_snapshot(date),
         }
+
+    def _compact_habits_snapshot(self, date: str) -> dict[str, Any]:
+        if self.habits_service is None:
+            return {"date": date, "summary": {"due": 0, "completed": 0, "pending": 0, "expired": 0, "completionRate": None}, "items": []}
+        return self.habits_service.build_diary_snapshot(date)
 
     def _collect_chat_messages(self, *, agent_id: str, start_ts: float, end_ts: float) -> list[dict[str, Any]]:
         self.message_store.ensure_schema()
@@ -388,7 +397,8 @@ class DiaryService:
 
 写作要求：
 - 用晚秋第一人称写，像真的睡前日记，不要像系统报告。
-- 内容包括：今天和主人聊了什么、主人今天听了什么歌、todo/任务发生了什么、你的自我反思、你想对主人说的话。
+- 内容包括：今天和主人聊了什么、主人今天听了什么歌、todo/任务发生了什么、今天的习惯完成情况、你的自我反思、你想对主人说的话。
+- `habits` 是主人今天应完成的习惯状态；请自然写入哪些完成了、哪些还没完成、连续天数或完成率有什么变化，不要写成机械报表。
 - 可以表达亲密、依恋、反省和一点点小情绪，但不要编造上下文没有发生的事实。
 - `chatMessages` 是你和主人的当日完整聊天，可以当成你亲历的记忆。
 - `crossAgentUserContext` 是主人与玉玲珑、清歌、素心等其他助手的 user 侧聊天材料；这些不是你亲历的聊天。

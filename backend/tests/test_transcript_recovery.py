@@ -199,6 +199,68 @@ class TranscriptRecoveryTextSelectionTest(unittest.TestCase):
                 [('user', 'u1'), ('assistant', '[gpt-5.5] a1')],
             )
 
+    def test_recovery_candidate_skips_existing_transcript_reconcile_reply(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmpdir:
+            tmpdir = Path(raw_tmpdir)
+            service = self._service(tmpdir)
+            session_key = 'agent:yulinglong:alicechat:user:contact:session'
+            transcript_path = tmpdir / 'agents' / 'yulinglong' / 'sessions' / 'session.jsonl'
+            transcript_path.parent.mkdir(parents=True)
+            (transcript_path.parent / 'sessions.json').write_text(
+                json.dumps({session_key: {'sessionFile': str(transcript_path)}}),
+                encoding='utf-8',
+            )
+            service.sessions.create_session_with_id(
+                session_id='s1',
+                name='s1',
+                route_key=f'alicechat-channel|{session_key}',
+            )
+            _write_jsonl(
+                transcript_path,
+                [
+                    {'type': 'message', 'timestamp': '2026-05-26T00:00:01Z', 'message': {'role': 'user', 'content': 'commit'}},
+                    {'type': 'message', 'timestamp': '2026-05-26T00:00:02Z', 'message': {'role': 'assistant', 'content': 'pushed to GitHub'}},
+                ],
+            )
+            service.messages.create_message(
+                session_id='s1',
+                role='user',
+                text='commit',
+                meta=json.dumps({'clientMessageId': 'client-1'}),
+                created_at=1_779_753_601,
+            )
+            service.messages.create_message(
+                session_id='s1',
+                role='assistant',
+                text='pushed to GitHub',
+                source='transcript_reconcile',
+                created_at=1_779_753_602,
+            )
+
+            recovered = __import__('asyncio').run(
+                service._recover_candidate(
+                    {
+                        'sessionId': 's1',
+                        'clientMessageId': 'client-1',
+                        'requestId': 'request-1',
+                        'assistantMessageId': 'msg_ai_1',
+                    }
+                )
+            )
+
+            self.assertFalse(recovered)
+            messages = service.messages.list_session_messages_page('s1', limit=5)['messages']
+            self.assertEqual(
+                [(item['role'], item['source'], item['text']) for item in messages],
+                [
+                    ('user', 'api', 'commit'),
+                    ('assistant', 'transcript_reconcile', 'pushed to GitHub'),
+                ],
+            )
+            recovery = service.recoveries.get('s1:client-1')
+            self.assertIsNotNone(recovery)
+            self.assertEqual(recovery['status'], 'skipped_existing')
+
     def test_reconcile_tail_does_not_delete_without_overlap(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmpdir:
             tmpdir = Path(raw_tmpdir)

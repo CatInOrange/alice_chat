@@ -29,6 +29,7 @@ _DISPLAY_MODEL_PREFIX_RE = re.compile(
     r'^\s*\[(?:gpt-[^\]]+|o\d[^\]]*|\{model\})\]\s*',
     re.IGNORECASE,
 )
+_RECOVERY_MESSAGE_PREFIX_RE = re.compile(r'^\s*\[恢复消息\]\s*', re.IGNORECASE)
 
 
 class TranscriptRecoveryService:
@@ -1289,7 +1290,8 @@ class TranscriptRecoveryService:
         if not recovered_body:
             return False
 
-        if self.messages.has_assistant_after(session_id, float(user_message.get('createdAt') or 0)):
+        user_created_at = float(user_message.get('createdAt') or 0)
+        if self.messages.has_assistant_after(session_id, user_created_at):
             self.recoveries.mark(
                 recovery_key=recovery_key,
                 session_id=session_id,
@@ -1299,6 +1301,22 @@ class TranscriptRecoveryService:
                 source=_RECOVERY_SOURCE,
                 status='skipped_existing',
                 reason='assistant_exists_after_user',
+            )
+            return False
+        if self._has_equivalent_assistant_after_user(
+            session_id,
+            user_created_at=user_created_at,
+            text=recovered_body,
+        ):
+            self.recoveries.mark(
+                recovery_key=recovery_key,
+                session_id=session_id,
+                client_message_id=client_message_id,
+                user_message_id=str(user_message.get('id') or ''),
+                request_id=request_id,
+                source=_RECOVERY_SOURCE,
+                status='skipped_existing',
+                reason='equivalent_assistant_exists_after_user',
             )
             return False
 
@@ -1502,8 +1520,29 @@ class TranscriptRecoveryService:
         )
 
     def _normalize_compare_text(self, text: str) -> str:
-        without_display_prefix = _DISPLAY_MODEL_PREFIX_RE.sub('', str(text or '').strip(), count=1)
-        return re.sub(r'\s+', ' ', without_display_prefix.strip())
+        value = str(text or '').strip()
+        value = _RECOVERY_MESSAGE_PREFIX_RE.sub('', value, count=1)
+        value = _DISPLAY_MODEL_PREFIX_RE.sub('', value.strip(), count=1)
+        return re.sub(r'\s+', ' ', value.strip())
+
+    def _has_equivalent_assistant_after_user(
+        self,
+        session_id: str,
+        *,
+        user_created_at: float,
+        text: str,
+    ) -> bool:
+        target = self._normalize_compare_text(text)
+        if not target or user_created_at <= 0:
+            return False
+        for item in self._assistant_messages_after_user(
+            session_id,
+            user_created_at,
+            limit=20,
+        ):
+            if self._normalize_compare_text(str(item.get('text') or '')) == target:
+                return True
+        return False
 
     def _resolve_transcript_message_created_at(self, record: dict, message: dict) -> float:
         message_ts = message.get('timestamp')

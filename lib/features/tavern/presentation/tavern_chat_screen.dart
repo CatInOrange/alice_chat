@@ -1055,10 +1055,9 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         final message =
             hasStreamingAssistant && index == 0
                 ? _streamingAssistantMessage!
-                : _messages[_messages.length -
-                    1 -
-                    index -
-                    (hasStreamingAssistant ? 1 : 0)];
+                : _messages[hasStreamingAssistant
+                    ? _messages.length - index
+                    : _messages.length - 1 - index];
         final isUser = message.role == 'user';
         final bubbleMaxWidth = MediaQuery.of(context).size.width * 0.72;
         final bubble = GestureDetector(

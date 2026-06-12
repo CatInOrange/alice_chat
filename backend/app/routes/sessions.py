@@ -91,18 +91,19 @@ def create_sessions_router(context: AppContext) -> APIRouter:
                     before_message_id=str(before or '').strip() or None,
                     after_message_id=str(after or '').strip() or None,
                 )
-            recovered = await context.recovery_service.recover_session_once(
-                session_id,
-                after_message_id=str(after or '').strip(),
-                min_age_seconds=context.recovery_service.recovery_timeout_seconds,
-            )
-            if recovered:
-                page = context.message_store.list_session_messages_page(
+            if not page['messages']:
+                recovered = await context.recovery_service.recover_session_once(
                     session_id,
-                    limit=limit,
-                    before_message_id=str(before or '').strip() or None,
-                    after_message_id=str(after or '').strip() or None,
+                    after_message_id=str(after or '').strip(),
+                    min_age_seconds=context.recovery_service.recovery_timeout_seconds,
                 )
+                if recovered:
+                    page = context.message_store.list_session_messages_page(
+                        session_id,
+                        limit=limit,
+                        before_message_id=str(before or '').strip() or None,
+                        after_message_id=str(after or '').strip() or None,
+                    )
         messages = page['messages']
         if not includeRaw:
             for message in messages:
