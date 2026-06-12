@@ -472,6 +472,18 @@ class _MusicScreenState extends State<MusicScreen>
     }
   }
 
+  Future<void> _refreshLibrary(MusicStore store) async {
+    if (store.isRefreshingLibrary) return;
+    try {
+      await store.refreshLibrary();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('刷新音乐页失败，请稍后再试')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
@@ -533,6 +545,21 @@ class _MusicScreenState extends State<MusicScreen>
             title: const Text('音乐'),
             actions: [
               IconButton(
+                tooltip: '刷新音乐页',
+                onPressed:
+                    store.isRefreshingLibrary
+                        ? null
+                        : () => unawaited(_refreshLibrary(store)),
+                icon:
+                    store.isRefreshingLibrary
+                        ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                        : const Icon(Icons.refresh_rounded),
+              ),
+              IconButton(
                 onPressed:
                     _isOpeningSearch ? null : () => _openSearch(context, store),
                 icon: const Icon(Icons.search_rounded),
@@ -550,278 +577,290 @@ class _MusicScreenState extends State<MusicScreen>
                 return Stack(
                   children: [
                     const _MusicScreenBackdrop(),
-                    ListView(
-                      padding: EdgeInsets.fromLTRB(
-                        16,
-                        8,
-                        16,
-                        mobileListBottomPadding,
-                      ),
-                      children: [
-                        _MusicHeroCard(
-                          track: heroArtworkTrack,
-                          backendBaseUrl: currentConfig.baseUrl,
-                          appPassword: currentConfig.appPassword,
-                          title:
-                              latestAiPlaylist == null
-                                  ? '今晚推荐'
-                                  : (latestAiPlaylist.subtitle.trim().isNotEmpty
-                                      ? latestAiPlaylist.subtitle
-                                      : 'AI 为你生成'),
-                          headline: latestAiPlaylist?.title ?? '给工作和夜色留一点音乐。',
-                          subtitle: null,
-                          description:
-                              latestAiPlaylist?.description ??
-                              store.heroTrack.description,
-                          buttonLabel: latestAiPlaylist != null ? '播放歌单' : '播放',
-                          badgeLabel:
-                              latestAiPlaylist != null ? 'AI 最新歌单' : '今晚推荐',
-                          timestampLabel: _formatAiPlaylistTime(
-                            latestAiPlaylist,
-                          ),
-                          isBusy: latestAiPlaylistActionPending,
-                          onPlayTap: () async {
-                            if (latestAiPlaylist != null) {
-                              await _playPlaylist(
-                                store,
-                                latestAiPlaylist.asPlaylist,
-                              );
-                              return;
-                            }
-                            await _openPlayer(store, store.heroTrack);
-                          },
-                          onDetailTap:
-                              latestAiPlaylist != null
-                                  ? () => _openPlaylistDetail(
-                                    store,
-                                    latestAiPlaylist.asPlaylist,
-                                  )
-                                  : null,
+                    RefreshIndicator(
+                      onRefresh: () => _refreshLibrary(store),
+                      child: ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: EdgeInsets.fromLTRB(
+                          16,
+                          8,
+                          16,
+                          mobileListBottomPadding,
                         ),
-                        const SizedBox(height: 24),
-                        Builder(
-                          builder: (context) {
-                            final likedPending = _isPlaylistActionPending(
-                              likedPlaylist.id,
-                            );
-                            final likedStoreLoading = store.isPlaylistLoading(
-                              likedPlaylist.id,
-                            );
-                            final likedIsPlaying = store.isPlaylistPlaying(
-                              likedPlaylist.id,
-                            );
-                            final likedIsActive = store.isPlaylistActive(
-                              likedPlaylist.id,
-                            );
-                            final likedIsBusy =
-                                likedStoreLoading || likedPending;
-                            unawaited(
-                              Future<void>.microtask(
-                                () => store.debugLikedPlaylistButtonState(
-                                  source: 'favorite_card.build',
-                                  pendingAction: likedPending,
-                                  widgetBusy: likedIsBusy,
-                                  widgetPlaying: likedIsPlaying,
-                                  widgetActive: likedIsActive,
-                                ),
-                              ),
-                            );
-                            return _FavoritePlaylistCard(
-                              playlist: likedPlaylist,
-                              artworkTrack: _artworkTrackForPlaylist(
-                                store,
-                                likedPlaylist,
-                                fallback: currentTrack,
-                              ),
-                              backendBaseUrl: currentConfig.baseUrl,
-                              appPassword: currentConfig.appPassword,
-                              currentTrack:
-                                  store.likedTracks.isNotEmpty
-                                      ? store.likedTracks.first
-                                      : currentTrack,
-                              isLoading: likedIsBusy,
-                              isActive: likedIsActive,
-                              isPlaying: likedIsPlaying,
-                              onTap: () {
-                                store.debugLikedPlaylistButtonState(
-                                  source: 'favorite_card.tap',
-                                  pendingAction: likedPending,
-                                  widgetBusy: likedIsBusy,
-                                  widgetPlaying: likedIsPlaying,
-                                  widgetActive: likedIsActive,
-                                );
-                                _openPlaylistDetail(store, likedPlaylist);
-                              },
-                              onPlayTap: () {
-                                store.debugLikedPlaylistButtonState(
-                                  source: 'favorite_card.play_tap',
-                                  pendingAction: likedPending,
-                                  widgetBusy: likedIsBusy,
-                                  widgetPlaying: likedIsPlaying,
-                                  widgetActive: likedIsActive,
-                                );
-                                if (likedIsPlaying) {
-                                  _openPlaylistDetail(store, likedPlaylist);
-                                  return;
-                                }
-                                _playPlaylist(store, likedPlaylist);
-                              },
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 24),
-                        _SectionHeader(
-                          title: '我的歌单',
-                          subtitle: '你慢慢收下的歌 都在这里',
-                          actionLabel: '添加',
-                          actionIcon: Icons.add_rounded,
-                          isBusy: false,
-                          onActionTap: () {
-                            _showCreatePlaylistSheet(context, store);
-                          },
-                        ),
-                        const SizedBox(height: 10),
-                        _CompactPlaylistGrid(
-                          playlists: displayedCustomPlaylists,
-                          artworkTrackForPlaylist:
-                              (playlist) => _artworkTrackForPlaylist(
-                                store,
-                                playlist,
-                                fallback: currentTrack,
-                              ),
-                          backendBaseUrl: currentConfig.baseUrl,
-                          appPassword: currentConfig.appPassword,
-                          currentPlaylistId: store.currentPlaylistId,
-                          onPlaylistTap: (playlist) {
-                            if (playlist.id == 'netease-fm' ||
-                                playlist.id == 'netease-daily') {
-                              _playPlaylist(store, playlist);
-                              return;
-                            }
-                            _openPlaylistDetail(store, playlist);
-                          },
-                          onPlaylistLongPress: (playlist) {
-                            if (playlist.id == 'netease-fm' ||
-                                playlist.id == 'netease-daily') {
-                              return;
-                            }
-                            _showCustomPlaylistActions(
-                              context,
-                              store,
-                              playlist,
-                            );
-                          },
-                        ),
-                        if ((store.error ?? '').trim().isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 18, bottom: 10),
-                            child: _InlineNotice(
-                              message: _friendlyHomeError(store.error!),
-                              tone: _noticeToneForError(store.error!),
-                              onDismiss: store.clearError,
-                              primaryActionLabel: _primaryActionLabelForError(
-                                store.error!,
-                              ),
-                              onPrimaryAction:
-                                  () => _handlePrimaryErrorAction(
-                                    context,
-                                    store,
-                                    store.error!,
-                                  ),
+                        children: [
+                          _MusicHeroCard(
+                            track: heroArtworkTrack,
+                            backendBaseUrl: currentConfig.baseUrl,
+                            appPassword: currentConfig.appPassword,
+                            title:
+                                latestAiPlaylist == null
+                                    ? '今晚推荐'
+                                    : (latestAiPlaylist.subtitle
+                                            .trim()
+                                            .isNotEmpty
+                                        ? latestAiPlaylist.subtitle
+                                        : 'AI 为你生成'),
+                            headline: latestAiPlaylist?.title ?? '给工作和夜色留一点音乐。',
+                            subtitle: null,
+                            description:
+                                latestAiPlaylist?.description ??
+                                store.heroTrack.description,
+                            buttonLabel:
+                                latestAiPlaylist != null ? '播放歌单' : '播放',
+                            badgeLabel:
+                                latestAiPlaylist != null ? 'AI 最新歌单' : '今晚推荐',
+                            timestampLabel: _formatAiPlaylistTime(
+                              latestAiPlaylist,
                             ),
+                            isBusy: latestAiPlaylistActionPending,
+                            onPlayTap: () async {
+                              if (latestAiPlaylist != null) {
+                                await _playPlaylist(
+                                  store,
+                                  latestAiPlaylist.asPlaylist,
+                                );
+                                return;
+                              }
+                              await _openPlayer(store, store.heroTrack);
+                            },
+                            onDetailTap:
+                                latestAiPlaylist != null
+                                    ? () => _openPlaylistDetail(
+                                      store,
+                                      latestAiPlaylist.asPlaylist,
+                                    )
+                                    : null,
                           ),
-                        if (recentPlaylists.isNotEmpty) ...[
+                          const SizedBox(height: 24),
+                          Builder(
+                            builder: (context) {
+                              final likedPending = _isPlaylistActionPending(
+                                likedPlaylist.id,
+                              );
+                              final likedStoreLoading = store.isPlaylistLoading(
+                                likedPlaylist.id,
+                              );
+                              final likedIsPlaying = store.isPlaylistPlaying(
+                                likedPlaylist.id,
+                              );
+                              final likedIsActive = store.isPlaylistActive(
+                                likedPlaylist.id,
+                              );
+                              final likedIsBusy =
+                                  likedStoreLoading || likedPending;
+                              unawaited(
+                                Future<void>.microtask(
+                                  () => store.debugLikedPlaylistButtonState(
+                                    source: 'favorite_card.build',
+                                    pendingAction: likedPending,
+                                    widgetBusy: likedIsBusy,
+                                    widgetPlaying: likedIsPlaying,
+                                    widgetActive: likedIsActive,
+                                  ),
+                                ),
+                              );
+                              return _FavoritePlaylistCard(
+                                playlist: likedPlaylist,
+                                artworkTrack: _artworkTrackForPlaylist(
+                                  store,
+                                  likedPlaylist,
+                                  fallback: currentTrack,
+                                ),
+                                backendBaseUrl: currentConfig.baseUrl,
+                                appPassword: currentConfig.appPassword,
+                                currentTrack:
+                                    store.likedTracks.isNotEmpty
+                                        ? store.likedTracks.first
+                                        : currentTrack,
+                                isLoading: likedIsBusy,
+                                isActive: likedIsActive,
+                                isPlaying: likedIsPlaying,
+                                onTap: () {
+                                  store.debugLikedPlaylistButtonState(
+                                    source: 'favorite_card.tap',
+                                    pendingAction: likedPending,
+                                    widgetBusy: likedIsBusy,
+                                    widgetPlaying: likedIsPlaying,
+                                    widgetActive: likedIsActive,
+                                  );
+                                  _openPlaylistDetail(store, likedPlaylist);
+                                },
+                                onPlayTap: () {
+                                  store.debugLikedPlaylistButtonState(
+                                    source: 'favorite_card.play_tap',
+                                    pendingAction: likedPending,
+                                    widgetBusy: likedIsBusy,
+                                    widgetPlaying: likedIsPlaying,
+                                    widgetActive: likedIsActive,
+                                  );
+                                  if (likedIsPlaying) {
+                                    _openPlaylistDetail(store, likedPlaylist);
+                                    return;
+                                  }
+                                  _playPlaylist(store, likedPlaylist);
+                                },
+                              );
+                            },
+                          ),
                           const SizedBox(height: 24),
                           _SectionHeader(
-                            title: '最近播放',
-                            subtitle: '刚刚听过的感觉 还能从这里回去',
-                            actionLabel: '刷新',
-                            actionIcon: Icons.refresh_rounded,
-                            isBusy: store.isRefreshingLibrary,
+                            title: '我的歌单',
+                            subtitle: '你慢慢收下的歌 都在这里',
+                            actionLabel: '添加',
+                            actionIcon: Icons.add_rounded,
+                            isBusy: false,
                             onActionTap: () {
-                              store.refreshLibrary();
+                              _showCreatePlaylistSheet(context, store);
                             },
                           ),
                           const SizedBox(height: 10),
-                          ...recentPlaylists.map(
-                            (playlist) => Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: _RecentPlaylistTile(
-                                playlist: playlist,
-                                artworkTrack: _artworkTrackForPlaylist(
+                          _CompactPlaylistGrid(
+                            playlists: displayedCustomPlaylists,
+                            artworkTrackForPlaylist:
+                                (playlist) => _artworkTrackForPlaylist(
                                   store,
                                   playlist,
                                   fallback: currentTrack,
                                 ),
-                                backendBaseUrl: currentConfig.baseUrl,
-                                appPassword: currentConfig.appPassword,
-                                isActive: store.isPlaylistActive(playlist.id),
-                                isBusy: _isPlaylistActionPending(playlist.id),
-                                onTap:
-                                    () => _openPlaylistDetail(store, playlist),
-                                onPlayTap: () => _playPlaylist(store, playlist),
-                              ),
-                            ),
-                          ),
-                        ],
-                        if (aiPlaylistHistory.isNotEmpty) ...[
-                          const SizedBox(height: 24),
-                          _SectionHeader(
-                            title: 'AI 历史歌单',
-                            subtitle: '这次为你整理的在 之前的也还留着',
-                            actionLabel: '刷新',
-                            actionIcon: Icons.refresh_rounded,
-                            isBusy: store.isRefreshingLibrary,
-                            onActionTap: () {
-                              store.refreshLibrary();
+                            backendBaseUrl: currentConfig.baseUrl,
+                            appPassword: currentConfig.appPassword,
+                            currentPlaylistId: store.currentPlaylistId,
+                            onPlaylistTap: (playlist) {
+                              if (playlist.id == 'netease-fm' ||
+                                  playlist.id == 'netease-daily') {
+                                _playPlaylist(store, playlist);
+                                return;
+                              }
+                              _openPlaylistDetail(store, playlist);
+                            },
+                            onPlaylistLongPress: (playlist) {
+                              if (playlist.id == 'netease-fm' ||
+                                  playlist.id == 'netease-daily') {
+                                return;
+                              }
+                              _showCustomPlaylistActions(
+                                context,
+                                store,
+                                playlist,
+                              );
                             },
                           ),
-                          const SizedBox(height: 10),
-                          ...aiPlaylistHistory.map(
-                            (draft) => Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: _RecentPlaylistTile(
-                                playlist: draft.asPlaylist,
-                                artworkTrack: _artworkTrackForPlaylist(
-                                  store,
-                                  draft.asPlaylist,
-                                  fallback: currentTrack,
+                          if ((store.error ?? '').trim().isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(
+                                top: 18,
+                                bottom: 10,
+                              ),
+                              child: _InlineNotice(
+                                message: _friendlyHomeError(store.error!),
+                                tone: _noticeToneForError(store.error!),
+                                onDismiss: store.clearError,
+                                primaryActionLabel: _primaryActionLabelForError(
+                                  store.error!,
                                 ),
-                                backendBaseUrl: currentConfig.baseUrl,
-                                appPassword: currentConfig.appPassword,
-                                isActive: store.isPlaylistActive(
-                                  draft.asPlaylist.id,
-                                ),
-                                isBusy: _isPlaylistActionPending(
-                                  draft.asPlaylist.id,
-                                ),
-                                metaLabel: _formatAiPlaylistTime(draft),
-                                onTap:
-                                    () => _openPlaylistDetail(
+                                onPrimaryAction:
+                                    () => _handlePrimaryErrorAction(
+                                      context,
                                       store,
-                                      draft.asPlaylist,
+                                      store.error!,
                                     ),
-                                onPlayTap:
-                                    () =>
-                                        _playPlaylist(store, draft.asPlaylist),
                               ),
                             ),
-                          ),
-                        ],
-                        if (playlists.isEmpty &&
-                            recentPlaylists.isEmpty &&
-                            latestAiPlaylist == null)
-                          const _EmptyMusicState()
-                        else if (recentPlaylists.isEmpty &&
-                            aiPlaylistHistory.isEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 24),
-                            child: _SectionPlaceholder(
-                              title: '等你听过几首 这里就会慢慢热闹起来',
-                              subtitle: currentPlaybackSourceLabel,
+                          if (recentPlaylists.isNotEmpty) ...[
+                            const SizedBox(height: 24),
+                            _SectionHeader(
+                              title: '最近播放',
+                              subtitle: '刚刚听过的感觉 还能从这里回去',
+                              actionLabel: '刷新',
+                              actionIcon: Icons.refresh_rounded,
+                              isBusy: store.isRefreshingLibrary,
+                              onActionTap:
+                                  () => unawaited(_refreshLibrary(store)),
                             ),
-                          ),
-                      ],
+                            const SizedBox(height: 10),
+                            ...recentPlaylists.map(
+                              (playlist) => Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: _RecentPlaylistTile(
+                                  playlist: playlist,
+                                  artworkTrack: _artworkTrackForPlaylist(
+                                    store,
+                                    playlist,
+                                    fallback: currentTrack,
+                                  ),
+                                  backendBaseUrl: currentConfig.baseUrl,
+                                  appPassword: currentConfig.appPassword,
+                                  isActive: store.isPlaylistActive(playlist.id),
+                                  isBusy: _isPlaylistActionPending(playlist.id),
+                                  onTap:
+                                      () =>
+                                          _openPlaylistDetail(store, playlist),
+                                  onPlayTap:
+                                      () => _playPlaylist(store, playlist),
+                                ),
+                              ),
+                            ),
+                          ],
+                          if (aiPlaylistHistory.isNotEmpty) ...[
+                            const SizedBox(height: 24),
+                            _SectionHeader(
+                              title: 'AI 历史歌单',
+                              subtitle: '这次为你整理的在 之前的也还留着',
+                              actionLabel: '刷新',
+                              actionIcon: Icons.refresh_rounded,
+                              isBusy: store.isRefreshingLibrary,
+                              onActionTap:
+                                  () => unawaited(_refreshLibrary(store)),
+                            ),
+                            const SizedBox(height: 10),
+                            ...aiPlaylistHistory.map(
+                              (draft) => Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: _RecentPlaylistTile(
+                                  playlist: draft.asPlaylist,
+                                  artworkTrack: _artworkTrackForPlaylist(
+                                    store,
+                                    draft.asPlaylist,
+                                    fallback: currentTrack,
+                                  ),
+                                  backendBaseUrl: currentConfig.baseUrl,
+                                  appPassword: currentConfig.appPassword,
+                                  isActive: store.isPlaylistActive(
+                                    draft.asPlaylist.id,
+                                  ),
+                                  isBusy: _isPlaylistActionPending(
+                                    draft.asPlaylist.id,
+                                  ),
+                                  metaLabel: _formatAiPlaylistTime(draft),
+                                  onTap:
+                                      () => _openPlaylistDetail(
+                                        store,
+                                        draft.asPlaylist,
+                                      ),
+                                  onPlayTap:
+                                      () => _playPlaylist(
+                                        store,
+                                        draft.asPlaylist,
+                                      ),
+                                ),
+                              ),
+                            ),
+                          ],
+                          if (playlists.isEmpty &&
+                              recentPlaylists.isEmpty &&
+                              latestAiPlaylist == null)
+                            const _EmptyMusicState()
+                          else if (recentPlaylists.isEmpty &&
+                              aiPlaylistHistory.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 24),
+                              child: _SectionPlaceholder(
+                                title: '等你听过几首 这里就会慢慢热闹起来',
+                                subtitle: currentPlaybackSourceLabel,
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
                     if (store.hasPlaybackContext)
                       Positioned(
@@ -882,7 +921,7 @@ class _MusicScreenState extends State<MusicScreen>
                                 _isOpeningSearch
                                     ? null
                                     : () => _openSearch(context, store),
-                            onRefresh: store.refreshLibrary,
+                            onRefresh: () => unawaited(_refreshLibrary(store)),
                             onCreatePlaylist:
                                 () => _showCreatePlaylistSheet(context, store),
                             onPlayPlaylist:
