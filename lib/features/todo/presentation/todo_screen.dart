@@ -1818,10 +1818,40 @@ class _PomodoroPlanSummaryCard extends StatelessWidget {
   }
 }
 
-class _PomodoroPlanScreen extends StatelessWidget {
+class _PomodoroPlanScreen extends StatefulWidget {
   const _PomodoroPlanScreen();
 
+  @override
+  State<_PomodoroPlanScreen> createState() => _PomodoroPlanScreenState();
+}
+
+class _PomodoroPlanScreenState extends State<_PomodoroPlanScreen> {
+  static const Duration _scheduleRefreshInterval = Duration(minutes: 1);
+
   static const Uuid _uuid = Uuid();
+
+  Timer? _scheduleTimer;
+  DateTime _scheduleAnchor = DateTime.now();
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleTimer = Timer.periodic(
+      _scheduleRefreshInterval,
+      (_) => _refreshSchedule(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _scheduleTimer?.cancel();
+    super.dispose();
+  }
+
+  void _refreshSchedule() {
+    if (!mounted) return;
+    setState(() => _scheduleAnchor = DateTime.now());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1832,6 +1862,7 @@ class _PomodoroPlanScreen extends StatelessWidget {
       items,
       store.pomodoros,
       active,
+      _scheduleAnchor,
     );
     final theme = Theme.of(context);
 
@@ -1871,10 +1902,7 @@ class _PomodoroPlanScreen extends StatelessWidget {
                   final normalizedNewIndex =
                       newIndex > oldIndex ? newIndex - 1 : newIndex;
                   unawaited(
-                    context.read<TodoStore>().reorderPomodoroPlanItems(
-                      oldIndex,
-                      normalizedNewIndex,
-                    ),
+                    _reorderItems(context, oldIndex, normalizedNewIndex),
                   );
                 },
                 itemBuilder: (context, index) {
@@ -1895,6 +1923,7 @@ class _PomodoroPlanScreen extends StatelessWidget {
                         final result = await context
                             .read<TodoStore>()
                             .startPomodoroPlanItem(item.id);
+                        _refreshSchedule();
                         if (result == null && context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
@@ -1907,13 +1936,8 @@ class _PomodoroPlanScreen extends StatelessWidget {
                       onSkip:
                           item.isDone
                               ? null
-                              : () => context
-                                  .read<TodoStore>()
-                                  .skipPomodoroPlanItem(item.id),
-                      onDelete:
-                          () => context
-                              .read<TodoStore>()
-                              .deletePomodoroPlanItem(item.id),
+                              : () => unawaited(_skipItem(context, item.id)),
+                      onDelete: () => unawaited(_deleteItem(context, item.id)),
                     ),
                   );
                 },
@@ -1940,7 +1964,29 @@ class _PomodoroPlanScreen extends StatelessWidget {
     );
   }
 
-  static Future<void> _openEditor(
+  Future<void> _reorderItems(
+    BuildContext context,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    await context.read<TodoStore>().reorderPomodoroPlanItems(
+      oldIndex,
+      newIndex,
+    );
+    _refreshSchedule();
+  }
+
+  Future<void> _skipItem(BuildContext context, String itemId) async {
+    await context.read<TodoStore>().skipPomodoroPlanItem(itemId);
+    _refreshSchedule();
+  }
+
+  Future<void> _deleteItem(BuildContext context, String itemId) async {
+    await context.read<TodoStore>().deletePomodoroPlanItem(itemId);
+    _refreshSchedule();
+  }
+
+  Future<void> _openEditor(
     BuildContext context, {
     TodoPomodoroPlanItem? item,
   }) async {
@@ -1954,6 +2000,7 @@ class _PomodoroPlanScreen extends StatelessWidget {
     if (result == null) return;
     if (result.deleteItem && item != null) {
       await store.deletePomodoroPlanItem(item.id);
+      _refreshSchedule();
       return;
     }
     final now = DateTime.now();
@@ -1972,12 +2019,14 @@ class _PomodoroPlanScreen extends StatelessWidget {
         completedAt: item?.completedAt,
       ),
     );
+    _refreshSchedule();
   }
 
-  static Future<void> _refreshHistory(BuildContext context) async {
+  Future<void> _refreshHistory(BuildContext context) async {
     final store = context.read<TodoStore>();
     await store.ensureLoaded();
     await store.refreshFromRemote(force: true);
+    _refreshSchedule();
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -1987,10 +2036,7 @@ class _PomodoroPlanScreen extends StatelessWidget {
     );
   }
 
-  static Future<void> _endPlanPomodoro(
-    BuildContext context,
-    String planItemId,
-  ) async {
+  Future<void> _endPlanPomodoro(BuildContext context, String planItemId) async {
     final store = context.read<TodoStore>();
     final pomodoro = store.activePomodoro;
     if (pomodoro == null || pomodoro.planItemId != planItemId) return;
@@ -1999,11 +2045,13 @@ class _PomodoroPlanScreen extends StatelessWidget {
       final note = await _askPomodoroNote(context);
       if (note == null) return;
       await store.markPomodoroFocusDone(pomodoro.id, note: note);
+      _refreshSchedule();
       return;
     }
 
     await store.completePomodoroBreak(pomodoro.id);
     await store.startNextPomodoroPlanItem();
+    _refreshSchedule();
   }
 }
 
@@ -2535,6 +2583,7 @@ Map<String, _PomodoroPlanTimeSlot> _buildPomodoroPlanTimeSlots(
   List<TodoPomodoroPlanItem> items,
   List<TodoPomodoro> pomodoros,
   TodoPomodoro? active,
+  DateTime now,
 ) {
   final byPlanItemId = <String, TodoPomodoro>{};
   final byPomodoroId = <String, TodoPomodoro>{};
@@ -2547,7 +2596,7 @@ Map<String, _PomodoroPlanTimeSlot> _buildPomodoroPlanTimeSlots(
   }
 
   final result = <String, _PomodoroPlanTimeSlot>{};
-  var cursor = _nextPlanCursor(active);
+  var cursor = _nextPlanCursor(active, now);
   for (final item in items) {
     final linkedPomodoro =
         byPlanItemId[item.id] ??
@@ -2565,16 +2614,16 @@ Map<String, _PomodoroPlanTimeSlot> _buildPomodoroPlanTimeSlots(
         (start != null || end != null)) {
       result[item.id] = _PomodoroPlanTimeSlot(
         start == null
-            ? '完成 ${_formatPlanClock(end!)}'
+            ? '完成 ${_formatPlanClock(end!, now)}'
             : end == null
-            ? '实际 ${_formatPlanClock(start)}'
-            : '实际 ${_formatPlanClock(start)}-${_formatPlanClock(end)}',
+            ? '实际 ${_formatPlanClock(start, now)}'
+            : '实际 ${_formatPlanClock(start, now)}-${_formatPlanClock(end, now)}',
       );
       continue;
     }
     if (item.status == PomodoroPlanItemStatus.skipped) {
       result[item.id] = _PomodoroPlanTimeSlot(
-        end == null ? '已跳过' : '跳过 ${_formatPlanClock(end)}',
+        end == null ? '已跳过' : '跳过 ${_formatPlanClock(end, now)}',
       );
       continue;
     }
@@ -2582,11 +2631,13 @@ Map<String, _PomodoroPlanTimeSlot> _buildPomodoroPlanTimeSlots(
       final runningEnd = active?.planItemId == item.id ? active?.endsAt : null;
       result[item.id] = _PomodoroPlanTimeSlot(
         runningEnd == null
-            ? '开始 ${_formatPlanClock(start)}'
-            : '开始 ${_formatPlanClock(start)} · 预计 ${_formatPlanClock(runningEnd)}',
+            ? '开始 ${_formatPlanClock(start, now)}'
+            : runningEnd.isBefore(now)
+            ? '开始 ${_formatPlanClock(start, now)} · 已超时 ${_formatOverdue(now.difference(runningEnd))}'
+            : '开始 ${_formatPlanClock(start, now)} · 预计 ${_formatPlanClock(runningEnd, now)}',
       );
       if (active?.planItemId == item.id) {
-        cursor = _nextPlanCursor(active);
+        cursor = _nextPlanCursor(active, now);
       }
       continue;
     }
@@ -2594,7 +2645,7 @@ Map<String, _PomodoroPlanTimeSlot> _buildPomodoroPlanTimeSlots(
       final estimatedStart = cursor;
       final estimatedEnd = estimatedStart.add(const Duration(minutes: 25));
       result[item.id] = _PomodoroPlanTimeSlot(
-        '预计 ${_formatPlanClock(estimatedStart)}-${_formatPlanClock(estimatedEnd)}',
+        '预计 ${_formatPlanClock(estimatedStart, now)}-${_formatPlanClock(estimatedEnd, now)}',
       );
       cursor = estimatedEnd.add(const Duration(minutes: 5));
     }
@@ -2602,20 +2653,29 @@ Map<String, _PomodoroPlanTimeSlot> _buildPomodoroPlanTimeSlots(
   return result;
 }
 
-DateTime _nextPlanCursor(TodoPomodoro? active) {
-  final now = DateTime.now();
+DateTime _nextPlanCursor(TodoPomodoro? active, DateTime now) {
   if (active == null) return now;
+  final activeEnd = active.endsAt.isAfter(now) ? active.endsAt : now;
   if (active.isFocus) {
-    return active.endsAt.add(Duration(minutes: active.breakPlannedMinutes));
+    return activeEnd.add(Duration(minutes: active.breakPlannedMinutes));
   }
-  return active.endsAt;
+  return activeEnd;
 }
 
-String _formatPlanClock(DateTime time) {
+String _formatPlanClock(DateTime time, DateTime reference) {
   final hh = time.hour.toString().padLeft(2, '0');
   final mm = time.minute.toString().padLeft(2, '0');
-  if (_isSameDay(time, DateTime.now())) return '$hh:$mm';
+  if (_isSameDay(time, reference)) return '$hh:$mm';
   return '${time.month.toString().padLeft(2, '0')}/${time.day.toString().padLeft(2, '0')} $hh:$mm';
+}
+
+String _formatOverdue(Duration duration) {
+  final minutes = duration.inMinutes < 1 ? 1 : duration.inMinutes;
+  if (minutes < 60) return '$minutes 分钟';
+  final hours = minutes ~/ 60;
+  final restMinutes = minutes % 60;
+  if (restMinutes == 0) return '$hours 小时';
+  return '$hours 小时 $restMinutes 分钟';
 }
 
 String _planStatusLabel(PomodoroPlanItemStatus status) {
