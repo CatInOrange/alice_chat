@@ -2141,6 +2141,36 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  Future<void> _downloadAttachment(Map<String, dynamic> attachment) async {
+    final rawUrl = (attachment['url'] ?? attachment['rawUrl'] ?? '').toString();
+    final resolved = _resolveAttachmentUrl(rawUrl);
+    if (resolved.isEmpty) return;
+    final mimeType = (attachment['mimeType'] ?? '').toString().trim();
+    final name =
+        (attachment['name'] ?? attachment['filename'] ?? '').toString();
+    final safeName = _safeAttachmentFileName(
+      preferredName: name,
+      mimeType: mimeType,
+      fallbackId: (attachment['id'] ?? '').toString(),
+    );
+    try {
+      final bytes = await _readAttachmentBytesForSave(resolved);
+      final savedPath = await _saveAttachmentBytes(
+        bytes: bytes,
+        fileName: safeName,
+      );
+      if (!mounted || savedPath == null) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('已保存到 $savedPath')));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('下载附件失败: $error')));
+    }
+  }
+
   Future<String> _materializeAttachmentForOpen({
     required String resolvedUrl,
     required String fileName,
@@ -2198,6 +2228,59 @@ class _ChatScreenState extends State<ChatScreen> {
     return response.bodyBytes;
   }
 
+  Future<Uint8List> _readAttachmentBytesForSave(String resolvedUrl) async {
+    final directFilePath = _directLocalAttachmentPath(resolvedUrl);
+    if (directFilePath != null) {
+      return File(directFilePath).readAsBytes();
+    }
+    final bytes = await _loadAttachmentBytes(resolvedUrl);
+    return Uint8List.fromList(bytes);
+  }
+
+  Future<String?> _saveAttachmentBytes({
+    required Uint8List bytes,
+    required String fileName,
+  }) async {
+    try {
+      final savedPath = await FilePicker.platform.saveFile(
+        dialogTitle: '保存附件',
+        fileName: fileName,
+        bytes: bytes,
+        lockParentWindow: true,
+      );
+      if (savedPath != null && savedPath.trim().isNotEmpty) {
+        return savedPath;
+      }
+      return null;
+    } catch (_) {
+      final directory =
+          await getDownloadsDirectory() ??
+          await getApplicationDocumentsDirectory();
+      final targetDir = Directory(
+        p.join(directory.path, 'AliceChat Downloads'),
+      );
+      await targetDir.create(recursive: true);
+      final file = File(await _uniqueAttachmentPath(targetDir.path, fileName));
+      await file.writeAsBytes(bytes, flush: true);
+      return file.path;
+    }
+  }
+
+  Future<String> _uniqueAttachmentPath(
+    String directory,
+    String fileName,
+  ) async {
+    final extension = p.extension(fileName);
+    final stem = p.basenameWithoutExtension(fileName);
+    var candidate = p.join(directory, fileName);
+    var counter = 1;
+    while (await File(candidate).exists()) {
+      candidate = p.join(directory, '$stem ($counter)$extension');
+      counter += 1;
+    }
+    return candidate;
+  }
+
   String _safeAttachmentFileName({
     required String preferredName,
     required String mimeType,
@@ -2218,6 +2301,32 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     }
     return name;
+  }
+
+  Map<String, dynamic> _imageMessageAttachment(core.ImageMessage message) {
+    final metadata = message.metadata;
+    final rawAttachments = metadata?['attachments'];
+    if (rawAttachments is List) {
+      for (final raw in rawAttachments.whereType<Map>()) {
+        final attachment = Map<String, dynamic>.from(raw);
+        final kind = (attachment['kind'] ?? '').toString().toLowerCase();
+        if (kind == 'image') {
+          return attachment;
+        }
+      }
+    }
+    final inferredName = _fileNameFromMarkdownLink(
+      message.source,
+      message.source,
+    );
+    return {
+      'id': message.id,
+      'kind': 'image',
+      'url': message.source,
+      'name': inferredName.isEmpty ? 'image' : inferredName,
+      'mimeType': lookupMimeType(inferredName) ?? 'image/png',
+      if (message.size != null) 'size': message.size,
+    };
   }
 
   String _resolveAttachmentUrl(String rawUrl) {
@@ -2303,13 +2412,36 @@ class _ChatScreenState extends State<ChatScreen> {
                 ],
               ),
             ),
-            Icon(
-              Icons.open_in_new_rounded,
-              size: 18,
-              color:
-                  sentByMe
-                      ? Colors.white.withValues(alpha: 0.9)
-                      : const Color(0xFF98A1B3),
+            const SizedBox(width: 6),
+            IconButton(
+              tooltip: '打开',
+              visualDensity: VisualDensity.compact,
+              onPressed:
+                  url.trim().isEmpty ? null : () => _openAttachment(attachment),
+              icon: Icon(
+                Icons.open_in_new_rounded,
+                size: 18,
+                color:
+                    sentByMe
+                        ? Colors.white.withValues(alpha: 0.9)
+                        : const Color(0xFF98A1B3),
+              ),
+            ),
+            IconButton(
+              tooltip: '下载',
+              visualDensity: VisualDensity.compact,
+              onPressed:
+                  url.trim().isEmpty
+                      ? null
+                      : () => _downloadAttachment(attachment),
+              icon: Icon(
+                Icons.download_rounded,
+                size: 18,
+                color:
+                    sentByMe
+                        ? Colors.white.withValues(alpha: 0.9)
+                        : const Color(0xFF667085),
+              ),
             ),
           ],
         ),
@@ -4006,6 +4138,10 @@ class _ChatScreenState extends State<ChatScreen> {
                       imageUrl: message.source,
                       headers: headers,
                       maxWidth: maxWidth,
+                      onDownload:
+                          () => _downloadAttachment(
+                            _imageMessageAttachment(message),
+                          ),
                     ),
                   ),
                   if ((message.text ?? '').trim().isNotEmpty) ...[
@@ -4086,12 +4222,14 @@ class _ChatImageBubble extends StatefulWidget {
     required this.imageUrl,
     required this.headers,
     required this.maxWidth,
+    this.onDownload,
   });
 
   final String messageId;
   final String imageUrl;
   final Map<String, String> headers;
   final double maxWidth;
+  final Future<void> Function()? onDownload;
 
   @override
   State<_ChatImageBubble> createState() => _ChatImageBubbleState();
@@ -4175,27 +4313,48 @@ class _ChatImageBubbleState extends State<_ChatImageBubble> {
                 );
                 return _buildError();
               }
-              return GestureDetector(
-                onTap: () => _openPreview(context, snapshot.data!),
-                child: Hero(
-                  tag: _heroTag,
-                  child: Image.file(
-                    snapshot.data!,
-                    fit: BoxFit.cover,
-                    gaplessPlayback: true,
-                    filterQuality: FilterQuality.medium,
-                    errorBuilder: (_, error, stackTrace) {
-                      unawaited(
-                        NativeDebugBridge.instance.log(
-                          'chat-image',
-                          'file decode error messageId=${widget.messageId} source=${widget.imageUrl} error=$error',
-                          level: 'ERROR',
-                        ),
-                      );
-                      return _buildError();
-                    },
+              return Stack(
+                children: [
+                  GestureDetector(
+                    onTap: () => _openPreview(context, snapshot.data!),
+                    child: Hero(
+                      tag: _heroTag,
+                      child: Image.file(
+                        snapshot.data!,
+                        fit: BoxFit.cover,
+                        gaplessPlayback: true,
+                        filterQuality: FilterQuality.medium,
+                        errorBuilder: (_, error, stackTrace) {
+                          unawaited(
+                            NativeDebugBridge.instance.log(
+                              'chat-image',
+                              'file decode error messageId=${widget.messageId} source=${widget.imageUrl} error=$error',
+                              level: 'ERROR',
+                            ),
+                          );
+                          return _buildError();
+                        },
+                      ),
+                    ),
                   ),
-                ),
+                  if (widget.onDownload != null)
+                    Positioned(
+                      right: 8,
+                      top: 8,
+                      child: Material(
+                        color: Colors.black.withValues(alpha: 0.46),
+                        borderRadius: BorderRadius.circular(18),
+                        child: IconButton(
+                          tooltip: '下载',
+                          visualDensity: VisualDensity.compact,
+                          iconSize: 18,
+                          color: Colors.white,
+                          onPressed: () => unawaited(widget.onDownload!()),
+                          icon: const Icon(Icons.download_rounded),
+                        ),
+                      ),
+                    ),
+                ],
               );
             },
           ),
