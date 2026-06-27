@@ -85,6 +85,7 @@ class _MainScaffoldState extends State<_MainScaffold>
   int _wakeVoiceInputTrigger = 0;
   int _wakeSceneGeneration = 0;
   bool? _wakeAutoSendAfterRecognition;
+  bool _desktopLive2dRetentionVisible = false;
 
   // Single source of truth for contacts
   static final List<Contact> _contacts = [
@@ -179,6 +180,13 @@ class _MainScaffoldState extends State<_MainScaffold>
     );
     _webviewHostController.onAppLifecycleChanged(state);
     if (state == AppLifecycleState.resumed) {
+      if (_desktopLive2dRetentionVisible) {
+        _syncDesktopLive2dRetention(
+          visible: true,
+          reason: 'appResumed',
+          forceRefresh: true,
+        );
+      }
       unawaited(_consumePendingNotificationOpen(source: 'resumed'));
       unawaited(context.read<ChatSessionStore>().handleAppResumed());
       unawaited(context.read<MusicStore>().handleAppResumed());
@@ -617,9 +625,17 @@ class _MainScaffoldState extends State<_MainScaffold>
 
   bool get _shouldShowDesktopLive2d => true;
 
-  void _syncDesktopLive2dRetention({required String reason}) {
+  void _syncDesktopLive2dRetention({
+    required bool visible,
+    required String reason,
+    bool forceRefresh = false,
+  }) {
+    if (_desktopLive2dRetentionVisible == visible && !forceRefresh) {
+      return;
+    }
+    _desktopLive2dRetentionVisible = visible;
     _webviewHostController.setKeepAliveRequested(
-      _shouldShowDesktopLive2d,
+      visible,
       reason: 'desktopLive2dVisible',
     );
     _webviewHostController.refreshRetention(reason: reason);
@@ -659,6 +675,16 @@ class _MainScaffoldState extends State<_MainScaffold>
         final isDesktop = width >= 1200;
         final isTablet = width >= 820;
         final useWorkbenchLayout = isTablet;
+        final retainDesktopLive2d =
+            useWorkbenchLayout && _shouldShowDesktopLive2d;
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _syncDesktopLive2dRetention(
+            visible: retainDesktopLive2d,
+            reason: 'layout:${useWorkbenchLayout ? 'workbench' : 'mobile'}',
+          );
+        });
 
         return PopScope(
           canPop: false,
@@ -774,7 +800,9 @@ class _MainScaffoldState extends State<_MainScaffold>
                               );
                             }
                             _syncDesktopLive2dRetention(
+                              visible: showLive2dPanel,
                               reason: 'desktopNav:$index',
+                              forceRefresh: true,
                             );
                           },
                         ),
@@ -960,6 +988,17 @@ class _MainScaffoldState extends State<_MainScaffold>
     }
     if (_currentIndex == 2) {
       return const _NoDesktopWindowDragRegion(child: MusicScreen());
+    }
+    if (_currentIndex == 3) {
+      return _NoDesktopWindowDragRegion(
+        child: _WorkbenchPlaceholderCard(
+          removePadding: true,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(26),
+            child: const SettingsScreen(),
+          ),
+        ),
+      );
     }
     if (_currentIndex == 0 && _activeChatSession != null) {
       return _NoDesktopWindowDragRegion(
