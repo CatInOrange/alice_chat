@@ -1826,12 +1826,13 @@ class _PomodoroPlanScreen extends StatefulWidget {
 }
 
 class _PomodoroPlanScreenState extends State<_PomodoroPlanScreen> {
-  static const Duration _scheduleRefreshInterval = Duration(minutes: 1);
+  static const Duration _scheduleRefreshInterval = Duration(seconds: 1);
 
   static const Uuid _uuid = Uuid();
 
   Timer? _scheduleTimer;
   DateTime _scheduleAnchor = DateTime.now();
+  String? _lastExpiredBreakPromptId;
 
   @override
   void initState() {
@@ -1850,7 +1851,28 @@ class _PomodoroPlanScreenState extends State<_PomodoroPlanScreen> {
 
   void _refreshSchedule() {
     if (!mounted) return;
+    final previousPromptId = _lastExpiredBreakPromptId;
     setState(() => _scheduleAnchor = DateTime.now());
+    final active = context.read<TodoStore>().activePomodoro;
+    if (active == null || active.isFocus || active.planItemId == null) {
+      _lastExpiredBreakPromptId = null;
+      return;
+    }
+    if (active.endsAt.isAfter(_scheduleAnchor)) return;
+    if (previousPromptId == active.id) return;
+    _lastExpiredBreakPromptId = active.id;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final hasNext =
+          _firstStartablePlanItem(
+            context.read<TodoStore>().pomodoroPlanItems,
+          ) !=
+          null;
+      _showPlanSnack(
+        context,
+        hasNext ? '休息结束了，可以开始下一颗番茄。' : '休息结束了，计划里没有下一颗可开始的番茄。',
+      );
+    });
   }
 
   @override
@@ -1883,65 +1905,71 @@ class _PomodoroPlanScreenState extends State<_PomodoroPlanScreen> {
           ),
         ],
       ),
-      body:
-          items.isEmpty
-              ? ListView(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 96),
-                children: [
-                  _EmptyCard(
-                    title: '还没有番茄计划',
-                    subtitle: '先规划一两颗番茄，写清任务和预计目标，开始后就按顺序推进。',
-                  ),
-                ],
-              )
-              : ReorderableListView.builder(
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 96),
-                buildDefaultDragHandles: false,
-                itemCount: items.length,
-                onReorder: (oldIndex, newIndex) {
-                  final normalizedNewIndex =
-                      newIndex > oldIndex ? newIndex - 1 : newIndex;
-                  unawaited(
-                    _reorderItems(context, oldIndex, normalizedNewIndex),
-                  );
-                },
-                itemBuilder: (context, index) {
-                  final item = items[index];
-                  return Padding(
-                    key: ValueKey('pomodoro-plan-${item.id}'),
-                    padding: EdgeInsets.only(
-                      bottom: index == items.length - 1 ? 0 : 12,
-                    ),
-                    child: _PomodoroPlanItemTile(
-                      index: index,
-                      item: item,
-                      activePomodoro: active,
-                      timeSlot: timeSlots[item.id],
-                      onEdit: () => _openEditor(context, item: item),
-                      onEnd: () => _endPlanPomodoro(context, item.id),
-                      onStart: () async {
-                        final result = await context
-                            .read<TodoStore>()
-                            .startPomodoroPlanItem(item.id);
-                        _refreshSchedule();
-                        if (result == null && context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('先给这颗番茄选择一个任务。'),
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
-                        }
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+            child: _PomodoroPlanControlPanel(
+              items: items,
+              activePomodoro: active,
+              now: _scheduleAnchor,
+              onPrimary: () => _handlePlanPrimaryAction(context),
+              onCancel:
+                  active == null
+                      ? null
+                      : () => unawaited(_cancelPomodoro(context)),
+            ),
+          ),
+          Expanded(
+            child:
+                items.isEmpty
+                    ? ListView(
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 96),
+                      children: [
+                        _EmptyCard(
+                          title: '还没有番茄计划',
+                          subtitle: '先规划一两颗番茄，写清任务和预计目标，开始后就按顺序推进。',
+                        ),
+                      ],
+                    )
+                    : ReorderableListView.builder(
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 96),
+                      buildDefaultDragHandles: false,
+                      itemCount: items.length,
+                      onReorder: (oldIndex, newIndex) {
+                        final normalizedNewIndex =
+                            newIndex > oldIndex ? newIndex - 1 : newIndex;
+                        unawaited(
+                          _reorderItems(context, oldIndex, normalizedNewIndex),
+                        );
                       },
-                      onSkip:
-                          item.isDone
-                              ? null
-                              : () => unawaited(_skipItem(context, item.id)),
-                      onDelete: () => unawaited(_deleteItem(context, item.id)),
+                      itemBuilder: (context, index) {
+                        final item = items[index];
+                        return Padding(
+                          key: ValueKey('pomodoro-plan-${item.id}'),
+                          padding: EdgeInsets.only(
+                            bottom: index == items.length - 1 ? 0 : 12,
+                          ),
+                          child: _PomodoroPlanItemTile(
+                            index: index,
+                            item: item,
+                            activePomodoro: active,
+                            timeSlot: timeSlots[item.id],
+                            onEdit: () => _openEditor(context, item: item),
+                            onSkip:
+                                item.isDone
+                                    ? null
+                                    : () =>
+                                        unawaited(_skipItem(context, item.id)),
+                            onDelete:
+                                () => unawaited(_deleteItem(context, item.id)),
+                          ),
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openEditor(context),
         icon: const Icon(Icons.add_rounded),
@@ -2036,10 +2064,28 @@ class _PomodoroPlanScreenState extends State<_PomodoroPlanScreen> {
     );
   }
 
-  Future<void> _endPlanPomodoro(BuildContext context, String planItemId) async {
+  Future<void> _handlePlanPrimaryAction(BuildContext context) async {
     final store = context.read<TodoStore>();
     final pomodoro = store.activePomodoro;
-    if (pomodoro == null || pomodoro.planItemId != planItemId) return;
+    if (pomodoro == null) {
+      final next = _firstOpenPlanItem(store.pomodoroPlanItems);
+      if (next == null) {
+        _showPlanSnack(context, '先新增一颗番茄。');
+        return;
+      }
+      if (next.taskId == null || next.taskId!.isEmpty) {
+        _showPlanSnack(context, '先给下一颗番茄选择一个任务。');
+        return;
+      }
+      await store.startPomodoroPlanItem(next.id);
+      _refreshSchedule();
+      return;
+    }
+
+    if (pomodoro.planItemId == null) {
+      _showPlanSnack(context, '当前有独立番茄正在进行，先在对应任务里处理。');
+      return;
+    }
 
     if (pomodoro.isFocus) {
       final note = await _askPomodoroNote(context);
@@ -2050,8 +2096,172 @@ class _PomodoroPlanScreenState extends State<_PomodoroPlanScreen> {
     }
 
     await store.completePomodoroBreak(pomodoro.id);
-    await store.startNextPomodoroPlanItem();
+    final next = await store.startNextPomodoroPlanItem();
     _refreshSchedule();
+    if (!context.mounted) return;
+    _showPlanSnack(
+      context,
+      next == null ? '休息结束了，计划里没有下一颗可开始的番茄。' : '休息结束了，已开始下一颗番茄。',
+    );
+  }
+
+  Future<void> _cancelPomodoro(BuildContext context) async {
+    final active = context.read<TodoStore>().activePomodoro;
+    if (active == null) return;
+    await context.read<TodoStore>().cancelPomodoro(active.id);
+    _refreshSchedule();
+  }
+
+  void _showPlanSnack(BuildContext context, String message) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
+  }
+}
+
+class _PomodoroPlanControlPanel extends StatelessWidget {
+  const _PomodoroPlanControlPanel({
+    required this.items,
+    required this.activePomodoro,
+    required this.now,
+    required this.onPrimary,
+    required this.onCancel,
+  });
+
+  final List<TodoPomodoroPlanItem> items;
+  final TodoPomodoro? activePomodoro;
+  final DateTime now;
+  final VoidCallback onPrimary;
+  final VoidCallback? onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<TodoStore>();
+    final active = activePomodoro;
+    final activePlanItem = _planItemById(items, active?.planItemId);
+    final nextItem = _firstOpenPlanItem(items);
+    final activeTask = _taskById(store.tasks, active?.taskId);
+    final nextTask = _taskById(store.tasks, nextItem?.taskId);
+    final theme = Theme.of(context);
+
+    final title =
+        active == null
+            ? '准备开始'
+            : active.isFocus
+            ? '专注中'
+            : '休息中';
+    final remaining = active?.endsAt.difference(now);
+    final expired = remaining != null && remaining.inSeconds <= 0;
+    final primaryLabel =
+        active == null
+            ? '开始下一颗'
+            : active.isFocus
+            ? (expired ? '记录进展' : '结束专注')
+            : (expired ? '开始下一颗' : '结束休息');
+    final subtitle =
+        active == null
+            ? nextItem == null
+                ? '计划里还没有待开始的番茄'
+                : nextTask?.title ?? '下一颗还没有选择任务'
+            : activePlanItem == null
+            ? activeTask?.title ?? '独立番茄正在进行'
+            : activeTask?.title ?? '计划番茄正在进行';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFFFDDC2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF0E7),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.timer_outlined,
+                  color: Color(0xFFEF7B45),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: const Color(0xFF2D3443),
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: const Color(0xFF667085),
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (remaining != null) ...[
+                const SizedBox(width: 10),
+                Text(
+                  _formatCompactDuration(remaining),
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    color:
+                        expired
+                            ? const Color(0xFFD64545)
+                            : const Color(0xFFEF7B45),
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                onPressed: onPrimary,
+                icon: Icon(
+                  active == null
+                      ? Icons.play_arrow_rounded
+                      : active.isFocus
+                      ? Icons.stop_circle_outlined
+                      : Icons.skip_next_rounded,
+                ),
+                label: Text(primaryLabel),
+              ),
+              if (onCancel != null)
+                OutlinedButton.icon(
+                  onPressed: onCancel,
+                  icon: const Icon(Icons.close_rounded),
+                  label: const Text('放弃当前'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -2062,8 +2272,6 @@ class _PomodoroPlanItemTile extends StatelessWidget {
     required this.activePomodoro,
     required this.timeSlot,
     required this.onEdit,
-    required this.onEnd,
-    required this.onStart,
     required this.onDelete,
     this.onSkip,
   });
@@ -2073,8 +2281,6 @@ class _PomodoroPlanItemTile extends StatelessWidget {
   final TodoPomodoro? activePomodoro;
   final _PomodoroPlanTimeSlot? timeSlot;
   final VoidCallback onEdit;
-  final VoidCallback onEnd;
-  final VoidCallback onStart;
   final VoidCallback onDelete;
   final VoidCallback? onSkip;
 
@@ -2083,13 +2289,8 @@ class _PomodoroPlanItemTile extends StatelessWidget {
     final store = context.watch<TodoStore>();
     final task = _taskById(store.tasks, item.taskId);
     final activeForItem = activePomodoro?.planItemId == item.id;
-    final canStart =
-        item.status == PomodoroPlanItemStatus.planned &&
-        item.taskId != null &&
-        activePomodoro == null;
     final theme = Theme.of(context);
     final statusColor = _planStatusColor(item.status);
-    final activePhaseLabel = activePomodoro?.isFocus == true ? '结束专注' : '完成休息';
 
     return Material(
       color: Colors.white,
@@ -2156,17 +2357,6 @@ class _PomodoroPlanItemTile extends StatelessWidget {
                         ),
                       ],
                     ),
-                  ),
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    onPressed:
-                        activeForItem ? onEnd : (canStart ? onStart : null),
-                    icon: Icon(
-                      activeForItem
-                          ? Icons.stop_circle_outlined
-                          : Icons.play_arrow_rounded,
-                    ),
-                    tooltip: activeForItem ? activePhaseLabel : '开始番茄',
                   ),
                   IconButton(
                     visualDensity: VisualDensity.compact,
@@ -2569,6 +2759,38 @@ TodoTask? _taskById(List<TodoTask> tasks, String? taskId) {
 TodoPomodoroPlanItem? _nextOpenPlanItem(List<TodoPomodoroPlanItem> items) {
   for (final item in items) {
     if (item.isOpen) return item;
+  }
+  return null;
+}
+
+TodoPomodoroPlanItem? _firstOpenPlanItem(List<TodoPomodoroPlanItem> items) {
+  for (final item in items) {
+    if (item.status == PomodoroPlanItemStatus.planned) return item;
+  }
+  return null;
+}
+
+TodoPomodoroPlanItem? _firstStartablePlanItem(
+  List<TodoPomodoroPlanItem> items,
+) {
+  for (final item in items) {
+    final taskId = item.taskId;
+    if (item.status == PomodoroPlanItemStatus.planned &&
+        taskId != null &&
+        taskId.isNotEmpty) {
+      return item;
+    }
+  }
+  return null;
+}
+
+TodoPomodoroPlanItem? _planItemById(
+  List<TodoPomodoroPlanItem> items,
+  String? id,
+) {
+  if (id == null || id.isEmpty) return null;
+  for (final item in items) {
+    if (item.id == id) return item;
   }
   return null;
 }
