@@ -25,10 +25,7 @@ _LOG = logging.getLogger(__name__)
 
 _DEFAULT_AGENTS_ROOT = Path('/root/.openclaw/agents')
 _RECOVERY_SOURCE = 'openclaw_transcript'
-_DISPLAY_MODEL_PREFIX_RE = re.compile(
-    r'^\s*\[(?:gpt-[^\]]+|o\d[^\]]*|\{model\})\]\s*',
-    re.IGNORECASE,
-)
+_LEADING_BRACKET_PREFIX_RE = re.compile(r'^\s*(?:\[[^\]\r\n]{1,80}\]\s*)+')
 _RECOVERY_MESSAGE_PREFIX_RE = re.compile(r'^\s*\[恢复消息\]\s*', re.IGNORECASE)
 
 
@@ -788,6 +785,11 @@ class TranscriptRecoveryService:
         for item in assistant_items:
             if imported >= max(1, int(limit or 1)):
                 break
+            if self._has_normalized_message_text(
+                local_assistants,
+                text=str(item.get('text') or ''),
+            ):
+                continue
             if self._transcript_item_already_present(
                 session_id,
                 role='assistant',
@@ -1522,8 +1524,14 @@ class TranscriptRecoveryService:
     def _normalize_compare_text(self, text: str) -> str:
         value = str(text or '').strip()
         value = _RECOVERY_MESSAGE_PREFIX_RE.sub('', value, count=1)
-        value = _DISPLAY_MODEL_PREFIX_RE.sub('', value.strip(), count=1)
+        value = _LEADING_BRACKET_PREFIX_RE.sub('', value.strip(), count=1)
         return re.sub(r'\s+', ' ', value.strip())
+
+    def _has_normalized_message_text(self, messages: list[dict], *, text: str) -> bool:
+        target = self._normalize_compare_text(text)
+        if not target:
+            return False
+        return any(self._normalize_compare_text(str(item.get('text') or '')) == target for item in messages)
 
     def _has_equivalent_assistant_after_user(
         self,

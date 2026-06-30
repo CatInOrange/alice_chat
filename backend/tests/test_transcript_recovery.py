@@ -156,7 +156,7 @@ class TranscriptRecoveryTextSelectionTest(unittest.TestCase):
                 ],
             )
 
-    def test_reconcile_tail_treats_model_prefixed_local_reply_as_present(self) -> None:
+    def test_reconcile_tail_treats_leading_bracket_prefixed_local_reply_as_present(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmpdir:
             tmpdir = Path(raw_tmpdir)
             service = self._service(tmpdir)
@@ -183,7 +183,7 @@ class TranscriptRecoveryTextSelectionTest(unittest.TestCase):
             service.messages.create_message(
                 session_id='s1',
                 role='assistant',
-                text='[gpt-5.5] a1',
+                text='[model][complete] a1',
                 created_at=1_779_753_602,
             )
 
@@ -196,7 +196,47 @@ class TranscriptRecoveryTextSelectionTest(unittest.TestCase):
             messages = service.messages.list_session_messages_page('s1', limit=5)['messages']
             self.assertEqual(
                 [(item['role'], item['text']) for item in messages],
-                [('user', 'u1'), ('assistant', '[gpt-5.5] a1')],
+                [('user', 'u1'), ('assistant', '[model][complete] a1')],
+            )
+
+    def test_recent_user_recovery_skips_existing_prefixed_reply_outside_timestamp_window(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmpdir:
+            tmpdir = Path(raw_tmpdir)
+            service = self._service(tmpdir)
+            session_key = 'agent:yulinglong:alicechat:user:contact:session'
+            transcript_path = tmpdir / 'agents' / 'yulinglong' / 'sessions' / 'session.jsonl'
+            transcript_path.parent.mkdir(parents=True)
+            (transcript_path.parent / 'sessions.json').write_text(
+                json.dumps({session_key: {'sessionFile': str(transcript_path)}}),
+                encoding='utf-8',
+            )
+            service.sessions.create_session_with_id(
+                session_id='s1',
+                name='s1',
+                route_key=f'alicechat-channel|{session_key}',
+            )
+            _write_jsonl(
+                transcript_path,
+                [
+                    {'type': 'message', 'timestamp': '2026-05-26T00:00:01Z', 'message': {'role': 'user', 'content': 'commit'}},
+                    {'type': 'message', 'timestamp': '2026-05-26T00:00:02Z', 'message': {'role': 'assistant', 'content': 'pushed to GitHub'}},
+                ],
+            )
+            service.messages.create_message(session_id='s1', role='user', text='commit', created_at=1_779_753_601)
+            service.messages.create_message(
+                session_id='s1',
+                role='assistant',
+                text='[gpt-5.5] pushed to GitHub',
+                created_at=1_779_753_723,
+            )
+
+            imported = service.recover_missing_after_recent_users('s1', limit=10, user_limit=1)
+
+            self.assertEqual(imported, 0)
+            messages = service.messages.list_session_messages_page('s1', limit=5)['messages']
+            self.assertEqual(
+                [(item['role'], item['text']) for item in messages],
+                [('user', 'commit'), ('assistant', '[gpt-5.5] pushed to GitHub')],
             )
 
     def test_recovery_candidate_skips_existing_transcript_reconcile_reply(self) -> None:
