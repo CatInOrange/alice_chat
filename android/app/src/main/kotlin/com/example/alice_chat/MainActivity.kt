@@ -214,6 +214,8 @@ class MainActivity : FlutterActivity() {
         val action = intent?.action.orEmpty()
         if (action == ACTION_OPEN_POMODORO_NOTIFICATION) {
             appendLog("main", "captureIntent accepted_pomodoro payload=${intent?.getStringExtra(EXTRA_POMODORO_OPEN_PAYLOAD).orEmpty()}")
+            val pomodoroId = intent?.getStringExtra(PomodoroAlarmReceiver.EXTRA_POMODORO_ID).orEmpty()
+            PomodoroAlarmReceiver.stopVibrationReminder(this, pomodoroId)
             return
         }
         val sessionId = intent?.getStringExtra(AliceChatForegroundService.EXTRA_SESSION_ID)?.trim().orEmpty()
