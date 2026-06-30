@@ -2045,6 +2045,7 @@ class _PomodoroPlanScreenState extends State<_PomodoroPlanScreen> {
         updatedAt: item?.updatedAt ?? now,
         startedAt: item?.startedAt,
         completedAt: item?.completedAt,
+        metadata: item?.metadata ?? const {},
       ),
     );
     _refreshSchedule();
@@ -2291,6 +2292,7 @@ class _PomodoroPlanItemTile extends StatelessWidget {
     final activeForItem = activePomodoro?.planItemId == item.id;
     final theme = Theme.of(context);
     final statusColor = _planStatusColor(item.status);
+    final dayLabel = _planDayLabel(item, DateTime.now());
 
     return Material(
       color: Colors.white,
@@ -2348,12 +2350,24 @@ class _PomodoroPlanItemTile extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 3),
-                        Text(
-                          _planStatusLabel(item.status),
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: statusColor,
-                            fontWeight: FontWeight.w800,
-                          ),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Text(
+                              _planStatusLabel(item.status),
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: statusColor,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            if (dayLabel != null)
+                              _PlanBadge(
+                                label: dayLabel,
+                                color: _planDayColor(dayLabel),
+                              ),
+                          ],
                         ),
                       ],
                     ),
@@ -2422,6 +2436,32 @@ class _PomodoroPlanItemTile extends StatelessWidget {
               ],
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlanBadge extends StatelessWidget {
+  const _PlanBadge({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w800,
+          height: 1.1,
         ),
       ),
     );
@@ -2916,6 +2956,25 @@ Color _planStatusColor(PomodoroPlanItemStatus status) {
     PomodoroPlanItemStatus.completed => const Color(0xFF4E9F7A),
     PomodoroPlanItemStatus.skipped => const Color(0xFF98A2B3),
   };
+}
+
+String? _planDayLabel(TodoPomodoroPlanItem item, DateTime now) {
+  final planDate = _parsePlanDate(item.metadata['planDate']) ?? item.createdAt;
+  if (planDate == null) return null;
+  final today = DateTime(now.year, now.month, now.day);
+  final itemDay = DateTime(planDate.year, planDate.month, planDate.day);
+  if (itemDay.isAtSameMomentAs(today)) return '今日新增';
+  if (itemDay.isBefore(today)) return '昨日延续';
+  return null;
+}
+
+Color _planDayColor(String label) {
+  return label == '今日新增' ? const Color(0xFF4E9F7A) : const Color(0xFF667085);
+}
+
+DateTime? _parsePlanDate(String? value) {
+  if (value == null || value.trim().isEmpty) return null;
+  return DateTime.tryParse(value.trim());
 }
 
 class _ProjectManagementScreen extends StatelessWidget {

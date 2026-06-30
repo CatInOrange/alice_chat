@@ -18,6 +18,12 @@ class TodoStore extends ChangeNotifier {
 
   final TodoLocalStore _localStore;
   static const Uuid _uuid = Uuid();
+  static const String _workPrepProjectId = 'work';
+  static const String _workPrepTaskId = 'todo:work-prep';
+  static const String _defaultPlanTypeKey = 'defaultType';
+  static const String _defaultPlanTypeWorkPrep = 'workPrep';
+  static const String _defaultPlanDateKey = 'planDate';
+  static const String _defaultPlanDeletedKey = 'deleted';
   final String _clientInstanceId = _uuid.v4();
   OpenClawHttpClient? _client;
   StreamSubscription<Map<String, dynamic>>? _eventsSub;
@@ -44,13 +50,14 @@ class TodoStore extends ChangeNotifier {
       _projects.where((item) => item.archived).toList(growable: false);
   List<TodoTask> get tasks => _tasks;
   List<TodoPomodoro> get pomodoros => _pomodoros;
-  List<TodoPomodoroPlanItem> get pomodoroPlanItems =>
-      _pomodoroPlanItems.toList(growable: false)
-        ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+  List<TodoPomodoroPlanItem> get pomodoroPlanItems => _pomodoroPlanItems
+      .where((item) => !_isDeletedDefaultPlanItem(item))
+      .toList(growable: false)
+    ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
   int get openPomodoroPlanCount =>
-      _pomodoroPlanItems.where((item) => item.isOpen).length;
+      pomodoroPlanItems.where((item) => item.isOpen).length;
   int get completedPomodoroPlanCount =>
-      _pomodoroPlanItems
+      pomodoroPlanItems
           .where((item) => item.status == PomodoroPlanItemStatus.completed)
           .length;
   TodoPomodoro? get activePomodoro {
@@ -95,6 +102,7 @@ class TodoStore extends ChangeNotifier {
           );
         }
       }
+      await ensureDailyWorkPrepPlanItem();
       _error = null;
       _loaded = true;
     } catch (error) {
@@ -120,6 +128,7 @@ class TodoStore extends ChangeNotifier {
       final snapshot = await _loadRemoteSnapshot();
       if (snapshot == null) return;
       await _applySnapshot(snapshot, replaceLocal: true);
+      await ensureDailyWorkPrepPlanItem();
       await NativeDebugBridge.instance.log(
         'todo',
         'refreshFromRemote applied force=$force revision=$_lastRemoteRevision tasks=${_tasks.length}',
@@ -333,6 +342,12 @@ class TodoStore extends ChangeNotifier {
               ? _pomodoroPlanItems[existingIndex].createdAt
               : item.createdAt ?? now,
       updatedAt: now,
+      metadata:
+          item.metadata.isNotEmpty
+              ? item.metadata
+              : existingIndex >= 0
+              ? _pomodoroPlanItems[existingIndex].metadata
+              : item.metadata,
     );
     final mutable = _pomodoroPlanItems.toList(growable: true);
     if (existingIndex >= 0) {
@@ -346,6 +361,29 @@ class TodoStore extends ChangeNotifier {
   }
 
   Future<void> deletePomodoroPlanItem(String itemId) async {
+    final now = DateTime.now();
+    final existing = _pomodoroPlanItems.firstWhere(
+      (item) => item.id == itemId,
+      orElse: () => const TodoPomodoroPlanItem(id: ''),
+    );
+    if (_isDefaultWorkPrepPlanItem(existing)) {
+      _pomodoroPlanItems = _normalizePlanOrder(
+        _pomodoroPlanItems
+            .map((item) {
+              if (item.id != itemId) return item;
+              return item.copyWith(
+                status: PomodoroPlanItemStatus.skipped,
+                completedAt: now,
+                updatedAt: now,
+                metadata: {...item.metadata, _defaultPlanDeletedKey: 'true'},
+              );
+            })
+            .toList(growable: false),
+      );
+      notifyListeners();
+      await _persistSnapshot();
+      return;
+    }
     _pomodoroPlanItems = _normalizePlanOrder(
       _pomodoroPlanItems.where((item) => item.id != itemId).toList(),
     );
@@ -369,13 +407,56 @@ class TodoStore extends ChangeNotifier {
     await _persistSnapshot();
   }
 
+  Future<void> ensureDailyWorkPrepPlanItem({DateTime? at}) async {
+    final now = at ?? DateTime.now();
+    final planDate = _dateKey(now);
+    if (_pomodoroPlanItems.any(
+      (item) =>
+          _isDefaultWorkPrepPlanItem(item) &&
+          item.metadata[_defaultPlanDateKey] == planDate,
+    )) {
+      return;
+    }
+
+    final projects = _ensureWorkPrepProject(now, _projects);
+    final taskResult = _ensureWorkPrepTask(now, projects, _tasks);
+    _projects = projects;
+    _tasks = taskResult.tasks;
+
+    final shiftedItems = _pomodoroPlanItems
+        .map((item) => item.copyWith(sortOrder: item.sortOrder + 1))
+        .toList(growable: true);
+    shiftedItems.insert(
+      0,
+      TodoPomodoroPlanItem(
+        id: 'pomodoro-plan:work-prep:$planDate',
+        taskId: taskResult.taskId,
+        sortOrder: 0,
+        estimatedGoal: '整理今日任务，选出第一件要推进的事。',
+        status: PomodoroPlanItemStatus.planned,
+        createdAt: now,
+        updatedAt: now,
+        metadata: {
+          _defaultPlanTypeKey: _defaultPlanTypeWorkPrep,
+          _defaultPlanDateKey: planDate,
+        },
+      ),
+    );
+    _pomodoroPlanItems = _normalizePlanOrder(shiftedItems);
+    notifyListeners();
+    await _persistSnapshot();
+  }
+
   Future<void> reorderPomodoroPlanItems(int oldIndex, int newIndex) async {
     final mutable = pomodoroPlanItems.toList(growable: true);
     if (oldIndex < 0 || oldIndex >= mutable.length) return;
     if (newIndex < 0 || newIndex >= mutable.length) return;
     final target = mutable.removeAt(oldIndex);
     mutable.insert(newIndex, target);
-    _pomodoroPlanItems = _normalizePlanOrder(mutable);
+    final hiddenItems = _pomodoroPlanItems
+        .where(_isDeletedDefaultPlanItem)
+        .toList(growable: false);
+    _pomodoroPlanItems = _normalizePlanOrder([...mutable, ...hiddenItems]);
     notifyListeners();
     await _persistSnapshot();
   }
@@ -895,6 +976,101 @@ class TodoStore extends ChangeNotifier {
     return null;
   }
 
+  List<TodoProject> _ensureWorkPrepProject(
+    DateTime now,
+    List<TodoProject> projects,
+  ) {
+    final existingIndex = projects.indexWhere(
+      (item) => item.id == _workPrepProjectId,
+    );
+    if (existingIndex >= 0) {
+      final existing = projects[existingIndex];
+      if (!existing.archived) return projects;
+      final mutable = projects.toList(growable: true);
+      mutable[existingIndex] = existing.copyWith(
+        archived: false,
+        updatedAt: now,
+      );
+      return mutable.toList(growable: false)
+        ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    }
+    return [
+      ...projects,
+      TodoProject(
+        id: _workPrepProjectId,
+        name: '工作',
+        iconCodePoint: Icons.work_outline_rounded.codePoint,
+        colorValue: 0xFF66C5A3,
+        description: '推进项目、会议、交付。',
+        sortOrder: projects.length,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    ];
+  }
+
+  _WorkPrepTaskResult _ensureWorkPrepTask(
+    DateTime now,
+    List<TodoProject> projects,
+    List<TodoTask> tasks,
+  ) {
+    final dueAt = DateTime(now.year, now.month, now.day, 9);
+    final existingIndex = tasks.indexWhere(
+      (item) => item.id == _workPrepTaskId,
+    );
+    if (existingIndex >= 0) {
+      final existing = tasks[existingIndex];
+      final mutable = tasks.toList(growable: true);
+      mutable[existingIndex] = existing.copyWith(
+        projectId: _workPrepProjectId,
+        title: '工作准备',
+        description: '整理今日任务，选出第一件要推进的事。',
+        status: TodoStatus.todo,
+        dueAt: dueAt,
+        completedAt: null,
+        updatedAt: now,
+      );
+      return _WorkPrepTaskResult(
+        taskId: _workPrepTaskId,
+        tasks: mutable.toList(growable: false)..sort(_taskSort),
+      );
+    }
+
+    final projectId =
+        projects.any((item) => item.id == _workPrepProjectId)
+            ? _workPrepProjectId
+            : projects.first.id;
+    return _WorkPrepTaskResult(
+      taskId: _workPrepTaskId,
+      tasks: [
+        ...tasks,
+        TodoTask(
+          id: _workPrepTaskId,
+          projectId: projectId,
+          title: '工作准备',
+          description: '整理今日任务，选出第一件要推进的事。',
+          priority: TodoPriority.medium,
+          dueAt: dueAt,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      ]..sort(_taskSort),
+    );
+  }
+
+  static bool _isDefaultWorkPrepPlanItem(TodoPomodoroPlanItem item) =>
+      item.metadata[_defaultPlanTypeKey] == _defaultPlanTypeWorkPrep;
+
+  static bool _isDeletedDefaultPlanItem(TodoPomodoroPlanItem item) =>
+      _isDefaultWorkPrepPlanItem(item) &&
+      item.metadata[_defaultPlanDeletedKey] == 'true';
+
+  static String _dateKey(DateTime date) {
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '${date.year}-$month-$day';
+  }
+
   void _markPlanItemRunning(String itemId, String pomodoroId, DateTime now) {
     _pomodoroPlanItems = _pomodoroPlanItems
         .map((item) {
@@ -999,4 +1175,11 @@ class TodoStore extends ChangeNotifier {
     if (a == null) return false;
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
+}
+
+class _WorkPrepTaskResult {
+  const _WorkPrepTaskResult({required this.taskId, required this.tasks});
+
+  final String taskId;
+  final List<TodoTask> tasks;
 }

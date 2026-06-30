@@ -302,6 +302,7 @@ class TodoPomodoroPlanItem {
     this.updatedAt,
     this.startedAt,
     this.completedAt,
+    this.metadata = const {},
   });
 
   final String id;
@@ -315,6 +316,7 @@ class TodoPomodoroPlanItem {
   final DateTime? updatedAt;
   final DateTime? startedAt;
   final DateTime? completedAt;
+  final Map<String, String> metadata;
 
   bool get isOpen =>
       status == PomodoroPlanItemStatus.planned ||
@@ -335,6 +337,7 @@ class TodoPomodoroPlanItem {
     Object? updatedAt = _sentinel,
     Object? startedAt = _sentinel,
     Object? completedAt = _sentinel,
+    Map<String, String>? metadata,
   }) {
     return TodoPomodoroPlanItem(
       id: id ?? this.id,
@@ -363,6 +366,7 @@ class TodoPomodoroPlanItem {
           identical(completedAt, _sentinel)
               ? this.completedAt
               : completedAt as DateTime?,
+      metadata: metadata ?? this.metadata,
     );
   }
 
@@ -378,6 +382,7 @@ class TodoPomodoroPlanItem {
     'updatedAt': updatedAt?.toIso8601String(),
     'startedAt': startedAt?.toIso8601String(),
     'completedAt': completedAt?.toIso8601String(),
+    'metadata': metadata,
   };
 
   factory TodoPomodoroPlanItem.fromJson(Map<String, dynamic> json) =>
@@ -396,6 +401,7 @@ class TodoPomodoroPlanItem {
         updatedAt: _parseDate(json['updatedAt']),
         startedAt: _parseDate(json['startedAt']),
         completedAt: _parseDate(json['completedAt']),
+        metadata: _parseStringMap(json['metadata']),
       );
 }
 
@@ -640,4 +646,11 @@ DateTime? _parseDate(Object? value) {
   final raw = value as String?;
   if (raw == null || raw.trim().isEmpty) return null;
   return DateTime.parse(raw);
+}
+
+Map<String, String> _parseStringMap(Object? value) {
+  if (value is! Map) return const {};
+  return value.map(
+    (key, value) => MapEntry(key.toString(), value?.toString() ?? ''),
+  );
 }

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:path/path.dart' as path;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
@@ -7,7 +9,7 @@ import '../domain/todo_models.dart';
 class TodoLocalStore {
   static const String _legacyStorageKey = 'alicechat.todo.snapshot.v1';
   static const String _dbName = 'alicechat_todo.db';
-  static const int _dbVersion = 5;
+  static const int _dbVersion = 6;
 
   Database? _database;
 
@@ -168,6 +170,9 @@ class TodoLocalStore {
         } else if (oldVersion < 5) {
           await _createPomodoroPlanTable(db);
         }
+        if (oldVersion < 6) {
+          await _migratePomodoroPlanMetadata(db);
+        }
       },
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON');
@@ -326,6 +331,7 @@ class TodoLocalStore {
     'updated_at': item.updatedAt?.millisecondsSinceEpoch,
     'started_at': item.startedAt?.millisecondsSinceEpoch,
     'completed_at': item.completedAt?.millisecondsSinceEpoch,
+    'metadata': jsonEncode(item.metadata),
   };
 
   TodoTask _taskFromRow(
@@ -417,6 +423,7 @@ class TodoLocalStore {
         updatedAt: _dateFromEpoch(row['updated_at']),
         startedAt: _dateFromEpoch(row['started_at']),
         completedAt: _dateFromEpoch(row['completed_at']),
+        metadata: _metadataFromRow(row['metadata']),
       );
 
   Future<void> _createSchema(DatabaseExecutor db) async {
@@ -534,6 +541,7 @@ class TodoLocalStore {
         updated_at INTEGER,
         started_at INTEGER,
         completed_at INTEGER,
+        metadata TEXT NOT NULL DEFAULT '{}',
         FOREIGN KEY(task_id) REFERENCES todo_tasks(id) ON DELETE SET NULL
       )
     ''');
@@ -545,9 +553,29 @@ class TodoLocalStore {
     );
   }
 
+  Future<void> _migratePomodoroPlanMetadata(DatabaseExecutor db) async {
+    await db.execute(
+      "ALTER TABLE todo_pomodoro_plan_items ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'",
+    );
+  }
+
   DateTime? _dateFromEpoch(Object? value) {
     final epoch = value as int?;
     if (epoch == null) return null;
     return DateTime.fromMillisecondsSinceEpoch(epoch);
+  }
+
+  Map<String, String> _metadataFromRow(Object? value) {
+    final raw = value as String?;
+    if (raw == null || raw.trim().isEmpty) return const {};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return const {};
+      return decoded.map(
+        (key, value) => MapEntry(key.toString(), value?.toString() ?? ''),
+      );
+    } catch (_) {
+      return const {};
+    }
   }
 }
