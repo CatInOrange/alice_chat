@@ -30,6 +30,7 @@ dependencies:
   qr_flutter: ^4.1.0
   image_picker: ^1.1.2
   file_picker: ^8.1.2
+  audio_session: ^0.1.25
   just_audio: ^0.9.46
   just_audio_windows: ^0.2.1
   url_launcher: ^6.3.1

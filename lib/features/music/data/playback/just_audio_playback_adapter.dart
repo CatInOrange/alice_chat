@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../../../../core/debug/native_debug_bridge.dart';
 import '../../domain/music_models.dart';
 import '../../domain/music_runtime_models.dart';
 import 'playback_adapter.dart';
@@ -20,6 +22,7 @@ class JustAudioPlaybackAdapter implements PlaybackAdapter {
           initialized: true,
         ),
       );
+      _logPlaybackState(playerState);
     });
     _positionSub = _player.positionStream.listen((position) {
       _setState(_state.copyWith(position: position));
@@ -38,7 +41,11 @@ class JustAudioPlaybackAdapter implements PlaybackAdapter {
   StreamSubscription<PlayerState>? _playerStateSub;
   StreamSubscription<Duration>? _positionSub;
   StreamSubscription<Duration?>? _durationSub;
+  StreamSubscription<AudioInterruptionEvent>? _interruptionSub;
+  StreamSubscription<void>? _becomingNoisySub;
+  StreamSubscription<AudioDevicesChangedEvent>? _devicesChangedSub;
   StreamSubscription<dynamic>? _errorSub;
+  bool _audioSessionConfigured = false;
 
   @override
   PlaybackAdapterState get state => _state;
@@ -48,6 +55,7 @@ class JustAudioPlaybackAdapter implements PlaybackAdapter {
 
   @override
   Future<void> initialize() async {
+    await _configureAudioSession();
     _setState(_state.copyWith(initialized: true, clearError: true));
   }
 
@@ -56,6 +64,7 @@ class JustAudioPlaybackAdapter implements PlaybackAdapter {
     required MusicTrack track,
     required ResolvedPlaybackSource source,
   }) async {
+    await _configureAudioSession();
     final headers = source.headers;
     final audioSource = AudioSource.uri(
       Uri.parse(source.streamUrl),
@@ -73,6 +82,10 @@ class JustAudioPlaybackAdapter implements PlaybackAdapter {
         clearError: true,
       ),
     );
+    _log(
+      'play request track=${track.id} title=${track.title} '
+      'provider=${source.providerId} sourceTrack=${source.sourceTrackId}',
+    );
     try {
       await _player.setAudioSource(audioSource);
       _startPlayback();
@@ -89,10 +102,15 @@ class JustAudioPlaybackAdapter implements PlaybackAdapter {
   }
 
   @override
-  Future<void> pause() => _player.pause();
+  Future<void> pause() {
+    _log('pause request track=${_state.currentTrack?.id ?? ''}');
+    return _player.pause();
+  }
 
   @override
   Future<void> resume() async {
+    await _configureAudioSession();
+    _log('resume request track=${_state.currentTrack?.id ?? ''}');
     if (_player.processingState == ProcessingState.completed) {
       await _player.seek(Duration.zero);
     }
@@ -107,6 +125,9 @@ class JustAudioPlaybackAdapter implements PlaybackAdapter {
     await _playerStateSub?.cancel();
     await _positionSub?.cancel();
     await _durationSub?.cancel();
+    await _interruptionSub?.cancel();
+    await _becomingNoisySub?.cancel();
+    await _devicesChangedSub?.cancel();
     await _errorSub?.cancel();
     await _player.dispose();
     await _stateController.close();
@@ -122,6 +143,7 @@ class JustAudioPlaybackAdapter implements PlaybackAdapter {
   void _startPlayback() {
     unawaited(
       _player.play().catchError((Object error, StackTrace _) {
+        _log('playback failed error=$error', level: 'ERROR');
         _setState(
           _state.copyWith(
             error: error.toString(),
@@ -130,6 +152,69 @@ class JustAudioPlaybackAdapter implements PlaybackAdapter {
           ),
         );
       }),
+    );
+  }
+
+  Future<void> _configureAudioSession() async {
+    if (_audioSessionConfigured) {
+      return;
+    }
+    try {
+      final session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration.music());
+      _interruptionSub ??= session.interruptionEventStream.listen(
+        _handleInterruption,
+      );
+      _becomingNoisySub ??= session.becomingNoisyEventStream.listen((_) {
+        _log('audio session becoming_noisy');
+      });
+      _devicesChangedSub ??= session.devicesChangedEventStream.listen((event) {
+        _log(
+          'audio devices changed added=${_describeDevices(event.devicesAdded)} '
+          'removed=${_describeDevices(event.devicesRemoved)}',
+        );
+      });
+      _audioSessionConfigured = true;
+      _log('audio session configured music/media');
+    } catch (error) {
+      _log('audio session configure failed error=$error', level: 'ERROR');
+    }
+  }
+
+  void _handleInterruption(AudioInterruptionEvent event) {
+    _log(
+      'audio interruption begin=${event.begin} type=${event.type.name} '
+      'playing=${_player.playing} processing=${_player.processingState.name}',
+      level: event.begin ? 'WARN' : 'INFO',
+    );
+  }
+
+  void _logPlaybackState(PlayerState playerState) {
+    _log(
+      'player state playing=${playerState.playing} '
+      'processing=${playerState.processingState.name} '
+      'positionMs=${_state.position.inMilliseconds} '
+      'durationMs=${_state.duration?.inMilliseconds ?? -1} '
+      'track=${_state.currentTrack?.id ?? ''}',
+    );
+  }
+
+  String _describeDevices(Set<AudioDevice> devices) {
+    if (devices.isEmpty) {
+      return '[]';
+    }
+    return devices
+        .map(
+          (device) =>
+              '${device.type.name}:${device.name}:'
+              '${device.isInput ? 'in' : ''}${device.isOutput ? 'out' : ''}',
+        )
+        .join(',');
+  }
+
+  void _log(String message, {String level = 'INFO'}) {
+    unawaited(
+      NativeDebugBridge.instance.log('music.playback', message, level: level),
     );
   }
 }
