@@ -142,20 +142,6 @@ class PomodoroAlarmReceiver : BroadcastReceiver() {
         cancelAutoStopAlarm(context, pomodoroId)
     }
 
-    private fun stopPendingIntent(context: Context, pomodoroId: String): PendingIntent {
-        val intent = Intent(context, PomodoroAlarmReceiver::class.java).apply {
-            action = ACTION_STOP_POMODORO_VIBRATION
-            putExtra(EXTRA_POMODORO_ID, pomodoroId)
-            data = android.net.Uri.parse("alicechat://pomodoro-stop/$pomodoroId")
-        }
-        return PendingIntent.getBroadcast(
-            context,
-            ("pomodoro-stop:$pomodoroId").hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-    }
-
     private fun vibrator(context: Context): Vibrator =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val manager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
@@ -200,6 +186,20 @@ class PomodoroAlarmReceiver : BroadcastReceiver() {
             if (pomodoroId.isBlank()) return
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             alarmManager.cancel(stopPendingIntent(context, pomodoroId))
+        }
+
+        private fun stopPendingIntent(context: Context, pomodoroId: String): PendingIntent {
+            val intent = Intent(context, PomodoroAlarmReceiver::class.java).apply {
+                action = ACTION_STOP_POMODORO_VIBRATION
+                putExtra(EXTRA_POMODORO_ID, pomodoroId)
+                data = android.net.Uri.parse("alicechat://pomodoro-stop/$pomodoroId")
+            }
+            return PendingIntent.getBroadcast(
+                context,
+                ("pomodoro-stop:$pomodoroId").hashCode(),
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
         }
     }
 }
