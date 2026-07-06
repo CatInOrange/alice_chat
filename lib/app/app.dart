@@ -30,6 +30,7 @@ import '../features/habits/application/habits_store.dart';
 import '../features/webview/application/webview_host_controller.dart';
 import '../features/webview/presentation/companion_webview_page.dart';
 import '../features/webview/presentation/webview_screen.dart';
+import 'appearance_store.dart';
 import 'theme.dart';
 
 class AliceChatApp extends StatelessWidget {
@@ -39,6 +40,14 @@ class AliceChatApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        ChangeNotifierProvider(
+          create: (_) {
+            final store = AppearanceStore();
+            unawaited(store.load());
+            return store;
+          },
+          lazy: false,
+        ),
         ChangeNotifierProvider(create: (_) => ChatSessionStore()),
         ChangeNotifierProvider(create: (_) => MusicStore()),
         ChangeNotifierProvider(create: (_) => MusicPlatformStore()),
@@ -46,11 +55,16 @@ class AliceChatApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => TodoStore(), lazy: false),
         ChangeNotifierProvider(create: (_) => HabitsStore(), lazy: false),
       ],
-      child: MaterialApp(
-        title: 'Alice Chat',
-        theme: buildAliceChatTheme(),
-        debugShowCheckedModeBanner: false,
-        home: const _MainScaffold(),
+      child: Consumer<AppearanceStore>(
+        builder:
+            (context, appearance, _) => MaterialApp(
+              title: 'Alice Chat',
+              theme: buildAliceChatTheme(),
+              darkTheme: buildAliceChatTheme(brightness: Brightness.dark),
+              themeMode: appearance.themeMode,
+              debugShowCheckedModeBanner: false,
+              home: const _MainScaffold(),
+            ),
       ),
     );
   }

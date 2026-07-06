@@ -457,6 +457,7 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = context.aliceColors;
     final state = context.watch<ChatSessionStore>().stateFor(widget.session);
     final now = DateTime.now();
     if (_lastBuildLogAt == null ||
@@ -508,7 +509,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         color:
                             state.isAssistantStreaming
                                 ? theme.colorScheme.primary
-                                : const Color(0xFF98A1B3),
+                                : colors.textMuted,
                       ),
                     ),
                   ],
@@ -523,7 +524,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: IconButton(
                   onPressed: _openDiarySheet,
                   icon: const Icon(Icons.menu_book_rounded),
-                  color: const Color(0xFF7C4DFF),
+                  color: theme.colorScheme.primary,
                   tooltip: '晚秋日记',
                 ),
               ),
@@ -533,18 +534,18 @@ class _ChatScreenState extends State<ChatScreen> {
                 child: IconButton(
                   onPressed: widget.onOpenCompanion,
                   icon: const Icon(Icons.face_retouching_natural_rounded),
-                  color: const Color(0xFF7C4DFF),
+                  color: theme.colorScheme.primary,
                   tooltip: 'Live2D',
                 ),
               ),
           ],
           bottom: PreferredSize(
             preferredSize: const Size.fromHeight(1),
-            child: Container(height: 1, color: const Color(0xFFE7EAF3)),
+            child: Container(height: 1, color: colors.border),
           ),
         ),
         body: DecoratedBox(
-          decoration: const BoxDecoration(color: Color(0xFFF6F7FB)),
+          decoration: BoxDecoration(color: colors.background),
           child: _buildBody(state),
         ),
       ),
@@ -557,6 +558,8 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildBody(ChatViewState state) {
+    final theme = Theme.of(context);
+    final colors = context.aliceColors;
     if (state.isLoading && state.messages.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -568,11 +571,11 @@ class _ChatScreenState extends State<ChatScreen> {
           child: Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: colors.surfaceElevated,
               borderRadius: BorderRadius.circular(24),
-              boxShadow: const [
+              boxShadow: [
                 BoxShadow(
-                  color: Color(0x0F1F2430),
+                  color: colors.shadow,
                   blurRadius: 24,
                   offset: Offset(0, 8),
                 ),
@@ -594,7 +597,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 const SizedBox(height: 8),
                 Text(
                   state.error!,
-                  style: TextStyle(color: Colors.grey[600], height: 1.45),
+                  style: TextStyle(color: colors.textSubtle, height: 1.45),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 24),
@@ -624,7 +627,7 @@ class _ChatScreenState extends State<ChatScreen> {
             chatController: _chatController,
             onMessageSend: _handleSend,
             builders: _chatBuilders,
-            backgroundColor: const Color(0xFFF6F7FB),
+            backgroundColor: colors.background,
           ),
         ),
         if (_showJumpToBottom)
@@ -637,18 +640,18 @@ class _ChatScreenState extends State<ChatScreen> {
                 width: 44,
                 height: 44,
                 child: Material(
-                  color: Colors.white,
+                  color: colors.surfaceElevated,
                   shape: const CircleBorder(),
                   elevation: 6,
-                  shadowColor: const Color(0x1A1F2430),
+                  shadowColor: colors.shadow,
                   clipBehavior: Clip.antiAlias,
                   child: IconButton(
                     onPressed: _jumpToBottom,
                     icon: const Icon(
                       Icons.keyboard_arrow_down_rounded,
-                      color: Color(0xFF667085),
                       size: 28,
                     ),
+                    color: colors.icon,
                     splashRadius: 22,
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
@@ -699,11 +702,11 @@ class _ChatScreenState extends State<ChatScreen> {
                     vertical: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: colors.surfaceElevated,
                     borderRadius: BorderRadius.circular(18),
-                    boxShadow: const [
+                    boxShadow: [
                       BoxShadow(
-                        color: Color(0x121F2430),
+                        color: colors.shadow,
                         blurRadius: 18,
                         offset: Offset(0, 6),
                       ),
@@ -718,14 +721,18 @@ class _ChatScreenState extends State<ChatScreen> {
                     decoration: BoxDecoration(
                       color:
                           _streamingHintPulseActive
-                              ? const Color(0xFFF4E9FF)
+                              ? theme.colorScheme.primary.withValues(
+                                alpha: 0.12,
+                              )
                               : Colors.transparent,
                       borderRadius: BorderRadius.circular(16),
                       boxShadow:
                           _streamingHintPulseActive
-                              ? const [
+                              ? [
                                 BoxShadow(
-                                  color: Color(0x1A8B5CF6),
+                                  color: theme.colorScheme.primary.withValues(
+                                    alpha: 0.18,
+                                  ),
                                   blurRadius: 14,
                                   spreadRadius: 0.5,
                                 ),
@@ -2345,6 +2352,7 @@ class _ChatScreenState extends State<ChatScreen> {
     required bool sentByMe,
   }) {
     final theme = Theme.of(context);
+    final colors = context.aliceColors;
     final name =
         (attachment['name'] ?? attachment['filename'] ?? '附件').toString();
     final size = attachment['size'];
@@ -2363,22 +2371,19 @@ class _ChatScreenState extends State<ChatScreen> {
         decoration: BoxDecoration(
           color:
               sentByMe
-                  ? Colors.white.withValues(alpha: 0.14)
-                  : const Color(0xFFF6F7FB),
+                  ? colors.userBubbleText.withValues(alpha: 0.14)
+                  : colors.surfaceSoft,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color:
                 sentByMe
-                    ? Colors.white.withValues(alpha: 0.12)
-                    : const Color(0xFFE7EAF3),
+                    ? colors.userBubbleText.withValues(alpha: 0.12)
+                    : colors.border,
           ),
         ),
         child: Row(
           children: [
-            Icon(
-              icon,
-              color: sentByMe ? Colors.white : const Color(0xFF667085),
-            ),
+            Icon(icon, color: sentByMe ? colors.userBubbleText : colors.icon),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -2389,7 +2394,10 @@ class _ChatScreenState extends State<ChatScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodyMedium?.copyWith(
-                      color: sentByMe ? Colors.white : const Color(0xFF1F2430),
+                      color:
+                          sentByMe
+                              ? colors.userBubbleText
+                              : colors.assistantBubbleText,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -2405,8 +2413,8 @@ class _ChatScreenState extends State<ChatScreen> {
                     style: theme.textTheme.bodySmall?.copyWith(
                       color:
                           sentByMe
-                              ? Colors.white.withValues(alpha: 0.78)
-                              : const Color(0xFF98A1B3),
+                              ? colors.userBubbleText.withValues(alpha: 0.78)
+                              : colors.textMuted,
                     ),
                   ),
                 ],
@@ -2423,8 +2431,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 size: 18,
                 color:
                     sentByMe
-                        ? Colors.white.withValues(alpha: 0.9)
-                        : const Color(0xFF98A1B3),
+                        ? colors.userBubbleText.withValues(alpha: 0.9)
+                        : colors.textMuted,
               ),
             ),
             IconButton(
@@ -2439,8 +2447,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 size: 18,
                 color:
                     sentByMe
-                        ? Colors.white.withValues(alpha: 0.9)
-                        : const Color(0xFF667085),
+                        ? colors.userBubbleText.withValues(alpha: 0.9)
+                        : colors.icon,
               ),
             ),
           ],
@@ -2462,6 +2470,7 @@ class _ChatScreenState extends State<ChatScreen> {
     required List<Map<String, dynamic>> fileAttachments,
   }) {
     final theme = Theme.of(context);
+    final colors = context.aliceColors;
     final text = message.text.trim();
     final fromVoiceInput = _isVoiceInputMessage(message);
     return GestureDetector(
@@ -2475,7 +2484,7 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Container(
         constraints: BoxConstraints(maxWidth: maxWidth),
         decoration: BoxDecoration(
-          color: const Color(0xFF7C4DFF),
+          color: colors.userBubble,
           borderRadius: bubbleRadius,
         ),
         child: Padding(
@@ -2492,19 +2501,19 @@ class _ChatScreenState extends State<ChatScreen> {
                       child: Text(
                         text,
                         style: theme.textTheme.bodyLarge?.copyWith(
-                          color: Colors.white,
+                          color: colors.userBubbleText,
                           fontWeight: FontWeight.w500,
                         ),
                       ),
                     ),
                     if (fromVoiceInput) ...[
                       const SizedBox(width: 6),
-                      const Padding(
-                        padding: EdgeInsets.only(bottom: 1),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 1),
                         child: Icon(
                           Icons.volume_up_rounded,
                           size: 15,
-                          color: Color(0xFFEDE7FF),
+                          color: colors.userBubbleText,
                         ),
                       ),
                     ],
@@ -2610,6 +2619,7 @@ class _ChatScreenState extends State<ChatScreen> {
     required BorderRadius bubbleRadius,
   }) {
     final theme = Theme.of(context);
+    final colors = context.aliceColors;
     final markdownTheme = _getMarkdownStyleSheet(theme);
     final fileAttachments = _extractFileAttachments(message);
 
@@ -2625,11 +2635,11 @@ class _ChatScreenState extends State<ChatScreen> {
         child: Container(
           constraints: BoxConstraints(maxWidth: maxWidth),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: colors.assistantBubble,
             borderRadius: bubbleRadius,
-            boxShadow: const [
+            boxShadow: [
               BoxShadow(
-                color: Color(0x081F2430),
+                color: colors.shadow,
                 blurRadius: 10,
                 offset: Offset(0, 3),
               ),
@@ -2659,7 +2669,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     Text(
                       _assistantName,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF98A1B3),
+                        color: colors.textMuted,
                         fontWeight: FontWeight.w600,
                         fontSize: desktopAdjustedFontSize(11),
                       ),
@@ -2668,7 +2678,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       Text(
                         " · ",
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: const Color(0xFF98A1B3),
+                          color: colors.textMuted,
                           fontSize: desktopAdjustedFontSize(11),
                         ),
                       ),
@@ -2677,14 +2687,14 @@ class _ChatScreenState extends State<ChatScreen> {
                     Text(
                       " | ",
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF98A1B3),
+                        color: colors.textMuted,
                         fontSize: desktopAdjustedFontSize(11),
                       ),
                     ),
                     Text(
                       _formatMessageTime(message.createdAt ?? DateTime.now()),
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF98A1B3),
+                        color: colors.textMuted,
                         fontSize: desktopAdjustedFontSize(11),
                       ),
                     ),
@@ -2702,14 +2712,16 @@ class _ChatScreenState extends State<ChatScreen> {
     final monoFontFamily =
         theme.extension<AliceChatFontScheme>()?.monospaceFontFamily ??
         'monospace';
+    final colors =
+        theme.extension<AliceChatColors>() ?? AliceChatColors.light();
     final bodyStyle =
         theme.textTheme.bodyLarge?.copyWith(
-          color: const Color(0xFF1F2430),
+          color: colors.assistantBubbleText,
           fontWeight: FontWeight.w500,
           height: 1.28,
         ) ??
-        const TextStyle(
-          color: Color(0xFF1F2430),
+        TextStyle(
+          color: colors.assistantBubbleText,
           fontSize: 16,
           fontWeight: FontWeight.w500,
           height: 1.28,
@@ -2718,12 +2730,12 @@ class _ChatScreenState extends State<ChatScreen> {
     final mono =
         theme.textTheme.bodyMedium?.copyWith(
           fontFamily: monoFontFamily,
-          color: const Color(0xFF2B2F3A),
+          color: colors.text,
           height: 1.25,
         ) ??
         TextStyle(
           fontFamily: monoFontFamily,
-          color: const Color(0xFF2B2F3A),
+          color: colors.text,
           fontSize: 14,
           height: 1.25,
         );
@@ -2738,32 +2750,29 @@ class _ChatScreenState extends State<ChatScreen> {
       h3Padding: const EdgeInsets.only(top: 1, bottom: 2),
       strong: bodyStyle.copyWith(fontWeight: FontWeight.w800),
       em: bodyStyle.copyWith(fontStyle: FontStyle.italic),
-      listBullet: bodyStyle.copyWith(color: const Color(0xFF667085)),
-      blockquote: bodyStyle.copyWith(
-        color: const Color(0xFF5B657A),
-        height: 1.25,
-      ),
+      listBullet: bodyStyle.copyWith(color: colors.icon),
+      blockquote: bodyStyle.copyWith(color: colors.textSubtle, height: 1.25),
       blockSpacing: 4,
       listIndent: 16,
       unorderedListAlign: WrapAlignment.start,
       orderedListAlign: WrapAlignment.start,
       code: mono.copyWith(
-        backgroundColor: const Color(0xFFF1EEFF),
+        backgroundColor: colors.quoteBackground,
         fontSize: desktopAdjustedFontSize(13.5),
       ),
       codeblockDecoration: BoxDecoration(
-        color: const Color(0xFFF7F8FC),
+        color: colors.codeBackground,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE6E9F2)),
+        border: Border.all(color: colors.border),
       ),
       codeblockPadding: const EdgeInsets.all(8),
       a: bodyStyle.copyWith(
-        color: const Color(0xFF6D4AFF),
+        color: theme.colorScheme.primary,
         decoration: TextDecoration.underline,
         fontWeight: FontWeight.w700,
       ),
-      horizontalRuleDecoration: const BoxDecoration(
-        border: Border(top: BorderSide(color: Color(0xFFE7EAF3), width: 1)),
+      horizontalRuleDecoration: BoxDecoration(
+        border: Border(top: BorderSide(color: colors.border, width: 1)),
       ),
     );
   }
@@ -3663,6 +3672,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildComposer(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = context.aliceColors;
     final state = context.watch<ChatSessionStore>().stateFor(widget.session);
 
     return Positioned(
@@ -3673,9 +3683,9 @@ class _ChatScreenState extends State<ChatScreen> {
         top: false,
         child: Container(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-          decoration: const BoxDecoration(
-            color: Color(0xFFF6F7FB),
-            border: Border(top: BorderSide(color: Color(0xFFE7EAF3))),
+          decoration: BoxDecoration(
+            color: colors.background,
+            border: Border(top: BorderSide(color: colors.border)),
           ),
           child: LayoutBuilder(
             builder: (context, constraints) {
@@ -3701,9 +3711,9 @@ class _ChatScreenState extends State<ChatScreen> {
                       margin: const EdgeInsets.only(bottom: 10),
                       padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: colors.surfaceElevated,
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: const Color(0xFFE7EAF3)),
+                        border: Border.all(color: colors.border),
                       ),
                       child: Row(
                         children: [
@@ -3734,7 +3744,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                   style: theme.textTheme.bodySmall?.copyWith(
-                                    color: const Color(0xFF667085),
+                                    color: colors.textSubtle,
                                   ),
                                 ),
                               ],
@@ -3745,7 +3755,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                 () =>
                                     setState(() => _quotedMessageDraft = null),
                             icon: const Icon(Icons.close_rounded, size: 18),
-                            color: const Color(0xFF98A1B3),
+                            color: colors.textMuted,
                             splashRadius: 18,
                             tooltip: '取消引用',
                           ),
@@ -3758,9 +3768,9 @@ class _ChatScreenState extends State<ChatScreen> {
                       margin: const EdgeInsets.only(bottom: 10),
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: colors.surfaceElevated,
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: const Color(0xFFE7EAF3)),
+                        border: Border.all(color: colors.border),
                       ),
                       child: Row(
                         children: [
@@ -3776,7 +3786,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                       (_, __, ___) => Container(
                                         width: 56,
                                         height: 56,
-                                        color: const Color(0xFFF1F3F9),
+                                        color: colors.surfaceSoft,
                                         alignment: Alignment.center,
                                         child: const Icon(
                                           Icons.broken_image_outlined,
@@ -3788,7 +3798,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                 width: 56,
                                 height: 56,
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFF3F5FA),
+                                  color: colors.surfaceSoft,
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 alignment: Alignment.center,
@@ -3823,7 +3833,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: theme.textTheme.bodySmall?.copyWith(
-                                    color: const Color(0xFF667085),
+                                    color: colors.textSubtle,
                                   ),
                                 ),
                                 const SizedBox(height: 2),
@@ -3832,7 +3842,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                     _pendingAttachmentDraft!.fileSize,
                                   ),
                                   style: theme.textTheme.bodySmall?.copyWith(
-                                    color: const Color(0xFF98A1B3),
+                                    color: colors.textMuted,
                                   ),
                                 ),
                               ],
@@ -3846,7 +3856,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                       () => _pendingAttachmentDraft = null,
                                     ),
                             icon: const Icon(Icons.close_rounded, size: 18),
-                            color: const Color(0xFF98A1B3),
+                            color: colors.textMuted,
                             splashRadius: 18,
                             tooltip: '取消附件',
                           ),
@@ -3864,14 +3874,20 @@ class _ChatScreenState extends State<ChatScreen> {
                       decoration: BoxDecoration(
                         color:
                             _isVoiceCancelArmed
-                                ? const Color(0xFFFFF1F2)
-                                : const Color(0xFFEFF6FF),
+                                ? theme.colorScheme.errorContainer
+                                : theme.colorScheme.primaryContainer.withValues(
+                                  alpha: 0.55,
+                                ),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
                           color:
                               _isVoiceCancelArmed
-                                  ? const Color(0xFFFFCDD5)
-                                  : const Color(0xFFBFDBFE),
+                                  ? theme.colorScheme.error.withValues(
+                                    alpha: 0.22,
+                                  )
+                                  : theme.colorScheme.primary.withValues(
+                                    alpha: 0.22,
+                                  ),
                         ),
                       ),
                       child: Row(
@@ -3884,8 +3900,8 @@ class _ChatScreenState extends State<ChatScreen> {
                             size: 18,
                             color:
                                 _isVoiceCancelArmed
-                                    ? const Color(0xFFE11D48)
-                                    : const Color(0xFF2563EB),
+                                    ? theme.colorScheme.error
+                                    : theme.colorScheme.primary,
                           ),
                           const SizedBox(width: 8),
                           Expanded(
@@ -3894,8 +3910,8 @@ class _ChatScreenState extends State<ChatScreen> {
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color:
                                     _isVoiceCancelArmed
-                                        ? const Color(0xFFE11D48)
-                                        : const Color(0xFF1D4ED8),
+                                        ? theme.colorScheme.error
+                                        : theme.colorScheme.primary,
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
@@ -3910,7 +3926,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         width: 34,
                         height: 34,
                         decoration: BoxDecoration(
-                          color: Colors.white,
+                          color: colors.surfaceElevated,
                           borderRadius: BorderRadius.circular(17),
                         ),
                         child: IconButton(
@@ -3923,7 +3939,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           icon: const Icon(Icons.add_rounded),
                           color:
                               (state.isSubmitting || _isSendingAttachment)
-                                  ? const Color(0xFF98A1B3)
+                                  ? colors.textMuted
                                   : theme.colorScheme.primary,
                           tooltip: '附件',
                         ),
@@ -3932,11 +3948,11 @@ class _ChatScreenState extends State<ChatScreen> {
                       Expanded(
                         child: Container(
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: colors.inputBackground,
                             borderRadius: BorderRadius.circular(20),
-                            boxShadow: const [
+                            boxShadow: [
                               BoxShadow(
-                                color: Color(0x0A1F2430),
+                                color: colors.shadow,
                                 blurRadius: 14,
                                 offset: Offset(0, 4),
                               ),
@@ -3984,7 +4000,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                                       ? theme
                                                           .colorScheme
                                                           .primary
-                                                      : const Color(0xFFF3F5FA),
+                                                      : colors.surfaceSoft,
                                               borderRadius:
                                                   BorderRadius.circular(15),
                                             ),
@@ -4026,12 +4042,16 @@ class _ChatScreenState extends State<ChatScreen> {
                         decoration: BoxDecoration(
                           color:
                               composerBusy
-                                  ? const Color(0xFFD7CCFF)
+                                  ? theme.colorScheme.primary.withValues(
+                                    alpha: 0.38,
+                                  )
                                   : theme.colorScheme.primary,
                           borderRadius: BorderRadius.circular(18),
-                          boxShadow: const [
+                          boxShadow: [
                             BoxShadow(
-                              color: Color(0x1A7C4DFF),
+                              color: theme.colorScheme.primary.withValues(
+                                alpha: 0.22,
+                              ),
                               blurRadius: 16,
                               offset: Offset(0, 6),
                             ),

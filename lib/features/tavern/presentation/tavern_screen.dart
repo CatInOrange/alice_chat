@@ -378,13 +378,12 @@ class _TavernScreenState extends State<TavernScreen>
   }
 
   Widget _buildDesktopEmptyChatState(BuildContext context) {
+    final colors = context.aliceColors;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: Theme.of(context).dividerColor.withValues(alpha: 0.12),
-        ),
+        border: Border.all(color: colors.border),
       ),
       child: Center(
         child: Padding(
@@ -408,9 +407,9 @@ class _TavernScreenState extends State<TavernScreen>
               Text(
                 '桌面端现在会直接在右侧打开聊天，不再整页跳转。',
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFF667085),
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: colors.textSubtle),
               ),
             ],
           ),
@@ -710,15 +709,16 @@ class _TavernScreenState extends State<TavernScreen>
 
   Widget _buildWorldBooksTab(BuildContext context, TavernStore store) {
     final theme = Theme.of(context);
+    final colors = context.aliceColors;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: const Color(0xFFF8F7FF),
+            color: colors.quoteBackground,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFE7E3F8)),
+            border: Border.all(color: colors.border),
           ),
           child: Row(
             children: [
@@ -731,7 +731,7 @@ class _TavernScreenState extends State<TavernScreen>
                     Text(
                       '先看世界书本身；点开后，再看里面的关键词条目。',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF667085),
+                        color: colors.textSubtle,
                         height: 1.45,
                       ),
                     ),
@@ -767,7 +767,7 @@ class _TavernScreenState extends State<TavernScreen>
               elevation: 0,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
-                side: const BorderSide(color: Color(0xFFE8EAF2)),
+                side: BorderSide(color: colors.border),
               ),
               child: GestureDetector(
                 onLongPress: () => _confirmDeleteWorldBook(context, book),
@@ -928,6 +928,7 @@ class _TavernScreenState extends State<TavernScreen>
   }
 
   Widget _buildPresetsTab(BuildContext context, TavernStore store) {
+    final colors = context.aliceColors;
     final usedPresets = store.presets
         .where((preset) => _presetUsageCount(store, preset.id) > 0)
         .toList(growable: false);
@@ -941,9 +942,9 @@ class _TavernScreenState extends State<TavernScreen>
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: const Color(0xFFF6F3FF),
+            color: colors.quoteBackground,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFE5DDFC)),
+            border: Border.all(color: colors.border),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -3695,15 +3696,16 @@ class _TavernScreenState extends State<TavernScreen>
     TavernWorldBookEntry entry,
   ) {
     final theme = Theme.of(context);
+    final colors = context.aliceColors;
     final keywordText = entry.keys.isEmpty ? '无关键词' : entry.keys.join(' / ');
     final summary = _entryPositionLabel(entry.insertionPosition);
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFFAFBFF),
+        color: colors.surfaceSoft,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE6EAF4)),
+        border: Border.all(color: colors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3717,7 +3719,7 @@ class _TavernScreenState extends State<TavernScreen>
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w700,
-                    color: const Color(0xFF111827),
+                    color: colors.text,
                   ),
                 ),
               ),
@@ -3749,7 +3751,7 @@ class _TavernScreenState extends State<TavernScreen>
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color: const Color(0xFF667085),
+                    color: colors.textSubtle,
                     height: 1.35,
                   ),
                 ),
@@ -3908,24 +3910,25 @@ class _WorldBookInfoBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.aliceColors;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
+        color: colors.surfaceSoft,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: colors.border),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 18, color: const Color(0xFF667085)),
+          Icon(icon, size: 18, color: colors.icon),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               text,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: const Color(0xFF475467),
+                color: colors.textSubtle,
                 height: 1.45,
               ),
             ),

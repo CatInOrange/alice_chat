@@ -899,6 +899,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   @override
   Widget build(BuildContext context) {
     final bg = _backgroundImageUrl();
+    final colors = context.aliceColors;
     final content = Container(
       decoration:
           bg == null
@@ -907,11 +908,14 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                 image: DecorationImage(
                   image: NetworkImage(bg),
                   fit: BoxFit.cover,
-                  opacity: 0.18,
+                  opacity:
+                      Theme.of(context).brightness == Brightness.dark
+                          ? 0.12
+                          : 0.18,
                 ),
               ),
       child: Container(
-        color: Theme.of(context).scaffoldBackgroundColor.withValues(alpha: 0.9),
+        color: colors.overlay,
         child: Column(
           children: [
             if (widget.embedded) _buildEmbeddedHeader(context),
@@ -1010,7 +1014,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
 
   Widget _buildEmbeddedHeader(BuildContext context) {
     return Material(
-      color: Theme.of(context).colorScheme.surface,
+      color: context.aliceColors.surface,
       elevation: 1,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
@@ -1072,16 +1076,19 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
             ),
             child: Container(
               decoration: BoxDecoration(
-                color: isUser ? const Color(0xFF7C4DFF) : Colors.white,
+                color:
+                    isUser
+                        ? context.aliceColors.userBubble
+                        : context.aliceColors.assistantBubble,
                 borderRadius: BorderRadius.only(
                   topLeft: const Radius.circular(20),
                   topRight: const Radius.circular(20),
                   bottomLeft: Radius.circular(isUser ? 20 : 8),
                   bottomRight: Radius.circular(isUser ? 8 : 20),
                 ),
-                boxShadow: const [
+                boxShadow: [
                   BoxShadow(
-                    color: Color(0x081F2430),
+                    color: context.aliceColors.shadow,
                     blurRadius: 10,
                     offset: Offset(0, 3),
                   ),
@@ -1100,8 +1107,10 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                       style: Theme.of(context).textTheme.labelMedium?.copyWith(
                         color:
                             isUser
-                                ? Colors.white.withValues(alpha: 0.88)
-                                : const Color(0xFF98A1B3),
+                                ? context.aliceColors.userBubbleText.withValues(
+                                  alpha: 0.88,
+                                )
+                                : context.aliceColors.textMuted,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -1170,8 +1179,9 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                                 decoration: BoxDecoration(
                                   color:
                                       isUser
-                                          ? Colors.white.withValues(alpha: 0.12)
-                                          : const Color(0xFFF3F4F7),
+                                          ? context.aliceColors.userBubbleText
+                                              .withValues(alpha: 0.12)
+                                          : context.aliceColors.surfaceSoft,
                                   borderRadius: BorderRadius.circular(999),
                                 ),
                                 child: Icon(
@@ -1179,8 +1189,9 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                                   size: 16,
                                   color:
                                       isUser
-                                          ? Colors.white.withValues(alpha: 0.88)
-                                          : const Color(0xFF7B8494),
+                                          ? context.aliceColors.userBubbleText
+                                              .withValues(alpha: 0.88)
+                                          : context.aliceColors.icon,
                                 ),
                               ),
                             ),
@@ -1355,17 +1366,17 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                 ),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.98),
+                    color: context.aliceColors.assistantBubble,
                     borderRadius: const BorderRadius.only(
                       topLeft: Radius.circular(20),
                       topRight: Radius.circular(20),
                       bottomLeft: Radius.circular(8),
                       bottomRight: Radius.circular(20),
                     ),
-                    border: Border.all(color: const Color(0xFFE9E2FF)),
-                    boxShadow: const [
+                    border: Border.all(color: context.aliceColors.border),
+                    boxShadow: [
                       BoxShadow(
-                        color: Color(0x081F2430),
+                        color: context.aliceColors.shadow,
                         blurRadius: 10,
                         offset: Offset(0, 3),
                       ),
@@ -1384,7 +1395,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
                                 style: Theme.of(
                                   context,
                                 ).textTheme.labelMedium?.copyWith(
-                                  color: const Color(0xFF98A1B3),
+                                  color: context.aliceColors.textMuted,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
@@ -1415,13 +1426,15 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     if (normalized.isEmpty) {
       return const SizedBox.shrink();
     }
+    final colors = context.aliceColors;
+    final effectiveTextColor = textColor ?? colors.assistantBubbleText;
     return MarkdownBody(
       data: normalized,
       selectable: true,
       softLineBreak: true,
       styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
         p: Theme.of(context).textTheme.bodyMedium?.copyWith(
-          color: textColor,
+          color: effectiveTextColor,
           fontSize: desktopContentFontSize(
             Theme.of(context).textTheme.bodyMedium?.fontSize ?? 14,
           ),
@@ -1429,31 +1442,30 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           fontWeight: FontWeight.w500,
         ),
         strong: Theme.of(context).textTheme.bodyMedium?.copyWith(
-          color: textColor,
+          color: effectiveTextColor,
           fontSize: desktopContentFontSize(
             Theme.of(context).textTheme.bodyMedium?.fontSize ?? 14,
           ),
           fontWeight: FontWeight.w700,
         ),
         em: Theme.of(context).textTheme.bodyMedium?.copyWith(
-          color: textColor,
+          color: effectiveTextColor,
           fontSize: desktopContentFontSize(
             Theme.of(context).textTheme.bodyMedium?.fontSize ?? 14,
           ),
           fontStyle: FontStyle.italic,
         ),
         code: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: textColor,
-          backgroundColor: const Color(0xFFF1EEFF),
+          color: effectiveTextColor,
+          backgroundColor: colors.quoteBackground,
         ),
         codeblockDecoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          color: colors.codeBackground,
           borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: colors.border),
         ),
         blockquoteDecoration: BoxDecoration(
-          color: Theme.of(
-            context,
-          ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+          color: colors.quoteBackground.withValues(alpha: 0.72),
           borderRadius: BorderRadius.circular(8),
         ),
       ),
@@ -1465,7 +1477,10 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     final normalized = text.trim();
     if (normalized.isEmpty) return const SizedBox.shrink();
     if (isUser) {
-      return _buildMarkdownText(normalized, textColor: Colors.white);
+      return _buildMarkdownText(
+        normalized,
+        textColor: context.aliceColors.userBubbleText,
+      );
     }
 
     final segments = _assistantSegmentsFor(normalized);
@@ -1495,7 +1510,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       case _AssistantRenderSegmentKind.markdown:
         return _buildMarkdownText(
           segment.content,
-          textColor: const Color(0xFF1F2430),
+          textColor: context.aliceColors.assistantBubbleText,
         );
     }
   }
@@ -1524,13 +1539,14 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
     final open = isCn ? '（' : '(';
     final close = isCn ? '）' : ')';
     final inner = trimmed.substring(1, trimmed.length - 1).trim();
-    const bracketColor = Color(0xFFB8A7E8);
-    const contentColor = Color(0xFF7B6D9D);
+    final colors = context.aliceColors;
+    final bracketColor = colors.narrationText.withValues(alpha: 0.78);
+    final contentColor = colors.narrationText;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFFF6F1FF),
+        color: colors.narrationBackground,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text.rich(
@@ -1579,9 +1595,10 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   }
 
   Widget _buildInlineStyledRichText(String text) {
+    final colors = context.aliceColors;
     final baseStyle =
         Theme.of(context).textTheme.bodyMedium?.copyWith(
-          color: const Color(0xFF1F2430),
+          color: colors.assistantBubbleText,
           fontSize: desktopContentFontSize(
             Theme.of(context).textTheme.bodyMedium?.fontSize ?? 14,
           ),
@@ -1589,15 +1606,15 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
           fontWeight: FontWeight.w500,
         ) ??
         TextStyle(
-          color: const Color(0xFF1F2430),
+          color: colors.assistantBubbleText,
           fontSize: desktopContentFontSize(14),
           height: 1.4,
           fontWeight: FontWeight.w500,
         );
-    const narrationBracketColor = Color(0xFFB8A7E8);
-    const narrationContentColor = Color(0xFF7B6D9D);
-    const dialogueQuoteColor = Color(0xFFE0A0B8);
-    const dialogueContentColor = Color(0xFF8D4F68);
+    final narrationBracketColor = colors.narrationText.withValues(alpha: 0.78);
+    final narrationContentColor = colors.narrationText;
+    final dialogueQuoteColor = colors.dialogueText.withValues(alpha: 0.72);
+    final dialogueContentColor = colors.dialogueText;
     final spans = <InlineSpan>[];
     for (final segment in _parseStyledTextSegments(text)) {
       if (segment.kind == _StyledTextSegmentKind.plain) {
@@ -2198,10 +2215,15 @@ $trimmed
     required IconData icon,
     required String label,
   }) {
+    final colors = context.aliceColors;
     final fg =
-        isUser ? Colors.white.withValues(alpha: 0.72) : const Color(0xFF98A1B3);
+        isUser
+            ? colors.userBubbleText.withValues(alpha: 0.72)
+            : colors.textMuted;
     final bg =
-        isUser ? Colors.white.withValues(alpha: 0.10) : const Color(0xFFF4F6FA);
+        isUser
+            ? colors.userBubbleText.withValues(alpha: 0.10)
+            : colors.surfaceSoft;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(

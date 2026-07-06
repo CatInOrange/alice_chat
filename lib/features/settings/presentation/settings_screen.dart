@@ -22,6 +22,7 @@ import '../../voice/data/sherpa_wake_word_service.dart';
 import '../../voice/data/wake_reply_audio_cache_service.dart';
 import 'app_update_screen.dart';
 import 'debug_logs_panel.dart';
+import '../../../app/appearance_store.dart';
 import '../../../app/theme.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -1052,6 +1053,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
             accentColor: Theme.of(context).colorScheme.primary,
           ),
           const SizedBox(height: 16),
+          Consumer<AppearanceStore>(
+            builder:
+                (context, appearance, _) => _SettingsEntryCard(
+                  icon: Icons.dark_mode_rounded,
+                  accentColor: const Color(0xFF6D4AFF),
+                  title: '外观',
+                  subtitle: appearance.summary,
+                  onTap:
+                      () => _openDetailPage(
+                        title: '外观',
+                        icon: Icons.dark_mode_rounded,
+                        accentColor: const Color(0xFF6D4AFF),
+                        builder: (context) => _buildAppearanceContent(context),
+                      ),
+                ),
+          ),
+          const SizedBox(height: 12),
           _SettingsEntryCard(
             icon: Icons.link_rounded,
             accentColor: const Color(0xFF4F46E5),
@@ -1178,6 +1196,125 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildAppearanceContent(BuildContext context) {
+    return Consumer<AppearanceStore>(
+      builder: (context, appearance, _) {
+        Future<void> pickTime({
+          required bool start,
+          required TimeOfDay initial,
+        }) async {
+          final picked = await showTimePicker(
+            context: context,
+            initialTime: initial,
+          );
+          if (picked == null || !context.mounted) return;
+          await appearance.setAutoNightRange(
+            start: start ? picked : appearance.autoNightStart,
+            end: start ? appearance.autoNightEnd : picked,
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _SettingsSectionCard(
+              title: '主题模式',
+              subtitle: '控制 AliceChat 的全局配色，聊天、酒馆和设置页会一起切换。',
+              icon: Icons.palette_outlined,
+              child: Column(
+                children: [
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: SegmentedButton<AliceThemePreference>(
+                      segments:
+                          AliceThemePreference.values
+                              .map(
+                                (preference) => ButtonSegment(
+                                  value: preference,
+                                  label: Text(preference.label),
+                                ),
+                              )
+                              .toList(),
+                      selected: {appearance.themePreference},
+                      onSelectionChanged:
+                          (selection) =>
+                              appearance.setThemePreference(selection.first),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    child:
+                        appearance.themePreference ==
+                                AliceThemePreference.autoNight
+                            ? Column(
+                              key: const ValueKey('autoNightSettings'),
+                              children: [
+                                ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: const Icon(
+                                    Icons.nights_stay_outlined,
+                                  ),
+                                  title: const Text('夜间开始'),
+                                  subtitle: Text(
+                                    _formatAppearanceTime(
+                                      appearance.autoNightStart,
+                                    ),
+                                  ),
+                                  onTap:
+                                      () => pickTime(
+                                        start: true,
+                                        initial: appearance.autoNightStart,
+                                      ),
+                                ),
+                                ListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  leading: const Icon(Icons.wb_sunny_outlined),
+                                  title: const Text('夜间结束'),
+                                  subtitle: Text(
+                                    _formatAppearanceTime(
+                                      appearance.autoNightEnd,
+                                    ),
+                                  ),
+                                  onTap:
+                                      () => pickTime(
+                                        start: false,
+                                        initial: appearance.autoNightEnd,
+                                      ),
+                                ),
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    appearance.autoNightActive
+                                        ? '当前处于夜间配色'
+                                        : '当前处于日间配色',
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall?.copyWith(
+                                      color:
+                                          Theme.of(context).colorScheme.primary,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                            : const SizedBox.shrink(),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  String _formatAppearanceTime(TimeOfDay time) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${two(time.hour)}:${two(time.minute)}';
   }
 
   String _connectionSummary() {
