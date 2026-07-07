@@ -1974,9 +1974,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
+        color: context.aliceColors.surfaceSoft,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: context.aliceColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2182,9 +2182,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
+        color: context.aliceColors.surfaceSoft,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
+        border: Border.all(color: context.aliceColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2420,6 +2420,7 @@ class _SettingsHeroCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.aliceColors;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -2461,7 +2462,7 @@ class _SettingsHeroCard extends StatelessWidget {
                 Text(
                   subtitle,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: const Color(0xFF5B6475),
+                    color: colors.textSubtle,
                     height: 1.45,
                   ),
                 ),
@@ -2493,8 +2494,9 @@ class _SettingsEntryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.aliceColors;
     return Material(
-      color: Colors.white,
+      color: colors.surface,
       borderRadius: BorderRadius.circular(22),
       child: InkWell(
         borderRadius: BorderRadius.circular(22),
@@ -2503,10 +2505,10 @@ class _SettingsEntryCard extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: const Color(0xFFE8ECF4)),
-            boxShadow: const [
+            border: Border.all(color: colors.border),
+            boxShadow: [
               BoxShadow(
-                color: Color(0x0A101828),
+                color: colors.shadow.withValues(alpha: 0.45),
                 blurRadius: 18,
                 offset: Offset(0, 8),
               ),
@@ -2564,7 +2566,7 @@ class _SettingsEntryCard extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: const Color(0xFF667085),
+                        color: colors.textSubtle,
                         height: 1.4,
                       ),
                     ),
@@ -2572,7 +2574,7 @@ class _SettingsEntryCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 12),
-              const Icon(Icons.chevron_right_rounded, color: Color(0xFF98A2B3)),
+              Icon(Icons.chevron_right_rounded, color: colors.textMuted),
             ],
           ),
         ),
@@ -2642,12 +2644,13 @@ class _SettingsSectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = accentColor ?? Theme.of(context).colorScheme.primary;
+    final colors = context.aliceColors;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xFFE8ECF4)),
+        border: Border.all(color: colors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2679,7 +2682,7 @@ class _SettingsSectionCard extends StatelessWidget {
                     Text(
                       subtitle,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF667085),
+                        color: colors.textSubtle,
                         height: 1.4,
                       ),
                     ),
@@ -2743,6 +2746,7 @@ class _MusicProviderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = platform.provider;
+    final colors = context.aliceColors;
     final statusColor = switch (platform.authState) {
       MusicPlatformAuthStateKind.imported => const Color(0xFF2E7D32),
       MusicPlatformAuthStateKind.suspicious => const Color(0xFFB26A00),
@@ -2752,8 +2756,9 @@ class _MusicProviderCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8F9FD),
+        color: colors.surfaceSoft,
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: colors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3096,12 +3101,13 @@ class _CapabilityChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.aliceColors;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0xFFE6EAF3)),
+        border: Border.all(color: colors.border),
       ),
       child: Text(label, style: Theme.of(context).textTheme.bodySmall),
     );

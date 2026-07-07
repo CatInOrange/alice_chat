@@ -1747,8 +1747,9 @@ class _FavoritePlaylistCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final palette = paletteForTone(playlist.artworkTone);
+    final colors = context.aliceColors;
     return Material(
-      color: Colors.white.withValues(alpha: 0.9),
+      color: colors.surface.withValues(alpha: 0.94),
       borderRadius: BorderRadius.circular(28),
       child: InkWell(
         borderRadius: BorderRadius.circular(28),
@@ -1757,18 +1758,18 @@ class _FavoritePlaylistCard extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(15, 15, 12, 15),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.92)),
+            border: Border.all(color: colors.border),
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                Colors.white.withValues(alpha: 0.98),
-                const Color(0xFFF6F7FB).withValues(alpha: 0.92),
+                colors.surfaceElevated.withValues(alpha: 0.98),
+                colors.surface.withValues(alpha: 0.92),
               ],
             ),
-            boxShadow: const [
+            boxShadow: [
               BoxShadow(
-                color: Color(0x140B1220),
+                color: colors.shadow.withValues(alpha: 0.55),
                 blurRadius: 22,
                 offset: Offset(0, 12),
               ),
@@ -1843,7 +1844,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
                             style: theme.textTheme.bodySmall?.copyWith(
                               fontWeight: FontWeight.w700,
                               letterSpacing: 0.35,
-                              color: const Color(0xFF616B7E),
+                              color: colors.textSubtle,
                             ),
                           ),
                         ),
@@ -1884,7 +1885,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF616B7E),
+                        color: colors.textSubtle,
                         fontSize: desktopAdjustedFontSize(11.5),
                         height: 1.2,
                       ),
@@ -1895,7 +1896,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF8A93A5),
+                        color: colors.textMuted,
                         fontSize: desktopAdjustedFontSize(11),
                         height: 1.2,
                       ),
@@ -1962,6 +1963,7 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = context.aliceColors;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
@@ -1988,8 +1990,8 @@ class _SectionHeader extends StatelessWidget {
         FilledButton.tonalIcon(
           onPressed: isBusy ? null : onActionTap,
           style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFFF3F4F8),
-            foregroundColor: const Color(0xFF445065),
+            backgroundColor: colors.surfaceSoft,
+            foregroundColor: colors.textSubtle,
             visualDensity: VisualDensity.compact,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             shape: const StadiumBorder(),
@@ -2088,8 +2090,9 @@ class _PlaylistGridCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final palette = paletteForTone(playlist.artworkTone);
+    final colors = context.aliceColors;
     return Material(
-      color: Colors.white.withValues(alpha: 0.9),
+      color: colors.surface.withValues(alpha: 0.94),
       borderRadius: BorderRadius.circular(26),
       child: InkWell(
         borderRadius: BorderRadius.circular(26),
@@ -2169,7 +2172,7 @@ class _PlaylistGridCard extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: const Color(0xFF6B7280),
+                  color: colors.textSubtle,
                   fontSize: desktopAdjustedFontSize(11.5),
                   height: 1.3,
                 ),
@@ -2228,8 +2231,9 @@ class _RecentPlaylistTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final palette = paletteForTone(playlist.artworkTone);
+    final colors = context.aliceColors;
     return Material(
-      color: Colors.white.withValues(alpha: 0.92),
+      color: colors.surface.withValues(alpha: 0.94),
       borderRadius: BorderRadius.circular(24),
       child: InkWell(
         borderRadius: BorderRadius.circular(24),
@@ -2316,7 +2320,7 @@ class _RecentPlaylistTile extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
                         height: 1.2,
-                        color: const Color(0xFF596579),
+                        color: colors.textSubtle,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -2328,7 +2332,7 @@ class _RecentPlaylistTile extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(
-                            color: const Color(0xFF8A93A5),
+                            color: colors.textMuted,
                             fontSize: desktopAdjustedFontSize(11.5),
                             fontWeight: FontWeight.w600,
                           ),
@@ -2353,7 +2357,7 @@ class _RecentPlaylistTile extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: const Color(0xFF8A93A5),
+                              color: colors.textMuted,
                               fontSize: desktopAdjustedFontSize(11.5),
                             ),
                           ),
@@ -2500,12 +2504,14 @@ class _SectionPlaceholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = context.aliceColors;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.78),
+        color: colors.surface.withValues(alpha: 0.86),
         borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: colors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2525,20 +2531,18 @@ class _EmptyMusicState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = context.aliceColors;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.8),
+        color: colors.surface.withValues(alpha: 0.88),
         borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: colors.border),
       ),
       child: Column(
         children: [
-          const Icon(
-            Icons.music_off_rounded,
-            size: 36,
-            color: Color(0xFF7D879A),
-          ),
+          Icon(Icons.music_off_rounded, size: 36, color: colors.icon),
           const SizedBox(height: 12),
           Text('这里还安静着', style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
@@ -2619,6 +2623,7 @@ class _MiniPlayerState extends State<_MiniPlayer>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final palette = paletteForTone(widget.track.artworkTone);
+    final colors = context.aliceColors;
     return ClipRRect(
       borderRadius: BorderRadius.circular(32),
       child: BackdropFilter(
@@ -2631,12 +2636,12 @@ class _MiniPlayerState extends State<_MiniPlayer>
             child: Ink(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.78),
+                color: colors.surface.withValues(alpha: 0.86),
                 borderRadius: BorderRadius.circular(32),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.72)),
-                boxShadow: const [
+                border: Border.all(color: colors.border),
+                boxShadow: [
                   BoxShadow(
-                    color: Color(0x180B1220),
+                    color: colors.shadow.withValues(alpha: 0.58),
                     blurRadius: 22,
                     offset: Offset(0, 10),
                   ),

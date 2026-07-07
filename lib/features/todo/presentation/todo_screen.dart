@@ -263,7 +263,7 @@ class _TodoScreenState extends State<TodoScreen>
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F7FB),
+      backgroundColor: context.aliceColors.background,
       appBar: AppBar(
         title: const Text('待办'),
         actions: [
@@ -846,17 +846,21 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.aliceColors;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(999),
       child: Ink(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: selected ? const Color(0xFF7C4DFF) : Colors.white,
+          color: selected ? const Color(0xFF7C4DFF) : colors.surface,
           borderRadius: BorderRadius.circular(999),
-          boxShadow: const [
+          border: Border.all(
+            color: selected ? Colors.transparent : colors.border,
+          ),
+          boxShadow: [
             BoxShadow(
-              color: Color(0x081F2430),
+              color: colors.shadow.withValues(alpha: 0.55),
               blurRadius: 12,
               offset: Offset(0, 4),
             ),
@@ -865,7 +869,7 @@ class _FilterChip extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            color: selected ? Colors.white : const Color(0xFF6F7890),
+            color: selected ? Colors.white : colors.textSubtle,
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -985,14 +989,16 @@ class _CompactDropdown<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.aliceColors;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(999),
-        boxShadow: const [
+        border: Border.all(color: colors.border),
+        boxShadow: [
           BoxShadow(
-            color: Color(0x081F2430),
+            color: colors.shadow.withValues(alpha: 0.55),
             blurRadius: 12,
             offset: Offset(0, 4),
           ),
@@ -1005,12 +1011,9 @@ class _CompactDropdown<T> extends StatelessWidget {
           items: items,
           onChanged: onChanged,
           borderRadius: BorderRadius.circular(16),
-          style: const TextStyle(
-            color: Color(0xFF2D3443),
-            fontWeight: FontWeight.w700,
-          ),
-          dropdownColor: Colors.white,
-          icon: const Icon(Icons.expand_more_rounded, color: Color(0xFF7B8496)),
+          style: TextStyle(color: colors.text, fontWeight: FontWeight.w700),
+          dropdownColor: colors.surfaceElevated,
+          icon: Icon(Icons.expand_more_rounded, color: colors.icon),
         ),
       ),
     );
@@ -1054,6 +1057,7 @@ class _TaskTileState extends State<_TaskTile> {
   }
 
   Future<void> _showTaskMenu() async {
+    final colors = context.aliceColors;
     final action = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1061,9 +1065,11 @@ class _TaskTileState extends State<_TaskTile> {
           (context) => SafeArea(
             top: false,
             child: Container(
-              decoration: const BoxDecoration(
-                color: Color(0xFFF8F8FD),
-                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              decoration: BoxDecoration(
+                color: colors.surfaceElevated,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(28),
+                ),
               ),
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
@@ -1074,7 +1080,7 @@ class _TaskTileState extends State<_TaskTile> {
                       width: 44,
                       height: 5,
                       decoration: BoxDecoration(
-                        color: const Color(0xFFD9DDEC),
+                        color: colors.borderStrong,
                         borderRadius: BorderRadius.circular(999),
                       ),
                     ),
@@ -1083,7 +1089,7 @@ class _TaskTileState extends State<_TaskTile> {
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(18),
                       ),
-                      tileColor: Colors.white,
+                      tileColor: colors.surface,
                       leading: const Icon(
                         Icons.edit_outlined,
                         color: Color(0xFF7B6CF6),
@@ -1098,7 +1104,7 @@ class _TaskTileState extends State<_TaskTile> {
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(18),
                         ),
-                        tileColor: Colors.white,
+                        tileColor: colors.surface,
                         leading: const Icon(
                           Icons.delete_outline_rounded,
                           color: Color(0xFFEF4444),
@@ -1169,8 +1175,10 @@ class _TaskTileState extends State<_TaskTile> {
         ),
     ];
 
+    final colors = context.aliceColors;
+
     return Material(
-      color: Colors.white,
+      color: colors.surface,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         onTap: _toggleExpanded,
@@ -1179,9 +1187,10 @@ class _TaskTileState extends State<_TaskTile> {
         child: Ink(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            boxShadow: const [
+            border: Border.all(color: colors.border),
+            boxShadow: [
               BoxShadow(
-                color: Color(0x061F2430),
+                color: colors.shadow.withValues(alpha: 0.45),
                 blurRadius: 10,
                 offset: Offset(0, 4),
               ),
@@ -1743,9 +1752,10 @@ class _PomodoroPlanSummaryCard extends StatelessWidget {
     final next = _nextOpenPlanItem(items);
     final task = next == null ? null : _taskById(store.tasks, next.taskId);
     final theme = Theme.of(context);
+    final colors = context.aliceColors;
 
     return Material(
-      color: Colors.white,
+      color: colors.surface,
       borderRadius: BorderRadius.circular(18),
       child: InkWell(
         onTap: onOpen,
@@ -1754,7 +1764,7 @@ class _PomodoroPlanSummaryCard extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0xFFECEFF6)),
+            border: Border.all(color: colors.border),
           ),
           child: Row(
             children: [
@@ -1889,7 +1899,7 @@ class _PomodoroPlanScreenState extends State<_PomodoroPlanScreen> {
     final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F7FB),
+      backgroundColor: context.aliceColors.background,
       appBar: AppBar(
         title: const Text('番茄计划'),
         actions: [
@@ -2145,6 +2155,7 @@ class _PomodoroPlanControlPanel extends StatelessWidget {
     final activeTask = _taskById(store.tasks, active?.taskId);
     final nextTask = _taskById(store.tasks, nextItem?.taskId);
     final theme = Theme.of(context);
+    final colors = context.aliceColors;
 
     final title =
         active == null
@@ -2173,9 +2184,11 @@ class _PomodoroPlanControlPanel extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFFFDDC2)),
+        border: Border.all(
+          color: const Color(0xFFEF7B45).withValues(alpha: 0.35),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2204,7 +2217,7 @@ class _PomodoroPlanControlPanel extends StatelessWidget {
                     Text(
                       title,
                       style: theme.textTheme.titleMedium?.copyWith(
-                        color: const Color(0xFF2D3443),
+                        color: colors.text,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
@@ -2214,7 +2227,7 @@ class _PomodoroPlanControlPanel extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: const Color(0xFF667085),
+                        color: colors.textSubtle,
                         height: 1.35,
                       ),
                     ),
@@ -2293,9 +2306,10 @@ class _PomodoroPlanItemTile extends StatelessWidget {
     final theme = Theme.of(context);
     final statusColor = _planStatusColor(item.status);
     final dayLabel = _planDayLabel(item, DateTime.now());
+    final colors = context.aliceColors;
 
     return Material(
-      color: Colors.white,
+      color: colors.surface,
       borderRadius: BorderRadius.circular(10),
       child: InkWell(
         onTap: onEdit,
@@ -2305,10 +2319,7 @@ class _PomodoroPlanItemTile extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color:
-                  activeForItem
-                      ? const Color(0xFFFFC89F)
-                      : const Color(0xFFECEFF6),
+              color: activeForItem ? const Color(0xFFFFC89F) : colors.border,
             ),
           ),
           child: Column(
@@ -2344,9 +2355,7 @@ class _PomodoroPlanItemTile extends StatelessWidget {
                           style: theme.textTheme.titleSmall?.copyWith(
                             fontWeight: FontWeight.w900,
                             color:
-                                task == null
-                                    ? const Color(0xFF98A2B3)
-                                    : const Color(0xFF2D3443),
+                                task == null ? colors.textMuted : colors.text,
                           ),
                         ),
                         const SizedBox(height: 3),
@@ -2515,12 +2524,13 @@ Future<String?> _askPomodoroNote(BuildContext context) async {
     backgroundColor: Colors.transparent,
     builder: (context) {
       final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+      final colors = context.aliceColors;
       return Padding(
         padding: EdgeInsets.only(bottom: bottomInset),
         child: Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFFF8F8FD),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          decoration: BoxDecoration(
+            color: colors.surfaceElevated,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
           ),
           child: SafeArea(
             top: false,
@@ -2535,7 +2545,7 @@ Future<String?> _askPomodoroNote(BuildContext context) async {
                       width: 44,
                       height: 5,
                       decoration: BoxDecoration(
-                        color: const Color(0xFFD9DDEC),
+                        color: colors.borderStrong,
                         borderRadius: BorderRadius.circular(999),
                       ),
                     ),
@@ -2631,13 +2641,14 @@ class _PomodoroPlanEditorSheetState extends State<_PomodoroPlanEditorSheet> {
         .toList(growable: false);
     final theme = Theme.of(context);
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    final colors = context.aliceColors;
 
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
       child: Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFFF8F8FD),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        decoration: BoxDecoration(
+          color: colors.surfaceElevated,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
         ),
         child: SafeArea(
           top: false,
@@ -2651,7 +2662,7 @@ class _PomodoroPlanEditorSheetState extends State<_PomodoroPlanEditorSheet> {
                     width: 46,
                     height: 5,
                     decoration: BoxDecoration(
-                      color: const Color(0xFFD9DDEC),
+                      color: colors.borderStrong,
                       borderRadius: BorderRadius.circular(999),
                     ),
                   ),
@@ -2674,7 +2685,7 @@ class _PomodoroPlanEditorSheetState extends State<_PomodoroPlanEditorSheet> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: colors.surface,
                     borderRadius: BorderRadius.circular(18),
                   ),
                   child: DropdownButtonHideUnderline(
@@ -2995,7 +3006,7 @@ class _ProjectManagementScreen extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F7FB),
+      backgroundColor: context.aliceColors.background,
       appBar: AppBar(title: const Text('项目管理')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
@@ -3042,12 +3053,13 @@ class _ProjectManagementScreen extends StatelessWidget {
               final index = entry.key;
               final project = entry.value;
               final color = Color(project.colorValue);
+              final colors = context.aliceColors;
               return Padding(
                 padding: EdgeInsets.only(
                   bottom: index == projects.length - 1 ? 0 : 12,
                 ),
                 child: Material(
-                  color: Colors.white,
+                  color: colors.surface,
                   borderRadius: BorderRadius.circular(22),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(22),
@@ -3086,16 +3098,16 @@ class _ProjectManagementScreen extends StatelessWidget {
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.bodySmall?.copyWith(
-                                      color: const Color(0xFF7B8496),
+                                      color: colors.textMuted,
                                     ),
                                   ),
                                 ],
                               ],
                             ),
                           ),
-                          const Icon(
+                          Icon(
                             Icons.chevron_right_rounded,
-                            color: Color(0xFF98A2B3),
+                            color: colors.textMuted,
                           ),
                         ],
                       ),
@@ -3118,11 +3130,12 @@ class _ProjectSorterSheet extends StatelessWidget {
     final store = context.watch<TodoStore>();
     final projects = store.activeProjects;
     final theme = Theme.of(context);
+    final colors = context.aliceColors;
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFFF8F8FD),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      decoration: BoxDecoration(
+        color: colors.surfaceElevated,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
       ),
       child: SafeArea(
         top: false,
@@ -3137,7 +3150,7 @@ class _ProjectSorterSheet extends StatelessWidget {
                   width: 46,
                   height: 5,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFD9DDEC),
+                    color: colors.borderStrong,
                     borderRadius: BorderRadius.circular(999),
                   ),
                 ),
@@ -3153,7 +3166,7 @@ class _ProjectSorterSheet extends StatelessWidget {
               Text(
                 '长按拖动，首页会按这个顺序横向展示。',
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: const Color(0xFF7B8496),
+                  color: colors.textSubtle,
                 ),
               ),
               const SizedBox(height: 18),
@@ -3183,11 +3196,12 @@ class _ProjectSorterSheet extends StatelessWidget {
                         vertical: 14,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: colors.surface,
                         borderRadius: BorderRadius.circular(22),
-                        boxShadow: const [
+                        border: Border.all(color: colors.border),
+                        boxShadow: [
                           BoxShadow(
-                            color: Color(0x081F2430),
+                            color: colors.shadow.withValues(alpha: 0.45),
                             blurRadius: 16,
                             offset: Offset(0, 8),
                           ),
@@ -3218,9 +3232,9 @@ class _ProjectSorterSheet extends StatelessWidget {
                           ),
                           ReorderableDragStartListener(
                             index: index,
-                            child: const Icon(
+                            child: Icon(
                               Icons.drag_indicator_rounded,
-                              color: Color(0xFF9AA3B5),
+                              color: colors.textMuted,
                             ),
                           ),
                         ],
@@ -3244,6 +3258,7 @@ class _ArchivedProjectsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final store = context.watch<TodoStore>();
     final archivedProjects = store.archivedProjects;
+    final colors = context.aliceColors;
 
     return Scaffold(
       appBar: AppBar(title: const Text('已归档项目')),
@@ -3266,11 +3281,12 @@ class _ArchivedProjectsScreen extends StatelessWidget {
                   return Container(
                     padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: colors.surface,
                       borderRadius: BorderRadius.circular(24),
-                      boxShadow: const [
+                      border: Border.all(color: colors.border),
+                      boxShadow: [
                         BoxShadow(
-                          color: Color(0x081F2430),
+                          color: colors.shadow.withValues(alpha: 0.45),
                           blurRadius: 18,
                           offset: Offset(0, 8),
                         ),
@@ -3341,11 +3357,12 @@ class _EmptyCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.aliceColors.surface,
         borderRadius: BorderRadius.circular(26),
-        boxShadow: const [
+        border: Border.all(color: context.aliceColors.border),
+        boxShadow: [
           BoxShadow(
-            color: Color(0x081F2430),
+            color: context.aliceColors.shadow.withValues(alpha: 0.45),
             blurRadius: 18,
             offset: Offset(0, 8),
           ),
@@ -3392,9 +3409,9 @@ class _InlineHabitPlaceholder extends StatelessWidget {
     return Container(
       height: 58,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.aliceColors.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE8ECF3)),
+        border: Border.all(color: context.aliceColors.border),
       ),
       alignment: Alignment.center,
       child: const SizedBox(
@@ -3413,8 +3430,9 @@ class _InlineHabitEmptyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.aliceColors;
     return Material(
-      color: Colors.white,
+      color: colors.surface,
       borderRadius: BorderRadius.circular(16),
       child: InkWell(
         onTap: onCreate,
@@ -3423,7 +3441,7 @@ class _InlineHabitEmptyCard extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFE8ECF3)),
+            border: Border.all(color: colors.border),
           ),
           child: Row(
             children: [
@@ -3431,12 +3449,12 @@ class _InlineHabitEmptyCard extends StatelessWidget {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF2F4FA),
+                  color: colors.surfaceSoft,
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.directions_run_rounded,
-                  color: Color(0xFF7B8496),
+                  color: colors.icon,
                   size: 20,
                 ),
               ),
@@ -3446,7 +3464,7 @@ class _InlineHabitEmptyCard extends StatelessWidget {
                   '今天没有待打卡习惯',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w700,
-                    color: const Color(0xFF2D3443),
+                    color: colors.text,
                   ),
                 ),
               ),
@@ -3471,6 +3489,7 @@ class _AddEntryFab extends StatelessWidget {
   final bool compact;
 
   Future<void> _openMenu(BuildContext context) async {
+    final colors = context.aliceColors;
     final action = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -3478,9 +3497,11 @@ class _AddEntryFab extends StatelessWidget {
           (context) => SafeArea(
             top: false,
             child: Container(
-              decoration: const BoxDecoration(
-                color: Color(0xFFF8F8FD),
-                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              decoration: BoxDecoration(
+                color: colors.surfaceElevated,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(28),
+                ),
               ),
               padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
               child: Column(
@@ -3490,7 +3511,7 @@ class _AddEntryFab extends StatelessWidget {
                     width: 44,
                     height: 5,
                     decoration: BoxDecoration(
-                      color: const Color(0xFFD9DDEC),
+                      color: colors.borderStrong,
                       borderRadius: BorderRadius.circular(999),
                     ),
                   ),
@@ -3499,7 +3520,7 @@ class _AddEntryFab extends StatelessWidget {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(18),
                     ),
-                    tileColor: Colors.white,
+                    tileColor: colors.surface,
                     leading: const Icon(
                       Icons.checklist_rounded,
                       color: Color(0xFF7B6CF6),
@@ -3513,7 +3534,7 @@ class _AddEntryFab extends StatelessWidget {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(18),
                     ),
-                    tileColor: Colors.white,
+                    tileColor: colors.surface,
                     leading: const Icon(
                       Icons.directions_run_rounded,
                       color: Color(0xFF4E9F7A),
@@ -3706,9 +3727,9 @@ class _ProjectEditorSheetState extends State<_ProjectEditorSheet> {
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
       child: Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFFF8F8FD),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        decoration: BoxDecoration(
+          color: context.aliceColors.surfaceElevated,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
         ),
         child: SafeArea(
           top: false,
@@ -3722,7 +3743,7 @@ class _ProjectEditorSheetState extends State<_ProjectEditorSheet> {
                     width: 46,
                     height: 5,
                     decoration: BoxDecoration(
-                      color: const Color(0xFFD9DDEC),
+                      color: context.aliceColors.borderStrong,
                       borderRadius: BorderRadius.circular(999),
                     ),
                   ),
@@ -3759,7 +3780,7 @@ class _ProjectEditorSheetState extends State<_ProjectEditorSheet> {
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: context.aliceColors.surface,
                     borderRadius: BorderRadius.circular(24),
                   ),
                   child: Wrap(
@@ -3787,7 +3808,7 @@ class _ProjectEditorSheetState extends State<_ProjectEditorSheet> {
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: context.aliceColors.surface,
                     borderRadius: BorderRadius.circular(24),
                   ),
                   child: Wrap(
@@ -3899,14 +3920,14 @@ class _SelectableIconChip extends StatelessWidget {
                     end: Alignment.bottomRight,
                   )
                   : null,
-          color: selected ? null : Colors.white,
+          color: selected ? null : context.aliceColors.surface,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: selected ? color : const Color(0xFFE6EAF4),
+            color: selected ? color : context.aliceColors.border,
             width: selected ? 1.6 : 1,
           ),
         ),
-        child: Icon(icon, color: selected ? color : const Color(0xFF8A94A8)),
+        child: Icon(icon, color: selected ? color : context.aliceColors.icon),
       ),
     );
   }
@@ -3958,7 +3979,7 @@ class _CompletedTasksScreen extends StatelessWidget {
     final grouped = _groupCompletedTasks(completed);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F7FB),
+      backgroundColor: context.aliceColors.background,
       appBar: AppBar(title: const Text('已完成')),
       body:
           completed.isEmpty
@@ -4019,14 +4040,16 @@ class _CompletedTaskRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final color = Color(project.colorValue);
+    final colors = context.aliceColors;
     return Container(
       padding: const EdgeInsets.fromLTRB(0, 0, 14, 0),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: const [
+        border: Border.all(color: colors.border),
+        boxShadow: [
           BoxShadow(
-            color: Color(0x051F2430),
+            color: colors.shadow.withValues(alpha: 0.35),
             blurRadius: 10,
             offset: Offset(0, 4),
           ),
@@ -4441,9 +4464,9 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
     return Padding(
       padding: EdgeInsets.only(bottom: bottomInset),
       child: Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFFF8F8FD),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        decoration: BoxDecoration(
+          color: context.aliceColors.surfaceElevated,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
         ),
         child: SafeArea(
           top: false,
@@ -4457,7 +4480,7 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
                     width: 46,
                     height: 5,
                     decoration: BoxDecoration(
-                      color: const Color(0xFFD9DDEC),
+                      color: context.aliceColors.borderStrong,
                       borderRadius: BorderRadius.circular(999),
                     ),
                   ),
@@ -4540,7 +4563,7 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
                       vertical: 16,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: context.aliceColors.surface,
                       borderRadius: BorderRadius.circular(18),
                     ),
                     child: Row(
@@ -4587,7 +4610,7 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
                       vertical: 16,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: context.aliceColors.surface,
                       borderRadius: BorderRadius.circular(18),
                     ),
                     child: Row(
@@ -4656,7 +4679,7 @@ class _TaskEditorSheetState extends State<_TaskEditorSheet> {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: context.aliceColors.surface,
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Column(
@@ -4825,22 +4848,36 @@ class _ReminderShortcutChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.aliceColors;
     return InkWell(
       onTap: enabled ? onTap : null,
       borderRadius: BorderRadius.circular(999),
       child: Ink(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: enabled ? const Color(0xFFF4EEFF) : const Color(0xFFF3F5F9),
+          color:
+              enabled
+                  ? Theme.of(
+                    context,
+                  ).colorScheme.primary.withValues(alpha: 0.14)
+                  : colors.surfaceSoft,
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
-            color: enabled ? const Color(0xFFD9CCFF) : const Color(0xFFE5E9F2),
+            color:
+                enabled
+                    ? Theme.of(
+                      context,
+                    ).colorScheme.primary.withValues(alpha: 0.28)
+                    : colors.border,
           ),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: enabled ? const Color(0xFF6E54F7) : const Color(0xFF9AA3B5),
+            color:
+                enabled
+                    ? Theme.of(context).colorScheme.primary
+                    : colors.textMuted,
             fontSize: desktopAdjustedFontSize(11),
             fontWeight: FontWeight.w700,
           ),
