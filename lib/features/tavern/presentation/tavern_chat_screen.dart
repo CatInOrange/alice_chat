@@ -767,10 +767,13 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
   Future<void> _bootstrap() async {
     final store = context.read<TavernStore>();
     try {
-      final cached = await store.loadCachedChatSnapshot(_chat.id);
-      final settings = await OpenClawSettingsStore.load();
+      final cachedFuture = store.loadCachedChatSnapshot(_chat.id);
+      final settingsFuture = OpenClawSettingsStore.load();
+      final quickRepliesFuture = OpenClawSettingsStore.loadTavernQuickReplies();
+      final cached = await cachedFuture;
+      final settings = await settingsFuture;
       if (!mounted) return;
-      final quickReplies = await OpenClawSettingsStore.loadTavernQuickReplies();
+      final quickReplies = await quickRepliesFuture;
       if (cached != null) {
         _assistantRenderSegmentCache.clear();
         _latestPromptDebugNotifier.value = cached.promptDebug;
@@ -867,11 +870,13 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       }
 
       _assistantRenderSegmentCache.clear();
+      final nextMessages =
+          _isSending ? _messages : _mergeMessageHistory(_messages, messages);
       setState(() {
         _character = character;
         _chat = chat;
         if (!_isSending) {
-          _messages = messages;
+          _messages = nextMessages;
           _streamingAssistantMessage = null;
           _streamingAssistantMessageId = null;
         }
@@ -884,7 +889,7 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
       await store.saveChatSnapshot(
         chat: chat,
         character: character,
-        messages: messages,
+        messages: nextMessages,
         promptDebug: _latestPromptDebug,
       );
     } catch (exc) {
@@ -894,6 +899,32 @@ class _TavernChatScreenState extends State<TavernChatScreen> {
         _error ??= exc.toString();
       });
     }
+  }
+
+  List<TavernMessage> _mergeMessageHistory(
+    List<TavernMessage> cached,
+    List<TavernMessage> remoteRecent,
+  ) {
+    if (cached.isEmpty) return remoteRecent;
+    if (remoteRecent.isEmpty) return cached;
+    final mergedById = <String, TavernMessage>{
+      for (final message in cached) message.id: message,
+      for (final message in remoteRecent) message.id: message,
+    };
+    final merged = mergedById.values.toList(growable: false);
+    merged.sort(_compareMessagesByCreatedAt);
+    if (merged.length <= 200) return List<TavernMessage>.unmodifiable(merged);
+    return List<TavernMessage>.unmodifiable(
+      merged.sublist(merged.length - 200),
+    );
+  }
+
+  int _compareMessagesByCreatedAt(TavernMessage a, TavernMessage b) {
+    final aMs = a.createdAt?.millisecondsSinceEpoch ?? 0;
+    final bMs = b.createdAt?.millisecondsSinceEpoch ?? 0;
+    final byTime = aMs.compareTo(bMs);
+    if (byTime != 0) return byTime;
+    return a.id.compareTo(b.id);
   }
 
   @override
