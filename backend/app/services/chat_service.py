@@ -11,6 +11,7 @@ from dataclasses import dataclass, replace
 import json
 import logging
 import mimetypes
+import re
 import uuid
 
 from ..agents import ChatRequest, create_agent_backend
@@ -20,6 +21,9 @@ from ..media_utils import normalize_attachment_url
 
 
 _LOG = logging.getLogger(__name__)
+_LEADING_BRACKET_PREFIX_RE = re.compile(r'^\s*(?:\[[^\]\r\n]{1,80}\]\s*)+')
+_RECOVERY_MESSAGE_PREFIX_RE = re.compile(r'^\s*\[恢复消息\]\s*', re.IGNORECASE)
+_IMPORTED_ASSISTANT_SOURCES = {'recovery', 'transcript_backfill', 'transcript_reconcile'}
 
 
 @dataclass(slots=True)
@@ -193,6 +197,7 @@ class ChatService:
         media: list[dict] | None = None,
         meta: str = "",
         source: str = "chat",
+        dedupe_after_created_at: float | None = None,
     ) -> list[dict]:
         """Persist assistant output.
 
@@ -262,6 +267,26 @@ class ChatService:
             )
 
         if visible_text:
+            imported_match = self._find_imported_equivalent_assistant(
+                session_id=session_id,
+                text=visible_text,
+                after_created_at=dedupe_after_created_at,
+            )
+            if imported_match is not None:
+                updated_meta = self._merge_reused_import_meta(
+                    existing_meta=imported_match.get("meta"),
+                    meta=meta,
+                    source=source,
+                )
+                updated = self.update_message_content(
+                    message_id=str(imported_match.get("id") or ""),
+                    text=visible_text,
+                    raw_text=str(raw_reply or ""),
+                    meta=updated_meta,
+                )
+                persisted.append(updated or imported_match)
+                return persisted
+
             persisted.append(
                 self.messages.create_message(
                     session_id=session_id,
@@ -286,6 +311,63 @@ class ChatService:
             len(assistant_attachments),
         )
         return []
+
+    def _normalize_compare_text(self, text: str) -> str:
+        value = str(text or "").strip()
+        value = _RECOVERY_MESSAGE_PREFIX_RE.sub("", value, count=1)
+        value = _LEADING_BRACKET_PREFIX_RE.sub("", value.strip(), count=1)
+        return re.sub(r"\s+", " ", value.strip())
+
+    def _find_imported_equivalent_assistant(
+        self,
+        *,
+        session_id: str,
+        text: str,
+        after_created_at: float | None,
+    ) -> dict | None:
+        target = self._normalize_compare_text(text)
+        if not target:
+            return None
+        after = float(after_created_at or 0)
+        if after <= 0:
+            return None
+        candidates = [
+            item
+            for item in self.messages.list_session_messages(session_id, limit=5000)
+            if str(item.get("role") or "") == "assistant"
+            and str(item.get("source") or "") in _IMPORTED_ASSISTANT_SOURCES
+            and float(item.get("createdAt") or 0) >= after
+        ]
+        for item in reversed(candidates):
+            if self._normalize_compare_text(str(item.get("text") or "")) == target:
+                return item
+        return None
+
+    def _merge_reused_import_meta(
+        self,
+        *,
+        existing_meta: object,
+        meta: str,
+        source: str,
+    ) -> dict:
+        def _parse(value: object) -> dict:
+            if isinstance(value, dict):
+                return dict(value)
+            if not value:
+                return {}
+            try:
+                parsed = json.loads(str(value))
+            except json.JSONDecodeError:
+                return {}
+            return dict(parsed) if isinstance(parsed, dict) else {}
+
+        merged = _parse(existing_meta)
+        chat_meta = _parse(meta)
+        if chat_meta:
+            merged.update(chat_meta)
+        merged["reusedImportedAssistant"] = True
+        merged["finalSource"] = str(source or "chat")
+        return merged
 
     def _build_prior_messages(self, session_id: str, *, limit: int = 12) -> list[dict]:
         history = self.messages.list_session_messages(session_id, limit=2000)

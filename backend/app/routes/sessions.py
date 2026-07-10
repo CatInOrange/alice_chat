@@ -119,13 +119,9 @@ def create_sessions_router(context: AppContext) -> APIRouter:
         session_id = require_existing_session(context.session_store, session_id)
         payload = body or {}
         limit = int(payload.get('limit') or 5)
-        result = context.recovery_service.sync_session_from_transcript(
+        result = await context.recovery_service.reconcile_session_tail(
             session_id,
-            limit=limit,
-            recent_user_limit=3,
-            reconcile_tail=True,
             tail_limit=limit,
-            allow_tail_delete=bool(payload.get('allowDelete') or False),
         )
         page = context.message_store.list_session_messages_page(
             session_id,

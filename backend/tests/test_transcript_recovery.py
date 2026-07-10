@@ -7,6 +7,7 @@ from pathlib import Path
 
 from backend.app.services.chat_service import ChatService
 from backend.app.services.events_bus import EventsBus
+from backend.app.services.request_deduper import RequestDeduper
 from backend.app.services.transcript_recovery import TranscriptRecoveryService
 from backend.app.store import MessageStore, RecoveryStore, SessionStore
 from backend.app.store.db import DbConfig
@@ -30,6 +31,22 @@ class TranscriptRecoveryTextSelectionTest(unittest.TestCase):
             chat_service=ChatService(sessions=sessions, messages=messages),
             events_bus=EventsBus(),
             recoveries=RecoveryStore(db),
+            agents_root=tmpdir / 'agents',
+            recovery_timeout_seconds=15.0,
+            scan_interval_seconds=10.0,
+        )
+
+    def _service_with_deduper(self, tmpdir: Path, deduper: RequestDeduper) -> TranscriptRecoveryService:
+        db = DbConfig(tmpdir / 'test.sqlite3')
+        sessions = SessionStore(db)
+        messages = MessageStore(db)
+        return TranscriptRecoveryService(
+            sessions=sessions,
+            messages=messages,
+            chat_service=ChatService(sessions=sessions, messages=messages),
+            events_bus=EventsBus(),
+            recoveries=RecoveryStore(db),
+            request_deduper=deduper,
             agents_root=tmpdir / 'agents',
             recovery_timeout_seconds=15.0,
             scan_interval_seconds=10.0,
@@ -198,6 +215,93 @@ class TranscriptRecoveryTextSelectionTest(unittest.TestCase):
                 [(item['role'], item['text']) for item in messages],
                 [('user', 'u1'), ('assistant', '[model][complete] a1')],
             )
+
+    def test_chat_persist_reuses_equivalent_transcript_reconcile_reply_after_user(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmpdir:
+            tmpdir = Path(raw_tmpdir)
+            db = DbConfig(tmpdir / 'test.sqlite3')
+            sessions = SessionStore(db)
+            messages = MessageStore(db)
+            chat_service = ChatService(sessions=sessions, messages=messages)
+            sessions.create_session_with_id(session_id='s1', name='s1')
+            user = messages.create_message(
+                session_id='s1',
+                role='user',
+                text='不错不错，喜欢',
+                created_at=1_779_753_601,
+            )
+            imported = messages.create_message(
+                session_id='s1',
+                role='assistant',
+                text='主人喜欢就好～',
+                raw_text='主人喜欢就好～',
+                source='transcript_reconcile',
+                created_at=1_779_753_602,
+            )
+
+            persisted = chat_service.persist_assistant_message(
+                session_id='s1',
+                reply='[deepseek-v4-flash] 主人喜欢就好～',
+                raw_reply='[deepseek-v4-flash] 主人喜欢就好～',
+                meta=json.dumps({'clientMessageId': 'client-1'}),
+                source='chat',
+                dedupe_after_created_at=float(user['createdAt']),
+            )
+
+            self.assertEqual([item['id'] for item in persisted], [imported['id']])
+            stored = messages.list_session_messages_page('s1', limit=5)['messages']
+            self.assertEqual(
+                [(item['role'], item['source'], item['text']) for item in stored],
+                [
+                    ('user', 'api', '不错不错，喜欢'),
+                    ('assistant', 'transcript_reconcile', '[deepseek-v4-flash] 主人喜欢就好～'),
+                ],
+            )
+            meta = json.loads(stored[-1]['meta'])
+            self.assertTrue(meta['reusedImportedAssistant'])
+            self.assertEqual(meta['finalSource'], 'chat')
+
+    def test_reconcile_tail_skips_when_matching_request_is_running(self) -> None:
+        with tempfile.TemporaryDirectory() as raw_tmpdir:
+            tmpdir = Path(raw_tmpdir)
+            deduper = RequestDeduper()
+            service = self._service_with_deduper(tmpdir, deduper)
+            session_key = 'agent:yulinglong:alicechat:user:contact:session'
+            transcript_path = tmpdir / 'agents' / 'yulinglong' / 'sessions' / 'session.jsonl'
+            transcript_path.parent.mkdir(parents=True)
+            (transcript_path.parent / 'sessions.json').write_text(
+                json.dumps({session_key: {'sessionFile': str(transcript_path)}}),
+                encoding='utf-8',
+            )
+            service.sessions.create_session_with_id(
+                session_id='s1',
+                name='s1',
+                route_key=f'alicechat-channel|{session_key}',
+            )
+            _write_jsonl(
+                transcript_path,
+                [
+                    {'type': 'message', 'timestamp': '2026-05-26T00:00:01Z', 'message': {'role': 'user', 'content': 'u1'}},
+                    {'type': 'message', 'timestamp': '2026-05-26T00:00:02Z', 'message': {'role': 'assistant', 'content': 'a1'}},
+                ],
+            )
+            service.messages.create_message(
+                session_id='s1',
+                role='user',
+                text='u1',
+                meta=json.dumps({'clientMessageId': 'client-1'}),
+                created_at=1_779_753_601,
+            )
+            __import__('asyncio').run(deduper.get_or_create('s1', 'client-1'))
+
+            result = __import__('asyncio').run(
+                service.reconcile_session_tail('s1', tail_limit=5, min_age_seconds=0)
+            )
+
+            self.assertFalse(result['changed'])
+            self.assertEqual(result['reason'], 'request_running')
+            messages = service.messages.list_session_messages_page('s1', limit=5)['messages']
+            self.assertEqual([(item['role'], item['text']) for item in messages], [('user', 'u1')])
 
     def test_recent_user_recovery_skips_existing_prefixed_reply_outside_timestamp_window(self) -> None:
         with tempfile.TemporaryDirectory() as raw_tmpdir:

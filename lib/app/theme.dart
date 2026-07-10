@@ -227,6 +227,10 @@ class AliceChatColors extends ThemeExtension<AliceChatColors> {
   final Color shadow;
   final Color overlay;
 
+  Color shadowAt(double factor) {
+    return shadow.withValues(alpha: (shadow.a * factor).clamp(0.0, 1.0));
+  }
+
   @override
   AliceChatColors copyWith({
     Color? background,

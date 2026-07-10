@@ -860,7 +860,7 @@ class _FilterChip extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: colors.shadow.withValues(alpha: 0.55),
+              color: colors.shadowAt(0.55),
               blurRadius: 12,
               offset: Offset(0, 4),
             ),
@@ -998,7 +998,7 @@ class _CompactDropdown<T> extends StatelessWidget {
         border: Border.all(color: colors.border),
         boxShadow: [
           BoxShadow(
-            color: colors.shadow.withValues(alpha: 0.55),
+            color: colors.shadowAt(0.55),
             blurRadius: 12,
             offset: Offset(0, 4),
           ),
@@ -1190,7 +1190,7 @@ class _TaskTileState extends State<_TaskTile> {
             border: Border.all(color: colors.border),
             boxShadow: [
               BoxShadow(
-                color: colors.shadow.withValues(alpha: 0.45),
+                color: colors.shadowAt(0.45),
                 blurRadius: 10,
                 offset: Offset(0, 4),
               ),
@@ -3201,7 +3201,7 @@ class _ProjectSorterSheet extends StatelessWidget {
                         border: Border.all(color: colors.border),
                         boxShadow: [
                           BoxShadow(
-                            color: colors.shadow.withValues(alpha: 0.45),
+                            color: colors.shadowAt(0.45),
                             blurRadius: 16,
                             offset: Offset(0, 8),
                           ),
@@ -3286,7 +3286,7 @@ class _ArchivedProjectsScreen extends StatelessWidget {
                       border: Border.all(color: colors.border),
                       boxShadow: [
                         BoxShadow(
-                          color: colors.shadow.withValues(alpha: 0.45),
+                          color: colors.shadowAt(0.45),
                           blurRadius: 18,
                           offset: Offset(0, 8),
                         ),
@@ -3362,7 +3362,7 @@ class _EmptyCard extends StatelessWidget {
         border: Border.all(color: context.aliceColors.border),
         boxShadow: [
           BoxShadow(
-            color: context.aliceColors.shadow.withValues(alpha: 0.45),
+            color: context.aliceColors.shadowAt(0.45),
             blurRadius: 18,
             offset: Offset(0, 8),
           ),
@@ -4049,7 +4049,7 @@ class _CompletedTaskRow extends StatelessWidget {
         border: Border.all(color: colors.border),
         boxShadow: [
           BoxShadow(
-            color: colors.shadow.withValues(alpha: 0.35),
+            color: colors.shadowAt(0.35),
             blurRadius: 10,
             offset: Offset(0, 4),
           ),

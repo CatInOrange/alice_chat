@@ -2508,7 +2508,7 @@ class _SettingsEntryCard extends StatelessWidget {
             border: Border.all(color: colors.border),
             boxShadow: [
               BoxShadow(
-                color: colors.shadow.withValues(alpha: 0.45),
+                color: colors.shadowAt(0.45),
                 blurRadius: 18,
                 offset: Offset(0, 8),
               ),

@@ -1769,7 +1769,7 @@ class _FavoritePlaylistCard extends StatelessWidget {
             ),
             boxShadow: [
               BoxShadow(
-                color: colors.shadow.withValues(alpha: 0.55),
+                color: colors.shadowAt(0.55),
                 blurRadius: 22,
                 offset: Offset(0, 12),
               ),
@@ -2641,7 +2641,7 @@ class _MiniPlayerState extends State<_MiniPlayer>
                 border: Border.all(color: colors.border),
                 boxShadow: [
                   BoxShadow(
-                    color: colors.shadow.withValues(alpha: 0.58),
+                    color: colors.shadowAt(0.58),
                     blurRadius: 22,
                     offset: Offset(0, 10),
                   ),

@@ -525,6 +525,7 @@ def create_chat_router(context: AppContext) -> APIRouter:
                     media=result.get('media') or result.get('images') or [],
                     meta=assistant_meta,
                     source=resolved.message_source,
+                    dedupe_after_created_at=float((user_message or {}).get('createdAt') or 0),
                 )
                 persisted = persisted_messages[-1] if persisted_messages else None
                 if suspicious_reason and persisted is not None:

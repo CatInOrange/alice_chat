@@ -299,7 +299,7 @@ class ChatStreamingService:
                     succeeded=False,
                 )
 
-        chat_service.persist_user_message(
+        user_message = chat_service.persist_user_message(
             session_id=session_id,
             history_text=resolved.history_text,
             attachments=resolved.attachments,
@@ -314,6 +314,7 @@ class ChatStreamingService:
             media=result.get('media') or result.get('images') or [],
             meta=assistant_meta,
             source=resolved.message_source,
+            dedupe_after_created_at=float((user_message or {}).get('createdAt') or 0),
         )
         for item in persisted_messages:
             await events_bus.publish('message.created', {'message': item})
