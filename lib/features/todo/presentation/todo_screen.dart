@@ -303,6 +303,7 @@ class _TodoScreenState extends State<TodoScreen>
   }
 
   Widget _buildInlineHabitsSection(HabitsStore habitsStore) {
+    final colors = context.aliceColors;
     final habits = habitsStore.habits.where((habit) => habit.dueToday).toList();
     final doneCount =
         habits
@@ -326,7 +327,7 @@ class _TodoScreenState extends State<TodoScreen>
               Text(
                 '$doneCount/${habits.length}',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: const Color(0xFF7B8496),
+                  color: colors.textMuted,
                   fontWeight: FontWeight.w700,
                 ),
               ),

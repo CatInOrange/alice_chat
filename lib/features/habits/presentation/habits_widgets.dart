@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../app/theme.dart';
 import '../application/habits_store.dart';
 import '../domain/habits_models.dart';
 
@@ -158,21 +159,23 @@ class _StatCircle extends StatelessWidget {
 class _EmptyHeroCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final colors = context.aliceColors;
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 14, 20, 10),
       padding: const EdgeInsets.symmetric(vertical: 28),
       decoration: BoxDecoration(
-        color: const Color(0xFFEEF1F8),
+        color: colors.surface,
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: colors.border),
       ),
-      child: const Center(
+      child: Center(
         child: Column(
           children: [
-            Text('🏃', style: TextStyle(fontSize: 32)),
-            SizedBox(height: 8),
+            const Text('🏃', style: TextStyle(fontSize: 32)),
+            const SizedBox(height: 8),
             Text(
               '还没有习惯，创建一个吧',
-              style: TextStyle(color: Color(0xFF7B8496), fontSize: 13),
+              style: TextStyle(color: colors.textMuted, fontSize: 13),
             ),
           ],
         ),
@@ -215,6 +218,7 @@ class _HabitCardState extends State<HabitCard> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = context.aliceColors;
     final isDone = habit.todayInstance?.isCompleted ?? false;
     final dueToday = habit.dueToday;
     final summaryText =
@@ -225,7 +229,7 @@ class _HabitCardState extends State<HabitCard> {
         habit.streak >= 3 ? const Color(0xFFFF9A3C) : _accentColor;
 
     return Material(
-      color: Colors.white,
+      color: colors.surface,
       borderRadius: BorderRadius.circular(18),
       child: InkWell(
         onTap: () => setState(() => _expanded = !_expanded),
@@ -233,11 +237,12 @@ class _HabitCardState extends State<HabitCard> {
         borderRadius: BorderRadius.circular(18),
         child: Ink(
           decoration: BoxDecoration(
+            color: colors.surface,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0xFFE8ECF3)),
-            boxShadow: const [
+            border: Border.all(color: colors.border),
+            boxShadow: [
               BoxShadow(
-                color: Color(0x08000000),
+                color: colors.shadowAt(0.42),
                 blurRadius: 12,
                 offset: Offset(0, 6),
               ),
@@ -284,7 +289,7 @@ class _HabitCardState extends State<HabitCard> {
                               if (habit.reminderTime.isNotEmpty)
                                 _CompactMetaText(
                                   text: habit.reminderTime,
-                                  color: const Color(0xFF7B8496),
+                                  color: colors.textMuted,
                                 ),
                               _CompactMetaText(
                                 text: summaryText,
@@ -305,10 +310,10 @@ class _HabitCardState extends State<HabitCard> {
                     AnimatedRotation(
                       turns: _expanded ? 0.5 : 0,
                       duration: const Duration(milliseconds: 180),
-                      child: const Icon(
+                      child: Icon(
                         Icons.keyboard_arrow_down_rounded,
                         size: 20,
-                        color: Color(0xFF8F99AD),
+                        color: colors.icon,
                       ),
                     ),
                   ],
@@ -358,7 +363,7 @@ class _HabitCardState extends State<HabitCard> {
             child: Container(
               margin: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: context.aliceColors.surfaceElevated,
                 borderRadius: BorderRadius.circular(18),
               ),
               child: Column(
@@ -416,6 +421,7 @@ class _HabitDetailPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final weekly = habit.weeklyStats;
     final monthly = habit.monthlyStats;
+    final colors = context.aliceColors;
     return Padding(
       padding: const EdgeInsets.only(top: 12),
       child: Column(
@@ -425,7 +431,7 @@ class _HabitDetailPanel extends StatelessWidget {
             Text(
               habit.description,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: const Color(0xFF7B8496),
+                color: colors.textMuted,
                 height: 1.35,
               ),
             ),
@@ -468,7 +474,7 @@ class _HabitDetailPanel extends StatelessWidget {
               Text(
                 '周完成率 ${(((weekly?.rate ?? 0.0) * 100).round())}%',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: const Color(0xFF7B8496),
+                  color: colors.textMuted,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -488,7 +494,7 @@ class _HabitDetailPanel extends StatelessWidget {
                 label: const Text('编辑'),
                 style: TextButton.styleFrom(
                   visualDensity: VisualDensity.compact,
-                  foregroundColor: const Color(0xFF5E6B86),
+                  foregroundColor: colors.textSubtle,
                 ),
               ),
             ),
@@ -517,11 +523,13 @@ class _HabitMetricTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.aliceColors;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -529,7 +537,7 @@ class _HabitMetricTile extends StatelessWidget {
           Text(
             label,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: const Color(0xFF7B8496),
+              color: colors.textMuted,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -539,7 +547,7 @@ class _HabitMetricTile extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
-              color: const Color(0xFF2D3443),
+              color: colors.text,
               fontWeight: FontWeight.w800,
             ),
           ),
@@ -562,6 +570,8 @@ class _TodayToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.aliceColors;
+    final inactiveForeground = enabled ? colors.text : colors.textMuted;
     return GestureDetector(
       onTap: enabled ? onToggle : null,
       child: AnimatedContainer(
@@ -572,10 +582,13 @@ class _TodayToggle extends StatelessWidget {
           borderRadius: BorderRadius.circular(18),
           color:
               !enabled
-                  ? const Color(0xFFF2F4FA)
+                  ? colors.surfaceSoft
                   : isDone
                   ? const Color(0xFF66C5A3)
-                  : const Color(0xFFE8ECF3),
+                  : colors.surfaceSoft,
+          border: Border.all(
+            color: enabled && isDone ? Colors.transparent : colors.border,
+          ),
         ),
         alignment: Alignment.center,
         child: Row(
@@ -584,7 +597,7 @@ class _TodayToggle extends StatelessWidget {
             Icon(
               !enabled ? Icons.remove_rounded : Icons.check,
               size: 16,
-              color: enabled && isDone ? Colors.white : const Color(0xFF7B8496),
+              color: enabled && isDone ? Colors.white : inactiveForeground,
             ),
             const SizedBox(width: 4),
             Text(
@@ -596,8 +609,7 @@ class _TodayToggle extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
-                color:
-                    enabled && isDone ? Colors.white : const Color(0xFF2D3443),
+                color: enabled && isDone ? Colors.white : inactiveForeground,
               ),
             ),
           ],
@@ -615,6 +627,7 @@ class _HabitHistoryGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.aliceColors;
     return Wrap(
       spacing: 4,
       runSpacing: 4,
@@ -624,7 +637,7 @@ class _HabitHistoryGrid extends StatelessWidget {
               'completed' => color,
               'expired' => const Color(0xFFF28CA6),
               'pending' => const Color(0xFFFFC857),
-              _ => const Color(0xFFE8ECF3),
+              _ => colors.surfaceSoft,
             };
             return Tooltip(
               message: '${day.date} ${_statusLabel(day.status)}',
@@ -724,15 +737,16 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = context.aliceColors;
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
       ),
       child: Container(
         padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        decoration: BoxDecoration(
+          color: colors.surfaceElevated,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
         child: SingleChildScrollView(
           child: Column(
@@ -744,7 +758,7 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
                   width: 36,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFDDE1EB),
+                    color: colors.borderStrong,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -826,7 +840,7 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
                               color:
                                   selected
                                       ? const Color(0xFF7BAAF7)
-                                      : const Color(0xFFF2F4FA),
+                                      : colors.surfaceSoft,
                             ),
                             alignment: Alignment.center,
                             child: Text(
@@ -835,9 +849,7 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
                                 fontWeight: FontWeight.w700,
                                 fontSize: 14,
                                 color:
-                                    selected
-                                        ? Colors.white
-                                        : const Color(0xFF7B8496),
+                                    selected ? Colors.white : colors.textMuted,
                               ),
                             ),
                           ),
@@ -1012,7 +1024,7 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
             Text(
               '最近7天',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: const Color(0xFF9AA3B5),
+                color: context.aliceColors.textMuted,
               ),
             ),
           ],
@@ -1031,6 +1043,7 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
   }
 
   Widget _buildBackfillDay(HabitHistoryDay day) {
+    final colors = context.aliceColors;
     final habit = _currentHabit ?? widget.habit!;
     final parsed = DateTime.tryParse(day.date);
     final scheduled =
@@ -1055,18 +1068,18 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
           decoration: BoxDecoration(
             color:
                 !scheduled
-                    ? const Color(0xFFF5F7FB)
+                    ? colors.surface
                     : completed
                     ? color.withValues(alpha: 0.14)
-                    : const Color(0xFFF2F4FA),
+                    : colors.surfaceSoft,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color:
                   !scheduled
-                      ? const Color(0xFFE8ECF3)
+                      ? colors.border
                       : completed
                       ? color
-                      : const Color(0xFFE1E6F0),
+                      : colors.borderStrong,
             ),
           ),
           child:
@@ -1088,8 +1101,8 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
                           fontWeight: FontWeight.w700,
                           color:
                               scheduled
-                                  ? const Color(0xFF7B8496)
-                                  : const Color(0xFFC2C8D5),
+                                  ? colors.textMuted
+                                  : colors.borderStrong,
                         ),
                       ),
                       const SizedBox(height: 3),
@@ -1100,10 +1113,10 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
                           fontWeight: FontWeight.w800,
                           color:
                               !scheduled
-                                  ? const Color(0xFFC2C8D5)
+                                  ? colors.borderStrong
                                   : completed
-                                  ? const Color(0xFF2F8F70)
-                                  : const Color(0xFF2D3443),
+                                  ? color
+                                  : colors.text,
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -1116,10 +1129,10 @@ class _HabitEditorSheetState extends State<HabitEditorSheet> {
                         size: 14,
                         color:
                             !scheduled
-                                ? const Color(0xFFC2C8D5)
+                                ? colors.borderStrong
                                 : completed
                                 ? color
-                                : const Color(0xFF9AA3B5),
+                                : colors.textMuted,
                       ),
                     ],
                   ),
@@ -1196,6 +1209,7 @@ class _FreqChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.aliceColors;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -1203,14 +1217,17 @@ class _FreqChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
-          color: selected ? const Color(0xFF7BAAF7) : const Color(0xFFF2F4FA),
+          color: selected ? const Color(0xFF7BAAF7) : colors.surfaceSoft,
+          border: Border.all(
+            color: selected ? Colors.transparent : colors.border,
+          ),
         ),
         child: Text(
           label,
           style: TextStyle(
             fontWeight: FontWeight.w600,
             fontSize: 13,
-            color: selected ? Colors.white : const Color(0xFF7B8496),
+            color: selected ? Colors.white : colors.textMuted,
           ),
         ),
       ),
@@ -1225,6 +1242,7 @@ class HabitsEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.aliceColors;
     return SliverToBoxAdapter(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
@@ -1236,13 +1254,13 @@ class HabitsEmptyState extends StatelessWidget {
               '还没有习惯',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w700,
-                color: const Color(0xFF2D3443),
+                color: colors.text,
               ),
             ),
             const SizedBox(height: 6),
-            const Text(
+            Text(
               '创建一个习惯，开始打卡吧',
-              style: TextStyle(color: Color(0xFF7B8496), fontSize: 13),
+              style: TextStyle(color: colors.textMuted, fontSize: 13),
             ),
           ],
         ),
